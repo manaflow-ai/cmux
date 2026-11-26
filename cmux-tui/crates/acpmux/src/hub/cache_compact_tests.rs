@@ -94,9 +94,15 @@ fn on_unless_turned_off() {
 
 #[test]
 fn the_environment_beats_the_settings_file() {
-    let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
-    };
+    // A fleet host's environment (`ACPMUX_FLEET_COMPACTION=1`) plus `pairs`.
+    let env =
+        |pairs: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string()).or_else(|| {
+                    (var == crate::compaction_policy::ENV_FLEET).then(|| "1".to_owned())
+                })
+            }
+        };
     let off = json!({"agents": {"cacheCompact": {"enabled": false}}});
     assert_eq!(share(settings_threshold_with(Some(&off), env(&[(ENV_ENABLED, "1")]))), Some(0.3));
     assert_eq!(share(settings_threshold_with(None, env(&[(ENV_ENABLED, "0")]))), None);
@@ -171,4 +177,24 @@ fn compact_line_is_the_lower_bar() {
     assert_eq!(compact_line((100_000, 100_000), t), 30_000);
     assert_eq!(compact_line((100_000, 0), t), 60_000);
     assert_eq!(compact_line((100_000, 1_000_000), HALF), 500_000);
+}
+
+/// Leo, 2026-11-26: "only do it for our personal fleet situation". Off a fleet host the timer
+/// arms only when the person turned it on.
+#[test]
+fn off_unless_fleet_or_turned_on() {
+    let plain = |doc: Option<&Value>| share(settings_threshold_with(doc, |_| None));
+    assert_eq!(plain(None), None, "no settings file, no fleet policy: off");
+    assert_eq!(plain(Some(&json!({}))), None);
+    let percent_only = json!({"agents": {"cacheCompact": {"minContextPercent": 60}}});
+    assert_eq!(plain(Some(&percent_only)), None, "a threshold alone does not turn it on");
+    let on = json!({"agents": {"cacheCompact": {"enabled": true}}});
+    assert_eq!(plain(Some(&on)), Some(0.3), "the person's own on");
+    let fleet = json!({"agents": {"compaction": {"fleet": true}}});
+    assert_eq!(plain(Some(&fleet)), Some(0.3), "the fleet policy from the settings file");
+    let env_on = |var: &str| (var == ENV_ENABLED).then(|| "1".to_owned());
+    assert_eq!(share(settings_threshold_with(None, env_on)), Some(0.3), "ACPMUX_CACHE_COMPACT=1");
+    let not_fleet =
+        |var: &str| (var == crate::compaction_policy::ENV_FLEET).then(|| "0".to_owned());
+    assert_eq!(share(settings_threshold_with(Some(&fleet), not_fleet)), None, "the env wins");
 }

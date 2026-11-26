@@ -13,7 +13,7 @@
         {
           "key": "agents.cacheCompact.enabled",
           "name": "cacheCompactEnabled",
-          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). On by default; off: acpmux arms no timer. ACPMUX_CACHE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
+          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off by default: on only where acpmux runs under the fleet compaction policy (ACPMUX_FLEET_COMPACTION=1, or agents.compaction.fleet: true; Leo, 2026-11-26: \"only do it for our personal fleet situation\"). Off: acpmux arms no timer. ACPMUX_CACHE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
           "title": {
             "key": "settings.agents.cacheCompact.enabled",
             "text": "Compact Before the Cache Expires"
@@ -23,7 +23,7 @@
             "text": "Compacts an idle Claude chat while its cache is warm, so the next message costs less."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "cache",
             "prompt cache",
@@ -116,7 +116,7 @@
         {
           "key": "agents.coldWake.compact",
           "name": "coldWakeCompact",
-          "note": "On (and agents.coldWake.enabled on): when a cold batch opens on a Claude chat whose context is at least agents.coldWake.compactAboveTokens, acpmux masks old tool output (context surgery) or runs /compact before the batch goes in. On by default (Leo, 2026-11-24: \"this can be toggled but... this as a default seems decent\"); ACPMUX_COLD_WAKE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
+          "note": "On (and agents.coldWake.enabled on): when a cold batch opens on a Claude chat whose context is at least agents.coldWake.compactAboveTokens, acpmux masks old tool output (context surgery) or runs /compact before the batch goes in. Off by default: on only where acpmux runs under the fleet compaction policy (ACPMUX_FLEET_COMPACTION=1, or agents.compaction.fleet: true; Leo, 2026-11-26: \"only do it for our personal fleet situation\"). ACPMUX_COLD_WAKE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
           "title": {
             "key": "settings.agents.coldWake.compact",
             "text": "Compact Cold Chats Before Waking"
@@ -126,7 +126,7 @@
             "text": "A large chat whose cache expired is compacted before batched messages arrive."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "cache",
             "cold",

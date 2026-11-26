@@ -356,7 +356,10 @@ impl Hub {
                 env,
             };
             // The window acpmux started it with when the person set none (`harness_limits::lift_claude`).
-            if claude_stdio && crate::usage_stats::claude_autocompact_unset(&source) {
+            if claude_stdio
+                && crate::compaction_policy::fleet()
+                && crate::usage_stats::claude_autocompact_unset(&source)
+            {
                 let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
                 source.env.insert(key.into(), value.into());
             }

@@ -43,8 +43,9 @@
 //! (`cache_compact.rs`, `cold_wake.rs`, `auto_resume/compact_first.rs`) that tried surgery first
 //! ([`Hub::surgery_before_compact`]) and sent `/compact` after all.
 //!
-//! Off switch: `agents.harnessMagic.surgery.enabled: false` in the settings file, or
-//! `ACPMUX_HM_SURGERY=0` in the daemon's environment.
+//! Switch: `agents.harnessMagic.surgery.enabled` in the settings file, or `ACPMUX_HM_SURGERY=0`
+//! in the daemon's environment; unset, it is on only under the fleet policy
+//! (`crate::compaction_policy`, since 2026-11-26).
 //!
 //! Codex: its rollout (`~/.codex/sessions/**/rollout-*.jsonl`) keeps `function_call_output`
 //! items that a copy could mask the same way, but a resumed thread rebuilds from `compacted`
@@ -115,15 +116,16 @@ impl Masked {
     }
 }
 
-/// Whether the feature is on: the kill switch, then the settings key (on unless `false`).
-pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+/// Whether the feature is on: the kill switch, then the settings key; unset, on only under the
+/// fleet policy (`crate::compaction_policy`; `fleet` is its environment value).
+pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>, fleet: Option<&str>) -> bool {
     if env.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off"))
     {
         return false;
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or_else(|| crate::compaction_policy::fleet_with(doc, |_| fleet.map(str::to_owned)))
 }
 
 fn settings_doc() -> Option<Value> {
@@ -134,7 +136,8 @@ fn settings_doc() -> Option<Value> {
 }
 
 pub(crate) fn enabled() -> bool {
-    enabled_with(settings_doc().as_ref(), std::env::var(KILL_ENV).ok().as_deref())
+    let fleet = std::env::var(crate::compaction_policy::ENV_FLEET).ok();
+    enabled_with(settings_doc().as_ref(), std::env::var(KILL_ENV).ok().as_deref(), fleet.as_deref())
 }
 
 /// The options the settings name, else the defaults.

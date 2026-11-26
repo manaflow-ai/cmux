@@ -84,6 +84,7 @@ pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
+pub mod compaction_policy;
 pub mod complete;
 pub mod computer_use;
 pub mod config;

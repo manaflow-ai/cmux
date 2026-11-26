@@ -1,6 +1,7 @@
 //! A `claude` started in a cmux terminal gets what an agent chat's Claude gets (Leo
 //! 2026-11-24: "in terminals and guis alike perhaps terminal simply needs to also have the fixes
-//! and enhancements"): acpmux's Claude knobs, its autocompact window, and Claude Code's own
+//! and enhancements"): acpmux's Claude knobs, its autocompact window under the fleet compaction
+//! policy (`acpmux::compaction_policy`), and Claude Code's own
 //! wait through a 529 outage, which stands in for the chat's capacity continuation. The
 //! person's own values win.
 #![cfg(unix)]
@@ -50,14 +51,23 @@ fn launched_env(root: &Path, env: &[(&str, &str)]) -> BTreeMap<String, String> {
 fn a_terminal_claude_waits_out_a_529_and_gets_the_chats_knobs() {
     let root = tempfile::tempdir().unwrap();
     let env = launched_env(root.path(), &[]);
-    for (key, value) in acpmux::harness_limits::CLAUDE_ENV
-        .iter()
-        .chain(acpmux::harness_limits::CLAUDE_TERMINAL_ENV)
-        .chain([&acpmux::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW])
+    for (key, value) in
+        acpmux::harness_limits::CLAUDE_ENV.iter().chain(acpmux::harness_limits::CLAUDE_TERMINAL_ENV)
     {
         assert_eq!(env.get(*key).map(String::as_str), Some(*value), "{key}: {env:?}");
     }
     assert_eq!(env.get("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE").map(String::as_str), Some("capacity"));
+    // acpmux's 400K window is a fleet opinion (Leo, 2026-11-26: "only do it for our personal
+    // fleet situation"): off the fleet, Claude Code keeps its own.
+    assert!(!env.contains_key("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "{env:?}");
+}
+
+#[test]
+fn a_fleet_terminal_claude_gets_the_chats_autocompact_window() {
+    let root = tempfile::tempdir().unwrap();
+    let env = launched_env(root.path(), &[(acpmux::compaction_policy::ENV_FLEET, "1")]);
+    let (key, value) = acpmux::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    assert_eq!(env.get(key).map(String::as_str), Some(value), "{env:?}");
 }
 
 #[test]

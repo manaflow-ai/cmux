@@ -164,10 +164,16 @@ fn writes_beside_the_original_and_never_over_it() {
 
 #[test]
 fn switches_and_counters() {
-    assert!(enabled_with(None, None));
-    assert!(!enabled_with(None, Some("0")));
+    // Unset: on under the fleet policy only (Leo, 2026-11-26: "only do it for our personal
+    // fleet situation").
+    assert!(enabled_with(None, None, Some("1")));
+    assert!(!enabled_with(None, None, None));
+    assert!(enabled_with(Some(&json!({"agents.compaction.fleet": true})), None, None));
+    let on = json!({"agents": {"harnessMagic": {"surgery": {"enabled": true}}}});
+    assert!(enabled_with(Some(&on), None, None), "the person's own on");
+    assert!(!enabled_with(None, Some("0"), Some("1")));
     let off = json!({"agents": {"harnessMagic": {"surgery": {"enabled": false}}}});
-    assert!(!enabled_with(Some(&off), None));
+    assert!(!enabled_with(Some(&off), None, Some("1")));
     let opts = options_with(Some(
         &json!({"agents": {"harnessMagic": {"surgery": {"keepTurns": 5, "minChars": 10}}}}),
     ));

@@ -37,7 +37,8 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
 /// (`usage_stats::claude_autocompact_unset`). Claude Code compacts only near the model's own
 /// window, 1M for a `[1m]` model; Leo runs his sessions at 400k (Leo 2026-10-20: "I think I
 /// usually have, like, 400K on my typical [Claude] sessions"), and Claude Code's /context then
-/// reads against 400k too.
+/// reads against 400k too. Only under the fleet policy (`crate::compaction_policy`, since
+/// 2026-11-26); elsewhere Claude Code keeps its own window.
 pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
 
 /// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (agent chats get
@@ -76,7 +77,7 @@ pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
 
 /// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
 /// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
-/// the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
+/// under the fleet policy the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
 /// (`args`, after `terminal_autocompact` gave it the chat profile's `--autocompact`), its env nor
 /// Claude's settings choose one, exactly as [`lift_claude`] does for an agent chat.
 pub fn terminal_claude_env(
@@ -92,7 +93,7 @@ pub fn terminal_claude_env(
         .copied()
         .filter(|(key, _)| getenv(key).is_none())
         .collect();
-    if claude_choice_unset(args, cwd, &getenv) {
+    if crate::compaction_policy::fleet_env(&getenv) && claude_choice_unset(args, cwd, &getenv) {
         lifted.push(CLAUDE_AUTOCOMPACT_WINDOW);
     }
     lifted
@@ -164,7 +165,9 @@ pub fn lift_claude(
             env: have.into_iter().collect(),
             ..Default::default()
         };
-        if crate::usage_stats::claude_autocompact_unset(&source) {
+        if crate::compaction_policy::fleet()
+            && crate::usage_stats::claude_autocompact_unset(&source)
+        {
             let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
             cmd.env(key, value);
         }

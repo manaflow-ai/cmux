@@ -134,8 +134,8 @@ pub(crate) const DEFAULT_COMPACT_ABOVE_TOKENS: u64 = 100_000;
 pub(crate) const COMPACT_ABOVE_RANGE: (u64, u64) = (10_000, 500_000);
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
-/// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
-/// can be toggled but... this as a default seems decent").
+/// And compact a large cold chat before its batch goes in (Leo, 2026-11-24: "this can be toggled
+/// but... this as a default seems decent"; unset, on only under the fleet policy since 2026-11-26).
 pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
 /// The context (tokens) from which a cold batch compacts first ([`DEFAULT_COMPACT_ABOVE_TOKENS`]).
 pub const SETTING_COMPACT_ABOVE: &str = "agents.coldWake.compactAboveTokens";
@@ -168,16 +168,21 @@ pub(crate) fn env_flag(value: Option<&str>) -> Option<bool> {
 }
 
 /// The knobs as `doc` (the settings file) and `env` (the daemon's environment) have them, the
-/// environment winning. A missing key, file or an unreadable file is the default: on, at
+/// environment winning. A missing key, file or an unreadable file is the default: batching on,
+/// compacting first on only under the fleet policy (`crate::compaction_policy`), at
 /// [`DEFAULT_COMPACT_ABOVE_TOKENS`]; compacting first needs batching on; a line out of
 /// [`COMPACT_ABOVE_RANGE`] is clamped to it, and a non-number is the default.
 pub(crate) fn settings_with(doc: Option<&Value>, env: impl Fn(&str) -> Option<String>) -> Knobs {
     let get = |key: &str| doc.and_then(|d| crate::user_settings::value(d, key));
-    let flag = |key: &str, var: &str| {
-        env_flag(env(var).as_deref()).or_else(|| get(key).and_then(|v| v.as_bool())).unwrap_or(true)
+    let flag = |key: &str, var: &str, default: bool| {
+        env_flag(env(var).as_deref())
+            .or_else(|| get(key).and_then(|v| v.as_bool()))
+            .unwrap_or(default)
     };
-    let enabled = flag(SETTING_ENABLED, ENV_ENABLED);
-    let compact = enabled && flag(SETTING_COMPACT, ENV_COMPACT);
+    let enabled = flag(SETTING_ENABLED, ENV_ENABLED, true);
+    // Compacting first is a fleet opinion: unset, on only under the fleet policy.
+    let compact = enabled
+        && flag(SETTING_COMPACT, ENV_COMPACT, crate::compaction_policy::fleet_with(doc, &env));
     let from_env = env(ENV_COMPACT_ABOVE).and_then(|v| v.trim().parse::<f64>().ok());
     let line = from_env
         .or_else(|| get(SETTING_COMPACT_ABOVE).and_then(|v| v.as_f64()))
@@ -188,10 +193,11 @@ pub(crate) fn settings_with(doc: Option<&Value>, env: impl Fn(&str) -> Option<St
     Knobs { enabled, compact, compact_above: line }
 }
 
-/// The knobs from the settings file alone, the environment unset.
+/// The knobs from the settings file as a fleet host reads them (`ACPMUX_FLEET_COMPACTION=1`, the
+/// feature's own variables unset).
 #[cfg(test)]
 pub(crate) fn settings(doc: Option<&Value>) -> Knobs {
-    settings_with(doc, |_| None)
+    settings_with(doc, |var| (var == crate::compaction_policy::ENV_FLEET).then(|| "1".to_owned()))
 }
 
 fn read_settings() -> Knobs {

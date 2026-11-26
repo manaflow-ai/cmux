@@ -4,8 +4,8 @@
 //!
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
-//! Cache Expires" on (`agents.cacheCompact.enabled`, on by default since 2026-11-24; only an
-//! explicit `false` turns it off), each such update arms one timer for the session, [`lead_ms`] before
+//! Cache Expires" on (`agents.cacheCompact.enabled`; unset, on only under the fleet policy,
+//! `crate::compaction_policy`, since 2026-11-26), each such update arms one timer for the session, [`lead_ms`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextTokens` tokens or
 //! `agents.cacheCompact.minContextPercent` of its window, whichever trips first ([`Threshold`]).
 //! When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
@@ -116,16 +116,18 @@ pub(crate) struct Threshold {
     pub tokens: u64,
 }
 
-/// The Settings keys as the daemon reads them, the settings file alone.
+/// The Settings keys as a fleet host's daemon reads them (`ACPMUX_FLEET_COMPACTION=1`, the
+/// feature's own variables unset): the settings file decides, and unset is on.
 #[cfg(test)]
 pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<Threshold> {
-    settings_threshold_with(doc, |_| None)
+    settings_threshold_with(doc, |var| {
+        (var == crate::compaction_policy::ENV_FLEET).then(|| "1".to_owned())
+    })
 }
 
 /// The Settings keys and their environment overrides (`env`, which wins) as the daemon reads
-/// them: None when off (only an explicit `agents.cacheCompact.enabled: false` or
-/// `ACPMUX_CACHE_COMPACT=0`), else what a chat must reach. No document (no settings file) is
-/// the defaults: on, at [`DEFAULT_MIN_TOKENS`] or [`DEFAULT_MIN_CONTEXT`] percent.
+/// them: None when off, else what a chat must reach. Unset, it is on only under the fleet policy
+/// (`crate::compaction_policy`), at [`DEFAULT_MIN_TOKENS`] or [`DEFAULT_MIN_CONTEXT`] percent.
 pub(crate) fn settings_threshold_with(
     doc: Option<&Value>,
     env: impl Fn(&str) -> Option<String>,
@@ -133,7 +135,8 @@ pub(crate) fn settings_threshold_with(
     let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
     let enabled = super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref())
         .or_else(|| get(SETTING_ENABLED).and_then(|v| v.as_bool()));
-    if enabled == Some(false) {
+    // Unset: on only under the fleet policy (`compaction_policy.rs`).
+    if !enabled.unwrap_or_else(|| crate::compaction_policy::fleet_with(doc, &env)) {
         return None;
     }
     let percent = env(ENV_MIN_CONTEXT)

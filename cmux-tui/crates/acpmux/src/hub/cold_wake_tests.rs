@@ -67,6 +67,20 @@ fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
     assert_eq!(settings(Some(&off)), on(false, false));
 }
 
+/// Leo, 2026-11-26: "only do it for our personal fleet situation". Off a fleet host a cold batch
+/// is still gathered, and compacts first only when the person turned that on.
+#[test]
+fn compacting_first_is_off_unless_fleet_or_turned_on() {
+    let plain = |doc: Option<&Value>| settings_with(doc, |_| None);
+    assert_eq!((plain(None).enabled, plain(None).compact), (true, false));
+    let on = json!({"agents": {"coldWake": {"compact": true}}});
+    assert!(plain(Some(&on)).compact, "the person's own on");
+    let fleet = json!({"agents.compaction.fleet": true});
+    assert!(plain(Some(&fleet)).compact, "the fleet policy from the settings file");
+    let env = |var: &str| (var == ENV_COMPACT).then(|| "1".to_owned());
+    assert!(settings_with(None, env).compact, "ACPMUX_COLD_WAKE_COMPACT=1");
+}
+
 #[test]
 fn the_compaction_line_is_a_setting_clamped_to_its_range_and_100k_by_default() {
     let line = |doc: Value| settings(Some(&doc)).compact_above;
@@ -92,9 +106,15 @@ fn the_default_line_sits_above_the_break_even() {
 
 #[test]
 fn the_environment_beats_the_settings_file() {
-    let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
-    };
+    // A fleet host's environment (`ACPMUX_FLEET_COMPACTION=1`) plus `pairs`.
+    let env =
+        |pairs: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string()).or_else(|| {
+                    (var == crate::compaction_policy::ENV_FLEET).then(|| "1".to_owned())
+                })
+            }
+        };
     let file = json!({"agents": {"coldWake": {"enabled": false, "compactAboveTokens": 80_000}}});
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT_ABOVE, "100000")]));
     assert_eq!(k, Knobs { enabled: true, compact: true, compact_above: 100_000 });
@@ -116,7 +136,8 @@ fn the_settings_source_matches_the_daemon() {
     let rows = doc["lists"][0]["rows"].as_array().unwrap();
     let row = |key: &str| rows.iter().find(|r| r["key"] == key).unwrap().clone();
     assert_eq!(row(SETTING_ENABLED)["default"], json!(true));
-    assert_eq!(row(SETTING_COMPACT)["default"], json!(true));
+    // Unset, compacting first is on only under the fleet policy, so the Settings default is off.
+    assert_eq!(row(SETTING_COMPACT)["default"], json!(false));
     let line = row(SETTING_COMPACT_ABOVE);
     assert_eq!(line["default"], json!(DEFAULT_COMPACT_ABOVE_TOKENS));
     assert_eq!(line["range"]["min"], json!(COMPACT_ABOVE_RANGE.0));
@@ -170,8 +191,8 @@ fn surgery_that_leaves_the_chat_above_the_line_compacts_instead() {
 #[test]
 fn surgery_switched_off_compacts() {
     let off = json!({"agents": {"harnessMagic": {"surgery": {"enabled": false}}}});
-    assert!(!super::super::surgery::enabled_with(Some(&off), None));
-    assert!(!super::super::surgery::enabled_with(None, Some("0")));
+    assert!(!super::super::surgery::enabled_with(Some(&off), None, Some("1")));
+    assert!(!super::super::surgery::enabled_with(None, Some("0"), Some("1")));
     // `Hub::surgery` answers a switched-off chat this way, dry run or not.
     let answer = Ok(json!({"applied": false, "reason": "off"}));
     assert!(!surgery_suffices(&answer, LINE));
