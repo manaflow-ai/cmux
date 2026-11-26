@@ -1275,6 +1275,68 @@ async fn hub_carrier_a_pipe_between_private_machines_goes_direct() {
     assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
 }
 
+/// Mac-side accept (Leo, 2026-11-25: "why don't we do mac side connect + measure more numbers
+/// and do more stuff"): with no private route between them, A's first dial rides the relay while
+/// A and B trade candidates through it and both open toward each other; the next dial takes the
+/// punched connection (`via: direct`) and the one after rides its kept direct circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_machines_with_no_private_route_punch_a_direct_path() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let mut serving = Vec::new();
+    for carrier in [&fixture.carrier_a, &fixture.carrier_b] {
+        let listener = acpmux::hub_carrier::punch::punch_listener(0).unwrap();
+        carrier.set_punch_port(listener.local_addr().unwrap().port());
+        carrier.set_punch_addresses(vec!["127.0.0.1".parse().unwrap()]);
+        serving.push(carrier.serve_direct(listener));
+    }
+    let b = fixture.carrier_b.public_key();
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "the first dial never waits on a punch: {first}");
+    let mut ready = false;
+    for _ in 0..100 {
+        if fixture.carrier_a.punch_ready(&b, acpmux::hub_carrier::CircuitLane::Bulk) {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(ready, "no punched connection: {:?}", fixture.carrier_a.punch_counts());
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "direct", "{second}");
+    let third = pipe_reply(&fixture).await;
+    assert_eq!(third["via"], "direct", "{third}");
+    assert_eq!(third["dial"]["circuit"], "kept", "{third}");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
+    let (tried, punched, failed, _) = fixture.carrier_a.punch_counts();
+    assert_eq!((tried, punched, failed), (1, 1, 0));
+    assert_eq!(fixture.carrier_b.punch_counts().3, 1, "B answered the one offer");
+}
+
+/// A machine from before punches refuses the offer `service.unknown`: the dial stays on the
+/// relay, the machine is held there, and nothing retries per dial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_that_does_not_punch_keeps_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    // Only A listens for punches; B answers offers as a daemon from before them.
+    let listener = acpmux::hub_carrier::punch::punch_listener(0).unwrap();
+    fixture.carrier_a.set_punch_port(listener.local_addr().unwrap().port());
+    fixture.carrier_a.set_punch_addresses(vec!["127.0.0.1".parse().unwrap()]);
+    let _serving = fixture.carrier_a.serve_direct(listener);
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..3 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let (tried, punched, failed, _) = fixture.carrier_a.punch_counts();
+    assert_eq!((tried, punched, failed), (1, 0, 1), "one offer, refused, then held");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
+}
+
 /// A direct address nobody listens on costs one refused connect: the dial takes the relay
 /// (`via: hub`) and holds B off the direct path, so the next dial goes straight to the relay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2462,18 +2524,34 @@ async fn hub_carrier_a_moves_pages_reach_only_the_machine_it_moves_to() {
 /// the move began. No connection between A and B but the relay's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() {
-    let whole = move_over_relay(false).await;
+    let whole = move_over_relay(Way::Whole).await;
     assert!(whole.pages >= 3, "{whole:?}");
+    assert_eq!(whole.via, "hub", "{whole:?}");
+}
+
+/// A pre-copied move whose control goes as op `move` (the hub's way): the target's stage
+/// circuit may be parked (`hub/transfer_park.rs`), and the move lands all the same. Before it,
+/// `_acpmux/transfer_hub` for a stage no circuit is parked for falls back to the hub (here, no
+/// hub joined: `transfer.no_hub`), never failing on the circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_pre_copied_move_with_no_parked_circuit_goes_through_the_hub() {
+    let copied = move_over_relay(Way::PreCopiedHub).await;
+    assert_eq!(copied.via, "hub", "{copied:?}");
+    assert!(copied.dial_ms.is_some(), "{copied:?}");
 }
 
 /// The same move, pre-copied (`hub/transfer_hub_precopy.rs`): B stages the history over the
 /// relay before the freeze, and only the log's tail crosses it inside the freeze. The harness
 /// is [`move_over_relay`]'s, run both ways. The chat's history lands once and the queued prompt
-/// runs once, as in the whole move.
+/// runs once, as in the whole move. The move's control goes from A's `_acpmux/transfer_hub` over
+/// the circuit B opened for the stage and parked (`hub/transfer_park.rs`): no dial inside the
+/// freeze and no hub trip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_a_pre_copied_chat_moves_only_its_tail_inside_the_freeze() {
-    let whole = move_over_relay(false).await;
-    let copied = move_over_relay(true).await;
+    let whole = move_over_relay(Way::Whole).await;
+    let copied = move_over_relay(Way::PreCopiedCircuit).await;
+    assert_eq!(copied.via, "circuit", "{copied:?}");
+    assert_eq!(copied.dial_ms, Some(0), "{copied:?}");
     eprintln!(
         "hub move freeze, whole vs pre-copied: bundle {} B vs {} B, pages paged inside the freeze \
          {} ({} B, {} ms) vs {} ({} B, {} ms), freeze {} ms vs {} ms (pre-copy before it: {} ms)",
@@ -2502,9 +2580,22 @@ async fn hub_carrier_a_pre_copied_chat_moves_only_its_tail_inside_the_freeze() {
     assert!(copied.staged_carried >= whole.bundle / 2, "{copied:?} vs {whole:?}");
 }
 
+/// How [`move_over_relay`] moves the chat.
+#[derive(Clone, Copy, PartialEq)]
+enum Way {
+    /// Whole, its control as op `move` to B's hook.
+    Whole,
+    /// Pre-copied, its control as op `move` to B's hook.
+    PreCopiedHub,
+    /// Pre-copied, its control from A's `_acpmux/transfer_hub` over B's parked stage circuit.
+    PreCopiedCircuit,
+}
+
 /// What one move over the relay measured, from its freeze (the begin) to its commit.
 #[derive(Debug)]
 struct MoveRun {
+    via: String,
+    dial_ms: Option<u64>,
     bundle: u64,
     pages: u64,
     page_bytes: u64,
@@ -2515,7 +2606,8 @@ struct MoveRun {
     staging_ms: u128,
 }
 
-async fn move_over_relay(precopy: bool) -> MoveRun {
+async fn move_over_relay(way: Way) -> MoveRun {
+    let precopy = way != Way::Whole;
     use acpmux::mesh::InMessage;
     use acpmux::mesh_http::MeshControlFrom;
     use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
@@ -2669,14 +2761,40 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
         body["stageId"] = json!(stage_id);
     }
     let message = control("m-relay-1", &body);
+    let mut asked = json!({"sessionId": id, "transferId": begin["transferId"], "manifest": begin,
+                           "folder": {"cwd": root_text}, "host": "machine-b"});
+    if way == Way::PreCopiedHub {
+        // No circuit parked for this stage: the hub's way, and this A joined no hub.
+        asked["stageId"] = json!("no-circuit-parked");
+        let refused = ca.try_call("_acpmux/transfer_hub", asked.clone()).await.unwrap_err();
+        assert!(refused.to_string().contains("transfer.no_hub"), "{refused}");
+    }
+    if way == Way::PreCopiedCircuit {
+        let stage_id = stage_id.as_deref().unwrap();
+        let parked = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !a.has_parked_move(stage_id) {
+            assert!(tokio::time::Instant::now() < parked, "B never parked its stage's circuit");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        asked["stageId"] = json!(stage_id);
+    }
     let carried_before = proxy.bytes.load(Ordering::SeqCst);
     let pull_started = tokio::time::Instant::now();
-    let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
+    let moved: Value = if way == Way::PreCopiedCircuit {
+        let answer =
+            within("A's move over B's parked circuit", ca.try_call("_acpmux/transfer_hub", asked))
+                .await
+                .unwrap_or_else(|e| panic!("the circuit move failed: {e}"));
+        assert_eq!(answer["daemonId"], b_key.as_str(), "{answer}");
+        answer["moved"].clone()
+    } else {
+        let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
+        let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+        assert_eq!(ack["state"], "delivered", "{ack}");
+        serde_json::from_str(ack["result"].as_str().unwrap()).unwrap()
+    };
     let pulled = pull_started.elapsed();
     let carried = proxy.bytes.load(Ordering::SeqCst) - carried_before;
-    let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
-    assert_eq!(ack["state"], "delivered", "{ack}");
-    let moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
     assert_eq!(moved["sessionId"], id.as_str(), "{moved}");
     assert_eq!(moved["cwd"], root_text.as_str(), "{moved}");
     // Every page crossed the relay: what it carried is at least the bundle.
@@ -2746,6 +2864,8 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     assert_eq!(left["status"], "closed", "{left}");
     let _ = std::fs::remove_dir_all(&root);
     MoveRun {
+        via: moved_timings["via"].as_str().unwrap_or_default().to_owned(),
+        dial_ms: moved_timings["dialMs"].as_u64(),
         bundle,
         pages: moved_timings["pages"].as_u64().unwrap_or(0),
         page_bytes: moved_timings["pageBytes"].as_u64().unwrap_or(0),
@@ -3157,6 +3277,33 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's
+/// age is a local read, and an echo is one stream open and one round trip through the real path;
+/// a machine that keeps no circuits answers it on a plain one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_health_is_link_age_and_a_one_round_trip_echo() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let age = fixture.a.link_age(&fixture.b_key).expect("the readiness dials left a kept circuit");
+    assert!(age < Duration::from_secs(30), "{age:?}");
+    let started = std::time::Instant::now();
+    assert!(fixture.a.link_age(&fixture.b_key).is_some());
+    assert!(started.elapsed() < Duration::from_millis(5), "a local read: {:?}", started.elapsed());
+
+    let circuits = fixture.kept_circuits();
+    let report = within("an echo", fixture.a.echo(&fixture.b_key)).await.unwrap();
+    eprintln!("echo on a kept circuit: open {:?}, round trip {:?}", report.open, report.round_trip);
+    assert_eq!(fixture.kept_circuits(), circuits, "the echo rode the open circuit");
+    assert_eq!(fixture.plain_dials(), 0);
+
+    let plain = kept_fixture(Duration::ZERO, false, true).await;
+    let report = within("a plain echo", plain.a.echo(&plain.b_key)).await.unwrap();
+    eprintln!(
+        "echo on a plain circuit: open {:?}, round trip {:?}",
+        report.open, report.round_trip
+    );
 }
 
 /// One cheap circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials)

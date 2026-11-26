@@ -198,6 +198,7 @@ pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_features;
 mod attachment_http;
 mod bookmarks;
 mod bookmarks_routed;
@@ -235,6 +236,8 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
 pub(crate) use launch_snapshot::{
     LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
 };

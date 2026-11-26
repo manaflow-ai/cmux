@@ -138,6 +138,7 @@ impl Source {
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
+    cache_read_by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -283,7 +284,9 @@ impl Tracker {
         let hour_known = covers(rolling_from.saturating_sub(rolling_from % MINUTE_MS));
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut cache_read_hourly = BTreeMap::<String, u64>::new();
         let mut previous_hour = BTreeMap::<String, u64>::new();
+        let mut cache_read_previous_hour = BTreeMap::<String, u64>::new();
         let hour_start = now - now % HOUR_MS;
         let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         let previous_known = covers(previous.start);
@@ -301,12 +304,17 @@ impl Tracker {
             if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
-            for (included, totals) in
-                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
-            {
+            for (included, totals, cache_read_totals) in [
+                (rolling, &mut hourly, &mut cache_read_hourly),
+                (previous.contains(minute), &mut previous_hour, &mut cache_read_previous_hour),
+            ] {
                 if included {
                     for (model, tokens) in &b.by_model {
                         let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                    for (model, tokens) in &b.cache_read_by_model {
+                        let total = cache_read_totals.entry(model.clone()).or_default();
                         *total = total.saturating_add(*tokens);
                     }
                 }
@@ -328,7 +336,10 @@ impl Tracker {
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
             tokens_by_model1h: hour_known.then_some(hourly),
+            cache_read_by_model1h: hour_known.then_some(cache_read_hourly),
             tokens_by_model_previous_utc_hour: previous_known.then_some(previous_hour),
+            cache_read_by_model_previous_utc_hour: previous_known
+                .then_some(cache_read_previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (complete && priced).then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
             calls24h: known(day.calls),
@@ -439,11 +450,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
-                    let total = b
-                        .by_model
-                        .entry(if model.is_empty() { "unknown".into() } else { model })
-                        .or_default();
+                    let model_key = if model.is_empty() { "unknown".into() } else { model };
+                    let total = b.by_model.entry(model_key.clone()).or_default();
                     *total = total.saturating_add(t.total);
+                    let cache_read = b.cache_read_by_model.entry(model_key).or_default();
+                    *cache_read = cache_read.saturating_add(t.cache_read);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =
@@ -886,7 +897,8 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
 /// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
+/// window when the settings name one (`harness_limits::claude_autocompact_window`). False when
+/// its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
     const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
@@ -1087,7 +1099,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 /// The proleptic Gregorian date of a day count since 1970-01-01.
-fn civil_from_days(days: u64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
     crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }

@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Esse código de dois fatores não é válido.",
     "errorSignUpNotAllowed": "Não é possível criar novas contas no momento.",
     "errorPasskey": "O login com chave de acesso não foi concluído. Tente novamente ou use outro método.",
-    "errorGeneric": "Algo deu errado. Tente novamente."
+    "errorGeneric": "Algo deu errado. Tente novamente.",
+    "errorRedirectNotAllowed": "O endereço de login desta build não é permitido em {backend}.",
+    "backendDevelopment": "o backend de desenvolvimento"
   },
   "MobileRelease106": {
     "title": "Novidades da versão 1.0.6",
@@ -5534,5 +5536,15 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "connected": {
+    "title": "Você entrou no {app}",
+    "titleGeneric": "Você entrou",
+    "errorTitle": "Não foi possível entrar no {app}",
+    "errorTitleGeneric": "O login não foi concluído",
+    "body": "Volte ao cmux para continuar.",
+    "errorBody": "Volte ao cmux e tente novamente.",
+    "button": "Voltar ao cmux",
+    "closeHint": "Você pode fechar esta aba."
   }
 }
