@@ -402,8 +402,8 @@ pub fn verdict(value: f64, family_name: &str) -> Option<Value> {
         "unit": unit,
         "source": source,
         "ok": ok,
-        "steps": exact.iter().map(|s| step_json(s)).collect::<Vec<_>>(),
-        "nearest": nearest.map(step_json),
+        "steps": exact.iter().map(|s| step_json(family_name, s)).collect::<Vec<_>>(),
+        "nearest": nearest.map(|s| step_json(family_name, s)),
         "fix": fix,
     }))
 }
