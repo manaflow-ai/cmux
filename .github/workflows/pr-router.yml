@@ -118,6 +118,12 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A ready-to-land head's base merge onto a green head runs nothing too (head_tier.py's labelled base merge
+          # rule; the land pulses the label and runs the land tier at the head it merges); 0 turns that off.
+          CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
+          # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
+          # rule); 0 turns that off.
+          CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
