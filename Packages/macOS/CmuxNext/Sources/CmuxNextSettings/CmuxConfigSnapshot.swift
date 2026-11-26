@@ -235,6 +235,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previousGlass: Bool = PreviousGlassSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
+    /// `appearance.agentSignature`: each agent's dot glyph; off unless set to true.
+    public var agentSignature = AgentSignatureSetting.fallback
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
@@ -490,6 +492,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentSignature = AgentSignatureSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -638,7 +641,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
+                                    message: [MetricKey.spacingScale, .toolbarButtonActiveFill, .headerDivider].map(\.rawValue).contains(name)
+                                        ? "expected a number from \(range.lowerBound) to \(range.upperBound); clamped"
+                                        : "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }
