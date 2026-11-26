@@ -101,8 +101,7 @@ pub(super) async fn try_hop(
     let asks = peers.iter().map(|p| {
         let probe = probe.clone();
         async move {
-            let answer =
-                tokio::time::timeout(PROBE_WAIT, p.request(MUX_SEND_HOP, probe)).await;
+            let answer = tokio::time::timeout(PROBE_WAIT, p.request(MUX_SEND_HOP, probe)).await;
             (p.clone(), answer)
         }
     });
@@ -185,13 +184,21 @@ pub(super) async fn serve(
     let connected =
         peer.as_ref().is_some_and(|p| p.connected.load(std::sync::atomic::Ordering::SeqCst));
     let Some(send) = params.get("send") else {
-        return Ok(json!({"host": host, "peered": peered, "connected": connected, "relays": relays}));
+        return Ok(
+            json!({"host": host, "peered": peered, "connected": connected, "relays": relays}),
+        );
     };
     if !relays {
-        return Err(refused("hop.off", format!("{} takes no hops (sendHop off)", crate::hub::host_label())));
+        return Err(refused(
+            "hop.off",
+            format!("{} takes no hops (sendHop off)", crate::hub::host_label()),
+        ));
     }
     if !peered {
-        return Err(refused("hop.not_peered", format!("{} does not peer {host}", crate::hub::host_label())));
+        return Err(refused(
+            "hop.not_peered",
+            format!("{} does not peer {host}", crate::hub::host_label()),
+        ));
     }
     let mut send = send.clone();
     let request = send

@@ -46,7 +46,10 @@ fn a_peer_carries_only_when_it_peers_the_host_and_takes_hops() {
         probe_refusal(&json!({"peered": true, "relays": false})),
         Some("peers the host, sendHop off")
     );
-    assert_eq!(probe_refusal(&json!({"peered": false, "relays": true})), Some("does not peer the host"));
+    assert_eq!(
+        probe_refusal(&json!({"peered": false, "relays": true})),
+        Some("does not peer the host")
+    );
     // An older peer that knows no send_hop answers nothing of the kind.
     assert_eq!(probe_refusal(&json!({})), Some("does not peer the host"));
 }
@@ -61,7 +64,10 @@ fn a_hop_replaces_the_claimed_sender_with_the_relay_record() {
     stamp_relay(&mut request, &json!({"machine": "lane-vm", "session": "fork-6"})).unwrap();
     let mux = &request["_meta"]["acpmux"];
     assert!(mux.get("fromSessionId").is_none());
-    assert_eq!(mux["fromRelay"], json!({"by": HOP_RELAY, "machine": "lane-vm", "session": "fork-6"}));
+    assert_eq!(
+        mux["fromRelay"],
+        json!({"by": HOP_RELAY, "machine": "lane-vm", "session": "fork-6"})
+    );
     assert_eq!(mux["fromAgent"], "lane-vm/fork-6");
     assert_eq!(mux["promptId"], "p1");
 
