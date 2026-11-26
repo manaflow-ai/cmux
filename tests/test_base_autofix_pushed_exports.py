@@ -795,7 +795,8 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
         self.assertEqual(steps[names.index(pack["name"]) + 1]["name"], px.UPLOAD_STEP)
         self.assertEqual(NEXT["jobs"]["daemon-test"]["name"], px.DAEMON_JOB)
-        self.assertEqual(NEXT["jobs"]["generated-files"]["name"], px.GENERATED_JOB)
+        # The fleet Linux job holds the name; the Mac job is its logged fallback.
+        self.assertEqual(NEXT["jobs"]["generated-files-linux"]["name"], px.GENERATED_JOB)
 
     def test_both_workflows_start_on_changes_to_the_scripts(self):
         autofix_paths = AUTOFIX[True]["push"]["paths"]
@@ -1032,7 +1033,9 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertIn("generated-exports", mac["needs"])
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
-        condition = condition.split(") && ", 1)[1]
+        # Cut at the job's own term: the tier term holds ") && " pairs of its own (ready-to-land with
+        # CI_LAND_FULL_PER_PR), so the first ") && " no longer ends it.
+        condition = condition[condition.index("(!cancelled()"):]
         # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
         condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
@@ -1073,7 +1076,9 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
-        self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        # cmux-bot's read token first (its own installation budget), the routing App's when it is not minted.
+        self.assertEqual(lookup["env"]["GH_TOKEN"],
+                         "${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}")
         self.assertIn("pr-lookup", lookup["run"])
         # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
         self.assertIn("--wait 0 ", lookup["run"])
