@@ -150,7 +150,9 @@ jobs:
       # The verified Zig tarball, for runners with no Zig installed (Freestyle): the owned fleet reuses its
       # installed Zig and never fills the actions/cache entry, so the daemon tests job restores this copy
       # (scripts/ci/zig-tarball-r2.sh). A key the bucket holds exits after one HEAD request. The Zig version
-      # is ghostty-next's, so its work tree comes first (from the git directory saved just above).
+      # is ghostty-next's, so its work tree comes first (from the git directory saved just above). It also saves
+      # the unpacked, std-fixed tree that install-zig-ci.sh restores first: a sick Freestyle VM spent 31 min
+      # unpacking the .tar.xz in fast tier (cargo) on 2026-11-25.
       - name: Save the verified Zig tarball
         # A failed seed is only a miss for the readers; it never reds this workflow.
         continue-on-error: true
