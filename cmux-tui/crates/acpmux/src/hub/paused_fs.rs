@@ -33,7 +33,10 @@ pub(super) fn open(config: &Config, home: Option<&Path>) -> Option<Arc<PausedFs>
             )),
         ),
     };
-    Some(Arc::new(PausedFs::new(store, replicas, SeedBounds::default())))
+    Some(Arc::new(
+        PausedFs::new(store, replicas, SeedBounds::default())
+            .with_serve_reads(config.write_journal.serve_paused_reads),
+    ))
 }
 
 fn io_rpc(what: &str, e: impl std::fmt::Display) -> RpcError {
@@ -65,6 +68,37 @@ impl Hub {
         let Some(fs) = self.paused_fs.clone() else { return Ok(None) };
         let machine = machine.to_owned();
         tokio::task::spawn_blocking(move || fs.resumed(&machine))
+            .await
+            .map_err(std::io::Error::other)?
+    }
+
+    /// The folder listing of `dir` on `machine` for the app or phone (`writeJournal.serveReads`):
+    /// answered from the paused disk with no wake. `NotPaused` when the machine runs or the
+    /// setting is off; `NeedsMachine` when only the machine can answer.
+    pub async fn paused_list_dir(
+        &self,
+        machine: &str,
+        dir: &Path,
+    ) -> std::io::Result<Routed<crate::write_journal::browse::ListOutcome>> {
+        let Some(fs) = self.paused_fs.clone() else { return Ok(Routed::NotPaused) };
+        let (machine, dir, resumes) = (machine.to_owned(), dir.to_path_buf(), self.resume_count());
+        tokio::task::spawn_blocking(move || fs.list_dir(&machine, &dir, resumes))
+            .await
+            .map_err(std::io::Error::other)?
+    }
+
+    /// Search `machine`'s folder `root` for `query`, the same way as [`Self::paused_list_dir`].
+    pub async fn paused_search(
+        &self,
+        machine: &str,
+        root: &Path,
+        query: &str,
+        max_hits: usize,
+    ) -> std::io::Result<Routed<crate::write_journal::browse::SearchOutcome>> {
+        let Some(fs) = self.paused_fs.clone() else { return Ok(Routed::NotPaused) };
+        let (machine, root, query, resumes) =
+            (machine.to_owned(), root.to_path_buf(), query.to_owned(), self.resume_count());
+        tokio::task::spawn_blocking(move || fs.search(&machine, &root, &query, max_hits, resumes))
             .await
             .map_err(std::io::Error::other)?
     }
