@@ -1,6 +1,7 @@
 // A finished subagent keeps its name in the row's available room, without a chevron. Failed
 // lines retain their reason-first truncation and trailing navigation mark. Gallery measurements
 // cover wide and narrow panes, truncation, the single-line height and horizontal overflow.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -129,7 +130,7 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
       expect(all.length).toBeGreaterThan(0);
       for (const line of all) {
         expect(line.row.overflow).toBeLessThanOrEqual(0);
-        expect(Math.round(line.row.height)).toBe(22);
+        expect(Math.round(line.row.height)).toBe(ROW_METRIC.height);
         if (line.grid) {
           // A failed line's grid: the words, then Retry and the time in fixed columns, the chevron last.
           expect(line.time).toBeGreaterThan(line.suffix?.right ?? line.chip.right);
@@ -140,7 +141,7 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
         expect(line.chevronRight).toBeNull();
         expect(line.time).toBeGreaterThan(line.suffix?.right ?? line.chip.right);
         expect(line.row.overflow).toBeLessThanOrEqual(0);
-        expect(Math.round(line.row.height)).toBe(22);
+        expect(Math.round(line.row.height)).toBe(ROW_METRIC.height);
       }
     });
 });
