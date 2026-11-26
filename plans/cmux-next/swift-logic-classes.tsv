@@ -1952,7 +1952,7 @@ CmuxNextApp	enum	CloudHandlers	0	MIXED	13	0	Packages/macOS/CmuxNext/Sources/Cmux
 CmuxNextApp	enum	CloudNetworkAccessActions	0	MIXED	71	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudNetworkAccessActions.swift	from enum CloudNetworkAccessActions:9: policy: agents may close network access, never open it; merge stored policy
 CmuxNextApp	enum	CloudPageHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudPageHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	ColumnAvailability	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnAvailability.swift	lone-column availability rule and column resolution
-CmuxNextApp	enum	ColumnDocking	0	MIXED	39	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnDocking.swift	dock edge configured vs nearest; dock binders
+CmuxNextApp	enum	ColumnDocking	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnDocking.swift	dock edge/mode defaults and refusal failure are Rust (handlers_placement_dock_settings, handlers_placement_dock_failure); binders only
 CmuxNextApp	enum	ColumnHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	ComputerUseHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ComputerUseHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	ConfirmationStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ConfirmationStrings.swift	localized string table (bundle resources)
@@ -1961,8 +1961,8 @@ CmuxNextApp	enum	DaemonClosedHistory	0	MIXED	50	30	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	enum	DestructiveConfirmation	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DestructiveConfirmation.swift	which destructive actions confirm and prompt copy (policy switch :56-110); presenting is platform
 CmuxNextApp	enum	DevToolsHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DevToolsHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	DiffHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DiffHandlers.swift	thin action binder: parses args, calls model/daemon intent
-CmuxNextApp	enum	DockColumnHandlers	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DockColumnHandlers.swift	dock column plan (edge/mode) then perform
-CmuxNextApp	extension	DockColumnHandlers	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DockColumnHandlers.swift	dock column plan (edge/mode) then perform
+CmuxNextApp	enum	DockColumnHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DockColumnHandlers.swift	each dock action's edge and mode are Rust (handlers_placement_dock_ask); plan is DockDefaults, move is window dock_move
+CmuxNextApp	extension	DockColumnHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DockColumnHandlers.swift	each dock action's edge and mode are Rust (handlers_placement_dock_ask); plan is DockDefaults, move is window dock_move
 CmuxNextApp	enum	DockedAgentChat	0	MIXED	69	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/DockedAgentChat.swift	from enum DockedAgentChat:17: Cmd-I chat dock open decision
 CmuxNextApp	enum	ExtensionHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ExtensionHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	ExtensionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ExtensionStrings.swift	localized string table (bundle resources)
