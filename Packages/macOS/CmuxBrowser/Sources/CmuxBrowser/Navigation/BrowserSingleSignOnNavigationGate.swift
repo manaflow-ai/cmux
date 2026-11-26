@@ -64,6 +64,9 @@ public final class BrowserSingleSignOnNavigationGate {
     private var isHeld = false
     // Tells one hold from a later one by the same owner.
     private var holdCount = 0
+    // `admit` cancels an owner's earlier entry first, so this holds at most one
+    // entry per web view on the store (an admission that calls `admit` itself
+    // can add more). Scanning it and removing from its front stay cheap.
     private var waiters: [Waiter] = []
 
     /// Creates a gate that asks macOS which URLs an Extensible SSO extension
