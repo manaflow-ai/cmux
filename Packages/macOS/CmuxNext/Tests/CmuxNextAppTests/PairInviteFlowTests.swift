@@ -42,7 +42,9 @@ import Testing
         #expect(invite.code == "ABCDE12345")
         #expect(invite.displayCode == "ABCDE-12345")
         #expect(invite.line == "cmux pair ABCDE-12345")
-        #expect(invite.installLine == "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/cmux pair ABCDE-12345")
+        #expect(invite.installLine == AddDevicePlatform.pinnedInstall(then: "~/.cmux/bin/cmux pair ABCDE-12345"))
+        #expect(invite.installLine.contains("install-static/\(AddDevicePlatform.installStaticSHA256).sh"))
+        #expect(!invite.installLine.contains("| sh"), "the invite pins the script, never curl | sh")
         #expect(invite.qrPayload == "https://cmux.com/pair?i=ABCDE12345", "the invite rides in i=, never the server code's c=")
     }
 
