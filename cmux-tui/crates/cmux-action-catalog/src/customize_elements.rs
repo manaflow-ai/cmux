@@ -131,7 +131,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: CHAT,
         surface: "chatMessages",
         menus: &["agentChat"],
-        settings: &["agentPane.display.font.size", "agentPane.display.font.preset", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.transcriptView", "agentPane.display.senderIcon.lead", "agentPane.zoom"],
+        settings: &["agentPane.display.font.size", "agentPane.display.font.preset", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.detail", "agentPane.display.senderIcon.lead", "agentPane.zoom"],
         tokens: &["contentBackground", "textPrimary", "textSecondary", "highlight", "textSelection"],
     },
     CustomizeElement {
