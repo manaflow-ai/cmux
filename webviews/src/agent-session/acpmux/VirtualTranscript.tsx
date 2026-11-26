@@ -30,6 +30,7 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -106,6 +107,7 @@ import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/old
 import { noteTranscriptMount } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { transcriptScrollPacer } from "./transcriptScrollPacer.experiment";
 import { FrameGuard } from "./conversation/frameGuard";
 import { STAND_IN_VIEWPORTS, standInRanges } from "./conversation/standIns";
 import { useT } from "./i18n";
@@ -1237,6 +1239,7 @@ function TranscriptView({
   /// The offset and follow state the last commit drew at (written as it lays out).
   const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
+  const [scrollPacerArm] = useState(() => experimentArm(transcriptScrollPacer));
   /// The scroller height the last commit drew the followed view at, at its layout's end (`projectedTop`,
   /// which reads no offset); undefined when it drew it anywhere else.
   const drewFollowedEnd = useRef<number | undefined>(undefined);
@@ -1338,7 +1341,7 @@ function TranscriptView({
       delta: top - scrollRef.current.top || scrollRef.current.delta,
     };
     scheduleScrollLeadReset();
-    if (immediate) scrollPacer.current!.flush({ top, atLatest });
+    if (immediate || scrollPacerArm === "sync") scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
   };
   /// The chat's frame budget (frameBudget.ts): while it is busy its frames are read, and past the
