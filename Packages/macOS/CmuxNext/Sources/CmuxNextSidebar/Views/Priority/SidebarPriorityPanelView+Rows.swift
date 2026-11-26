@@ -72,6 +72,7 @@ extension SidebarPriorityPanelView: VisibleRowsList {
     func mount(_ entry: SidebarPriorityEntry) -> SidebarPriorityRowView {
         let row = SidebarPriorityRowView(entry: entry)
         listWork.configured()
+        row.statusWords = panel.statusWords
         row.onAction = { [weak self] action in self?.onAction?(action) }
         row.onMove = { [weak self, weak row] direction in
             guard let self, let row else { return }
