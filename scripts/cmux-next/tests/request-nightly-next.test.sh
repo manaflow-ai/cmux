@@ -1153,6 +1153,52 @@ PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
 PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
 (( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 2 )) || fail "without a tick cache each call reads origin:" "$(cat "$TMP/git-network.log")"
 git_q -C "$src" update-ref -d refs/heads/nightly-next
+
+# The tick's precheck reads do not grow with the commits it walks. Regression: tick 45858069814
+# (2026-11-26) took 14 minutes over 39 commits, each call reading the compile results service for
+# its candidates and the same ancestors again, or waiting out its own 20 s timeout while it was down.
+git_q -C "$src" checkout -q --detach "$walk_tip~5"
+for i in $(seq 1 12); do
+  echo "batch $i" > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree $i"
+done
+batch_tip=$(git -C "$src" rev-parse HEAD)
+branch "$batch_tip"
+[[ "$(key "$batch_tip")" == "$(key "$walk_tip~5")" ]] || fail "fixture: the batch commits must share the published tree"
+batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newest <commits>; prints the precheck reads
+  local c
+  : > "$TMP/precheck.log"
+  for c in $(git -C "$src" rev-list --first-parent -n "$1" "$batch_tip"); do
+    git_q -C "$src" checkout -q --detach "$c"
+    PROMOTE="" RUN_ID="$3" GH_TICK_CACHE="$2" request --tree-ready "$c"
+    [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    printf '%s\n' "$out" > "$TMP/batch-out"
+  done
+  grep -c . "$TMP/precheck.log" || true
+}
+# No verdict anywhere: every candidate searches its ancestors and finds none.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo 404 > "$TMP/precheck/$c"; done
+reads4=$(batch_walk 4 "$TMP/batch-tick-4" 41)
+reads12=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+grep -q "not prechecked yet" "$TMP/batch-out" || fail "a commit with no verdict must be refused as not prechecked:" "$(cat "$TMP/batch-out")"
+distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
+(( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
+(( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
+# A long walk does not re-read: by default an answer holds for the whole tick, an hour old or not.
+for f in "$TMP/batch-tick-12/precheck/"*; do read -r _ w < "$f"; echo "$(( $(date +%s) - 3600 )) $w" > "$f"; done
+reads_again=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+(( reads_again == 0 )) || fail "within one tick a commit's answer must not be read again, got $reads_again"
+# Without the tick cache the same walk reads the same ancestors again (what the cache saves).
+reads_uncached=$(batch_walk 12 "" 43)
+(( reads_uncached > 3 * reads12 )) || fail "fixture: without the tick cache the walk must read far more, got $reads_uncached vs $reads12"
+# The service down: one read for the whole walk, every commit still promotable unprechecked.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo down > "$TMP/precheck/$c"; done
+reads_down=$(batch_walk 12 "$TMP/batch-tick-down" 44)
+(( reads_down == 1 )) || fail "a walk while the results service is down must read it once, got $reads_down"
+grep -q "^promotable " "$TMP/batch-out" || fail "an outage must not block a commit:" "$(cat "$TMP/batch-out")"
+# A window later the service is read again.
+reads_down0=$(CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL=0 batch_walk 3 "$TMP/batch-tick-down" 45)
+(( reads_down0 == 3 )) || fail "past its window an outage must be read again, got $reads_down0"
+for c in $(git -C "$src" rev-list "$batch_tip"); do rm -f "$TMP/precheck/$c"; done
 git_q -C "$src" checkout -q --detach "$head"
 : "$other"
 echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"
