@@ -615,6 +615,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/autocloud_enroll", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/place_set", Request),
