@@ -563,8 +563,8 @@ inputs = [
 run = '''
 export CMUX_WIRE_BASE_DIR="$(mktemp -d)"
 cd cmux-tui
-# The findings are step wire-lockstep's; here only the base's manifests are wanted.
-cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root .. --base HEAD^1 --export-base "$CMUX_WIRE_BASE_DIR" >/dev/null || true
+# Do not run peer tests against a partial export: missing base files fall back to the head.
+cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root .. --base HEAD^1 --export-base "$CMUX_WIRE_BASE_DIR" || exit $?
 rc=0
 cargo test --locked -p cmux-remote-protocol --lib wire_lockstep || rc=1
 cargo test --locked -p cmux-remote --lib wire_lockstep || rc=1
