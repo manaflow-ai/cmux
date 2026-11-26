@@ -288,7 +288,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
-mod prefetch;
+pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
 mod profile_respawn;
@@ -406,6 +406,8 @@ pub mod subsessions;
 mod successors;
 mod surge_triage;
 mod urgent_steer;
+// A task's spend burn-rate warnings during its turn.
+mod spend_burn;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 mod surgery_codex;
