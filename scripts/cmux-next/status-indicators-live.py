@@ -44,6 +44,8 @@ FAKE_AGENT = os.path.join(TREE, "cmux-tui/crates/acpmux/tests/fake_agent.py")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count  # noqa: E402
 from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
+# cmux NEXT's config folder: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+NEXT_DIR = "cmux-next" if sys.platform == "darwin" else "cmux"
 
 
 def say(*parts):
@@ -319,7 +321,7 @@ class Run:
         if os.path.exists(SOCKET):
             os.unlink(SOCKET)
         os.makedirs(self.acp_home, exist_ok=True)
-        harnesses = os.path.join(self.xdg, "cmux", "harnesses")
+        harnesses = os.path.join(self.xdg, NEXT_DIR, "harnesses")
         os.makedirs(harnesses, exist_ok=True)
         profile = os.path.join(harnesses, "fake.toml")
         with open(profile, "w") as f:

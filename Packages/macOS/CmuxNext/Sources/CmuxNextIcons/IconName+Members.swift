@@ -296,6 +296,7 @@ extension IconName {
     nonisolated public static let statusInprogress = IconName("status.inprogress")
     nonisolated public static let statusNeedsinput = IconName("status.needsinput")
     nonisolated public static let statusProgress = IconName("status.progress")
+    nonisolated public static let statusQuestion = IconName("status.question")
     nonisolated public static let statusRunning = IconName("status.running")
     nonisolated public static let statusSuccess = IconName("status.success")
     nonisolated public static let statusWarning = IconName("status.warning")

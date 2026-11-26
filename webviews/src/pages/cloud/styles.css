@@ -401,6 +401,83 @@ select {
   color: var(--cloud-text-2);
 }
 
+.cloud-disk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--grid-half-step) var(--ds-space-2);
+  margin-bottom: var(--grid-half-step);
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-disk-bar-track {
+  display: flex;
+  flex: 1 1 160px;
+  max-width: 320px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+.cloud-disk-bar-segment {
+  height: 100%;
+}
+
+.cloud-disk-bar-system {
+  background: color-mix(in srgb, var(--cloud-text-2) 55%, Canvas);
+}
+
+/* The project's own files: the strongest mark, the part an agent's work grows. */
+.cloud-disk-bar-project,
+.cloud-disk-bar-used {
+  background: var(--cloud-text);
+}
+
+/* Caches are the part a cleanup can give back. */
+.cloud-disk-bar-caches {
+  background: var(--cloud-ok);
+}
+
+.cloud-disk-bar-free {
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+/* Under 2 GiB free: the free rest and the label turn red; the split keeps its colours. */
+.cloud-disk-bar-almost-full .cloud-disk-bar-track,
+.cloud-disk-bar-almost-full .cloud-disk-bar-free {
+  background: color-mix(in srgb, var(--cloud-bad) 45%, transparent);
+}
+
+.cloud-disk-bar-warning {
+  color: var(--cloud-bad);
+}
+
+.cloud-disk-bar-gallery-state {
+  margin-bottom: var(--ds-space-4);
+}
+
+.cloud-disk-bar-legend {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+.cloud-disk-bar-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.cloud-disk-bar-details {
+  flex-basis: 100%;
+}
+
+.cloud-disk-bar-details summary {
+  cursor: default;
+}
+
 .cloud-disk-health-user code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-caption);
@@ -583,6 +660,79 @@ select {
   display: block;
   height: 100%;
   background: var(--cloud-text-2);
+}
+
+/* This month: the total beside the title, one line per meter (amount and its dollars), as-of, the card. */
+.cloud-month {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cloud-month-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cloud-month-title {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--cloud-text-2);
+}
+
+.cloud-month-test {
+  font-size: var(--text-caption);
+  color: var(--cloud-warn);
+}
+
+.cloud-month-total {
+  margin-left: auto;
+  font-size: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.cloud-month-line {
+  display: grid;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--cloud-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-line dd {
+  margin: 0;
+}
+
+.cloud-month-usd {
+  text-align: right;
+  color: var(--cloud-text);
+}
+
+.cloud-month-asof,
+.cloud-month-loading {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.cloud-month-failed,
+.cloud-month-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-month-card {
+  font-variant-numeric: tabular-nums;
 }
 
 .cloud-items {

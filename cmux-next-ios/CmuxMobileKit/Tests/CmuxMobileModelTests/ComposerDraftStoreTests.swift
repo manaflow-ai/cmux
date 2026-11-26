@@ -25,6 +25,25 @@ import Testing
         #expect(relaunched.text(for: ComposerDraftStore.key(macID: "mini", tabID: "s7")) == nil)
     }
 
+    /// Typing never writes the file on the main thread: the encode and the write go to the
+    /// store's writer queue (`ComposerLinkUITests` counts it in the app).
+    @Test func typingWritesTheFileOffTheMainThread() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var mainWrites = 0
+        ComposerDraftStore.mainThreadWrite = { mainWrites += 1 }
+        defer { ComposerDraftStore.mainThreadWrite = nil }
+        let key = ComposerDraftStore.key(macID: "cosmic", tabID: "s7")
+        let store = ComposerDraftStore(url: url, writeDelay: .milliseconds(1))
+        for text in ["g", "gi", "git", "git s", "git st"] {
+            store.save(text, for: key)
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        store.flush()
+        #expect(mainWrites == 0)
+        #expect(ComposerDraftStore(url: url).text(for: key) == "git st")
+    }
+
     @Test func anEmptiedComposerRemovesItsDraft() {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

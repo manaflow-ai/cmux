@@ -235,7 +235,7 @@ fn a_revisioned_delta_carries_its_registry_event_and_reads_no_registry_to_send()
     let events = mux.subscribe();
     let mutation = WorkspaceMutation::daemon_local("delta-origin-test");
     let placement = mux
-        .create_empty_workspace_with_mutation(Some("w".into()), None, None, None, &mutation)
+        .create_empty_workspace_with_mutation(Some("w".into()), None, None, None, &mutation, false)
         .unwrap();
     let delta = loop {
         match events.recv_timeout(Duration::from_secs(5)).unwrap() {

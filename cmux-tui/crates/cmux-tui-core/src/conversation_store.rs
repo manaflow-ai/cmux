@@ -944,6 +944,25 @@ impl ConversationEvent {
         }
     }
 
+    /// The `event` name of the line `subscribe` sends for it, read without building it: a
+    /// page relay's mailbox takes only the events its page hears
+    /// (server/cmd_subscribe.rs `subscribed_event_name`).
+    pub(crate) const fn wire_name(&self) -> &'static str {
+        match self {
+            Self::Changed { .. } => "conversation-changed",
+            Self::Typing { .. } => "conversation-typing",
+            // `subscribe` sends a draft as its own `conversation-draft` line
+            // (server/cmd_subscribe.rs), not as the stored item.
+            Self::Draft { .. } => "conversation-draft",
+            Self::Inbox { .. } => "conversation-inbox-changed",
+            Self::Run { .. } => "conversation-run-changed",
+            Self::Live { .. } => "conversation-live",
+            Self::Avatar { .. } => "participant-avatar-changed",
+            Self::Chief { .. } => "chief-changed",
+            Self::Scheduled { .. } => "conversation-scheduled-changed",
+        }
+    }
+
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
@@ -990,6 +1009,9 @@ pub(crate) struct ConversationHost {
     /// The live text of running runs (`chief-live-v1`, memory only).
     pub(crate) live: Mutex<crate::conversation_live::LiveBuffers>,
     pub(crate) publish: Mutex<()>,
+    /// `conversation-inbox-op`'s recent `op_id`s (memory only). Lock order: this, then
+    /// `publish`.
+    pub(crate) inbox_ops: Mutex<crate::conversation_inbox_once::InboxOpsOnce>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
     /// Who is typing in each conversation now (memory only): typing is never

@@ -19,7 +19,7 @@ use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_to
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_initialize_opt_ins,
-    stripping_prompt_meta, take_gesture_ticket,
+    stripping_prompt_meta, stripping_unknown_params, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -185,6 +185,10 @@ pub struct Setting {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Facts {
     pub is_first: bool,
+    /// The params the frame carried that this host's lists do not name,
+    /// dropped before it was sent (`limit`, `_meta.acpmux.peerRowBatches`):
+    /// the host logs them, once each, so a page newer than the host shows.
+    pub dropped: Vec<String>,
     pub method: Option<String>,
     /// The page's JSON-RPC id as raw JSON.
     pub page_id: Option<String>,
@@ -341,6 +345,12 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     if let Some((stripped, _keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
         object = stripped;
     }
+    // P0: any other key this host's lists do not name is dropped, not refused
+    // ([`stripping_unknown_params`]): a newer page never loses its chat to it.
+    let (object, dropped) = match stripping_unknown_params(&object, state.mode_fields) {
+        Some((stripped, dropped)) => (stripped, dropped),
+        None => (object, Vec::new()),
+    };
     let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
     let page_id = object.get("id").and_then(raw_id);
     let empty = Map::new();
@@ -366,8 +376,13 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         return Checked::Refuse { refused, spend: carried };
     }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
-    let mut facts =
-        Facts { is_first: state.is_first, method: method.clone(), page_id, ..Facts::default() };
+    let mut facts = Facts {
+        is_first: state.is_first,
+        method: method.clone(),
+        page_id,
+        dropped,
+        ..Facts::default()
+    };
     if !state.is_first {
         let taken = take_gesture_ticket(&frame);
         frame = taken.object;

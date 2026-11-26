@@ -15,25 +15,24 @@ use serde_json::Value;
 /// (`CmuxConfigFile.overrideKey`), so test launches never read the user's.
 pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
-/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home.
-const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-/// Classic cmux's file, which the app copies to [`NEXT_FILE`] at its first
-/// launch.
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
+/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home:
+/// `.config/cmux/cmux-next.json`, in `.config/cmux-next/` on macOS
+/// (`cmux_config::location`).
+fn next_file(home: &Path) -> PathBuf {
+    home.join(".config").join(cmux_config::NEXT_DIR).join(cmux_config::location::NEXT_FILE_NAME)
+}
 
 /// The settings file the app reads and writes: `CMUX_NEXT_CONFIG_FILE`,
-/// else `<home>/.config/cmux/cmux-next.json`; while that file does not exist
-/// yet (the app never ran), classic `cmux.json`, which the app would seed it
-/// from.
+/// else `<home>/.config/cmux/cmux-next.json` (`cmux-next/` on macOS). Classic
+/// is imported by the app only after the person consents.
 pub fn config_path() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if env(CONFIG_OVERRIDE).is_some() {
         return path_from(env);
     }
+    cmux_config::location::migrate_legacy_once();
     let home = crate::platform::home_dir().unwrap_or_default();
-    let next = home.join(NEXT_FILE);
-    let classic = home.join(CLASSIC_FILE);
-    if !next.exists() && classic.exists() { classic } else { next }
+    next_file(&home)
 }
 
 /// `CMUX_NEXT_CONFIG_FILE` (a leading `~` is the home), else the app's file
@@ -49,7 +48,7 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
         return path;
     }
     let home = env("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(NEXT_FILE)
+    next_file(&home)
 }
 
 /// Settings-file `workspaces.newPlacement`: where a new workspace goes in
@@ -215,6 +214,54 @@ pub enum UltraConnection {
     /// Repair data on every connection, about 2-3x the bytes
     /// (cmux-wg `UltraMode::SETTING`).
     Always,
+}
+
+/// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
+/// default is deliberately off until a LocalAPI snapshot is available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailnetCarrier {
+    /// Do not add Tailscale addresses to races.
+    #[default]
+    Off,
+    /// Add only paths tailscaled currently reports as direct.
+    DirectOnly,
+    /// Accepted for forward compatibility. Relayed paths remain excluded by
+    /// the race helper until their cost is measured.
+    On,
+}
+
+/// Parse `transport.tailnetCarrier`, with an environment override for tests.
+pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return TailnetCarrier::default();
+    };
+    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
+        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
+        Some("on") => TailnetCarrier::On,
+        _ => TailnetCarrier::Off,
+    }
+}
+
+/// Current Tailscale carrier policy. `CMUX_TAILNET_CARRIER` wins for hermetic
+/// tests and development runs.
+pub fn tailnet_carrier() -> TailnetCarrier {
+    if let Ok(value) = std::env::var("CMUX_TAILNET_CARRIER") {
+        return match value.trim() {
+            "direct-only" | "direct_only" => TailnetCarrier::DirectOnly,
+            "on" => TailnetCarrier::On,
+            _ => TailnetCarrier::Off,
+        };
+    }
+    if cfg!(test) {
+        return TailnetCarrier::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| tailnet_carrier_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => TailnetCarrier::default(),
+    }
 }
 
 /// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
@@ -632,6 +679,17 @@ mod tests {
         assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
         assert_eq!(ultra("{not json"), Auto);
         assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+        use super::TailnetCarrier::{DirectOnly, Off, On};
+        use super::tailnet_carrier_from_config_text as carrier;
+        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+        assert_eq!(carrier("{not json"), Off);
     }
 
     #[test]

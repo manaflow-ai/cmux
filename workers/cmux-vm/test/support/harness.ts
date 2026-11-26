@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
@@ -35,6 +36,8 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
+  readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
   /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
   readonly serviceScopeGrants?: string;
@@ -122,7 +125,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
+  // The Worker names its provider resources with the same environment its policy runs in.
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -429,7 +433,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   const { handler, dispose, reap } = makeWebHandler(
     services,
-    options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
+    {
+      ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
+      ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+    },
   );
 
   return {
@@ -441,7 +448,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

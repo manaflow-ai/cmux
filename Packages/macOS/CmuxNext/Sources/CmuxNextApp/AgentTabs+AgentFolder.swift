@@ -85,7 +85,7 @@ extension AgentTabStore {
         return workspace(holding: scoped.key, machine: scoped.machine)?.key?.rawValue
     }
 
-    /// `~/Library/Application Support/cmux/agent-home`, read once.
+    /// `~/Library/Application Support/cmux-next/agent-home`, read once.
     static let agentHomes = AgentHome.standard
 
     /// "Choose Folder…": the native folder sheet on the tab's pane, then the pick saved as the

@@ -5,7 +5,8 @@
 //! receipts and acknowledgements. A successful enqueue is not successful execution.
 //!
 //! The receiver in `server/mesh_relay.rs` admits only hub-stamped daemon ids explicitly
-//! allowed by the target owner's `meshRelay.controlFrom`, then uses existing peer rules.
+//! allowed by the target owner's `meshRelay.controlFrom`, then uses existing peer rules, held to
+//! the entry's `maxPolicy` (`ask` unless the owner granted more).
 //! Claimed user, host, name and session fields never confer authority.
 
 use serde::{Deserialize, Serialize};

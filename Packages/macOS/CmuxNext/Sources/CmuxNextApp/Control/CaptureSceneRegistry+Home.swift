@@ -6,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextFeedClient
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
@@ -17,6 +18,8 @@ extension CaptureSceneRegistry {
     static let homeChiefScene = "home-chief"
     /// `home-chief` with a long draft: the field grows up into the first-run panel.
     static let homeChiefLongDraftScene = "home-chief-long-draft"
+    /// `home-chief` with the Chief's profile open on a tab, as its name pill's click opens it.
+    static let profileScenes: [String: HomeChiefProfileTab] = ["home-chief-profile-details": .details, "home-chief-profile-computer": .computer]
     /// The long draft: enough lines to take most of the column.
     static let longDraftText = (1...24).map { "Line \($0) of a long message to the Chief" }.joined(separator: "\n")
 
@@ -26,7 +29,7 @@ extension CaptureSceneRegistry {
     /// failed, a done and a working agent, then waits until the app shows
     /// them all: each state reached the mirror, and the first-run panel shows
     /// a row for each status. An error names what never appeared.
-    func showHomeChief(windowID: String, longDraft: Bool = false) async -> CmuxNextSettings.JSONValue {
+    func showHomeChief(windowID: String, longDraft: Bool = false, profile: HomeChiefProfileTab? = nil) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
@@ -87,20 +90,14 @@ extension CaptureSceneRegistry {
         report["agents"] = .array((transcript?.debugFirstRunAgents ?? []).map { row in
             .object(["tab": .string(row.id), "title": .string(row.title), "status": .string("\(row.status)"), "shown": .bool(row.shown)])
         })
-        guard settled != nil else {
-            report["error"] = .string("Home's first-run panel did not show every status before the deadline")
-            clearShowcaseAgent(windowID: windowID)
-            return .object(report)
+        func failed(_ why: String) -> CmuxNextSettings.JSONValue {
+            report["error"] = .string(why); clearShowcaseAgent(windowID: windowID); return .object(report)
         }
-        if longDraft {
-            guard let transcript else {
-                report["error"] = .string("no Home transcript to put the long draft in")
-                clearShowcaseAgent(windowID: windowID)
-                return .object(report)
-            }
-            return await growField(transcript, report: report, windowID: windowID)
-        }
-        return .object(report)
+        guard settled != nil else { return failed("Home's first-run panel did not show every status before the deadline") }
+        if let profile, page.host?.openProfile(profile) != true { return failed("the Chief's profile did not open") }
+        guard longDraft else { return .object(report) }
+        guard let transcript else { return failed("no Home transcript to put the long draft in") }
+        return await growField(transcript, report: report, windowID: windowID)
     }
 
     /// `home-chief-long-draft`: puts a long draft in the field, waits until the field has grown

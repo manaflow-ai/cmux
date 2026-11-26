@@ -18,6 +18,17 @@ impl Peer {
         peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
+        Self::new_with_lease(name, url, token, peer_token, notices, false)
+    }
+
+    pub(crate) fn new_with_lease(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        leased: bool,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         let scope = cmux_scope::Scope::new("acpmux peer");
         let notices = crate::peer_notice_outbox::NoticeOutbox::new(
@@ -28,6 +39,7 @@ impl Peer {
             scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
+            leased,
             url: url.to_owned(),
             token,
             peer_token,
@@ -37,6 +49,7 @@ impl Peer {
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
@@ -93,6 +106,7 @@ impl Peer {
             mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
+            agent_channels: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
@@ -121,6 +135,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -134,11 +149,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
+            early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
             cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
+            link_read: StdMutex::new(cmux_deadline::Progress::new()),
         })
     }
 
@@ -153,6 +171,12 @@ impl Peer {
     /// What the current (or last) link received (`ReceivedBytes`).
     pub fn received(&self) -> &ReceivedBytes {
         &self.received
+    }
+
+    /// The current (or last) link's transport read progress: every byte it read, also inside
+    /// a frame that has not fully arrived.
+    pub fn link_read(&self) -> cmux_deadline::Progress {
+        self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn link(&self) -> Link {
@@ -225,6 +249,13 @@ impl Peer {
         if takes {
             features.push(crate::attach::FEATURE.to_owned());
         }
+    }
+
+    /// Whether its last handshake advertised the folder trust gate (`trustGate`), as every
+    /// current daemon's does: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_trust_gate(&self, advertised: bool) {
+        self.trust_gate.store(advertised, Ordering::SeqCst);
     }
 
     /// What its last handshake listed (`lists`): a test's peer that never ran.
@@ -334,7 +365,7 @@ impl Peer {
         if self.stop.load(Ordering::SeqCst) {
             return Err("peer stopped".to_owned());
         }
-        let (child, stream, _, errors) = self.spawn_tunnel()?;
+        let (child, stream, _, errors) = self.spawn_tunnel().await?;
         // Replacing the previous channel ends its ssh process.
         *tunnel = Some(child);
         if self.stop.load(Ordering::SeqCst) {
@@ -349,7 +380,7 @@ impl Peer {
     /// Spawn an `ssh -W` stdio channel to the peer's WebSocket port, owned by the caller (it
     /// ends when dropped). `open_tunnel` keeps the link's in `tunnel`; a path probe keeps its own.
     #[allow(clippy::type_complexity)]
-    pub(super) fn spawn_tunnel(
+    pub(super) async fn spawn_tunnel(
         &self,
     ) -> Result<
         (
@@ -361,18 +392,21 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("spawn ssh: {e}"))?;
+            .kill_on_drop(true);
+        let login = self.begin_ssh_login(&command).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("spawn ssh: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        }
         Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
@@ -413,16 +447,20 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(read_config_argv(&host, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("read remote config: {e}"))?;
+            .kill_on_drop(true);
+        let login =
+            self.begin_ssh_login(&command).await.map_err(|e| format!("read remote config: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("read remote config: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("read remote config: {e}"))?;
+        }
         let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
         // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
         let out = tokio::select! {
@@ -746,6 +784,7 @@ impl Peer {
             "cause": observed.cause,
             "reason": observed.reason,
             "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
+            "downReason": observed.down_reason,
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,

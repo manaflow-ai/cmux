@@ -27,7 +27,7 @@ export function ComposerHatHeadStage({
   stepLook = "exact",
 }: {
   start?: ComposerHatHeadState;
-  /// The hat can tuck away: its tuck control shows at its top middle (hatTuck.experiment.ts).
+  /// The hat can tuck away: its tuck control shows at its top middle (SubagentTray.tsx `onTuck`).
   tuck?: boolean;
   /// Where the tuck control stands on the hat's top edge (SubagentTray.tsx `tuckSide`).
   side?: TrayHandleSide;

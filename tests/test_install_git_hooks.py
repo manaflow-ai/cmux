@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import unittest
@@ -70,6 +71,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -301,8 +303,8 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(marker.exists(), "a helper from the checked-out branch executed")
 
     # Formatters at the commit boundary: the hook formats staged Rust in every
-    # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
-    # commit instead of skipping silently.
+    # Cargo package (not only cmux-tui), and a formatter that cannot run warns
+    # and lets the commit through (CI checks formatting).
     AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CMUX_SKIP_FORMAT_HOOKS")
 
     def formatter_env(self, with_rustfmt, **extra):
@@ -316,7 +318,9 @@ class InstallGitHooksTests(unittest.TestCase):
         self.rustfmt_log = self.root / "rustfmt.log"
         if with_rustfmt:
             fake = bin_dir / "rustfmt"
-            fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+            # Formats stdin to stdout as rustfmt does there: runs of spaces become one.
+            fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n'
+                            f"exec {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
             fake.chmod(0o755)
         env = dict(self.env, PATH=str(bin_dir), **extra)
         return env
@@ -333,7 +337,8 @@ class InstallGitHooksTests(unittest.TestCase):
 
     def run_pre_commit(self, env):
         hook = Path(self.local_hooks_path()) / "pre-commit"
-        return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True)
+        return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True,
+                              stdin=subprocess.DEVNULL)
 
     def test_pre_commit_registers_only_the_commits_own_tests(self):
         """The base carried an unregistered test; the hook wrote it into whichever pull request
@@ -469,33 +474,62 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(len(calls), 1, calls)
         # No rustfmt.toml in the checkout: rustfmt's defaults, never a config
         # found above the checkout.
-        edition_flag, edition, config_flag, config, path = calls[0].split(" ")
-        self.assertEqual((edition_flag, edition, config_flag, path),
-                         ("--edition", "2024", "--config-path", str(source.resolve())), calls)
+        # The staged file goes in on stdin, so no file path is an argument.
+        edition_flag, edition, config_flag, config = calls[0].split(" ")
+        self.assertEqual((edition_flag, edition, config_flag), ("--edition", "2024", "--config-path"), calls)
         self.assertFalse(Path(config).resolve().is_relative_to(self.repo.resolve()), config)
+        self.assertEqual(self.git("show", ":Native/OptChat/probe/src/main.rs").stdout, source.read_text())
+
+    def test_an_edit_saved_while_rustfmt_runs_is_kept(self):
+        """Review F1 on #50609: the hook wrote rustfmt's earlier snapshot over the file, so an edit saved in an
+        editor while rustfmt ran was lost from both the worktree and the index."""
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n")
+        env = self.formatter_env(with_rustfmt=True)
+        saved = "fn main() { saved_during_rustfmt(); }\n"
+        # This rustfmt reads its input, then the person saves the file, then it prints its output.
+        (self.root / "bin-rustfmt" / "rustfmt").write_text(
+            f"#!/bin/sh\nin=$({shlex.quote(shutil.which('cat'))})\n"
+            f"printf '%s' {shlex.quote(saved)} > {shlex.quote(str(source))}\n"
+            f"printf '%s\\n' \"$in\" | {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_text(), saved, "the edit saved during rustfmt survives")
+        self.assertIn("changed while rustfmt ran", result.stderr)
+        self.assertEqual(self.git("show", ":workers/probe/src/main.rs").stdout, "fn   main() {}\n",
+                         "the index keeps what was staged")
+
+    def test_an_unchanged_format_never_rewrites_the_file(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn main() {}\n")
+        before = source.stat().st_mtime_ns
+        os.utime(source, ns=(before - 10**9, before - 10**9))
+        before = source.stat().st_mtime_ns
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.stat().st_mtime_ns, before, "formatting changed nothing, so nothing is written")
 
     def test_pre_commit_uses_the_package_rustfmt_config(self):
         self.assertEqual(self.install().returncode, 0)
-        source = self.stage_rust_package("workers/probe", "2021", config="max_width = 100\n")
+        self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n", config="max_width = 100\n")
         result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
         self.assertEqual(result.returncode, 0, result.stderr)
         config = (self.repo / "workers/probe/rustfmt.toml").resolve()
         self.assertEqual(self.rustfmt_log.read_text().splitlines(),
-                         [f"--edition 2021 --config-path {config} {source.resolve()}"])
+                         [f"--edition 2021 --config-path {config}"])
+        self.assertEqual(self.git("show", ":workers/probe/src/main.rs").stdout, "fn main() {}\n",
+                         "the formatted file is restaged")
 
-    def test_missing_rustfmt_stops_an_agent_commit_and_warns_a_person(self):
+    def test_missing_rustfmt_warns_and_commits_for_agents_and_people(self):
         self.assertEqual(self.install().returncode, 0)
         self.stage_rust_package("Native/OptChat/probe", "2021")
-        agent = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CMUX_AGENT="1"))
-        self.assertNotEqual(agent.returncode, 0, agent.stderr)
-        self.assertIn("rustfmt is unavailable", agent.stderr)
-        self.assertIn("do not pass --no-verify", agent.stderr)
         # A Codex shell sets CODEX_THREAD_ID, not CMUX_AGENT.
-        codex = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CODEX_THREAD_ID="thread"))
-        self.assertNotEqual(codex.returncode, 0, codex.stderr)
-        person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
-        self.assertEqual(person.returncode, 0, person.stderr)
-        self.assertIn("rustfmt is unavailable", person.stderr)
+        for extra in ({"CMUX_AGENT": "1"}, {"CODEX_THREAD_ID": "thread"}, {}):
+            with self.subTest(env=extra):
+                result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, **extra))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("rustfmt is unavailable", result.stderr)
+                self.assertIn("committing without formatting (CI checks formatting)", result.stderr)
 
     # A recording vp: logs "cwd<TAB>args" and replaces each file argument's text.
     FAKE_VP = """#!/bin/sh
@@ -556,13 +590,15 @@ done
         self.assertNotIn("inside this checkout", result.stderr)
         self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
 
-    def test_pre_commit_refuses_a_node_modules_linked_back_into_the_checkout(self):
+    def test_pre_commit_never_runs_a_node_modules_linked_back_into_the_checkout(self):
+        """The vp is never run; like any formatter that cannot run, the commit goes on with a warning."""
         self.assertEqual(self.install().returncode, 0)
         vp_log = self.root / "vp.log"
         self.link_web_install(self.repo / "elsewhere/node_modules")
         result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("inside this checkout", result.stderr)
+        self.assertIn("committing without formatting", result.stderr)
         self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
 
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
@@ -618,7 +654,7 @@ mkdir -p node_modules/.bin
         return path
 
     def bootstrap_env(self, pin="1.4.4", **extra):
-        """An agent commit (a missing vp is fatal) whose webviews has a bun.lock and no vp."""
+        """An agent commit whose webviews has a bun.lock and no vp."""
         self.stage_web_file("webviews")
         web = self.repo / "webviews"
         (web / "node_modules/.bin/vp").unlink()
@@ -670,7 +706,7 @@ mkdir -p node_modules/.bin
             result = self.run_pre_commit(env)
         finally:
             bun.unlink()
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("vp is unavailable for webviews", result.stderr)
         for line in (
             f"command: env -u BUN_OPTIONS {bun} install --frozen-lockfile --ignore-scripts",
@@ -704,8 +740,8 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("not an exact major.minor.patch version", result.stderr)
-        self.assertNotEqual(result.returncode, 0, "a refused pin refuses the commit")
-        self.assertIn("refusing to install webviews packages", result.stderr)
+        self.assertEqual(result.returncode, 0, "a refused pin installs nothing; the commit goes on")
+        self.assertIn("not installing webviews packages", result.stderr)
 
     def test_a_pinned_install_resolving_into_the_checkout_is_not_run(self):
         self.assertEqual(self.install().returncode, 0)
@@ -716,7 +752,7 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("outside its install root", result.stderr)
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_path_bun_inside_the_checkout_is_not_run(self):
         self.assertEqual(self.install().returncode, 0)
@@ -726,7 +762,7 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("inside this checkout", result.stderr)
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     # devEngines shapes where the first "version" is not bun's (#41001 review, F1): the hook took
     # the first version inside devEngines, so an npm entry listed first, or a runtime engine before
@@ -745,9 +781,10 @@ mkdir -p node_modules/.bin
         "no bun entry": ({"packageManager": {"name": "npm", "version": "10.9.2", "onFail": "error"}}, None),
     }
 
-    def test_a_bun_the_hook_cannot_vouch_for_refuses_the_commit(self):
+    def test_a_bun_the_hook_cannot_vouch_for_never_runs(self):
         """#41001 review: no trusted reader copy, a refused pin or no bun at the pin used to fall
-        back to PATH's bun by name. Each now refuses with the fix, and the planted PATH bun (outside
+        back to PATH's bun by name. Each now installs nothing and says the fix (the commit goes on
+        unformatted; CI checks formatting), and the planted PATH bun (outside
         the checkout, so the resolver alone would let it run) never runs, --version included."""
         self.assertEqual(self.install().returncode, 0)
         reader = Path(self.local_hooks_path()) / "webviews_bun_version.py"
@@ -775,9 +812,9 @@ mkdir -p node_modules/.bin
                     result = self.run_pre_commit(env)
                 finally:
                     reader.write_bytes(saved)
-                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(says, result.stderr)
-                self.assertIn("refusing to install webviews packages", result.stderr)
+                self.assertIn("not installing webviews packages", result.stderr)
                 self.assertNotIn("PATH's bun", result.stderr)
                 if case == "no bun at the pin":
                     # Only the pinned candidates are asked their version; none is 1.4.4, so nothing installs.
@@ -809,10 +846,10 @@ mkdir -p node_modules/.bin
                     self.assertEqual(len(ran), 1, result.stderr)
                     hook = next(version for version, bun in installed.items() if ran[0] == str(bun))
                 else:
-                    # No pin it accepts: the hook installs with nothing and refuses the commit.
+                    # No pin it accepts: the hook installs nothing and commits unformatted.
                     hook = None
-                    self.assertNotEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("refusing to install webviews packages", result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("not installing webviews packages", result.stderr)
                 # The checker, on the same package.json, against a bun older than any pin: its
                 # install command names the version it wants, or it refuses the declaration.
                 checked = subprocess.run(["sh", str(self.repo / "scripts/check-webviews-bun-version.sh"), str(old_bun)],
@@ -840,6 +877,93 @@ mkdir -p node_modules/.bin
         self.assertFalse(vp_log.exists())
         self.assertFalse(self.rustfmt_log.exists())
 
+    def test_a_formatter_that_cannot_run_lets_an_agent_commit_through_with_a_warning(self):
+        """The machine's toolchain says nothing about the commit, and CI checks formatting. No vp, no
+        node_modules, a vp that cannot start, an install lock another hook holds, or no rustfmt used to
+        refuse every agent commit (CMUX_AGENT, CLAUDECODE, CODEX_*, CI); each now commits with one line naming why."""
+        self.assertEqual(self.install().returncode, 0)
+        web = self.repo / "webviews"
+        lock = Path(self.git("rev-parse", "--absolute-git-dir").stdout.strip()) / "cmux-format-install-webviews.lock"
+
+        def no_node_modules():
+            self.stage_web_file("webviews")
+            shutil.rmtree(web / "node_modules")
+
+        def vp_cannot_start():
+            self.stage_web_file("webviews")
+            (web / "node_modules/.bin/vp").write_text("#!/bin/sh\necho 'env: node: No such file or directory' >&2\nexit 127\n")
+
+        def lock_held_by_another_hook():
+            no_node_modules()
+            (web / "bun.lock").write_text("{}\n")
+            lock.mkdir()
+            (lock / "pid").write_text(f"{os.getpid()}\n")
+            # The holder finishes (without a vp) while this hook waits for it.
+            threading.Timer(1.0, shutil.rmtree, (lock,)).start()
+
+        def no_rustfmt():
+            self.stage_rust_package("Native/OptChat/probe", "2021")
+
+        for case, arrange, says in (
+            ("no node_modules (no vp)", no_node_modules, "vp is unavailable for webviews"),
+            ("vp cannot start", vp_cannot_start, "vp fmt exited 127 in webviews"),
+            ("install lock held", lock_held_by_another_hook, "vp is unavailable for webviews"),
+            ("no rustfmt", no_rustfmt, "rustfmt is unavailable"),
+        ):
+            for agent in ({"CMUX_AGENT": "1"}, {"CLAUDECODE": "1"}, {"CI": "true"}):
+                with self.subTest(case=case, agent=agent):
+                    self.git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "webviews", "Native")
+                    shutil.rmtree(web, ignore_errors=True)
+                    shutil.rmtree(self.repo / "Native", ignore_errors=True)
+                    arrange()
+                    staged = self.git("diff", "--cached", "--name-only").stdout
+                    result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, **agent))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(says, result.stderr)
+                    self.assertIn("committing without formatting (CI checks formatting)", result.stderr)
+                    self.assertNotIn("refusing", result.stderr)
+                    self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, staged,
+                                     "the commit keeps exactly what was staged")
+
+    def test_a_bad_staged_file_still_gets_formatted_or_refused(self):
+        """What stays: a staged file vp can format is formatted and restaged for an agent too, and a
+        staged file with unstaged edits still refuses (formatting would stage those edits)."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.stage_web_file("webviews")
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n")
+        web.write_text("const   x=1\nconst   y=2\n")
+        self.git("add", "webviews/src/app.ts")
+        web.write_text(web.read_text() + "const   z=3\n")
+        result = self.run_pre_commit(env)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("webviews/src/app.ts has unstaged changes", result.stderr)
+
+    def test_unstaged_rust_files_the_commit_does_not_touch_never_refuse_it(self):
+        """rustfmt ran on file paths and follows `mod` declarations, so any unstaged or untracked .rs
+        file in the package refused the commit. Each staged file is now formatted through stdin."""
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("Native/OptChat/probe", "2021")
+        tracked = source.parent / "lib.rs"
+        tracked.write_text("pub fn a() {}\n")
+        self.git("add", str(tracked))
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.hooksPath=/dev/null",
+                 "commit", "-q", "-m", "base")
+        source.write_text("mod other;\nfn   main() {}\n")
+        self.git("add", str(source))
+        tracked.write_text("pub fn   a() {}\n")  # an unstaged edit
+        untracked = source.parent / "other.rs"
+        untracked.write_text("fn   b() {}\n")  # an untracked module the staged file declares
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True, CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("unstaged Rust edits", result.stderr)
+        self.assertEqual(self.git("show", ":Native/OptChat/probe/src/main.rs").stdout, "mod other;\nfn main() {}\n")
+        self.assertEqual(tracked.read_text(), "pub fn   a() {}\n", "an unstaged file is never rewritten")
+        self.assertEqual(untracked.read_text(), "fn   b() {}\n", "an untracked file is never rewritten")
+
     def fake_rustup(self, bin_dir, installed, pinned):
         rustup = bin_dir / "rustup"
         rustup.write_text(
@@ -854,7 +978,8 @@ mkdir -p node_modules/.bin
         (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
         env = self.formatter_env(with_rustfmt=True)
         pinned = self.root / "pinned-rustfmt"
-        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n'
+                          f"exec {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
         pinned.chmod(0o755)
         self.fake_rustup(self.root / "bin-rustfmt", "1.95.0", pinned)
         result = self.run_pre_commit(env)
@@ -862,7 +987,7 @@ mkdir -p node_modules/.bin
         calls = self.rustfmt_log.read_text().splitlines()
         self.assertEqual(len(calls), 1, calls)
         self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
-        self.assertTrue(calls[0].endswith(str(source.resolve())), calls)
+        self.assertEqual(self.git("show", ":cmux-tui/src/main.rs").stdout, source.read_text())
 
     def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
         # rustfmt keeps a stable style across versions, so formatting with the

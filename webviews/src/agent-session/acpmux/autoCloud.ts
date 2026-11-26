@@ -1,7 +1,7 @@
 /// AutoCloud (Leo, 2026-11-24, of the new-chat place picker: "let's just use our existing dropdown and
-/// have it be able to have a chevron that opens into more options"): with the Cloud plan and the hidden
-/// `cloud.autoCloud` key in cmux-next.json (default off), the Where menu's Auto row opens a list of its
-/// own: Auto (this Mac when it has room, else a Cloud VM), Cloud only, and Machine…, picked with ⌥⌘1,
+/// have it be able to have a chevron that opens into more options"): with the Cloud plan and the
+/// `cloud.autoCloud` key (Settings > Machines, Auto Places Chats in Cloud; default off), the Where
+/// menu's Auto row opens a list of its own: Auto (this Mac when it has room, else a Cloud VM), Cloud only, and Machine…, picked with ⌥⌘1,
 /// ⌥⌘2 and ⌥⌘3 while that list is open. Off, the menu is as it was. Auto's pick and its Send are
 /// Auto's own (autoWhereModel.ts); this file only decides whether the chevron shows and which row a
 /// digit names.

@@ -74,7 +74,7 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
         _ = becomeFirstResponder()
         selectedTextRange = range
         loupe = UITextLoupeSession.begin(at: point, fromSelectionWidgetView: nil, in: self)
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
     }
 
     func extendHold(to point: CGPoint) {

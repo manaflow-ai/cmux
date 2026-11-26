@@ -3,7 +3,7 @@
 // app shows up, permissions in plain words, its facts). Every listing draws through these, so a new
 // app looks like the others and a new surface is a few lines. Apps only: cmux's own features stay
 // in Settings (apps-web-DESIGN.md).
-import { memo, useState, type ReactNode } from "react";
+import { useState, type ReactNode, memo } from "react";
 import type { Strings } from "../shared/i18n";
 import {
   categoryLabel,
@@ -17,6 +17,7 @@ import {
   type CardStyle,
 } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
+import { SourceLink } from "./SourceLink";
 import type { AppsStore } from "./store";
 import type { AppContribution, AppDetail, CatalogApp, ScopeRequest } from "./types";
 import { UseAsNewTab } from "./UseAsNewTab";
@@ -507,11 +508,7 @@ export function InfoFacts({ detail, strings }: { detail: AppDetail; strings: Str
           </div>
         ))}
       </dl>
-      {detail.repository?.startsWith("https://") && (
-        <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-          {t("store.action.repository")} ↗
-        </a>
-      )}
+      <SourceLink source={detail} strings={strings} />
     </DetailSection>
   );
 }

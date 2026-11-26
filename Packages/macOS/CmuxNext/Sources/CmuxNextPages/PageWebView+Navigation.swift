@@ -42,6 +42,7 @@ extension PageWebView {
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
         watchOverlayStart()
+        onDocumentWillChange?(.committed)
     }
 
     /// The document finished loading (either engine).

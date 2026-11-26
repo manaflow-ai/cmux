@@ -81,7 +81,7 @@ struct ScreenSharingTabPage: View {
         Group {
             if let service = source.screenSharing {
                 ScreenSharingPage(service: service)
-                    .contentMargins(.top, context.safeAreaInsets.top, for: .scrollContent)
+                    .contentMargins(.top, context.chromeInsets.top, for: .scrollContent)
                     .contentMargins(.bottom, context.safeAreaInsets.bottom, for: .scrollContent)
             } else {
                 Text("Sign in to cmux to share your Mac's screen.")

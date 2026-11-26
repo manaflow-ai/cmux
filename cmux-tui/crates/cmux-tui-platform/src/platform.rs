@@ -536,11 +536,16 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(preferred_config_path)
 }
 
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(not(windows))]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
 #[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
     env_path("XDG_CONFIG_HOME")
-        .map(|config_home| config_home.join("cmux"))
-        .or_else(|| home_dir().map(|home| home.join(".config").join("cmux")))
+        .map(|config_home| config_home.join(CONFIG_DIR_NAME))
+        .or_else(|| home_dir().map(|home| home.join(".config").join(CONFIG_DIR_NAME)))
 }
 
 #[cfg(windows)]

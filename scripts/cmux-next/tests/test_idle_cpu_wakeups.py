@@ -21,6 +21,21 @@ RUN_LOOP = ("<CFRunLoopTimer 0x1>{valid = Yes, firing = No, interval = 1, tolera
             "callout = Dead (0x6)}\n")
 
 
+class WakeupKinds(unittest.TestCase):
+    def test_a_window_splits_package_idle_and_interrupt_wakeups(self):
+        # host_load=8 runs read about half the idle runs' wakeups/s (0.85 against 1.5 per acpmux daemon) with the same
+        # context switches/s (0.9): the wakeups counter is package-idle plus interrupt wakeups, and a busy Mac's
+        # package is never idle. Each window keeps both, so a busy run is judged by a counter the load does not hide.
+        usage = lambda cpu, pkg, intr: (0, 0, 0, cpu, pkg + intr, pkg)
+        spans = [((0.0, {7: (usage(0, 10, 5), 100)}), (10.0, {7: (usage(10**7, 13, 15), 109)}))]
+        row = idle_cpu.rows_of({7: ("acpmux-daemon", "acpmux")}, spans)[0]
+        self.assertEqual(row["windows"][0]["wakeups_per_s"], 1.3)
+        self.assertEqual(row["windows"][0]["idle_wakeups_per_s"], 0.3)
+        self.assertEqual(row["windows"][0]["interrupt_wakeups_per_s"], 1.0)
+        self.assertEqual((row["idle_wakeups_per_s"], row["interrupt_wakeups_per_s"], row["switches_per_s"]),
+                         (0.3, 1.0, 0.9))
+
+
 class WakeReport(unittest.TestCase):
     def test_ledger_rates_over_the_windows_busiest_first(self):
         before = {"uptime_s": 100.0, "ledger": [{"owner": "dock", "reason": "badge", "count": 10},
@@ -48,6 +63,17 @@ class WakeReport(unittest.TestCase):
         rows = idle_cpu.thread_wake_rows(traced)
         self.assertEqual(rows[0], {"tid": 7, "name": "CrBrowserMain", "wakes_per_s": 3.0, "cpu_ms_per_s": 0.5})
         self.assertEqual(rows[1]["name"], "?")
+
+    def test_an_unnamed_thread_is_named_by_its_sampled_stack(self):
+        # "cmux DEV" threads with no pthread name woke 4.5 times/s in all (ca941dd8): the sample says what they wait on.
+        traced = {"seconds": 10, "threads": {8: {"name": "", "wakes": 12, "running_ns": 1000},
+                                             9: {"name": "cmux DEV", "wakes": 3, "running_ns": 1000}}}
+        sampled = {8: {"header": "", "frames": ["kevent_id (libsystem_kernel.dylib)", "DaemonConnection.read() (cmux DEV)"]},
+                   9: {"header": "DispatchQueue_42: com.cmux.health  (serial)", "frames": ["x (y)"]}}
+        rows = idle_cpu.thread_wake_rows(traced, sampled, process_name="cmux DEV")
+        self.assertEqual(rows[0]["name"], "~kevent_id > DaemonConnection.read()")
+        self.assertEqual(rows[0]["frames"], sampled[8]["frames"])
+        self.assertEqual(rows[1]["name"], "DispatchQueue_42: com.cmux.health  (serial)")
 
     def test_the_option_is_bounded(self):
         args = idle_cpu.parse_args(["--app", "/x.app", "--wake-trace", "10"])

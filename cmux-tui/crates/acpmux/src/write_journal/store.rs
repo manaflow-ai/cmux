@@ -157,12 +157,9 @@ impl JournalStore for FileJournalStore {
         for e in state.entries.into_iter().filter(|e| e.seq > through) {
             text.push_str(&line_of(&Line::Entry(e))?);
         }
-        let mut tmp = tempfile::NamedTempFile::new_in(&self.dir)?;
-        tmp.write_all(text.as_bytes())?;
-        tmp.as_file().sync_data()?;
-        tmp.persist(&path).map_err(|e| e.error)?;
-        // The rename itself is durable once the folder is.
-        sync_dir(&self.dir)
+        // One copy name per file and process (`home_fs::write_durable`), synced, renamed, and
+        // the folder synced: the rename itself is durable once the folder is.
+        crate::home_fs::write_durable(&path, text.as_bytes())
     }
 }
 

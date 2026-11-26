@@ -48,6 +48,9 @@ test("the categories are the approved ones, in order", () => {
     "chief",
     // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
     "models",
+    // Settings > Automations: cloud automations, what sets an agent off and what it does (Leo
+    // 2026-11-24: "having people be able to set up their own conditions for when autocloud will go off").
+    "automations",
     "notifications",
     "keyboard",
     "accounts",

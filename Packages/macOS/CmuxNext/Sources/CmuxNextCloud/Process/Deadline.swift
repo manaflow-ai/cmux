@@ -3,6 +3,7 @@ import Foundation
 /// A deadline miss on a cross-process call (architecture.md 5a).
 public struct DeadlineExceeded: Error, Sendable, CustomStringConvertible {
     public let label: String
+    package init(label: String) { self.label = label }
     public var description: String { "\(label) missed its deadline" }
 }
 

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.notifications.sounds.volume.help" : {
+      "comment" : "Settings > Notifications > Sounds > Volume: help text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأصوات التي يشغّلها cmux بنفسه. يتبع الصوت الافتراضي للإشعار مستوى صوت التنبيهات في النظام."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zvukovi koje cmux sam reproducira. Zadani zvuk obavještenja prati sistemsku jačinu upozorenja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyde, som cmux selv afspiller. En notifikations standardlyd følger systemets lydstyrke for advarsler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Töne, die cmux selbst abspielt. Der Standardton eines Banners folgt der Warnton-Lautstärke des Systems."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sounds cmux plays itself. A banner's default sound follows the system alert volume."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sonidos que reproduce cmux. El sonido predeterminado de un aviso sigue el volumen de alertas del sistema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sons joués par cmux lui-même. Le son par défaut d'une bannière suit le volume des alertes du système."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suoni riprodotti da cmux. Il suono predefinito di un banner segue il volume degli avvisi di sistema."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux が自分で鳴らすサウンドの音量です。バナーのデフォルトサウンドはシステムの通知音量に従います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯង។ សំឡេងលំនាំដើមនៃបដាធ្វើតាមកម្រិតសំឡេងការជូនដំណឹងរបស់ប្រព័ន្ធ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 직접 재생하는 사운드입니다. 배너의 기본 사운드는 시스템 알림 음량을 따릅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyder cmux spiller selv. Standardlyden til et varsel følger systemets varselvolum."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dźwięki odtwarzane przez cmux. Domyślny dźwięk banera używa systemowej głośności alertów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sons que o cmux toca sozinho. O som padrão de um banner segue o volume de alertas do sistema."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Звуки, которые cmux воспроизводит сам. Стандартный звук баннера следует системной громкости предупреждений."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เสียงที่ cmux เล่นเอง เสียงเริ่มต้นของแบนเนอร์จะใช้ระดับเสียงการแจ้งเตือนของระบบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'ın kendisinin çaldığı sesler. Bir bildirimin varsayılan sesi sistem uyarı ses düzeyini izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Звуки, які cmux відтворює сам. Стандартний звук банера відповідає системній гучності сповіщень."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Âm thanh do cmux tự phát. Âm thanh mặc định của biểu ngữ theo âm lượng cảnh báo của hệ thống."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 自己播放的声音。横幅的默认声音遵循系统提醒音量。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 自行播放的聲音。橫幅的預設聲音會依照系統提示音量。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

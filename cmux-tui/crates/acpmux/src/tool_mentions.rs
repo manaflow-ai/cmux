@@ -114,7 +114,7 @@ pub fn without_own_note(text: &str) -> std::borrow::Cow<'_, str> {
             // Only the generated copy: the last one outside code. A copy the person pasted in a
             // fenced block or a code span is their text and stays.
             let mut end = text.len();
-            while let Some(at) = head_to(&text, end).rfind(&joined) {
+            while let Some(at) = head_to(text, end).rfind(&joined) {
                 let through = head_to(text, at + joined.len());
                 if without_code(through).trim_end().ends_with("</cmux-tools-context>") {
                     let rest = format!("{}{}", head_to(text, at), tail_at(text, at + joined.len()));

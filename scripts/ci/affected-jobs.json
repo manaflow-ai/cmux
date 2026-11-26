@@ -110,6 +110,7 @@
           "inputs": [
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
             "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
             "scripts/cmux-next/private-bun.sh", "scripts/check-webviews-bun-version.sh",
             "scripts/webviews_bun_version.py",
@@ -121,7 +122,8 @@
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+            "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
@@ -173,6 +175,7 @@
         "static-checks": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 95 job-minutes",
         "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
+        "fast-check-route": "80 runs on 40 merged pull requests (11-25 timing feed), 11 red and 3 cancelled, 0 of them read by a job: it feeds only ci-guard-group and own-change-checks, both skipped on a pull request into feat-cmux-next without full-ci, so it skips with them; 1,115 runs in 5.1 h of 11-25 (timing feed 19:00Z..00:08Z, about 1,974 runner-min), each a runner start that decided nothing a job read",
         "own-change-checks": "46 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46652): Tier B, fixed forward on the push; 253 job-minutes; the miss is #46652: 28 untranslated strings it added",
         "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes"
       },
@@ -192,9 +195,6 @@
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
         "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
         "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
-      },
-      ".github/workflows/swift-linux-packages.yml": {
-        "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"

@@ -8,6 +8,8 @@ export type UnderHeaderLines = {
   checkpointReview: boolean;
   liveChat: boolean;
   peerCopy: boolean;
+  /// An Auto chat's line or its kept-changes notice (autoSession/AutoSessionBanner.tsx).
+  autoSession: boolean;
   /// The tab's chat is not listed yet, drawn from its last-read rows (ChatUnavailableState `line`).
   unavailable: boolean;
   watching: boolean;
