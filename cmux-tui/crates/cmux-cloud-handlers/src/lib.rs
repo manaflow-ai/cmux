@@ -16,6 +16,7 @@
 //! - [`answers`]: the text and fields of the actions whose answer someone reads.
 //! - [`wake_hint`]: wake on intent: which focus, terminal or unlock signal wakes a paused
 //!   machine, its debounce and cap, and the re-pause of a hint wake nobody used.
+//! - [`calls`]: the Cloud API calls a checked action sends (`cloud resize-machine`).
 //! - [`repo`]: the `--repo` spec parser, which refuses a login or token in the URL.
 //!
 //! A refusal is a [`Said`]: a key the app turns into its localized text (the
@@ -23,6 +24,7 @@
 
 pub mod answers;
 pub mod args;
+pub mod calls;
 pub mod decide;
 pub mod fields;
 pub mod repo;
