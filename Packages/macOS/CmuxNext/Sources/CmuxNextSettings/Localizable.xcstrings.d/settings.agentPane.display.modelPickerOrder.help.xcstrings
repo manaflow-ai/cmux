@@ -10,6 +10,126 @@
             "state" : "translated",
             "value" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
           }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ترتيب الوكلاء في منتقي النماذج. اسحب وكيلًا في المنتقي لنقله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Redoslijed agenata u biraču modela. Prevucite agenta u biraču da ga pomjerite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenternes rækkefølge i modelvælgeren. Træk en agent i vælgeren for at flytte den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Reihenfolge der Agent-Umgebungen in der Modellauswahl. Ziehe eine in der Auswahl, um sie zu verschieben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El orden de los agentes en el selector de modelos. Arrastra un agente en el selector para moverlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’ordre des agents dans le sélecteur de modèle. Faites glisser un agent dans le sélecteur pour le déplacer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’ordine degli agenti nel selettore di modelli. Trascina un agente nel selettore per spostarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "モデル選択でのエージェントの順序です。選択画面でエージェントをドラッグすると移動できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំដាប់ភ្នាក់ងារនៅក្នុងឧបករណ៍ជ្រើសរើសម៉ូដែល។ អូសភ្នាក់ងារនៅក្នុងឧបករណ៍ជ្រើសរើស ដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모델 선택기의 에이전트 순서입니다. 선택기에서 에이전트를 끌어 이동하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agentenes rekkefølge i modellvelgeren. Dra en agent i velgeren for å flytte den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolejność agentów w selektorze modeli. Przeciągnij agenta w selektorze, aby go przenieść."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A ordem dos agentes no seletor de modelos. Arraste um agente no seletor para movê-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Порядок агентов в меню выбора модели. Перетащите агента в меню, чтобы переместить его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลำดับของเอเจนต์ในตัวเลือกโมเดล ลากเอเจนต์ในตัวเลือกเพื่อย้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Model seçicideki ajanların sırası. Taşımak için seçicide bir ajanı sürükleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Порядок агентів у меню вибору моделі. Перетягніть агента в меню, щоб перемістити його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thứ tự các tác nhân trong bộ chọn mô hình. Kéo một tác nhân trong bộ chọn để di chuyển."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型选择器中智能体的顺序。在选择器中拖动智能体即可移动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型選擇器中代理程式的順序。在選擇器中拖曳代理程式即可移動。"
+          }
         }
       }
     }
