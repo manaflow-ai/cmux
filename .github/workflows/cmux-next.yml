@@ -938,7 +938,7 @@ jobs:
             !/Packages/macOS/CmuxNext/**/*.xcstrings
             !/Packages/macOS/CmuxNext/**/*.avif
             !/Packages/macOS/CmuxNext/**/*.png
-      # Why: note-561
+      # Why: 2026-11-26-checkout-blob-retry.md
       - name: Discard the workspace repository after a failed checkout
         if: steps.checkout.outcome == 'failure'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
@@ -5189,7 +5189,7 @@ jobs:
             /web/data/next-docs/
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
-      # Why: note-561
+      # Why: 2026-11-26-checkout-blob-retry.md
       - name: Discard the workspace repository after a failed checkout
         if: steps.checkout.outcome == 'failure'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
