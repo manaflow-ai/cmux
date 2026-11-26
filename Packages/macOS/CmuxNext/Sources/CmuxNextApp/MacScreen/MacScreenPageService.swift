@@ -166,6 +166,7 @@ extension AppServices {
             host?.consentChanged { consent?.macScreenPermits($0) ?? false }
         }
         pages.deviceSetup.runner = MacScreenDeviceSetup.runner(daemon: services.daemon)
+        pages.sessionReports = .init { [reporter = services.crashReporting.reporter] in reporter.reportScreenShareSession(json: $0) }
         return pages
     }
 

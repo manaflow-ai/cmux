@@ -122,6 +122,9 @@ public final class MacScreenSession {
     /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
     /// lists the cap only when its person turned clipboard sync on.
     @ObservationIgnored public var offersClipboard = false
+    /// Where each ended transport's session report goes (first frame, present p50/p95; the app's
+    /// crash reporting); set where the pane is made, the default drops it.
+    @ObservationIgnored public var sessionReports = RemoteRdSessionReports()
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -383,7 +386,7 @@ public final class MacScreenSession {
                                   caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
                                          RemoteRdHello.clockCap, RemoteRdHello.ledgerCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
-                                                      control: true, clipboard: offersClipboard) else {
+                                                      control: true, clipboard: offersClipboard, reports: sessionReports) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }
