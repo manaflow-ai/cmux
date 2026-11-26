@@ -3,6 +3,7 @@
 //! (the offer, the document, the failure words, the path label, the connect stages).
 
 use super::offer::{Customize, OfferInputs, Quality, customize, lacks_display, make_offer, wish};
+use super::rd_host::{Host, HostInput, HostSession, line_kinds, setup};
 use super::session::{Event, Session, failure_cause_of_ended, host_end, path_label};
 use super::stage::Stage;
 use cmux_rd_proto::rd_doc::{RdDocument, is_relayed, servers};
@@ -15,6 +16,7 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct MacScreen {
     sessions: HashMap<String, Session>,
+    hosts: HashMap<String, Host>,
 }
 
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
@@ -75,6 +77,25 @@ struct CustomizeRequest {
 struct LacksRequest {
     text: String,
     id: u32,
+}
+
+#[derive(Deserialize)]
+struct HostOpen {
+    id: String,
+    #[serde(default)]
+    session: HostSession,
+}
+
+#[derive(Deserialize)]
+struct HostApply {
+    id: String,
+    input: HostInput,
+}
+
+#[derive(Deserialize)]
+struct SetupRequest {
+    session: HostSession,
+    offer: String,
 }
 
 #[derive(Deserialize)]
@@ -173,6 +194,42 @@ impl MacScreen {
                     json!({ "stages": stages, "connect_timeout_ms": super::stage::CONNECT_TIMEOUT_MS }),
                 )
             }
+            "mac_screen_host_open" => {
+                let HostOpen { id, session } = parse(request)?;
+                let host = Host::new(session);
+                let state = encode(&host)?;
+                self.hosts.insert(id, host);
+                Ok(state)
+            }
+            "mac_screen_host_input" => {
+                let HostApply { id, input } = parse(request)?;
+                let host = self.hosts.get_mut(&id).ok_or_else(|| format!("no host {id}"))?;
+                let effects = host.apply(input);
+                Ok(json!({ "state": encode(&*host)?, "effects": encode(effects)? }))
+            }
+            "mac_screen_host_close" => {
+                let Id { id } = parse(request)?;
+                Ok(json!({ "closed": self.hosts.remove(&id).is_some() }))
+            }
+            "mac_screen_host_setup" => {
+                let r: SetupRequest = parse(request)?;
+                let offer = RdDocument::parse(&r.offer).ok_or("not a cmux.rd/1 document")?;
+                encode(setup(&r.session, &offer))
+            }
+            "mac_screen_line_kinds" => {
+                let line: cmux_rd_proto::app_line::AppLine = parse(request)?;
+                Ok(json!({ "kinds": line_kinds(&line) }))
+            }
+            "mac_screen_exclude_windows" => {
+                #[derive(Deserialize)]
+                struct Ids {
+                    ids: Vec<u32>,
+                }
+                let Ids { mut ids } = parse(request)?;
+                ids.sort_unstable();
+                ids.dedup();
+                Ok(json!({ "exclude_windows": ids }))
+            }
             _ => Err(format!("unknown op {op}")),
         }
     }
@@ -256,5 +313,37 @@ mod tests {
         let stages = m.call("mac_screen_stages", Value::Null).unwrap();
         assert_eq!(stages["stages"][0]["timeout_key"], "macScreen.card.noAnswer");
         assert_eq!(stages["connect_timeout_ms"], 15000);
+    }
+
+    #[test]
+    fn a_host_lives_by_id_until_closed() {
+        let mut m = MacScreen::new();
+        let session =
+            json!({"id": "s", "viewer_id": "v", "view_only": false, "stun": [], "turn": []});
+        m.call("mac_screen_host_open", json!({"id": "h", "session": session})).unwrap();
+        let offer = RdDocument { key: "ab".repeat(32), ..RdDocument::default() }.text();
+        let r = m
+            .call(
+                "mac_screen_host_input",
+                json!({"id": "h", "input": {"input": "offer", "text": offer}}),
+            )
+            .unwrap();
+        assert_eq!(r["effects"], json!([{"effect": "start_serve"}]));
+        let r = m
+            .call("mac_screen_host_input", json!({"id": "h", "input": {"input": "serve_started"}}))
+            .unwrap();
+        assert_eq!(r["effects"][1]["line"]["scope"], "control");
+        let s =
+            m.call("mac_screen_host_setup", json!({"session": session, "offer": offer})).unwrap();
+        assert_eq!(s["display"], "main");
+        assert_eq!(m.call("mac_screen_line_kinds", json!({"key": "k"})).unwrap()["kinds"], "key");
+        assert_eq!(
+            m.call("mac_screen_exclude_windows", json!({"ids": [9, 3, 9]})).unwrap(),
+            json!({"exclude_windows": [3, 9]})
+        );
+        assert_eq!(m.call("mac_screen_host_close", json!({"id": "h"})).unwrap()["closed"], true);
+        assert!(
+            m.call("mac_screen_host_input", json!({"id": "h", "input": {"input": "bye"}})).is_err()
+        );
     }
 }
