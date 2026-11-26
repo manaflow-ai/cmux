@@ -1,12 +1,42 @@
 //! Claude’s repo, session-tool and repeated-stop callbacks on its existing control stream.
 //! Unknown callbacks retain the empty success output Claude expects.
 use super::*;
+use std::time::Duration;
 
 #[cfg(unix)]
 pub(super) const SYNC_CALLBACK: &str = "cmux-repo-sync";
 
 pub(super) const STOP_CALLBACK: &str = "cmux-repeat-stop";
 pub(super) const TOOL_CALLBACK: &str = "cmux-session-tools";
+
+/// The timeout (seconds) Claude Code gives each callback at `initialize`. Past it Claude says "A
+/// hook didn't answer in time", so each answer is computed under [`deadline`] of it.
+pub(super) const STOP_TIMEOUT_S: u64 = 5;
+pub(super) const TOOL_TIMEOUT_S: u64 = 10;
+#[cfg(unix)]
+pub(super) const SYNC_TIMEOUT_S: u64 = 90;
+
+/// When acpmux gives up on a callback's answer and sends the safe default (`{}`: the agent carries
+/// on): four fifths of its timeout, the rest left for the reply's trip to Claude Code.
+pub(super) const fn deadline(timeout_s: u64) -> Duration {
+    Duration::from_millis(timeout_s.saturating_mul(800))
+}
+
+/// `answer` within `deadline`, or `default` past it, counted in `gauges.hookAnswers.misses`. A
+/// blocking task behind `answer` runs on but no longer holds the reply.
+pub(super) async fn within<T>(
+    deadline: Duration,
+    answer: impl std::future::Future<Output = T>,
+    default: T,
+) -> T {
+    match tokio::time::timeout(deadline, answer).await {
+        Ok(answer) => answer,
+        Err(_) => {
+            crate::gauges::hook_answers().missed();
+            default
+        }
+    }
+}
 
 pub(super) fn add_tool_hooks(request: &mut Value) {
     let mcp = crate::bg_hook::mcp_matcher();
@@ -20,7 +50,7 @@ pub(super) fn add_tool_hooks(request: &mut Value) {
         ("PostToolUseFailure", Some(mcp.as_str())),
         ("SubagentStop", None),
     ] {
-        let mut entry = json!({"hookCallbackIds": [TOOL_CALLBACK], "timeout": 10});
+        let mut entry = json!({"hookCallbackIds": [TOOL_CALLBACK], "timeout": TOOL_TIMEOUT_S});
         if let Some(tools) = tools {
             entry.set("matcher", json!(tools));
         }
@@ -36,7 +66,16 @@ pub(super) fn add_tool_hooks(request: &mut Value) {
 
 impl Translator {
     pub(super) async fn answer_hook_callback(&self, rid: &str, req: &Value) {
+        let started = tokio::time::Instant::now();
         let output = self.hook_callback_output(req).await;
+        let id = req.get("callback_id").and_then(Value::as_str);
+        #[cfg(unix)]
+        let ours = id == Some(SYNC_CALLBACK);
+        #[cfg(not(unix))]
+        let ours = false;
+        if ours || id == Some(STOP_CALLBACK) || id == Some(TOOL_CALLBACK) {
+            crate::gauges::hook_answers().answered(started.elapsed());
+        }
         self.stdin_replies.lock().await.push(json!({
             "type": "control_response",
             "response": {"subtype": "success", "request_id": rid, "response": output}
@@ -50,7 +89,8 @@ impl Translator {
             && self.stop_condition.load(std::sync::atomic::Ordering::Relaxed)
             && input["hook_event_name"].as_str() == Some("Stop")
         {
-            return crate::hub::stop_condition::repeat_stop(input);
+            let answer = async { crate::hub::stop_condition::repeat_stop(input) };
+            return within(deadline(STOP_TIMEOUT_S), answer, json!({})).await;
         }
 
         let tool_callback = id == Some(TOOL_CALLBACK);
@@ -64,12 +104,12 @@ impl Translator {
                     &check,
                     cmux_git::native_hook::WAIT,
                 )
-            })
-            .await;
-            match sync {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => return cmux_git::native_hook::denial(&error.to_string()),
-                Err(error) => return cmux_git::native_hook::denial(&error.to_string()),
+            });
+            match within(deadline(SYNC_TIMEOUT_S), async { Some(sync.await) }, None).await {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(error))) => return cmux_git::native_hook::denial(&error.to_string()),
+                Some(Err(error)) => return cmux_git::native_hook::denial(&error.to_string()),
+                None => return json!({}),
             }
             let tool = input["tool_name"].as_str().unwrap_or("");
             input["hook_event_name"] == "PreToolUse"
@@ -87,13 +127,13 @@ impl Translator {
         {
             let session = self.acp_session_id.clone();
             let input = input.clone();
-            return tokio::task::spawn_blocking(move || {
-                crate::bg_hook::answer(&home, &session, input)
-            })
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| json!({}));
+            let answer =
+                tokio::task::spawn_blocking(move || crate::bg_hook::answer(&home, &session, input));
+            return within(deadline(TOOL_TIMEOUT_S), answer, Ok(None))
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| json!({}));
         }
         json!({})
     }
