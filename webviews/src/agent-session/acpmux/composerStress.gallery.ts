@@ -91,8 +91,16 @@ const dropMany =
     );
     const drop = new view.Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
-    ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
-    await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length >= count);
+    // The drop is the person's act: like a key that adds a line, it grows the composer (the strip
+    // takes its row above the prompt), and layout/motionAudit.ts declares a drop's growth the same way.
+    // The anchors still fail any move of the prompt box or the controls.
+    const end = ctx.declare("composer-growth");
+    try {
+      ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+      await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length >= count);
+    } finally {
+      end();
+    }
   };
 
 /** The chat font setting at its maximum, 28 px: 200% of the 14 px default (chatDisplay.ts). */

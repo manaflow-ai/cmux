@@ -67,6 +67,11 @@ path = "tests/test_ios_link_ffi_sh.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_live_broker_transport.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_live_broker_transport.py"
+
+[[test]]
 path = "tests/test_ios_live_lease_owner.py"
 lane = "linux-guard"
 
