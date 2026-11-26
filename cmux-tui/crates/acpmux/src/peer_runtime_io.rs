@@ -650,6 +650,8 @@ impl Peer {
         // The transport's reads, also after the link ends: how long it heard nothing.
         #[cfg(feature = "hub-carrier")]
         let link_heard = opened.heard.clone();
+        *self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            opened.heard.read().clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
