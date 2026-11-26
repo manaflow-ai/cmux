@@ -61,6 +61,7 @@ function Stage({ scheme, children }: { scheme: Scheme; children: ReactNode }) {
       className="kit-gallery-panel"
       style={themedPanelStyle(SHEET_THEMES[scheme])}
       aria-label={scheme === "light" ? "Light" : "Dark"}
+      data-surface-theme=""
       data-scheme={scheme}
     >
       <UiProvider container={container}>{children}</UiProvider>
