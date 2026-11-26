@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 37,
+ "todo_max": 32,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -66,13 +66,13 @@
    "todo": true
   },
   "cmux_server::cloud_http_transport": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::the_poster_sends_its_bearer_only_in_authorization"
   },
   "cmux_server::pairing::network": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::pairing_sends_the_collect_secret_only_in_the_wait_protocol"
   },
   "cmux_server::store::fetch": {
-   "todo": true
+   "none": "header-less GETs of the signed channel's manifest, signature and package URLs (HttpsFetcher::open sets no auth, cookie or custom header): the request carries no person data"
   },
   "cmux_session_cloud::store": {
    "test": "cmux-tui/crates/cmux-session-cloud/tests/seeded_secret.rs::a_chat_goes_out_sealed_and_the_credential_only_in_authorization"
@@ -87,10 +87,10 @@
    "none": "a header-less GET of the signed machine channel file (CHANNEL_URL), no auth, no redirect: the request carries no person data"
   },
   "cmux_tui::carrier::answer": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_carrier_source_sends_its_bearer_and_team_only_in_their_headers"
   },
   "cmux_tui::carrier::tunnel": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
   },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
