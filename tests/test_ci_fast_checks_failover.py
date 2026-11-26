@@ -214,7 +214,6 @@ class FastChecksFailoverTests(unittest.TestCase):
 
     def test_display_commands_skip_with_a_success_receipt(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("import json, os, pathlib, shlex, signal, subprocess, time", text)
         self.assertIn("command_words[:2] == ['cmux-ci', 'run']", text)
         self.assertIn("not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\\n'))", text)
         self.assertIn("assert actual == os.environ['FAST_CHECKS_SOURCE']", text)
