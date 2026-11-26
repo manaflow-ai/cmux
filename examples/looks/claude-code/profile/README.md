@@ -64,6 +64,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Context usage ring](https://code.claude.com/docs/en/desktop) | status | matched | agentPane.showContextUsage true; agentPane.composerRing context |
 | [Notifications when Claude needs permission or finishes](https://code.claude.com/docs/en/settings) | status | matched | notifications.delivery.permissionRequest banner, .question badge, .taskComplete off |
 | [Sessions grouped by project, subagents nested](https://code.claude.com/docs/en/desktop) | sidebar | matched | sidebar.groupBy folder; sidebar.sessionTree true; 284 pt sidebar |
+| [No Home or App Store rows above the sessions](https://code.claude.com/docs/en/desktop) | sidebar | matched | sidebar.sections.hidden ["sec_top"] hides Home, App Store and coderouter; Settings and the account stay in the bottom row |
 | [Recent sessions list](https://code.claude.com/docs/en/desktop) | sidebar | partial | the New Tab home lists recents (renderHome); the Recents sidebar section (claude-code/session-recents) cannot ship beside Usage: gap (a): a look ships one customize app, one export per interface; Recents and Usage cannot both be cmux.section/1 |
 | [Worktree per session in .claude/worktrees](https://code.claude.com/docs/en/desktop) | sessions | matched | agentPane.sessionWorktrees project |
 | [Continue a CLI session in the desktop app; teleport a cloud session](https://code.claude.com/docs/en/desktop) | sessions | matched | actions claude-code-desktop-continue, claude-code-teleport; cmd+j c chooseComputer |

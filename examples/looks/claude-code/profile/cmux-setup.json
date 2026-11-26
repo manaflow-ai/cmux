@@ -26,6 +26,8 @@
     "sidebar.cards.tips": false,
     "sidebar.showProjects": true,
     "sidebar.showChats": true,
+    // The app has no Home or App Store rows above its sessions: hide cmux's top section (Settings and the account stay in the bottom row).
+    "sidebar.sections.hidden": ["sec_top"],
     "sidebar.controlsOnHover": true,
     "appearance.metrics.sidebarWidth": 284,
     "tabs.hideLoneChatTab": true,
