@@ -165,7 +165,9 @@ async fn cli_changes_codex_speed_without_switching_model() {
         )
         .await;
     assert!(init.get("error").is_none(), "{init}");
-    let denied = agent
+    // Speed needs no person (`web_modes::cli_config_id`), so an agent may set it on another
+    // chat too; that chat keeps its own model.
+    let other_speed = agent
         .call(
             "session/set_config_option",
             json!({
@@ -173,12 +175,15 @@ async fn cli_changes_codex_speed_without_switching_model() {
             }),
         )
         .await;
-    assert!(
-        denied["error"]["message"]
-            .as_str()
-            .is_some_and(|m| m.contains("approve this on the Mac app")),
-        "{denied}"
-    );
+    let other_options = other_speed["result"]["configOptions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{other_speed}"));
+    for (id, expected) in [("model", model), ("fast-mode", "priority")] {
+        assert!(
+            other_options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+            "{other_speed}"
+        );
+    }
     for tier in ["priority", "default"].into_iter().cycle().take(10) {
         let client = if tier == "priority" { &mut agent } else { &mut client };
         let reply = client

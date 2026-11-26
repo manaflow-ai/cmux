@@ -688,7 +688,8 @@ function Columns({
       : [];
   const isRunning = (model: QuickModel) =>
     model.family === families.current && (model.id === current || runsOffers(model, current));
-  if (!query && current && shown?.id && shown.id === families.current && !rows.some(isRunning)) {
+  // Only beside other rows: a tab that lists none (a harness that picks its own model) keeps its note.
+  if (!query && current && shown?.id && shown.id === families.current && rows.length > 0 && !rows.some(isRunning)) {
     rows.unshift({ id: current, name: current, family: shown.id });
   }
   // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
