@@ -149,7 +149,7 @@ fn ins(id: &str, before: Option<&str>) -> FeedMoveStep {
     FeedMoveStep { id: id.into(), before: before.map(Into::into), moved: false }
 }
 
-fn moved(old: &[&str], new: &[&str], movers: &[&str], limit: u32) -> Option<FeedMoveEdit> {
+fn moved(old: &[&str], new: &[&str], movers: &[&str], limit: u32) -> Option<FeedMovePlan> {
     feed_move_edit(ids(old), ids(new), ids(movers), limit)
 }
 

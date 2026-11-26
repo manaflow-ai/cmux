@@ -24,6 +24,7 @@ mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
 mod composer_outbox;
+mod feed_list_edit;
 mod follow_camera;
 mod lan;
 mod last_place;

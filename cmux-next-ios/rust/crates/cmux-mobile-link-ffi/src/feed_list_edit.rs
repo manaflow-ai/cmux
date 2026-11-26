@@ -117,7 +117,7 @@ pub struct FeedInsertGroup {
 
 /// Inserts and removals that turn one row order into another.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct FeedSnapshotEdit {
+pub struct FeedInsertEdit {
     pub removed: Vec<String>,
     pub groups: Vec<FeedInsertGroup>,
     /// New rows after the last kept row.
@@ -128,7 +128,7 @@ pub struct FeedSnapshotEdit {
 /// event, a done swipe); none when they do not (a re-sort), so the list
 /// rebuilds the section instead.
 #[uniffi::export]
-pub fn feed_snapshot_edit(old: Vec<String>, new: Vec<String>) -> Option<FeedSnapshotEdit> {
+pub fn feed_snapshot_edit(old: Vec<String>, new: Vec<String>) -> Option<FeedInsertEdit> {
     let old_set: HashSet<&str> = old.iter().map(String::as_str).collect();
     let new_set: HashSet<&str> = new.iter().map(String::as_str).collect();
     let kept_old = old.iter().filter(|id| new_set.contains(id.as_str()));
@@ -148,7 +148,7 @@ pub fn feed_snapshot_edit(old: Vec<String>, new: Vec<String>) -> Option<FeedSnap
             buffer.push(id.clone());
         }
     }
-    Some(FeedSnapshotEdit { removed, groups, tail: buffer })
+    Some(FeedInsertEdit { removed, groups, tail: buffer })
 }
 
 /// One step of a move edit: put `id` before `before` (none: after the last
@@ -162,7 +162,7 @@ pub struct FeedMoveStep {
 
 /// One row order turned into another by moving a few rows.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct FeedMoveEdit {
+pub struct FeedMovePlan {
     pub removed: Vec<String>,
     /// From the last row to the first: each step's `before` row is already in its place.
     pub steps: Vec<FeedMoveStep>,
@@ -178,7 +178,7 @@ pub fn feed_move_edit(
     new: Vec<String>,
     movers: Vec<String>,
     limit: u32,
-) -> Option<FeedMoveEdit> {
+) -> Option<FeedMovePlan> {
     let old_set: HashSet<&str> = old.iter().map(String::as_str).collect();
     let new_set: HashSet<&str> = new.iter().map(String::as_str).collect();
     let moving: HashSet<&str> =
@@ -201,12 +201,12 @@ pub fn feed_move_edit(
         }
         after = Some(id);
     }
-    Some(FeedMoveEdit { removed, steps })
+    Some(FeedMovePlan { removed, steps })
 }
 
 /// The steps applied to `old` (what the list does to its snapshot).
 #[uniffi::export]
-pub fn feed_move_edit_applied(edit: FeedMoveEdit, old: Vec<String>) -> Vec<String> {
+pub fn feed_move_edit_applied(edit: FeedMovePlan, old: Vec<String>) -> Vec<String> {
     let gone: HashSet<&str> = edit.removed.iter().map(String::as_str).collect();
     let mut order: Vec<String> = old.into_iter().filter(|id| !gone.contains(id.as_str())).collect();
     for step in edit.steps {
