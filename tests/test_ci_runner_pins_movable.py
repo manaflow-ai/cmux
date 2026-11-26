@@ -44,9 +44,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     "auto-resume-nightly-notarization.yml": (
         SIGNING + "; verify-stapled: " + VERIFY,
         {"generate-deltas", "staple-outer", "staple-stapled", "verify-stapled", "wait-and-staple"}),
-    "billing-nightly.yml": (
-        SIGNING + "; alert: tests/test_ci_billing_nightly.py requires every secret job on a literal runner",
-        {"alert", "apple-api", "apple-delivery", "apple-post-release"}),
     "cmux-next-cua-helper-dev-sign.yml": (SIGNING, {"sign"}),
     "cmux-next-dev-daily.yml": (
         SIGNING + "; verify: " + VERIFY + "; tip-dmg-build: tests/test_cmux_next_dev_tip_feed.py and "
