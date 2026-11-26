@@ -598,7 +598,25 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   vectors), kind `datagrams` only: one or more `[u16 length][datagram]`
   records, as many ready datagrams as fit in one message. The relay sends
   each frame to the other party's socket with `peer` set to the sender's
-  device id (the UUID's 16 bytes) and never reads the payload. Malformed
+  device id (the UUID's 16 bytes) and never reads the payload. Kind 4
+  `tagged-datagrams` (same frame version 1) carries hop/1 DATA records
+  (`docs/cmux-next/relay-pop-hop.md`: `[u8 class][u8 flags][u32 key, u32
+  key_seq if flags&1][u16 len > 0][bytes]`, tiling the payload exactly; golden
+  vectors `relay-tagged-frames.json`) so one record means the same on the UDP
+  PoP and here. The relay forwards it like `datagrams`, coalescing the tagged
+  records that reach one target socket in the same event-loop turn into
+  fewer frames and dropping a class-1 record when a newer one of the same key
+  is queued with it; it never drops or reorders other classes, and sends a
+  plain `datagrams` frame only after the records queued before it. Workers'
+  WebSocket has no `bufferedAmount` or drain signal, so it cannot see a send
+  backlog: this is coalescing of what it already holds, not backpressure.
+  An older relay answers kind 4 with `bad_frame:kind` and a sender then
+  falls back to `datagrams` (`RelaySender`). A client's text `stats`
+  is answered `{"type":"stats","leg":{...},"peer":{...}|null}` with in-memory
+  per-leg counters (frames, bytes, records, superseded, refused, notices).
+  The Rust client of this WebSocket relay is not built yet (the dial the app
+  uses today has none on `feat-cmux-next`), so `RelaySender` is not wired into
+  any sender and nothing sends kind 4 yet. Malformed
   frames, other kinds and frames past the per-socket limit (1500 frames and
   8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
   at most every 5 s. What a socket relays is first granted by the user's

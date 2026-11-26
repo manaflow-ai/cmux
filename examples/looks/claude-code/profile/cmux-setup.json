@@ -39,6 +39,8 @@
       "customize.open | Customize | briefcase"
     ],
     "appearance.metrics.sidebarWidth": 284,
+    // Proportions (parity table, proportions): the app's session rows read at 13 pt; cmux's chrome type is larger.
+    "appearance.metrics.chromeFontSize": 13,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
     "agentPane.display.transcriptView": "normal",
