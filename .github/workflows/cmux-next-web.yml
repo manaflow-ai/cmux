@@ -135,9 +135,9 @@ jobs:
       push_base: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick) && needs.coalesce.outputs.base || '' }}
     # R2 write secrets: a push saves the base's webview test history there for pull requests.
     secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
 
   # A coalesced run covers every commit since the last one. When its webview tests go red, the first red commit of
   # each new red file is found by re-running only those files, only on the commits the run covered whose webview
@@ -165,14 +165,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           # The bisector reads the reconciler's read-only last-known-green ref below.
           # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false
