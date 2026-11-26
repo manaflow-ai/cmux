@@ -28,6 +28,9 @@ EXEMPTIONS: dict[str, str] = {
     "name the cloud-VM API files inside it",
     # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
     # only the paths a look can apply without a build (the workflow's path gate).
+    "cmux-tui-spec.yml": "pull requests start every run and the `changes` job decides from the diff "
+    "(cmux-tui-spec-changed.py); the push list is the same decision made by GitHub. The pull request trigger lists "
+    "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
 }
@@ -87,10 +90,12 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     "cmux-next.yml": (
         "paths",
         frozenset({
-            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/browser-repl/README.md",
+            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/auto-mode/turncut/README.md",
+            "plans/cmux-next/browser-repl/README.md",
             "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
             "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
-            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/spec-proposals/visuals/README.md",
+            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/sidebar-owner/README.md",
+            "plans/cmux-next/spec-proposals/visuals/README.md",
         }),
         "a pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py)",
     ),

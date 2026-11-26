@@ -324,25 +324,37 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
 
 /// [`workspaces_json`] with only the workspaces at `indices` of `state.workspaces`, in that
 /// order, and `total`, how many the client may see (`list-workspaces` `limit`). Builds only
-/// those rows.
+/// those rows, and stops at the first row past `budget` bytes of rows (a row longer than the
+/// budget alone still goes out when it is first). Returns how many rows it took.
 pub(crate) fn workspaces_json_at(
     state: &State,
     notifications: &TreeDecorations,
     indices: &[usize],
     total: usize,
-) -> Value {
+    budget: usize,
+) -> (Value, usize) {
     let short_ids = ShortIds::of(state);
-    json!({
+    let mut rows = Vec::new();
+    let mut bytes = 0usize;
+    for index in indices {
+        let Some(workspace) = state.workspaces.get(*index) else { continue };
+        let row = workspace_json(state, workspace, *index, &short_ids, notifications);
+        let size = serde_json::to_vec(&row).map_or(0, |line| line.len()) + 1;
+        if !rows.is_empty() && bytes + size > budget {
+            break;
+        }
+        bytes += size;
+        rows.push(row);
+    }
+    let taken = rows.len();
+    let mut value = json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
         "groups": workspace_groups_json(&notifications.presentation),
-        "workspaces": indices.iter().filter_map(|index| {
-            state.workspaces.get(*index).map(|workspace| {
-                workspace_json(state, workspace, *index, &short_ids, notifications)
-            })
-        }).collect::<Vec<_>>(),
         "total": total,
-    })
+    });
+    value.insert("workspaces", Value::Array(rows));
+    (value, taken)
 }
 
 pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {

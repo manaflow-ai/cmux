@@ -169,6 +169,8 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -176,6 +178,8 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -212,6 +216,22 @@ GENERATED_INPUTS = (
     "scripts/cmux-next/check-settings-exports.sh",
     "scripts/cmux-next/settings-exports.txt",
 )
+
+# Under PACKAGE, the generated files job's verdict reads only the generators' own inputs: the action exports
+# are judged against the CmuxNextActionsTests closure (scripts/cmux-next/action_export_inputs.py, the set
+# judge-action-exports.sh keys and judges a stale export by), and the settings exports are re-exported only when
+# the source stamp's files change (check-settings-exports.sh, defaults_guard.py SETTINGS_SOURCE_DIR and
+# SETTINGS_EXPORTER_FILES). A pull request that changes neither gets the base's verdict there, which the base push
+# run already reports; on 2026-11-21 06-16Z 104 of 290 pull request runs of the job (3,921 runner-minutes, 35%)
+# changed no such path. Leo: "CI runner-minutes per merged PR drop 10x ... by skipping jobs whose result is
+# predictable".
+ACTION_EXPORT_INPUTS = "scripts/cmux-next/action_export_inputs.py"
+SETTINGS_EXPORT_INPUTS = (
+    PACKAGE + "Sources/CmuxNextSettings/",
+    PACKAGE + "Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+    PACKAGE + "Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+)
+NO_GENERATOR_INPUT_REASON = "(no generator input)"
 
 # The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
 # CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
@@ -289,6 +309,20 @@ BUNDLE_INPUTS = (
     "schemas/design-scale/design-scale.json",
     # The theme slots the slot registry imports (src/slots/registry.ts).
     "schemas/theme/slots.json",
+    # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+    "schemas/layout-motion/contract.json",
+    # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
+    "schemas/transcript-look/transcript-look.json",
+    # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
+    "examples/gallery/gallery.json", "examples/looks/*",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -308,7 +342,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -339,7 +373,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
@@ -471,6 +505,30 @@ def generated_output(root: Path, path: str) -> bool:
         return True
 
 
+def action_export_closure(root: Path) -> tuple[str, ...] | None:
+    """The action exports' inputs (action_export_inputs.py on this tree's target graph); None when either cannot be
+    read, so every PACKAGE path counts."""
+    if ("actions", root) not in _READ:
+        try:
+            spec = importlib.util.spec_from_file_location("cmux_next_action_export_inputs", root / ACTION_EXPORT_INPUTS)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _READ["actions", root] = tuple(module.inputs(load_graph(root)))
+        except (OSError, ImportError, AttributeError, SyntaxError, SystemExit, ValueError, KeyError, TypeError):
+            _READ["actions", root] = None
+    return _READ["actions", root]
+
+
+def generator_input(root: Path, path: str) -> bool:
+    """Whether the generated files job's verdict reads `path` (GENERATED_INPUTS, narrowed under PACKAGE)."""
+    if not matches(path, PACKAGE):
+        return any(matches(path, prefix) for prefix in GENERATED_INPUTS)
+    closure = action_export_closure(root)
+    if closure is None:
+        return True
+    return any(matches(path, prefix) for prefix in closure + SETTINGS_EXPORT_INPUTS) or generated_output(root, path)
+
+
 def names(literal: str, name: str) -> bool:
     return literal == name or literal.endswith("/" + name)
 
@@ -563,8 +621,10 @@ class Route:
         self.reasons.append(reason)
 
     def macos(self) -> bool:
-        """Any tier that needs a Mac: the placement job places these runs."""
-        return self.native or self.webview or self.swift or self.generated or self.daemon
+        """Any tier that needs a Mac: the placement job places these runs. The Mac fast tier is one: a change
+        only it reads (its registry, runner or job action, outside every Swift compile's inputs since #48937)
+        must still place it."""
+        return self.native or self.webview or self.swift or self.generated or self.daemon or self.fast_tier()
 
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
@@ -926,7 +986,7 @@ def split_top(text: str, operator: str) -> list[str] | None:
 
 def linux_values(expression: str) -> bool:
     """Whether every value an expression can give is a Linux label: `a && b || c` gives b or c, so each
-    `||` alternative's last `&&` operand must be a literal naming ubuntu or a variable whose name says
+    `||` alternative's last `&&` operand must be a literal naming ubuntu, 'cmux-linux', or a variable whose name says
     LINUX (a parenthesised group is read the same way). Anything else may be a Mac."""
     alternatives = split_top(expression.strip(), "||")
     if not alternatives:
@@ -940,18 +1000,11 @@ def linux_values(expression: str) -> bool:
             if not linux_values(value[1:-1]):
                 return False
         elif re.fullmatch(r"'[^']*'", value):
-            if "ubuntu" not in value:
+            if "ubuntu" not in value and value != "'cmux-linux'":
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
             return False
     return True
-
-
-# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
-# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
-# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
-PORTABLE_RUNNERS = frozenset(
-    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
@@ -1012,6 +1065,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
@@ -1412,7 +1466,7 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.
             result.native = result.scheme = True
-        if any(matches(path, prefix) for prefix in GENERATED_INPUTS):
+        if generator_input(root, path):
             result.generated = True
 
         if path in VENDORED_PINS:
@@ -1492,7 +1546,9 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         )
     if result.tests:
         result.swift = True
-        result.generated = True
+    if not result.generated and any(matches(path, PACKAGE) for path in changed):
+        result.reasons.append("no changed CmuxNext path is an action or settings export input: the generated files "
+                              f"job would repeat the base's verdict {NO_GENERATOR_INPUT_REASON}")
     if result.swift and changed_targets and all(canary_swift_path(path) for path in changed):
         result.swift_canary_targets = canary_targets(graph, changed_targets)
         result.swift_canary = bool(result.swift_canary_targets)

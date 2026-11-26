@@ -1514,6 +1514,85 @@
       },
       "docs": "Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs.",
       "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.pause_all",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machine": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "pausing",
+                    "paused",
+                    "skipped",
+                    "failed"
+                  ]
+                },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              },
+              "required": [
+                "machine",
+                "status"
+              ]
+            }
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "machines",
+          "idempotency_key"
+        ]
+      },
+      "cli": {
+        "path": "pause-all",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "List the current team machines and pause each through cloud.machine.pause, including already paused machines so automatic wakes remain held until explicit resume. Returns per-machine outcomes; a failure does not prevent the remaining pauses. Retryable target failures can be retried with the returned idempotency_key; completed targets are kept in the app server’s in-memory snapshot.",
+      "since": "cloud/1"
     }
   ]
 }

@@ -11,6 +11,21 @@ import Testing
 /// chats newest first; a machine the daemon cannot reach shows as offline with no rows.
 @MainActor
 struct RemoteMachinesSidebarTests {
+    @Test func stopBeforeQueuedReadsStartDoesNotContactTheHost() async {
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        sidebar.bind(host: .init(peers: {
+            Issue.record("A cancelled peer read contacted the host")
+            return nil
+        }, older: { _, _ in
+            Issue.record("A cancelled history read contacted the host")
+            return nil
+        }, displayName: { _ in nil }, open: { _ in }))
+        #expect(sidebar.activate(LayoutItemID("client.remote:older:fixture")))
+        sidebar.stop()
+        // Both reads were queued on this actor, then cancelled before their first suspension.
+        for _ in 0..<10 { await Task.yield() }
+    }
+
     static func lane(_ name: String, peer: String?, _ state: AgentActivityLane.State = .idle, since: TimeInterval = 0,
                      title: String? = nil) -> AgentActivityLane {
         AgentActivityLane(id: "id-" + name, name: peer.map { "\($0)/\(name)" } ?? name, title: title ?? (peer.map { "\($0)/\(name)" } ?? name),
@@ -43,7 +58,7 @@ struct RemoteMachinesSidebarTests {
         #expect(machines[0].online && machines[0].chats.isEmpty)
         #expect(!machines[1].online && machines[1].chats.isEmpty)
         let header = Self.rows(machines)[1].info
-        #expect(header.isMissing && header.badge == nil && header.title.contains("big-red"))
+        #expect(!header.isMissing && header.badge == nil && header.title.contains("big-red"))
     }
 
     @Test func foldedByDefaultWithTheCloudIconAndALiveCount() {
@@ -123,6 +138,20 @@ struct RemoteMachinesSidebarTests {
         #expect(ids == ["itm_home", SidebarTransientItem.channelsID.rawValue, LayoutItemID.transientPrefix + "remote:machine:huge-blue"])
     }
 
+    /// The app bridge contributes remote rows through the shared top-item feed. They remain transient
+    /// (and therefore cannot be edited in the durable sidebar document) while following machine changes.
+    @Test func topItemFeedIncludesBridgeProvidedRemoteRows() async {
+        let remote = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        remote.machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("chat", peer: "huge-blue")], peers: nil)
+        let model = SidebarModel()
+        let feed = model.followTopItems(document: { nil }, additional: { remote.rows() })
+        defer { feed.cancel() }
+        #expect(await PeerStatePushTests.settle { await MainActor.run {
+            model.transientTopItems.contains { $0.item.id.rawValue == LayoutItemID.transientPrefix + "remote:machine:huge-blue" }
+        }})
+        #expect(model.transientTopItems.allSatisfy { $0.item.id.isTransient })
+    }
+
     /// The user 2026-10-25: "pressing cmd 1 no longer takes me to home". Client-only rows anchored after Home in
     /// the document's top block are stops after Home and the App Store, never before them, so Cmd-1 is Home.
     @Test func remoteChatsNeverComeBeforeHomeInTheCmdNumberOrder() throws {
@@ -138,9 +167,9 @@ struct RemoteMachinesSidebarTests {
 
     /// The user 2026-10-26: "CMUX performance lead, CMUX community lead, and CMUX and chief 2-week/fast iteration
     /// are the ones I actually manually drag up there. Everything that is [a subagent] I did not put there." The top
-    /// band holds Home and what the person put there; the agent chats of another machine (here a Cloud VM's eleven
-    /// idle Chief subagents, titled with their prompt) never draw in it.
-    @Test func remoteChatsNeverDrawInTheTopBand() {
+    /// band holds Home and what the person put there; remote machine groups
+    /// are transient rows anchored after the durable top items.
+    @Test func remoteChatsDrawAfterTheDurableTopItems() {
         // A remote model holds the chats, as one would in the running app.
         let remote = RemoteMachinesSidebar(lanes: AgentLaneStore())
         let prompt = "You are a subagent of Chief, an AI agent that works for one user"
@@ -151,14 +180,16 @@ struct RemoteMachinesSidebarTests {
         defer { remote.machines = [] }
         let model = SidebarModel()
         model.transientTopItems = SidebarModel.topItems(chief: ChiefSidebar(lanes: AgentLaneStore()))
-            .filter { $0.item.id != SidebarTransientItem.channelsID }
+            .filter { $0.item.id != SidebarTransientItem.channelsID } + remote.rows()
         let pinned = ["itm_perf", "itm_chromium", "itm_tui"]
         let section = LayoutSection(id: SidebarLayoutDocument.topSectionID, showsTitle: false, region: .top, look: .builtIn,
                                     items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))]
                                         + pinned.map { LayoutItem(id: LayoutItemID($0), ref: .app("example/\($0)")) })
         let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
-        #expect(ids == ["itm_home"] + pinned, "the top band drew \(ids)")
-        #expect(model.transientTopItems.isEmpty, "no client-only remote row at all: \(model.transientTopItems.map(\.info.title))")
+        #expect(ids == ["itm_home", LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:cmux-lawrence").rawValue,
+                        LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:chief-subagents-2").rawValue] + pinned,
+                  "the top band drew \(ids)")
+        #expect(model.transientTopItems.contains { $0.item.id.rawValue.hasPrefix(LayoutItemID.transientPrefix + "remote:") })
     }
 
     @Test func peerListReadsNamesAndLinks() {

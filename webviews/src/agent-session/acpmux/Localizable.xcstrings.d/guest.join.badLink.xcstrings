@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "guest.join.badLink" : {
+      "comment" : "Guest page: the link opened has no secret part (it was cut when copied)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This link is incomplete. Ask the owner for a new one."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Link ist unvollständig. Bitte den Besitzer um einen neuen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce lien est incomplet. Demandez-en un nouveau au propriétaire."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هذا الرابط غير مكتمل. اطلب رابطًا جديدًا من المالك."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este enlace está incompleto. Pide uno nuevo al propietario."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此連結不完整。請向擁有者索取新連結。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此链接不完整。请向所有者索取新链接。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 링크는 불완전합니다. 소유자에게 새 링크를 요청하세요."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このリンクは不完全です。オーナーに新しいリンクを依頼してください。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj link je nepotpun. Zatraži novi od vlasnika."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette link er ufuldstændigt. Bed ejeren om et nyt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo link è incompleto. Chiedine uno nuovo al proprietario."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តំណនេះមិនពេញលេញទេ។ សូមស្នើតំណថ្មីពីម្ចាស់។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne lenken er ufullstendig. Be eieren om en ny."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten link jest niekompletny. Poproś właściciela o nowy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este link está incompleto. Peça um novo ao dono."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ссылка неполная. Попросите у владельца новую."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลิงก์นี้ไม่สมบูรณ์ ขอลิงก์ใหม่จากเจ้าของ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu bağlantı eksik. Sahibinden yenisini iste."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Посилання неповне. Попросіть у власника нове."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết này không đầy đủ. Hãy xin chủ sở hữu một liên kết mới."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

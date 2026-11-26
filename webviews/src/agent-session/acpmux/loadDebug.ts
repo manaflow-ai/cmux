@@ -18,10 +18,17 @@ export type LoadRunOptions = {
   chunk_chars?: number;
   chunk_ms?: number;
   tool_every?: number;
+  /// What each delta is (mock.ts `LoadStreamOptions.kind`): reply text (the default), thought text,
+  /// or a status change alone.
+  stream_kind?: "text" | "thought" | "status";
   /// Scroll speed in points per second; 0 streams without scrolling.
   scroll_speed?: number;
   /// How far up the scroll goes before it turns back, in viewports.
   scroll_depth?: number;
+  /// A reply this many words long arrives at once and reveals (for `reply_settle_ms`, default
+  /// 1500) before the timed stream appends to it: per-frame cost against the reply's length.
+  reply_words?: number;
+  reply_settle_ms?: number;
 };
 
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -161,12 +168,17 @@ export async function loadRun(
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
     chunkMs: Math.max(1, options.chunk_ms ?? 4),
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+    prefixWords: options.reply_words,
+    prefixSettleMs: options.reply_settle_ms,
+    kind: options.stream_kind,
   });
   let streamDone = false;
   let streamFinished: number | undefined;
   void streaming.then(() => {
     streamFinished = performance.timeOrigin + performance.now();
     streamDone = true;
+    // A trace's mark for where the stream ended (test/chat-render-pipeline-budgets.test.ts splits stream from settle).
+    performance.mark("acpmux-load-stream-end");
   });
   const timestamps: number[] = [];
   const work: number[] = [];
@@ -252,6 +264,33 @@ export async function loadRun(
     renders,
     longest,
   };
+}
+
+export type LoadToolsOptions = {
+  /// Tool calls to add, and milliseconds between a call and its result (and its result and the next call).
+  count?: number;
+  gap_ms?: number;
+  /// Leave the turn running after them (the next `loadTools` adds to it); false ends it.
+  keep_open?: boolean;
+};
+
+/// `debug.agent_pane load_tools`: short tool calls arrive in the open chat's running turn, each its
+/// call and then its result, with no text between them, as a busy coordinator's do. Each call adds one
+/// row; whatever else renders is waste (render-counts.bench.ts `tool`).
+export async function loadTools(
+  host: { sessionId(): string | undefined; rowCount(): number },
+  options: LoadToolsOptions = {},
+): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  const session = host.sessionId();
+  if (!mock || !session) return { error: "no load session (run load_seed first)" };
+  const before = host.rowCount();
+  const added = await mock.addLoadTools(session, {
+    count: Math.max(0, Math.floor(options.count ?? 10)),
+    gapMs: Math.max(0, options.gap_ms ?? 60),
+    keepOpen: options.keep_open ?? false,
+  });
+  return { ...added, rows_before: before };
 }
 
 export type LoadTickOptions = {
@@ -572,4 +611,44 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
       };
     },
   };
+}
+
+export type SessionChurnOptions = {
+  seconds?: number;
+  /// Sessions changed per second, spread over the listed sessions (the app's `sessions_changed_per_min` / 60).
+  changes_per_second?: number;
+};
+
+/// Changes one field of one listed session at a steady rate, each told as the daemon tells it (one
+/// `session_changed` with that session's summary), for `seconds`; resolves with how many it sent. The
+/// fields rotate through a status flip, unread, a rename and a cost, as the daemon's changes do.
+export async function sessionChurn(options: SessionChurnOptions = {}): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
+  const rate = Math.max(0, options.changes_per_second ?? 1);
+  if (rate === 0) return { changes: 0 };
+  const size = Math.max(1, Number((globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize ?? 1));
+  const until = performance.now() + (options.seconds ?? 10) * 1000;
+  const started = performance.now();
+  let sent = 0;
+  while (performance.now() < until) {
+    const index = ((sent * 7919) % 10007) % size;
+    const round = sent;
+    mock.changeSession(`listed-${index}`, (current) => {
+      switch (round % 4) {
+        case 0:
+          return { status: current.status === "running" ? "idle" : "running" };
+        case 1:
+          return { unread: !current.unread };
+        case 2:
+          return { title: `Renamed chat ${index} (${round})` };
+        default:
+          return { usageStats: { costUsd24h: 1 + round / 100, tokens24h: 1000 + round, updatedAt: Date.now() } };
+      }
+    });
+    sent += 1;
+    const next = started + (sent / rate) * 1000;
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, next - performance.now())));
+  }
+  return { changes: sent, seconds: round2((performance.now() - started) / 1000) };
 }

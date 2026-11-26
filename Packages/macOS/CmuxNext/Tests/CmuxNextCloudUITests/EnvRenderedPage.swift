@@ -28,7 +28,13 @@ struct EnvRenderedPage: CustomStringConvertible {
         root.heightAnchor.constraint(equalToConstant: size.height).isActive = true
         window.setContentSize(size)
         root.layoutSubtreeIfNeeded()
-        let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        // A fixed 2x bitmap, not the screen's scale: a fleet Mac with a 1x (or no) screen would otherwise
+        // round a 1.5-point line to 2 whole pixels and read every pixel measure differently.
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = size
         light.performAsCurrentDrawingAppearance { root.cacheDisplay(in: root.bounds, to: bitmap) }
         let image = try #require(bitmap.cgImage)
         let request = VNRecognizeTextRequest()

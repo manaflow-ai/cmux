@@ -165,7 +165,7 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
     }
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "CLIInstall", bundle: .module)
+        String(localized: key, defaultValue: value, table: "CLIInstall", bundle: .localizedModule)
     }
 
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {

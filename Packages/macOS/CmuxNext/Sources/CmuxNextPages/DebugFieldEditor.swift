@@ -10,7 +10,7 @@ public import CmuxNextSettings
 /// field's delegate sees the change); `from` and `to` select characters `from` to `to` (`from == to`: the caret;
 /// no `to`: the end; no `from`: the caret at the end). `appearance` (`light`, `dark`, `system`) sets the app's
 /// appearance as debug.appearance does and answers only the effective one. `focus` gives the keyboard to the first
-/// shown field whose accessibility identifier, class or placeholder it names. `blur` takes the keyboard from whatever has it. Answers the
+/// shown view whose accessibility identifier, class or placeholder it names (or its first descendant that takes it). `blur` takes the keyboard from whatever has it. Answers the
 /// field's class, its placeholder, its text and the selected range, or `error` when no text field has the keyboard.
 @MainActor
 public struct DebugFieldEditor {
@@ -65,10 +65,13 @@ public struct DebugFieldEditor {
         ])
     }
 
-    private static func view(_ target: String, in root: NSView?) -> NSView? {
+    /// The first shown view named `target` (nil: any view that takes the keyboard); one that does not take it itself
+    /// (a pane holding a WebKit or Chromium page) gives its first descendant that does.
+    private static func view(_ target: String?, in root: NSView?) -> NSView? {
         guard let root, !root.isHidden else { return nil }
-        if root.acceptsFirstResponder, root.accessibilityIdentifier() == target || String(describing: type(of: root)) == target
-            || (root as? NSTextField)?.placeholderString == target { return root }
+        guard let target else { return root.acceptsFirstResponder ? root : root.subviews.lazy.compactMap { view(nil, in: $0) }.first }
+        if root.accessibilityIdentifier() == target || String(describing: type(of: root)) == target
+            || (root as? NSTextField)?.placeholderString == target { return view(nil, in: root) }
         return root.subviews.lazy.compactMap { view(target, in: $0) }.first
     }
 }

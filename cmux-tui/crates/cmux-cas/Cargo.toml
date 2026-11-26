@@ -1,0 +1,27 @@
+[package]
+name = "cmux-cas"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cas/1 (RFD 0166): content-addressed artifacts. FastCDC chunks, a manifest of what a tree holds, a signed pointer naming it, and the plan that moves only the chunks the client lacks, from R2 pack files by Range GET as the floor"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cas-replay"
+path = "src/bin/cas-replay.rs"
+
+[dependencies]
+blake3 = "1"
+cmux-signed-envelope = { path = "../cmux-signed-envelope" }
+serde.workspace = true
+serde_json.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+ring.workspace = true
+tempfile = "3"

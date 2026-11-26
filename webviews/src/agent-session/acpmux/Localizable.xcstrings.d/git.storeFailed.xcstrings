@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.storeFailed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حدث خطأ ما. أعد المحاولة لترى ما فعله git."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nešto nije u redu. Pokušajte ponovo da vidite šta je git uradio."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noget gik galt. Prøv igen for at se, hvad git gjorde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etwas ist schiefgelaufen. Versuche es erneut, um zu sehen, was git getan hat."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Something went wrong. Retry to see what git did."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Algo salió mal. Reintenta para ver qué hizo git."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un problème est survenu. Réessayez pour voir ce que git a fait."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Qualcosa è andato storto. Riprova per vedere cosa ha fatto git."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "問題が発生しました。再試行して git の結果を確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្ដងទៀត ដើម្បីមើលអ្វីដែល git បានធ្វើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "문제가 발생했습니다. 다시 시도해 git이 한 작업을 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noe gikk galt. Prøv igjen for å se hva git gjorde."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Coś poszło nie tak. Spróbuj ponownie, aby zobaczyć, co zrobił git."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Algo deu errado. Tente novamente para ver o que o git fez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Что-то пошло не так. Повторите, чтобы увидеть, что сделал git."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เกิดข้อผิดพลาด ลองอีกครั้งเพื่อดูว่า git ทำอะไรไปแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sorun oluştu. git'in ne yaptığını görmek için yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Щось пішло не так. Повторіть, щоб побачити, що зробив git."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xảy ra lỗi. Thử lại để xem git đã làm gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "出了点问题。请重试以查看 git 做了什么。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "發生問題。請重試以查看 git 做了什麼。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

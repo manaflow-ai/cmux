@@ -1,6 +1,6 @@
 // Page-owned repeating work: a hidden page owns no timer, and the last subscriber releases
 // both the timer and its visibility listener. Diagnostics count allocated timers, not callbacks.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Clock = { name: string; running: boolean; subscribers: () => number; document?: Document };
 const clocks = new Set<Clock>();
@@ -103,12 +103,21 @@ function sharedClock(name: string, every: number, aligned = false) {
 }
 
 /** One timer for timestamp labels, at the nearest actual text change. Removing the last label
- * removes its timer; hidden pages catch up once before choosing a new deadline. */
+ * removes its timer; hidden pages catch up once before choosing a new deadline.
+ * A label joining or leaving costs O(1): a chat switch unmounts one chat's labels and mounts the
+ * next one's (two per row: an age and a copy time), and rebuilding the timer and its nearest deadline
+ * (a scan of every label) on each of them was quadratic, 10 to 25 ms of a 120-turn chat's switch
+ * (bench/settled-page.bench.ts chat_switch). The timer is rebuilt only for a label due before it
+ * fires; one that leaves leaves the timer as it is, which, firing early, finds no label due and
+ * sets the next deadline from the labels left. */
 const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
 let stopDeadlines: (() => void) | undefined;
+/// The deadline the timer waits for, as its last scheduling read it (Infinity when none).
+let deadlineDue = Number.POSITIVE_INFINITY;
 function scheduleDeadlines() {
   stopDeadlines?.();
   stopDeadlines = undefined;
+  deadlineDue = Number.POSITIVE_INFINITY;
   if (deadlines.size === 0) return;
   const tick = () => {
     for (const label of deadlines) {
@@ -120,7 +129,12 @@ function scheduleDeadlines() {
   stopDeadlines = visibleInterval(
     "relative-time",
     tick,
-    () => Math.min(...Array.from(deadlines, (label) => label.at)) - Date.now() + 5,
+    () => {
+      let due = Number.POSITIVE_INFINITY;
+      for (const label of deadlines) if (label.at < due) due = label.at;
+      deadlineDue = due;
+      return due - Date.now() + 5;
+    },
     { onShow: tick, subscribers: () => deadlines.size },
   );
 }
@@ -128,10 +142,12 @@ function scheduleDeadlines() {
 export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
   const label = { notify, next, at: next() };
   deadlines.add(label);
-  scheduleDeadlines();
+  // A timer that already fires at or before this label's change covers it; a hidden page's sets
+  // its deadline from every label when the page shows.
+  if (!stopDeadlines || (label.at < deadlineDue && pageDocument()?.visibilityState !== "hidden")) scheduleDeadlines();
   return () => {
-    deadlines.delete(label);
-    scheduleDeadlines();
+    if (!deadlines.delete(label)) return;
+    if (deadlines.size === 0) scheduleDeadlines();
   };
 }
 
@@ -161,9 +177,17 @@ export function usePageNow(running: boolean, now: () => number = Date.now): numb
   // On the wall clock, a running label starts at the shared clock's sample, as its next ticks are.
   const wall = now === Date.now;
   const [time, setTime] = useState(() => (running && wall ? (subscribePageSecond.sample() ?? now()) : now()));
+  // The sample it shows, so subscribing (which hands over the current sample at once) sets nothing when
+  // the label already shows it: React can't always drop an equal set unasked, and then it renders and commits.
+  const shown = useRef(time);
   useEffect(() => {
     if (!running) return;
-    return subscribePageSecond((at) => setTime(wall ? at : now()));
+    return subscribePageSecond((at) => {
+      const sample = wall ? at : now();
+      if (sample === shown.current) return;
+      shown.current = sample;
+      setTime(sample);
+    });
   }, [running, now, wall]);
   return time;
 }

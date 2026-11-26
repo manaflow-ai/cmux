@@ -23,7 +23,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const APPS: &[App] = &[
     App { address: "claude-desktop", name: "Claude Desktop", harness: "claude" },
     App { address: "codex-desktop", name: "Codex Desktop", harness: "codex" },
+    // Leo, 2026-11-09: "even if somebody say still wants to keep using chatgpt desktop and/or claude
+    // desktop, to be always saying \"yeah i want to keep using cmux-next :) they give a good
+    // transport between everybody :)\"". It has no harness CLI of ours: the person adds the server
+    // in the app (`cli/bridge.rs`).
+    App { address: "chatgpt-desktop", name: "ChatGPT Desktop", harness: CHATGPT },
 ];
+/// The harness word of an app `acpmux bridge connect` cannot register through a CLI.
+pub const CHATGPT: &str = "chatgpt";
+/// Every address, for an error that names them: `claude-desktop, codex-desktop or chatgpt-desktop`.
+pub fn addresses() -> String {
+    let all: Vec<&str> = APPS.iter().map(|a| a.address).collect();
+    match all.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        _ => all.concat(),
+    }
+}
 /// Most messages one read returns; the rest stay unread for the next.
 pub const MAX_READ: usize = 50;
 /// How long a read message is kept before a later read removes it.
@@ -33,7 +48,8 @@ const READ_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 pub struct App {
     pub address: &'static str,
     pub name: &'static str,
-    /// `claude` or `codex`: the harness `acpmux bridge connect` registers the server with.
+    /// `claude` or `codex`: the harness `acpmux bridge connect` registers the server with;
+    /// [`CHATGPT`] for the app the person adds it to by hand.
     pub harness: &'static str,
 }
 
@@ -205,6 +221,26 @@ mod tests {
         assert_eq!(app("Claude Desktop").unwrap().address, "claude-desktop");
         assert_eq!(app(" claude-desktop ").unwrap().name, "Claude Desktop");
         assert!(app("gemini").is_none());
+        // ChatGPT Desktop is a third app; `codex` still names Codex Desktop.
+        assert_eq!(app("chatgpt").unwrap().address, "chatgpt-desktop");
+        assert_eq!(app("ChatGPT Desktop").unwrap().harness, CHATGPT);
+        assert_eq!(addresses(), "claude-desktop, codex-desktop or chatgpt-desktop");
+    }
+
+    #[test]
+    fn chatgpt_desktop_has_its_own_mailbox_beside_the_other_two() {
+        let (_dir, bridge) = bridge();
+        let chatgpt = app("chatgpt-desktop").unwrap();
+        bridge.send("Claude Desktop", chatgpt, "for chatgpt").unwrap();
+        bridge.send("ChatGPT Desktop", app("codex").unwrap(), "for codex").unwrap();
+        assert!(bridge.inbox(app("claude").unwrap(), true).unwrap().0.is_empty());
+        let (read, _) = bridge.inbox(chatgpt, true).unwrap();
+        assert_eq!(read.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["for chatgpt"]);
+        let (read, _) = bridge.inbox(app("codex").unwrap(), true).unwrap();
+        assert_eq!(
+            (read[0].from.as_str(), read[0].text.as_str()),
+            ("ChatGPT Desktop", "for codex")
+        );
     }
 
     #[test]
