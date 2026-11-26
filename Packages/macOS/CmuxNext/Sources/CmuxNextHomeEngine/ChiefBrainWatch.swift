@@ -225,8 +225,8 @@ public final class ChiefBrainWatch {
             // Quit, or `cmux chief shutdown`, came while it started: this host must not outlive it.
             let nextIsHost = (state.stopped == true || shutdown)
                 && next.map { isChiefHost($0) || ChiefHostStop.isFilesHostLauncher($0) } == true
-            step(WatchEvent(kind: "restarted", next: next, shutdownMarker: shutdown, nextIsHost: nextIsHost,
-                            locked: lockedPID, launcher: next.map(isFilesHostLauncher) ?? false))
+            step(WatchEvent(kind: "restarted", locked: lockedPID, launcher: next.map(isFilesHostLauncher) ?? false,
+                            shutdownMarker: shutdown, next: next, nextIsHost: nextIsHost))
         }
     }
 }

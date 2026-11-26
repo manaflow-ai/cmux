@@ -43,20 +43,11 @@ nonisolated struct HomeEngineTurn: Equatable, Sendable {
             harness: turn.harness, model: turn.model, effort: turn.effort, status: turn.status, ts: turn.ts, ms: turn.ms,
             tools: turn.tools, toolErrors: turn.toolErrors, costUSD: turn.costUSD, usage: usage, reply: turn.reply,
             error: turn.error)])
-        if let reply: ReportReply = try? HomeRules.chiefBrain("engine_turns_from_report", request), let first = reply.turns.first {
-            self.init(first)
-            return
-        }
-        harness = turn.harness ?? "?"
-        model = turn.model
-        effort = turn.effort
-        status = turn.status
-        seconds = 0
-        tools = turn.tools ?? 0
-        toolErrors = turn.toolErrors ?? 0
-        cost = turn.costUSD
-        reply = turn.reply
-        error = turn.error
+        let derived = (try? HomeRules.chiefBrain("engine_turns_from_report", request) as ReportReply)?.turns.first
+        self.init(derived ?? Wire(
+            harness: turn.harness ?? "?", model: turn.model, effort: turn.effort, status: turn.status, endedSecs: nil,
+            seconds: 0, tools: turn.tools ?? 0, toolErrors: turn.toolErrors ?? 0, hitRate: nil, cost: turn.costUSD,
+            tokens: nil, reply: turn.reply, error: turn.error))
     }
 
     private init(_ turn: Wire) {
