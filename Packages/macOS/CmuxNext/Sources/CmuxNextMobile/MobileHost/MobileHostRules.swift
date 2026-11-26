@@ -4,7 +4,8 @@ import Foundation
 /// The iPhone host's rules in Rust (`cmux-mobile-host-core`, the app FFI's `mobile_host` op): the
 /// phones' acpmux credentials, the test pairing seed's match, the dev auto-approve's tags and the
 /// phones' acpmux record names. Swift reads files, the Keychain and sockets and passes what they hold.
-public enum MobileHostRules {
+public struct MobileHostRules {
+    public init() {}
     /// One `mobile_host` request (`op` plus `fields`); the reply's object. Nil when Rust does not answer.
     public static func ask(_ op: String, _ fields: [String: Any] = [:]) -> [String: Any]? {
         var body = fields
