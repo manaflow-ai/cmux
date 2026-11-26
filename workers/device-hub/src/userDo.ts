@@ -1,8 +1,17 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, sha256Hex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import {
+  HOST_RELAY_HEADER,
+  ORIGIN_HEADER,
+  SCOPE_HEADER,
+  SESSION_DEVICE_HEADER,
+  STACK_TOKEN_HEADER,
+  USER_HEADER,
+  type Env,
+  SPACE_HEADER,
+} from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
 import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
@@ -41,6 +50,11 @@ export function isDevicePlatform(value: unknown): value is DevicePlatform {
 }
 /** The share approval format the hub carries (acpmux `share_approval::VERSION`). */
 export const SHARE_APPROVAL_VERSION = "cmux.share-approval.v1";
+/**
+ * The control approval format (cmux-share-approval `CONTROL_VERSION`): the same signed yes, for
+ * "control for my other signed-in machines" on the Mac it names.
+ */
+export const CONTROL_APPROVAL_VERSION = "cmux.control-approval.v1";
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -55,12 +69,27 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
-  /** The Mac it runs on, as its first registration named it (`machine`); null when it named none. Never listed. */
+  /** This account's id for the physical machine (`machineIdFor`), NULL when the app sent no `machineKey`. */
+  machine_id: string | null;
+  /** The app install whose identity this is (the macOS bundle id), NULL when the app sent none. */
+  app_id: string | null;
+  /** The Mac/build space this device first named; never listed. */
   machine: string | null;
-  /** 1 once the switch was set on purpose (`PUT .../mac-screen`): a join never changes it after. */
+  /** 1 once the switch was set on purpose (`PUT .../mac-screen`). */
   mac_screen_chosen: number;
-  /** The device's own screen sharing status (`cmux.screen-share.status/1`), JSON; null until reported. */
+  /** The device's own screen-sharing status JSON. */
   screen_share: string | null;
+}
+
+/** A client's `machineKey`: lowercase hex SHA-256 of a hardware id (PROTOCOL.md, One record per machine). */
+const MACHINE_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The machine id the hub stores and lists: the client's `machineKey` salted with the account, so one
+ * Mac signed in to two accounts has two unrelated ids and no listing links accounts.
+ */
+export async function machineIdFor(userId: string, machineKey: string): Promise<string> {
+  return sha256Hex(`cmux-device-hub machine v1\n${userId}\n${machineKey}`);
 }
 
 interface SessionRow {
@@ -172,7 +201,8 @@ CREATE TABLE IF NOT EXISTS devices(
   created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
   removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
   name_pinned INTEGER NOT NULL DEFAULT 0,
-  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  machine_id TEXT, app_id TEXT);
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -218,6 +248,8 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "device_id", "TEXT"],
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "machine_id", "TEXT"],
+  ["devices", "app_id", "TEXT"],
   ["devices", "machine", "TEXT"],
   ["sessions", "moved_from", "TEXT"],
   ["sessions", "relay_paid", "INTEGER"],
@@ -264,6 +296,8 @@ function publicDevice(d: DeviceRow, online: boolean) {
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
+    machineId: d.machine_id ?? null,
+    appId: d.app_id ?? null,
     screenShare: screenShareOf(d),
     online,
   };
@@ -357,6 +391,8 @@ export class UserDO extends DurableObject<Env> {
     }
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
+    const space = this.sql.exec("SELECT v FROM meta WHERE k = 'build_space'").toArray()[0];
+    if (space) this.space = space.v as string;
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     // Sockets restored from hibernation need the silence check armed: a socket
     // accepted before this check existed has no clock until a sweep stamps it.
@@ -366,6 +402,19 @@ export class UserDO extends DurableObject<Env> {
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
 
   private ownerId = "";
+  /**
+   * The build space this DO is the user's object in (src/buildSpace.ts; "" for the default space), from its
+   * first request. Its name already says it (`dev:<slug>|<user>`); its Session DOs report back to it by it.
+   */
+  private space = "";
+
+  /** Records this DO's build space; a request of another space never reaches it (index.ts names DOs by space). */
+  private setSpace(space: string) {
+    if (this.space === space) return;
+    if (this.space || this.ownerId) throw new Error(`user DO of build space "${this.space}" got a request of "${space}"`);
+    this.space = space;
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('build_space', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", space);
+  }
 
   /** Records the user this DO belongs to and backfills rows written before owner columns existed. */
   private setOwner(userId: string) {
@@ -519,6 +568,7 @@ export class UserDO extends DurableObject<Env> {
       if (url.pathname.startsWith("/internal/")) return await this.internal(url.pathname, request);
       const userId = request.headers.get(USER_HEADER);
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
+      this.setSpace(request.headers.get(SPACE_HEADER) ?? "");
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
@@ -584,6 +634,12 @@ export class UserDO extends DurableObject<Env> {
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
     const agreementKey = body.agreementKey as string;
+    const machineKey = body.machineKey ?? null;
+    if (machineKey !== null && (typeof machineKey !== "string" || !MACHINE_KEY.test(machineKey))) {
+      throw badRequest("machineKey must be 64 lowercase hex characters");
+    }
+    const appId = body.appId === undefined || body.appId === null ? null : str(body.appId, "appId", 200);
+    const machineId = machineKey === null ? null : await machineIdFor(this.ownerId, machineKey);
     if (body.machine !== undefined && (typeof body.machine !== "string" || !MACHINE.test(body.machine))) {
       throw badRequest("machine must be 64 lowercase hex digits");
     }
@@ -596,17 +652,20 @@ export class UserDO extends DurableObject<Env> {
     if (existing) {
       // The first machine a device named stays: a later registration cannot move it to another Mac.
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?) WHERE id = ?",
+        // A client that sends no machine fields (a build from before them) keeps what a newer one recorded.
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_id = COALESCE(?, machine_id), app_id = COALESCE(?, app_id), machine = COALESCE(machine, ?) WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
+        machineId,
+        appId,
         machine,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_id, app_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -615,10 +674,14 @@ export class UserDO extends DurableObject<Env> {
         now,
         now,
         this.ownerId,
+        machineId,
+        appId,
         machine,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
+    // Only the app's own sign-in retires records: a host or machine session serves one device and removes none.
+    if (scope === "full" && machineId !== null && appId !== null) await this.retireReplaced(h.id, machineId, appId, body.platform as DevicePlatform);
     this.joinDefault(h.id, scope, body.shareByJoin === true);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
@@ -670,7 +733,8 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
-      if (n === 3 && d === "share-approval" && m === "POST") return this.carryShareApproval(me, b!, this.parse(raw), c);
+      if (n === 3 && d === "share-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, SHARE_APPROVAL_VERSION, "share.approval");
+      if (n === 3 && d === "control-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, CONTROL_APPROVAL_VERSION, "control.approval");
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -872,6 +936,32 @@ export class UserDO extends DurableObject<Env> {
 
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
+    await this.retire(target, `${id} ${target.name}`);
+    return json({});
+  }
+
+  /**
+   * One record per app install on a machine (PROTOCOL.md, One record per machine): a record that
+   * registers with a machine id and an app id replaces that install's older records on the machine,
+   * the ones a renewal (`device_removed`, `device_key_mismatch`) left behind: an install has one
+   * identity at a time, so they are never used again. The machine's other installs' records (NIGHTLY
+   * beside DEV: another bundle id, another identity, still in use) stay, listed with the same
+   * `machineId` for the app to show as one device. A record still online is kept until a later
+   * registration finds it offline.
+   */
+  private async retireReplaced(id: string, machineId: string, appId: string, platform: DevicePlatform) {
+    const replaced = this.sql
+      .exec("SELECT * FROM devices WHERE removed_at IS NULL AND id != ? AND machine_id = ? AND app_id = ? AND platform = ?", id, machineId, appId, platform)
+      .toArray() as unknown as DeviceRow[];
+    for (const old of replaced) {
+      if (this.online(old.id)) continue;
+      await this.retire(old, `${old.id} ${old.name} (replaced by ${id})`);
+    }
+  }
+
+  /** Removes a device: its anchor, every permission naming it, its open sessions, its sockets. */
+  private async retire(target: DeviceRow, detail: string) {
+    const id = target.id;
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
@@ -879,11 +969,10 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
-    this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
+    this.audit("device_removed", { deviceId: id, detail });
     this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
     for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
-    return json({});
   }
 
   /** Ends this device's sessions now (reason signed_out) and closes its socket; the device stays registered. */
@@ -978,18 +1067,23 @@ export class UserDO extends DurableObject<Env> {
    * dispatch, so an agent's fleet or CLI token never sends one), as the device the approval
    * names, on this account, to a live host of it. The target checks the signature against this
    * account's device list, then turns its own sharing on (acpmux `share_host/approval.rs`).
+   *
+   * `POST /v1/devices/:id/control-approval {approval}` carries a `cmux.control-approval.v1` the
+   * same way, under the same checks, as a `control.approval` push: the owner's tap on their own
+   * device grants that Mac's "control for my other signed-in machines", with nobody at the Mac.
+   * Each path takes only its own format, so one tap is carried as one grant.
    */
-  private carryShareApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Response {
+  private carryApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext, version: string, push: "share.approval" | "control.approval"): Response {
     const raw = body.approval;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badRequest("approval must be an object");
     const f = raw as Record<string, unknown>;
-    if (f.v !== SHARE_APPROVAL_VERSION) throw badRequest(`approval.v must be ${SHARE_APPROVAL_VERSION}`);
+    if (f.v !== version) throw badRequest(`approval.v must be ${version}`);
     const at = f.confirmed_at;
     const atOk = (typeof at === "number" && Number.isSafeInteger(at) && at >= 0) || (typeof at === "string" && /^\d{1,15}$/.test(at));
     if (!atOk) throw badRequest("approval.confirmed_at must be whole Unix seconds");
     const name = (v: unknown, field: string) => (v === undefined || v === "" ? "" : str(v, field, 200));
     const approval = {
-      v: SHARE_APPROVAL_VERSION,
+      v: version,
       target: str(f.target, "approval.target", 64),
       target_name: name(f.target_name, "approval.target_name"),
       asker: str(f.asker, "approval.asker", 64),
@@ -1006,7 +1100,7 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(id);
     if (!HOST_PLATFORMS.includes(host.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC shares its screen");
     if (!this.online(id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    this.send(id, { type: "share.approval", from: me.id, approval });
+    this.send(id, { type: push, from: me.id, approval });
     return json({ delivered: true, hostId: id });
   }
 
@@ -1272,6 +1366,7 @@ export class UserDO extends DurableObject<Env> {
       {
         sid: s.id,
         userId: c.userId,
+        space: this.space,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },

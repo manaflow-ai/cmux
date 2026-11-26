@@ -9,12 +9,13 @@
 //! never admits these commands.
 //!
 //! - `shell-run {command, cwd?, scope?, run?}` answers `{run}` (the run's id: `run` when the caller
-//!   chose one, so a lost answer still leaves it a run it can stop), or `{refused}`: `too_many`,
+//!   chose one, so a lost answer still leaves it a run it can stop), or `{refused}`:
 //!   `folder_missing`, `spawn_failed`, `invalid` (also a malformed or taken `run`).
 //! - `shell-read {run, after, wait_ms?}` answers `{output, next, truncated?, exit?: {code?,
 //!   signal?}}` once there is output after `after` or the command ended, else after `wait_ms`
-//!   (at most 10 s, the default), or `{refused}`: `unknown_run`, `busy`. A read that waits does
-//!   so on a thread of its own, so the connection's other requests are not held behind it.
+//!   (at most 10 s, the default), or `{refused}`: `unknown_run`, `busy` (no thread could start
+//!   to wait). A read that waits does so on a thread of its own, so the connection's other
+//!   requests are not held behind it. No count of runs or waiting reads is refused.
 //! - `shell-stop {run}` answers `{}` (Ctrl-C, escalating), or `{refused: "unknown_run"}`.
 //!
 //! Refusals are answers, not errors: a remote connection's errors reach the app as one opaque
@@ -61,7 +62,7 @@ mod serve {
     use crate::conversation_store::LOCAL_USER;
     use crate::panic_free::JsonFields;
     use crate::server::{ClientTransport, MessageWriter, Response, send_response};
-    use crate::shell_runs::{Chunk, READ_WAIT, ReadStart, Refusal};
+    use crate::shell_runs::{Chunk, READ_WAIT, ReadStart, Refusal, THREAD_STACK_BYTES};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -132,23 +133,25 @@ mod serve {
             return respond(writer, id, Err(NotOwner.into()));
         }
         let wait = params.wait_ms.map_or(READ_WAIT, Duration::from_millis).min(READ_WAIT);
-        let permit = match mux.shell_runs.start_read(&params.run, params.after) {
+        match mux.shell_runs.start_read(&params.run, params.after) {
             Ok(ReadStart::Ready(chunk)) => return respond(writer, id, Ok(chunk_json(&chunk))),
-            Ok(ReadStart::Wait(permit)) => permit,
+            Ok(ReadStart::Wait) => {}
             Err(refusal) => return respond(writer, id, Ok(refused(refusal))),
-        };
+        }
         let thread_mux = mux.clone();
         let thread_writer = writer.clone();
         let reply_id = id.clone();
-        let spawned = std::thread::Builder::new().name("shell-run-read".into()).spawn(move || {
-            let answer =
-                match thread_mux.shell_runs.wait_read(&permit, &params.run, params.after, wait) {
+        let spawned = std::thread::Builder::new()
+            .name("shell-run-read".into())
+            .stack_size(THREAD_STACK_BYTES)
+            .spawn(move || {
+                let answer = match thread_mux.shell_runs.wait_read(&params.run, params.after, wait)
+                {
                     Ok(chunk) => chunk_json(&chunk),
                     Err(refusal) => refused(refusal),
                 };
-            drop(permit);
-            respond(&thread_writer, reply_id, Ok(answer));
-        });
+                respond(&thread_writer, reply_id, Ok(answer));
+            });
         spawned.is_ok() || respond(writer, id, Ok(refused(Refusal::Busy)))
     }
 

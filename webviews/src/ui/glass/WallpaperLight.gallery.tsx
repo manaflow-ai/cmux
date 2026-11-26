@@ -136,6 +136,9 @@ function WallpaperLightGallery(props: Props) {
               padding: "var(--ds-space-3)",
               minHeight: 64,
               color: "var(--cmux-text-secondary)",
+              // The card ring the agent pane's own sheet (styles.css) gives the card: without it the
+              // composer's box-shadow list is invalid and draws no shadow, so no bloom.
+              ["--acpmux-card-ring" as string]: "inset 0 0 0 var(--cmux-hairline, 0.5px) transparent",
             }}
           >
             Message the agent…

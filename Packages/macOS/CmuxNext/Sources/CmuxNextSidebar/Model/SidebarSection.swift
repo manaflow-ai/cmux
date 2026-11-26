@@ -116,7 +116,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
 
     /// The header's screen control, one rule for its hover button and its right-click rows: Share on
     /// This Mac; View screen on Cloud machines and authenticated Mac devices. SSH and server rows need
-    /// the daemon's screen identity before offering View screen (a Linux machine never has one).
+    /// the daemon's screen identity before offering View screen (a joined Linux machine's is its cmux-rd
+    /// host's device, `remote_host/linux_screen.rs`).
     public var screenAction: SidebarIntent? {
         switch kind {
         case .local: .shareScreen(id)

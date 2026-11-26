@@ -23,9 +23,6 @@ pub enum Item {
         status: String,
         detail: String,
     },
-    Plan {
-        entries: Vec<(String, String)>,
-    },
     Permission {
         id: String,
         title: String,
@@ -62,7 +59,7 @@ pub struct Transcript {
     pub(crate) keeps_records: bool,
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
-    pub(crate) layout_dirty_from: usize,
+    pub layout_dirty_from: usize,
     pub last_seq: u64,
     pub status: String,
     pub mode: Option<String>,
@@ -93,7 +90,11 @@ pub struct Transcript {
     waiting_steers: Vec<(String, usize)>,
     /// Item indices removed since the TUI last read them, in order, so it can move
     /// state it keys by index (folds) with the rows that stay.
-    pub(crate) removed_items: Vec<usize>,
+    pub removed_items: Vec<usize>,
+    /// The chat's capacity wait from its session row (`hub/capacity_wait.rs`, the row's
+    /// `capacityWait`): acpmux holds the cut turn and goes on by itself. A client draws that
+    /// turn's error as a calm wait, never red. Set by the TUI from the row; None otherwise.
+    pub capacity_wait: Option<Value>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -294,11 +295,6 @@ impl Transcript {
                     .rposition(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
                     .unwrap_or(self.items.len())
             }
-            "plan" => self
-                .items
-                .iter()
-                .rposition(|i| matches!(i, Item::Plan { .. }))
-                .unwrap_or(self.items.len()),
             _ => self.items.len(),
         };
         self.invalidate_layout(from);
@@ -414,36 +410,6 @@ impl Transcript {
                 }
                 self.refresh_activity();
             }
-            "plan" => {
-                let entries = update
-                    .get("entries")
-                    .and_then(Value::as_array)
-                    .map(|e| {
-                        e.iter()
-                            .map(|x| {
-                                (
-                                    x.get("status")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_owned(),
-                                    x.get("content")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_owned(),
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if let Some(Item::Plan { entries: e }) =
-                    self.items.iter_mut().rev().find(|i| matches!(i, Item::Plan { .. }))
-                {
-                    *e = entries;
-                } else {
-                    self.items.push(Item::Plan { entries });
-                }
-                self.refresh_activity();
-            }
             "usage_update" => {
                 let used = update.get("used").and_then(Value::as_u64).unwrap_or(0);
                 let size = update.get("size").and_then(Value::as_u64).unwrap_or(0);
@@ -503,14 +469,6 @@ impl Transcript {
             _ => None,
         }) {
             self.activity = Some(title.chars().take(120).collect());
-        } else if let Some(step) = self.items.iter().rev().find_map(|item| match item {
-            Item::Plan { entries } => entries
-                .iter()
-                .find(|(status, _)| status == "in_progress")
-                .map(|(_, content)| content.as_str()),
-            _ => None,
-        }) {
-            self.activity = Some(step.chars().take(120).collect());
         } else if self.status == "running" && self.activity.is_none() {
             self.activity = Some("Thinking".into());
         }
@@ -905,14 +863,13 @@ impl Transcript {
     }
 
     /// A transcript that keeps its records, so `prepend_events` can page older history in.
-    pub(crate) fn paging() -> Self {
+    pub fn paging() -> Self {
         Transcript { keeps_records: true, ..Transcript::default() }
     }
 
     /// Show an error this client raised (not one the daemon logged). A paging transcript keeps it
     /// as a record with no seq, so a rebuild puts it back where it was shown.
-    #[cfg(feature = "tui")]
-    pub(crate) fn push_local_error(&mut self, text: String) {
+    pub fn push_local_error(&mut self, text: String) {
         if self.keeps_records {
             self.raw_events.push(json!({"dir": LOCAL_ERROR, "text": text}));
         }
@@ -920,8 +877,7 @@ impl Transcript {
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.
-    #[cfg(any(test, feature = "tui"))]
-    pub(crate) fn push_optimistic(&mut self, text: String, row: Item) {
+    pub fn push_optimistic(&mut self, text: String, row: Item) {
         self.items.push(row.clone());
         self.optimistic.push(text);
         if self.optimistic_rows.len() + 1 == self.optimistic.len() {
@@ -963,9 +919,6 @@ pub fn item_text(item: &Item) -> String {
             } else {
                 format!("{title}\n{detail}")
             }
-        }
-        Item::Plan { entries } => {
-            entries.iter().map(|(s, c)| format!("[{s}] {c}")).collect::<Vec<_>>().join("\n")
         }
         Item::Permission { title, .. } => title.clone(),
         Item::TurnEnd { stop } => stop.clone(),

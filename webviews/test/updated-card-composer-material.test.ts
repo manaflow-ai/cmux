@@ -55,15 +55,20 @@ test("the shared rim is the composer's top-lit rim", () => {
   );
 });
 
-test("the shared tint is the popover level the composer's card takes, clearer over art", () => {
+// One material family (Leo 2026-11-21: "our shitty multi layer glass + web view. we need to properly do that
+// once and for all."): the composer's card takes the popups' transient share, --ds-transient-web-tint, of
+// its own solid on every window, and the card beside it the same. Before: the popover level (72%, 50% over
+// art).
+test("the shared tint is the popups' transient share the composer's card takes, on every window", () => {
   expect(composerStates).toMatch(
-    /--glass-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-glass-popover-tint\)/,
+    /--acpmux-stack-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
   );
-  expect(composerStates).toMatch(
-    /--glass-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-glass-popover-art-tint\)/,
-  );
-  expect(declaration(material, "--composer-material-tint")).toContain("var(--ds-glass-popover-tint");
-  expect(material).toMatch(/data-cmux-see-through[^{]*\{\s*--composer-material-tint:[^;]*--ds-glass-popover-art-tint/);
+  // Only previous glass (appearance.previousGlass) brings the popover level's art share back.
+  const outsidePrevious = (css: string) => css.replace(/[^{}]*data-glass-levels="previous"[^{}]*\{[^}]*\}/g, "");
+  expect(outsidePrevious(composerStates)).not.toMatch(/--ds-glass-popover-art-tint/);
+  expect(declaration(material, "--composer-material-tint")).toContain("var(--ds-transient-web-tint");
+  expect(declaration(material, "--composer-material-tint")).toContain("var(--composer-material-solid");
+  expect(outsidePrevious(material)).not.toMatch(/data-cmux-see-through[^{]*\{\s*--composer-material-tint:/);
 });
 
 test("the shared box is the one-line composer's height and corner (grid.md 5.1)", () => {
@@ -82,7 +87,10 @@ test("the Updated card paints the shared material at the composer's height", () 
   expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
   expect(surface).toContain("border-radius: var(--composer-material-radius)");
   const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
-  expect(rest).toContain("height: var(--composer-material-height)");
+  // At least the composer's one-line box, and as tall as its lines (u51892: a fixed 48 cut the change
+  // line's descenders): never a fixed height.
+  expect(rest).toContain("min-height: var(--composer-material-height)");
+  expect(rest).not.toMatch(/(^|[^-])height:/);
 });
 
 // Review F3 of #37615: the sidebar no longer draws a native glass under the card's page, so the

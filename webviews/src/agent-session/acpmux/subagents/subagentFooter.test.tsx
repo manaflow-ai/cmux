@@ -36,7 +36,7 @@ function helperRun() {
   feed(fold, say("Neither blocks the five problems.", "last"), { subagent: "helper" });
   return fold;
 }
-const view = (fold: SubagentFold) => childView("helper", fold.takeRows(), fold.views(), new Set<string>(), "Chat")!;
+const view = (fold: SubagentFold) => childView("helper", fold.takeRows(), fold.views(), new Set<string>())!;
 
 test("a finished subagent's view ends on a footer whose Copy copies its replies and tool lines", () => {
   const fold = helperRun();

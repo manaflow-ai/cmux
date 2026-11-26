@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.worktreeSetup.includeHelp" : {
+      "comment" : "Settings > Agents > Worktree Setup: under the files field; keep .worktreeinclude as it is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One pattern per line, after the repository's own."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نمط واحد في كل سطر، بعد أنماط المستودع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedan uzorak po retku, nakon onih iz repozitorija."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ét mønster pr. linje, efter repositoryets egne."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Muster pro Zeile, nach denen des Repositorys."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un patrón por línea, tras los del repositorio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un motif par ligne, après ceux du dépôt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un pattern per riga, dopo quelli del repository."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "1 行に 1 パターン。リポジトリのものの後に追加。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មួយលំនាំក្នុងមួយបន្ទាត់ បន្ទាប់ពីលំនាំរបស់ repository។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "한 줄에 패턴 하나, 저장소의 패턴 다음에 추가됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ett mønster per linje, etter repositoriets egne."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeden wzorzec na wiersz, po wzorcach repozytorium."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um padrão por linha, depois dos do repositório."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один шаблон в строке, после шаблонов репозитория."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หนึ่งรูปแบบต่อบรรทัด ต่อจากของรีโพซิทอรี"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Satır başına bir desen, deponunkilerden sonra."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один шаблон у рядку, після шаблонів репозиторію."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mỗi dòng một mẫu, sau các mẫu của kho mã."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每行一个模式，排在仓库自身的之后。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每行一個模式，排在存放庫自身的之後。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

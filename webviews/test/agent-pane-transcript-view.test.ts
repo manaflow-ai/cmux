@@ -3,7 +3,7 @@
 // talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
-// - Normal folds short narration and calls under "Worked for", leaving substantive replies visible.
+// - Normal folds every earlier reply and call under "Worked for", leaving only the final answer visible.
 // - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
 // - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
@@ -359,13 +359,15 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         interim: await interim.isVisible(),
       };
 
-      // Closing the turn hides short narration and calls; substantive replies stay outside.
+      // Closing the turn hides every earlier reply and call; only the final answer stays outside
+      // (Lawrence, 2026-11-19: "in collapsed, literally everything but final assistant message should be
+      // collapsed").
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
+        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
+        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
       });
       await page.close();
     });

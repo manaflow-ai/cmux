@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import Observation
+import OSLog
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -113,6 +114,11 @@ final class AgentCardRasterizer: NSObject {
     let limit: Int
     /// Pictures drawn (tests and the rig's log).
     private(set) var renders = 0
+    /// Pictures thrown away because they held the system's cannot-draw mark (tests and the rig's log).
+    private(set) var refusals = 0
+    /// Per feed, the key whose picture held the mark: the card shows its live preview for that key
+    /// (where the UIKit view draws) and the picture is not drawn again until the key changes.
+    private var refused: [ObjectIdentifier: AgentCardRasterKey] = [:]
     /// Where each drawn picture is also kept across launches (`TabCardSnapshots`).
     var snapshots = TabCardSnapshots.shared
 
@@ -149,7 +155,7 @@ final class AgentCardRasterizer: NSObject {
     /// The card wants its picture for `key` (it shows the live preview until then).
     func want(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) {
         lastKey = key
-        if feed.raster?.key == key { return }
+        if feed.raster?.key == key || refused[ObjectIdentifier(feed)] == key { return }
         queue.removeAll { $0.feed === feed }
         guard key.isDrawable else {
             if held?.id == ObjectIdentifier(feed) { held = nil }
@@ -217,6 +223,15 @@ final class AgentCardRasterizer: NSObject {
         dequeue(feed)
         held = nil
         if let image = AgentChatPreview.drawing(hold, { Self.render(feed, key) }) {
+            // Leo, 2026-11-22: "isn't this literally apple telling you theres nothing there?" A row
+            // that reached a UIKit-backed view drew the mark: never show it; the live preview stays.
+            if CannotDrawMark.isIn(image) {
+                refused[id] = key
+                refusals += 1
+                Self.log.fault("agent card picture held the system's cannot-draw mark; showing the live preview")
+                return
+            }
+            refused[id] = nil
             feed.raster = (key, image)
             renders += 1
             remember(feed)
@@ -233,7 +248,7 @@ final class AgentCardRasterizer: NSObject {
 
     /// Whether `feed` has a picture for `key` (or never can: a running turn).
     func isDone(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) -> Bool {
-        feed.raster?.key == key || !key.isDrawable
+        feed.raster?.key == key || !key.isDrawable || refused[ObjectIdentifier(feed)] == key
     }
 
     private func remember(_ feed: AgentCardFeed) {
@@ -254,18 +269,23 @@ final class AgentCardRasterizer: NSObject {
         drawn.removeAll { $0 == id }
         owners[id] = nil
         shown[id] = nil
+        refused[id] = nil
         if held?.id == id { held = nil }
     }
 
     /// The card's preview as the kit lays it out (full page, top aligned,
     /// clipped to what the card shows), at the card's pixel resolution.
+    static let log = Logger(subsystem: "com.cmux.app", category: "agent-card-raster")
+
     static func render(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) -> UIImage? {
-        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset)
+        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset,
+                                       cardSlice: key.visibleHeight)
             .frame(width: key.page.width, height: key.page.height)
             .frame(width: key.page.width, height: key.visibleHeight, alignment: .top)
             .clipped()
             .environment(\.colorScheme, key.colorScheme)
             .environment(\.dynamicTypeSize, key.textSize)
+            .drawnAsStillPicture()
         let renderer = ImageRenderer(content: content)
         renderer.scale = key.scale
         renderer.isOpaque = true
@@ -348,7 +368,8 @@ struct AgentTabCard: View {
                     TabSnapshotPicture(image: lastKnown).background(Color.cmuxMobileBackground)
                 }
             case .live:
-                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
+                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset,
+                                 cardSlice: key.visibleHeight)
             }
         }
         .onAppear { rasterizer.setShown(feed, true) }
@@ -361,6 +382,40 @@ struct AgentTabCard: View {
             if !request.key.isDrawable, feed.raster != nil { rasterizer.drop(feed); feed.raster = nil }
             rasterizer.want(feed, request.key)
         }
+    }
+}
+/// The mark `ImageRenderer` draws in place of a view it cannot draw (any UIKit-backed view): a
+/// yellow square with a red prohibition sign. A card picture holding it is never shown.
+enum CannotDrawMark {
+    /// Whether `image` holds the mark: its yellow and its red together. Every second pixel of every
+    /// second row is read (the mark is many points wide), about a millisecond for a card picture.
+    static func isIn(_ image: UIImage) -> Bool {
+        let (yellow, red) = pixels(image, stride: 2)
+        return yellow >= 32 && red >= 4
+    }
+
+    /// Pixels in the mark's yellow and in its red, reading every `stride`-th pixel and row.
+    static func pixels(_ image: UIImage, stride step: Int = 1) -> (yellow: Int, red: Int) {
+        guard let cg = image.cgImage else { return (0, 0) }
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return (0, 0) }
+        var yellow = 0, red = 0
+        for y in Swift.stride(from: 0, to: height, by: step) {
+            for x in Swift.stride(from: 0, to: width, by: step) {
+                let i = (y * width + x) * 4
+                let r = bytes[i], g = bytes[i + 1], b = bytes[i + 2]
+                if r > 200, g > 180, b < 90 { yellow += 1 } else if r > 180, g < 80, b < 80 { red += 1 }
+            }
+        }
+        return (yellow, red)
     }
 }
 #endif
