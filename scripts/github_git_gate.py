@@ -41,6 +41,24 @@ A..B's changes) needs that the clone lacks, without fetching any (GIT_NO_LAZY_FE
 and asks the promisor remote for all of them in one request. Run it once after making a worktree, or
 before a rebase of a blobless checkout, and the rebase reads blobs it already has.
 
+- runs the real helper with a low-speed floor (GIT_HTTP_LOW_SPEED_LIMIT /
+  GIT_HTTP_LOW_SPEED_TIME, unless the caller set them): a transfer that stalls
+  is aborted instead of holding its slot. One agent's `git fetch` sat at 0 B/s
+  for 16 hours on 2026-11-26.
+
+Lazy fetches are the storm, so the other half of the fix is to stop needing
+them. `mirror sync` keeps one full (not blobless) bare mirror per GitHub repo
+under MIRROR_ROOT, fetched by one process at a time and at most once per
+`--min-interval`, so a dozen agents asking at once cost one fetch. `--seed DIR`
+makes a new mirror from a full local clone with no download. `mirror adopt
+--repo DIR` adds the mirror's objects as an alternate of DIR's clone (every
+worktree of it shares that object store) and drops the clone's blob:none
+filter, so a blob any agent reads is found locally and later fetches carry
+their blobs in one pack instead of one request per blob. The mirror never
+prunes objects (gc.auto=0, gc.pruneExpire=never): an adopted clone may need
+any object it once had. `mirror unadopt` copies what the clone uses back
+before removing the alternate.
+
 A bug in the gate's own bookkeeping never stops git: it runs the real helper
 anyway (fail open). CMUX_GH_GATE_BYPASS=1 skips the gate for one command.
 
@@ -48,6 +66,8 @@ anyway (fail open). CMUX_GH_GATE_BYPASS=1 skips the gate for one command.
     github_git_gate.py uninstall [--repo DIR]... [--global]
     github_git_gate.py prefetch [--repo DIR] [--remote origin] REV...
     github_git_gate.py status | stats [--hours H] | audit [--hours H] GIT_DIR...
+    github_git_gate.py mirror sync [--url URL] [--seed DIR] [--min-interval S]
+    github_git_gate.py mirror adopt|unadopt --repo DIR [--url URL] [--keep-filter]
     git-remote-ghgate REMOTE URL      (what git runs; the `helper` command)
 """
 
@@ -76,8 +96,9 @@ INSTEAD_OF_KEY = f"url.{TRANSPORT}{GITHUB_HTTPS}.insteadOf"
 SLOTS = 4
 PER_MINUTE = 60
 LAZY_PER_MINUTE = 20
-# Longest a request waits for a slot or a token before it fails.
-MAX_WAIT = 120.0
+# Longest a request waits for a slot or a token before it fails: long enough to queue behind a clone of
+# cmux (minutes) rather than fail an agent's fetch, short enough that a wedged slot still ends.
+MAX_WAIT = 600.0
 # Longest a request waits out a backoff; a longer backoff fails it at once.
 BACKOFF_WAIT = 30.0
 BLOCK_BACKOFF = 120.0
@@ -89,6 +110,12 @@ WINDOW = 60.0
 EVENTS_MAX_BYTES = 8 * 1024 * 1024
 STDERR_TAIL = 64 * 1024
 REFUSED_EXIT = 128
+# A transfer under LOW_SPEED_BYTES a second for LOW_SPEED_SECONDS is aborted by git itself.
+LOW_SPEED_BYTES = "1"
+LOW_SPEED_SECONDS = "120"
+MIRROR_MIN_INTERVAL = 300.0
+MIRROR_LOCK_WAIT = 900.0
+DEFAULT_URL = "https://github.com/manaflow-ai/cmux.git"
 # launchd jobs here run with this PATH; the helper must resolve on it too.
 MINIMAL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -325,6 +352,8 @@ def helper_main(argv: Sequence[str], env: dict[str, str] | None = None, gate: Ga
     if url.startswith(TRANSPORT):
         url = url[len(TRANSPORT):]
     target = [*real_helper(url, env), remote, url]
+    env.setdefault("GIT_HTTP_LOW_SPEED_LIMIT", LOW_SPEED_BYTES)
+    env.setdefault("GIT_HTTP_LOW_SPEED_TIME", LOW_SPEED_SECONDS)
     if env.get("CMUX_GH_GATE_BYPASS") == "1":
         return subprocess.call(target, env=env)
 
@@ -499,8 +528,12 @@ def audit(git_dirs: Sequence[str], hours: float, now: float) -> list[dict]:
             if pack_dir.is_dir() else []
         single = sum(1 for p in recent if idx_objects(p.with_suffix(".idx")) == 1)
         per_hour = Counter(time.strftime("%m-%d %H", time.localtime(p.stat().st_mtime)) for p in recent)
+        # What a killed fetch or repack leaves behind: tmp_pack_* files are never cleaned by git until gc.
+        leftovers = list(pack_dir.glob("tmp_*")) if pack_dir.is_dir() else []
         rows.append({"git_dir": git_dir, "promisor_packs": len(recent), "single_object": single,
-                     "busiest_hour": per_hour.most_common(1)[0] if per_hour else None})
+                     "busiest_hour": per_hour.most_common(1)[0] if per_hour else None,
+                     "tmp_packs": len(leftovers),
+                     "tmp_pack_gb": round(sum(p.stat().st_size for p in leftovers) / 1e9, 2)})
     return sorted(rows, key=lambda r: -r["promisor_packs"])
 
 
@@ -526,6 +559,132 @@ def prefetch(repo: str, remote: str, revs: Sequence[str]) -> int:
                                "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none",
                                "--stdin"], stdin=ids, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
     return done.returncode
+
+
+# -- shared mirror ------------------------------------------------------------------------------------
+def mirror_root(env: dict[str, str]) -> Path:
+    if env.get("CMUX_GH_MIRROR_ROOT"):
+        return Path(env["CMUX_GH_MIRROR_ROOT"])
+    base = env.get("XDG_CACHE_HOME") or str(Path(env.get("HOME", "~")).expanduser() / ".cache")
+    return Path(base) / "cmux" / "git-mirrors"
+
+
+def mirror_path(root: Path, url: str) -> Path:
+    """ROOT/OWNER/REPO.git for a github.com URL, else ROOT/other/<url as a name>.git."""
+    match = re.match(r"^(?:ghgate::)?(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+                     r"([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", url)
+    if match:
+        return root / match.group(1) / f"{match.group(2)}.git"
+    return root / "other" / (re.sub(r"[^\w.-]+", "_", url).strip("_") + ".git")
+
+
+def git(*args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    done = subprocess.run(["git", *args], capture_output=True, text=True, env=env)
+    if check and done.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {done.stderr.strip()[-400:]}")
+    return done
+
+
+MIRROR_CONFIG = (("gc.auto", "0"), ("gc.pruneExpire", "never"), ("maintenance.auto", "false"),
+                 ("fetch.writeCommitGraph", "true"), ("remote.origin.fetch", "+refs/heads/*:refs/heads/*"))
+
+
+def mirror_sync(url: str, root: Path, seed: str | None, min_interval: float, env: dict[str, str],
+                clock: Callable[[], float] = time.time, lock_wait: float = MIRROR_LOCK_WAIT,
+                sleep: Callable[[float], None] = time.sleep) -> dict:
+    """Make or refresh the mirror of URL. One sync at a time; a fresh mirror is not fetched again."""
+    path = mirror_path(root, url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = path.parent / f".{path.name}.synced"
+    with open(path.parent / f".{path.name}.lock", "a+") as lock:
+        start = clock()
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                    raise
+                if clock() - start > lock_wait:
+                    return {"mirror": str(path), "result": "busy"}
+                sleep(1.0)
+        try:
+            try:
+                age = clock() - float(stamp.read_text())
+            except (OSError, ValueError):
+                age = float("inf")
+            if (path / "HEAD").exists() and age < min_interval:
+                return {"mirror": str(path), "result": "fresh", "age_seconds": round(age)}
+            made = False
+            if not (path / "HEAD").exists():
+                tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+                shutil.rmtree(tmp, ignore_errors=True)
+                # A seed is a full local clone: copying it costs no GitHub request at all.
+                if seed and git("-C", seed, "config", "--get-regexp", r"^remote\..*\.partialclonefilter$",
+                                env=env, check=False).stdout.strip():
+                    raise RuntimeError(f"seed {seed} is a partial clone; a mirror needs every blob")
+                git("clone", "--bare", "--no-tags", "--quiet", seed or url, str(tmp), env=env)
+                os.replace(tmp, path)
+                made = True
+            for key, value in MIRROR_CONFIG:
+                git("--git-dir", str(path), "config", "--replace-all", key, value, env=env)
+            git("--git-dir", str(path), "config", "remote.origin.url", url, env=env)
+            for key in ("remote.origin.partialclonefilter", "remote.origin.promisor"):
+                git("--git-dir", str(path), "config", "--unset-all", key, env=env, check=False)
+            if seed or not made:
+                git("--git-dir", str(path), "fetch", "--quiet", "--no-tags", "--no-auto-maintenance", "origin",
+                    env=env)
+            stamp.write_text(str(clock()))
+            return {"mirror": str(path), "result": "made" if made else "fetched"}
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def common_git_dir(repo: str, env: dict[str, str] | None = None) -> Path:
+    out = git("-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir", env=env).stdout.strip()
+    return Path(out)
+
+
+def alternates_file(repo: str, env: dict[str, str] | None = None) -> Path:
+    return common_git_dir(repo, env) / "objects" / "info" / "alternates"
+
+
+def mirror_adopt(repo: str, mirror: Path, keep_filter: bool, env: dict[str, str] | None = None) -> dict:
+    """Read missing objects from MIRROR before asking GitHub, for REPO's clone and all its worktrees."""
+    objects = (mirror / "objects").resolve()
+    if not objects.is_dir():
+        raise RuntimeError(f"no mirror at {mirror}; run `mirror sync` first")
+    path = alternates_file(repo, env)
+    lines = path.read_text().splitlines() if path.exists() else []
+    added = str(objects) not in lines
+    if added:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(f"{line}\n" for line in [*lines, str(objects)]))
+    dropped = []
+    if not keep_filter:
+        listing = git("-C", repo, "config", "--local", "--get-regexp", r"^remote\..*\.partialclonefilter$",
+                      env=env, check=False).stdout.split("\n")
+        for line in filter(None, listing):
+            key = line.split()[0]
+            git("-C", repo, "config", "--local", "--unset-all", key, env=env)
+            dropped.append(key)
+    return {"repo": repo, "alternate": str(objects), "added": added, "dropped_filters": dropped}
+
+
+def mirror_unadopt(repo: str, mirror: Path, env: dict[str, str] | None = None) -> dict:
+    """Copy every object REPO reaches through the mirror into REPO, then stop using the mirror."""
+    objects = str((mirror / "objects").resolve())
+    path = alternates_file(repo, env)
+    lines = path.read_text().splitlines() if path.exists() else []
+    if objects not in lines:
+        return {"repo": repo, "removed": False}
+    git("-C", repo, "repack", "-a", "-d", "-q", env=env)
+    rest = [line for line in lines if line != objects]
+    if rest:
+        path.write_text("".join(f"{line}\n" for line in rest))
+    else:
+        path.unlink()
+    return {"repo": repo, "removed": True}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -556,8 +715,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     one = sub.add_parser("audit")
     one.add_argument("--hours", type=float, default=24)
     one.add_argument("git_dir", nargs="+")
+    mirror = sub.add_parser("mirror").add_subparsers(dest="mirror_command", required=True)
+    one = mirror.add_parser("sync")
+    one.add_argument("--url", default=DEFAULT_URL)
+    one.add_argument("--seed", help="a full local clone to copy a new mirror from instead of GitHub")
+    one.add_argument("--min-interval", type=float, default=MIRROR_MIN_INTERVAL,
+                     help="skip the fetch when the last sync is newer than this many seconds")
+    for name in ("adopt", "unadopt"):
+        one = mirror.add_parser(name)
+        one.add_argument("--repo", action="append", required=True, help="a checkout (any worktree of the clone)")
+        one.add_argument("--url", default=DEFAULT_URL)
+        if name == "adopt":
+            one.add_argument("--keep-filter", action="store_true", help="keep the blob:none filter for new fetches")
     args = parser.parse_args(argv)
     env = dict(os.environ)
+    if args.command == "mirror":
+        root = mirror_root(env)
+        if args.mirror_command == "sync":
+            print(json.dumps(mirror_sync(args.url, root, args.seed, args.min_interval, env)))
+            return 0
+        for repo in args.repo:
+            if args.mirror_command == "adopt":
+                print(json.dumps(mirror_adopt(repo, mirror_path(root, args.url), args.keep_filter)))
+            else:
+                print(json.dumps(mirror_unadopt(repo, mirror_path(root, args.url))))
+        return 0
     if args.command == "install":
         return install(args)
     if args.command == "uninstall":
