@@ -707,8 +707,7 @@ class Worker:
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
         if planned["needs_build"]:
-            # The web side still shows; the shell is not built over Swift it does not hold.
-            errors.append(needs_build_reason(planned))
+            pass  # The web side still shows; the shell is not built over Swift it does not hold (said below).
         elif planned["swift"] and not self.swift_on:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
@@ -764,6 +763,8 @@ class Worker:
                 scenes.append(row)
         receipt["scenes"] = scenes
         receipt["look"] = token
+        if planned["needs_build"]:
+            errors.append(needs_build_reason(planned))  # last: the 500-character error keeps the web side's why
         if errors:
             receipt["error"] = "; ".join(errors)[:500]
         if not any(s.get("before") and s.get("after") for s in scenes):
@@ -886,8 +887,9 @@ class Publisher:
 
 
 def needs_build_reason(planned: dict) -> str:
-    return ("needs an app build (Swift outside the UI shell's modules, or a manifest): "
-            + ", ".join(planned["needs_build"][:5]))
+    files = planned["needs_build"]
+    more = f" and {len(files) - 3} more" if len(files) > 3 else ""
+    return f"needs an app build (Swift outside the UI shell's modules, or a manifest): {', '.join(files[:3])}{more}"
 
 
 def skip_reason(planned: dict) -> str | None:
