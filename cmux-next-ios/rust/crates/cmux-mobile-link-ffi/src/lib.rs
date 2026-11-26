@@ -800,12 +800,28 @@ impl LinkHandle {
     }
 }
 
-/// One outgoing message's progress and cancellation, independent of every other message
-/// on the same multiplexed channel.
+/// Before this write owns a framed channel, only writers ahead of it can enqueue bytes.
+enum PrecedingWrites {
+    Waiting { sender: Arc<ChannelSender>, start: u64 },
+    Finished(u64),
+}
+
+impl PrecedingWrites {
+    fn bytes(&self) -> u64 {
+        match self {
+            Self::Waiting { sender, start } => sender.sent_bytes().saturating_sub(*start),
+            Self::Finished(bytes) => *bytes,
+        }
+    }
+}
+
+/// Progress and cancellation for one outgoing message. While waiting to write, its progress
+/// includes the serialized writes ahead of it.
 #[derive(uniffi::Object)]
 pub struct ChannelWriteWatch {
     accepted: AtomicU64,
     last_observed: AtomicU64,
+    preceding: Mutex<PrecedingWrites>,
     cancelled: tokio::sync::watch::Sender<bool>,
 }
 
@@ -816,14 +832,16 @@ impl ChannelWriteWatch {
         Arc::new(Self {
             accepted: AtomicU64::new(0),
             last_observed: AtomicU64::new(0),
+            preceding: Mutex::new(PrecedingWrites::Finished(0)),
             cancelled: tokio::sync::watch::channel(false).0,
         })
     }
 
-    /// Whether this write queued bytes since the previous observation.
+    /// Whether this write or one ahead of it queued bytes since the previous observation.
     pub fn take_progress(&self) -> bool {
-        let accepted = self.accepted.load(Ordering::Relaxed);
-        self.last_observed.fetch_max(accepted, Ordering::Relaxed) < accepted
+        let preceding = self.preceding.lock().unwrap_or_else(PoisonError::into_inner).bytes();
+        let progress = self.accepted.load(Ordering::Relaxed).saturating_add(preceding);
+        self.last_observed.fetch_max(progress, Ordering::Relaxed) < progress
     }
 
     pub fn cancel(&self) {
@@ -883,6 +901,48 @@ mod channel_write_tests {
     }
 
     #[tokio::test]
+    async fn a_queued_watch_sees_preceding_bytes_before_it_can_send_any_of_its_own() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone, "acpmux").await;
+            let first = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let (handle, watch) = (handle.clone(), first.clone());
+                async move { handle.send_observed(vec![b'x'; 8 << 20], watch).await }
+            });
+            while !first.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let second = ChannelWriteWatch::new();
+            let queued = tokio::spawn({
+                let (handle, watch) = (handle.clone(), second.clone());
+                async move { handle.send_observed(b"next".to_vec(), watch).await }
+            });
+            while !matches!(*second.preceding.lock().unwrap(), PrecedingWrites::Waiting { .. }) {
+                tokio::task::yield_now().await;
+            }
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut incoming = mac.accept().await.unwrap().channel;
+            let mut total = 0;
+            while !second.take_progress() {
+                match incoming.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => total += bytes.len(),
+                    value => panic!("writer ended before the waiting prompt made progress: {value:?}"),
+                }
+            }
+            assert!(total < 8 << 20);
+            assert_eq!(second.accepted.load(Ordering::Relaxed), 0);
+            second.cancel();
+            assert!(queued.await.unwrap().is_err());
+            first.cancel();
+            assert!(writing.await.unwrap().is_err());
+        })
+        .await
+        .expect("the waiting write sees progress before admission");
+    }
+
+    #[tokio::test]
     async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
         for service in ["acpmux", "cloud-acpmux"] {
             tokio::time::timeout(Duration::from_secs(15), async {
@@ -905,7 +965,7 @@ mod channel_write_tests {
             });
             queued.cancel();
             assert!(abandoned.await.unwrap().is_err());
-            assert!(!queued.take_progress(), "waiting for the current writer accepted no bytes");
+            assert_eq!(queued.accepted.load(Ordering::Relaxed), 0, "waiting accepted no bytes");
             let next = tokio::spawn({
                 let handle = handle.clone();
                 async move { handle.send(b"next".to_vec()).await }
@@ -1009,11 +1069,20 @@ impl ChannelHandle {
         on_runtime(async move {
             let mut cancelled = watch.cancelled.subscribe();
             let _write = match &lock {
-                Some(lock) => tokio::select! {
-                    biased;
-                    _ = cancelled.wait_for(|cancelled| *cancelled) => return Err(cmux_mobile_link::LinkError::ChannelClosed),
-                    guard = lock.lock() => Some(guard),
-                },
+                Some(lock) => {
+                    *watch.preceding.lock().unwrap_or_else(PoisonError::into_inner) =
+                        PrecedingWrites::Waiting { sender: sender.clone(), start: sender.sent_bytes() };
+                    let guard = tokio::select! {
+                        biased;
+                        _ = cancelled.wait_for(|cancelled| *cancelled) => None,
+                        guard = lock.lock() => Some(guard),
+                    };
+                    {
+                        let mut preceding = watch.preceding.lock().unwrap_or_else(PoisonError::into_inner);
+                        *preceding = PrecedingWrites::Finished(preceding.bytes());
+                    }
+                    Some(guard.ok_or(cmux_mobile_link::LinkError::ChannelClosed)?)
+                }
                 None => None,
             };
             tokio::select! {

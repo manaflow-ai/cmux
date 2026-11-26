@@ -445,9 +445,11 @@ public final class AcpmuxHub {
     /// ``AcpmuxConnection/submit(_:_:)`` on the current connection: returns once the request
     /// is written, with the connection that answers it. Waits for a channel that is coming back;
     /// never retried (a submit is a send).
-    public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
+    public func submit(_ method: String, _ params: JSONValue,
+                       onWriting: (@MainActor (AcpmuxConnection) -> Void)? = nil) async throws -> (AcpmuxConnection, Int) {
         onSubmit?()
         let connection = try await readyConnection()
+        onWriting?(connection)
         return (connection, try await connection.submit(method, params, base: writeBase))
     }
 
@@ -1224,6 +1226,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private let promptOutbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: UInt64.random(in: 0...UInt64.max))
     /// The wake for the outbox's next hold or retry.
     private var promptWake: Task<Void, Never>?
+    /// While a prompt is being written, bytes on its serialized ACP channel belong to that
+    /// write or an earlier write it is waiting for. Read them at the queued prompts' own wake.
+    private var promptWrite: (connection: AcpmuxConnection, bytes: UInt64)?
+
 
     /// Prompts the link lost or could not take (a blip), oldest first: they go again once the
     /// link is back, in order, while younger than ``heldPromptWindow``; older, they come back to
@@ -1337,6 +1343,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let hub else { return }
         let nowMs = ChatPromptClock.milliseconds(now())
         promptOutbox.setLink(up: hub.isReady, nowMs: nowMs)
+        if let write = promptWrite, write.connection === hub.connection,
+           let bytes = write.connection.sentBytes, bytes > write.bytes {
+            promptWrite = (write.connection, bytes)
+            promptOutbox.progressed(nowMs: nowMs)
+        }
         promptsGaveUp(promptOutbox.expire(nowMs: nowMs))
         if let request = promptOutbox.nextRequest(nowMs: nowMs) {
             if var prompt = promptPayloads[request.promptId] {
@@ -1418,7 +1429,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
         do {
-            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub)
+            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub) { connection in
+                self.promptWrite = connection.sentBytes.map { (connection, $0) }
+            }
+            promptWrite = nil
             promptOutbox.wrote(promptId: prompt.promptID)
             promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
             pumpPrompts()
@@ -1430,6 +1444,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 promptFailed(prompt, error, written: true)
             }
         } catch {
+            promptWrite = nil
             promptFailed(prompt, error, written: false)
         }
         pumpPrompts()
@@ -1545,10 +1560,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Writes the prompt as the `send` action of its trace (``PhoneTrace``): the span ends when the
     /// Mac's channel took it, one round trip at the floor; the answer comes when the turn ends.
-    static func tracedSubmit(_ prompt: HeldPrompt, session: String, hub: AcpmuxHub) async throws -> (AcpmuxConnection, Int) {
+    static func tracedSubmit(_ prompt: HeldPrompt, session: String, hub: AcpmuxHub,
+                             onWriting: (@MainActor (AcpmuxConnection) -> Void)? = nil) async throws -> (AcpmuxConnection, Int) {
         try await PhoneTrace.$traceID.withValue(prompt.traceID) {
             try await PhoneTrace.action("send", floorRoundTrips: 1, args: ["resend": "\(prompt.resend)"]) {
-                try await hub.submit("session/prompt", promptParams(prompt, session: session))
+                try await hub.submit("session/prompt", promptParams(prompt, session: session), onWriting: onWriting)
             }
         }
     }

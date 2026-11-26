@@ -29,6 +29,8 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// Only outgoing bytes on this connection's serialized ACP channel.
+    nonisolated var sentBytes: UInt64? { channel.sentBytes }
     /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
     /// frame heard and every completed write contributes to the Mac's link status.
     nonisolated let progress: LinkProgress
@@ -184,8 +186,8 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// An observed write continues while its own chunks enter the transport. For a channel
-    /// without a per-write counter, the deadline scales with the encoded payload.
+    /// A write continues while its chunks or a preceding serialized write enter the transport.
+    /// Without transport progress, the deadline scales with the encoded payload.
     public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
                        base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()

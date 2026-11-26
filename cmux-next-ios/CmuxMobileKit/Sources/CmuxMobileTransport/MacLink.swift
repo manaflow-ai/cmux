@@ -197,8 +197,8 @@ public extension ParkableMacLink {
     var resumeHedge: Duration? { nil }
 }
 
-/// A single outgoing message. A transport that reports partial writes consumes only this
-/// message's progress at each deadline; cancellation stops its remaining transport work.
+/// A single outgoing message. Its deadline observes accepted chunks from this write and,
+/// while it waits for an earlier serialized writer, that writer. Cancellation stops the send.
 public struct LinkWrite: Sendable {
     public let send: @Sendable () async throws -> Void
     public let takeProgress: (@Sendable () -> Bool)?

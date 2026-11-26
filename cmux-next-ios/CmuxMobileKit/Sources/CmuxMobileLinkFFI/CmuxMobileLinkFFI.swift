@@ -2060,22 +2060,22 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 
 /**
- * One outgoing message's progress and cancellation, independent of every other message
- * on the same multiplexed channel.
+ * Progress and cancellation for one outgoing message. While waiting to write, its progress
+ * includes the serialized writes ahead of it.
  */
 public protocol ChannelWriteWatchProtocol: AnyObject, Sendable {
     
     func cancel() 
     
     /**
-     * Whether this write queued bytes since the previous observation.
+     * Whether this write or one ahead of it queued bytes since the previous observation.
      */
     func takeProgress()  -> Bool
     
 }
 /**
- * One outgoing message's progress and cancellation, independent of every other message
- * on the same multiplexed channel.
+ * Progress and cancellation for one outgoing message. While waiting to write, its progress
+ * includes the serialized writes ahead of it.
  */
 open class ChannelWriteWatch: ChannelWriteWatchProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -2145,7 +2145,7 @@ open func cancel()  {try! rustCall() {
 }
     
     /**
-     * Whether this write queued bytes since the previous observation.
+     * Whether this write or one ahead of it queued bytes since the previous observation.
      */
 open func takeProgress() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
