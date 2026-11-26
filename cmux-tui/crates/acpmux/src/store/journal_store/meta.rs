@@ -426,6 +426,20 @@ fn raw_fields(image: &[u8]) -> Result<Vec<(Name<'_>, &serde_json::value::RawValu
     Ok(serde_json::from_slice::<Fields<'_>>(image)?.0)
 }
 
+/// A digest of an image (`Store::save_digest`): SHA-256 of each field's name and value hash, in
+/// order. A change the per-field hashes miss is one the save's patch misses too, so it matches
+/// what the journal holds; hashing the hashes is a few hundred bytes, not the image again.
+fn image_digest(fields: &[(Name<'_>, &serde_json::value::RawValue)], hashes: &[u64]) -> MetaDigest {
+    use sha2::{Digest, Sha256};
+    let mut sha = Sha256::new();
+    for ((name, _), hash) in fields.iter().zip(hashes) {
+        sha.update((name.len() as u64).to_le_bytes());
+        sha.update(name.as_bytes());
+        sha.update(hash.to_le_bytes());
+    }
+    sha.finalize().into()
+}
+
 /// Each field's value hash, in `fields`' order: hashed once per save, for its patch and its shape.
 fn field_hashes(fields: &[(Name<'_>, &serde_json::value::RawValue)]) -> Vec<u64> {
     fields.iter().map(|(_, value)| fnv(value.get().as_bytes())).collect()
@@ -711,7 +725,8 @@ impl Inner {
     /// ([module docs](self)). A kept change's record (`keep`, `super::durability`) is a `Stream`
     /// record, except the save that makes the chat's folder: a new chat is shown only once
     /// durable ([`super::new_folders`]).
-    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
+    /// Returns the image's digest ([`image_digest`]).
+    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<MetaDigest> {
         // A full disk: refused before anything is written (`super::space`).
         self.space.refuse()?;
         let dir = self.local.dir(&meta.id);
@@ -735,6 +750,7 @@ impl Inner {
         let saw = saw_file(&dir);
         let fields = raw_fields(&image)?;
         let hashes = field_hashes(&fields);
+        let digest = image_digest(&fields, &hashes);
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
         // Reserved before the folder is made: a refused save makes nothing, and the record is
@@ -772,7 +788,7 @@ impl Inner {
             {
                 pending.meta = meta.clone();
             }
-            return Ok(());
+            return Ok(digest);
         }
         let (kind, payload) = match (base, patch) {
             (Some(last), Some((base_lsn, body)))
@@ -821,7 +837,15 @@ impl Inner {
             self.want_checkpoint();
         }
         self.touched();
-        Ok(())
+        Ok(digest)
+    }
+
+    /// The digest `save_meta` returns for `meta`: its image as a save makes it, hashed the same
+    /// way. Only the shutdown's compare of a chat asks (`hub/meta_save.rs`).
+    pub(super) fn meta_digest(&self, meta: &SessionMeta) -> Result<MetaDigest> {
+        let image = meta_parts::to_vec(meta, &self.local.parts.fingerprint(meta))?;
+        let fields = raw_fields(&image)?;
+        Ok(image_digest(&fields, &field_hashes(&fields)))
     }
 
     /// The overlay's image of `id`, when its `session.json` does not hold it yet and its folder

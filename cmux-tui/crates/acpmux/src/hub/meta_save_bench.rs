@@ -123,6 +123,26 @@ fn meta_save_cpu() {
             hub.save_meta(&session);
         }
         let per = (cpu_us() - started) / saves as f64;
-        println!("META-SAVE-CPU home={} n={saves} cpu_us_per_save={per:.1}", shape.name);
+        // Its parts: the copy, the store's save, and the shutdown's digest.
+        let each = |f: &mut dyn FnMut(usize)| {
+            let started = cpu_us();
+            for i in 0..saves {
+                f(i);
+            }
+            (cpu_us() - started) / saves as f64
+        };
+        let copy = each(&mut |_| drop(std::hint::black_box(session.meta())));
+        let meta = session.meta();
+        let store = each(&mut |i| {
+            let mut meta = meta.clone();
+            meta.updated_at = 1_000_000 + i as u64;
+            hub.store.save_kept(&meta).unwrap();
+        });
+        let digest = each(&mut |_| drop(std::hint::black_box(Saved::of(&meta))));
+        println!(
+            "META-SAVE-CPU home={} n={saves} cpu_us_per_save={per:.1} copy={copy:.1} \
+             store={store:.1} digest={digest:.1}",
+            shape.name
+        );
     }
 }
