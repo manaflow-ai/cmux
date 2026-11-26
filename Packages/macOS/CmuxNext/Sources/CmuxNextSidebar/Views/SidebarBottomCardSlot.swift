@@ -27,8 +27,6 @@ struct SidebarBottomCardSlot {
         // The highlights show in the app's one hover card window (one card at a time).
         update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in
-            // The restoring card's Details opens what the footer's health line opens (app health's popover).
-            if card == "restoring", action == SidebarNoticeCard.detailsAction, sidebar?.healthIndicator?.accessibilityPerformPress() == true { return }
             sidebar?.model.send(.noticeAction(card: card, action: action))
         }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
@@ -102,8 +100,12 @@ struct SidebarBottomCardSlot {
     func place(above bottom: CGFloat, top: CGFloat = 0, width sidebarWidth: CGFloat, slotHeight: CGFloat, in sidebar: NSView? = nil) {
         let inset = Metrics.space3, width = Self.cardWidth(in: sidebarWidth)
         let shown = slotHeight > 0 ? shown : nil
+        // The card keeps its own height (on the half-point grid, the 2x pixel): `integral` on a half-point origin grew it
+        // a whole point, and the room went under its buttons (the tip card's bottom padding, Lawrence msg 40504).
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
-            shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
+            guard shown == which else { return .zero }
+            let across = NSRect(x: inset, y: 0, width: width, height: 1).integral
+            return NSRect(x: across.minX, y: (2 * (bottom - Metrics.space2 - height)).rounded(.down) / 2, width: across.width, height: height)
         }
         nowPlaying.isHidden = shown != .nowPlaying
         nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
@@ -114,13 +116,24 @@ struct SidebarBottomCardSlot {
         } else {
             updated.frame = .zero
         }
-        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
+        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone, unless
+        // another card takes that place: then it goes at once, so the two never draw over each other.
+        // The download's notice under the Update Ready card stayed half shown: each progress change
+        // showed it again (its configure), which cancelled its exit, and the next layout started a new one.
+        if let shown, shown != .update, update.isLeaving { update.presence.hideAtOnce() }
         if shown == .update || !update.isLeaving {
             update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
         }
-        notice.presence.setShown(shown == .notice)
-        if shown == .notice || !notice.isLeaving {
+        if let shown, shown != .notice {
+            notice.presence.hideAtOnce()
+        } else {
+            notice.presence.setShown(shown == .notice)
+        }
+        // Measured only when it shows: a hidden notice's progress changes would measure its text each layout.
+        if shown == .notice {
             notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
+        } else if !notice.isLeaving {
+            notice.frame = .zero
         }
     }
 

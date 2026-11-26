@@ -6,7 +6,7 @@ import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
 import { isPending, plain, type FeedProps } from "./context";
-import { AnswerControls } from "./AnswerControls";
+import { SnapAnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
 import {
@@ -131,7 +131,6 @@ function InboxHeader({ store, snap, strings, hasUnread, onListKeys }: HeaderProp
         <button
           type="button"
           className="feed-add"
-          title={t("feed.addConnection")}
           aria-label={t("feed.addConnection")}
           onClick={() => store.addConnection()}
         >
@@ -224,7 +223,7 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
           <GitHubActions key={item.id} store={store} snap={snap} strings={strings} item={item} />
         ) : null}
         {isRequest(item) && item.poster.kind !== "integration" ? (
-          <AnswerControls item={item} store={store} snap={snap} strings={strings} density="detail" />
+          <SnapAnswerControls item={item} store={store} snap={snap} strings={strings} density="detail" />
         ) : null}
         {thread.length ? (
           <div className="feed-thread">

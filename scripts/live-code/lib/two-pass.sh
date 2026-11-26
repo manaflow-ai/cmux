@@ -14,13 +14,19 @@
 # It holds the Swift symbols that name a CmuxNext module: their functions, and their extensions of
 # other modules' types.
 
-live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E '[0-9]CmuxNext' | sort -u; }
+# The CmuxNext modules and the shared ones the live code build compiles for patching
+# (live_code_module_pattern in xcodebuild-args.sh), so a nightly variant that sources only this file lists them too.
+# LIVE_CODE_MODULE_PREFIX names the app's own modules (default CmuxNext, the macOS app; CmuxMobile
+# for the iPhone app, scripts/live-code/ios-sim.sh).
+# shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+declare -F live_code_module_pattern >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/xcodebuild-args.sh"
+live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E "$(live_code_module_pattern)" | sort -u; }
 
 live_code_list() { # BIN OUT
   local bin="$1" out="$2"
   xcrun dyld_info -exports "$bin" | live_code_ours > "$out/interposable.txt" || true
-  echo "live-code build: $(wc -l < "$out/interposable.txt" | tr -d ' ') CmuxNext Swift symbols in the export trie" >&2
-  [[ -s "$out/interposable.txt" ]] || { echo "live-code build: the app exports no CmuxNext symbol (LD_EXPORT_SYMBOLS?)" >&2; return 1; }
+  echo "live-code build: $(wc -l < "$out/interposable.txt" | tr -d ' ') ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} Swift symbols in the export trie" >&2
+  [[ -s "$out/interposable.txt" ]] || { echo "live-code build: the app exports no ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbol (LD_EXPORT_SYMBOLS?)" >&2; return 1; }
 }
 
 # dyld_info -fixups prints a bind's target as "<this-image>/NAME" in 4096 bytes, so a name longer
@@ -57,10 +63,10 @@ live_code_check() { # BIN OUT
   # Only bind lines need an export; dyld_info -fixups also names the target of a rebase.
   grep -E '[[:space:]]((weak|lazy)-)?bind[[:space:]]' "$out/fixups-2.txt" | live_code_ours > "$out/binds-2.txt" || true
   live_code_ours < "$out/fixups-2.txt" > "$out/named-2.txt" || true
-  echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNext binds, $(wc -l < "$out/named-2.txt" | tr -d ' ') named by any fixup, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported" >&2
+  echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} binds, $(wc -l < "$out/named-2.txt" | tr -d ' ') named by any fixup, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported" >&2
   comm -23 "$out/named-2.txt" "$out/exports-2.txt" | comm -23 - "$out/binds-2.txt" > "$out/unexported-rebases-2.txt"
   if [[ -s "$out/unexported-rebases-2.txt" ]]; then
-    echo "live-code build: $(wc -l < "$out/unexported-rebases-2.txt" | tr -d ' ') unexported CmuxNext symbols are rebase targets only (no export needed); their fixups:" >&2
+    echo "live-code build: $(wc -l < "$out/unexported-rebases-2.txt" | tr -d ' ') unexported ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbols are rebase targets only (no export needed); their fixups:" >&2
     grep -F -f <(sed -n 1,5p "$out/unexported-rebases-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
   fi
   comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
@@ -68,11 +74,11 @@ live_code_check() { # BIN OUT
   if [[ ! -s "$out/binds-2.txt" ]]; then
     # The interposable list makes the modules' calls bind through the app; none read means the bind
     # lines were not recognized, and the check would pass blind.
-    echo "live-code build: no CmuxNext bind found in dyld_info -fixups (its format?); first lines:" >&2
+    echo "live-code build: no ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} bind found in dyld_info -fixups (its format?); first lines:" >&2
     sed -n 1,5p "$out/fixups-2.txt" >&2
     failed=1
   elif [[ -s "$out/missing-2.txt" ]]; then
-    echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNext symbols it does not export; their fixups:" >&2
+    echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbols it does not export; their fixups:" >&2
     grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
     # Why: whether the first link listed it, and how the relinked symbol table has it.
     while read -r symbol; do

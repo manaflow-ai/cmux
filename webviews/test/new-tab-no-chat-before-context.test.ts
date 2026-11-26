@@ -123,7 +123,8 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
         const shown: Shown[] = [];
         w.__shown = shown;
         const read = () => {
-          const chat = document.querySelector(".acpmux-dock") !== null;
+          // Drawn: a chat view a New Tab page keeps built under it is display: none (App.tsx premountsChatView).
+          const chat = (document.querySelector(".acpmux-dock")?.getClientRects().length ?? 0) > 0;
           const tab = document.querySelector(".nt-field") !== null;
           const screen = chat && tab ? "both" : chat ? "chat" : tab ? "newTab" : "none";
           const last = shown.at(-1);

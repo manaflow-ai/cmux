@@ -17,8 +17,6 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         var title: String
         var location: ChiefLocation
         var phase: ChiefTeleportPhase
-        /// The header's wording for a host Home cannot open ("Chief is on …").
-        var saysAway = false
         /// A move the home's hold says runs (from the CLI, the MCP tool or the Chief).
         var moving: ChiefMoveHold?
         /// A fork in cmux Cloud.
@@ -38,7 +36,6 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         Sample(title: "On This Mac", location: .thisMac, phase: .idle),
         Sample(title: "In cmux Cloud", location: .cloud, phase: .done("cmux Cloud")),
         Sample(title: "On a Mac mini", location: .host("cmux-mini"), phase: .idle),
-        Sample(title: "On a host (header)", location: .host("gcp-linux-1"), phase: .idle, saysAway: true),
         Sample(title: "Moving", location: .thisMac, phase: .moving("cmux Cloud")),
         Sample(title: "Verifying", location: .cloud, phase: .verifying("cmux Cloud")),
         Sample(title: "Failed", location: .thisMac, phase: .failed("Mac mini", reason: "ssh: connect to host cmux-mini: timed out")),
@@ -121,7 +118,6 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
                 let model = sample.model()
                 // Picks do nothing here: the model's default actions are empty.
                 let chip = ChiefTeleportChip(model: model, style: style)
-                chip.saysAway = sample.saysAway
                 chips.append(chip)
                 row.append(chip)
             }

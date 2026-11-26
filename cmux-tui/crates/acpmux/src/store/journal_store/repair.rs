@@ -176,6 +176,7 @@ impl Inner {
         // repair journaled again): an upper bound for each.
         let newest = order.applied;
         for chat in replayed {
+            order.log_lsns.entry(chat.clone()).or_default().bound(newest);
             order.log_lsn.insert(chat, newest);
         }
         Ok(())
@@ -316,6 +317,12 @@ impl Inner {
                 range.get_or_insert_with(|| (piece.offset, Vec::new())).1.extend_from_slice(line);
             }
             let Some((offset, bytes)) = range else { continue };
+            // Never into a cold segment's archive (`store/cold_segments.rs`): its bytes are the
+            // ones just read through it, synced when it went cold, which only a checkpoint that
+            // covered them allows. Nothing is written there.
+            if super::super::cold_segments::is_cold(&path) {
+                continue;
+            }
             #[cfg(test)]
             if FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false)) {
                 anyhow::bail!("a failed write-back of {} (a test)", path.display());
@@ -390,6 +397,15 @@ impl Inner {
     /// again: else a crash could bring a removed segment back beside them.
     fn cut_at(&self, id: &str, segment: u32, offset: u64) -> Result<()> {
         let segments = self.local.segments(id)?;
+        // A cut never reaches into a cold segment (`store/cold_segments.rs`): it went cold only
+        // once a checkpoint covered it, so no replay is past it; refused, the chat's lines stay
+        // in its repair file and nothing is cut.
+        if let Some((index, _)) = segments
+            .iter()
+            .find(|(index, path)| *index >= segment && super::super::cold_segments::is_cold(path))
+        {
+            anyhow::bail!("a cut of chat {id}'s log reaches cold segment {index:06}: refused");
+        }
         for (index, _) in segments.iter().filter(|(index, _)| *index >= segment) {
             self.forget_index_copy(id, *index)?;
         }
@@ -646,7 +662,8 @@ impl Inner {
 /// Reads `path` (segment `segment`) from `from` into `out`, piece by piece.
 fn read_pieces(path: &Path, segment: u32, from: u64, out: &mut Vec<Piece>) -> Result<()> {
     use std::io::{Seek, SeekFrom};
-    let mut file = crate::config::private_state_file(path)?;
+    // A cold segment reads back through its archive (`store/cold_segments.rs`).
+    let mut file = super::super::cold_segments::open_segment(path)?;
     file.seek(SeekFrom::Start(from))?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
@@ -703,7 +720,7 @@ fn sync_if_there(path: &Path) -> Result<()> {
 /// The offset right after the last whole line of `path` whose `seq` reads and is below
 /// `from_seq`; 0 when there is none.
 fn end_of_last_line_before(path: &Path, from_seq: u64) -> Result<u64> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    let mut reader = BufReader::new(super::super::cold_segments::open_segment(path)?);
     let mut line = Vec::new();
     let (mut offset, mut keep) = (0u64, 0u64);
     loop {

@@ -11,11 +11,14 @@ public nonisolated enum CmuxToastTone: String, Sendable, CaseIterable {
     case warning
     /// Something failed or was refused.
     case error
+    /// Still running (Running tests…): a spinner leads the toast, and the same id shown again with the
+    /// result takes its place in one frame (``CmuxToastStyle/v2``).
+    case working
 
-    /// The SF Symbol a style with an icon shows for the tone.
+    /// The SF Symbol a style with an icon shows for the tone (a working toast shows a spinner instead).
     public var symbolName: String {
         switch self {
-        case .neutral: "info.circle.fill"
+        case .neutral, .working: "info.circle.fill"
         case .success: "checkmark.circle.fill"
         case .warning: "exclamationmark.triangle.fill"
         case .error: "xmark.octagon.fill"
@@ -25,7 +28,7 @@ public nonisolated enum CmuxToastTone: String, Sendable, CaseIterable {
     /// The tone's color in the theme in effect: the accent for news, else the theme's status colors.
     @MainActor public var color: NSColor {
         switch self {
-        case .neutral: Palette.accentFill
+        case .neutral, .working: Palette.accentFill
         case .success: Palette.success
         case .warning: Palette.attention
         case .error: Palette.danger

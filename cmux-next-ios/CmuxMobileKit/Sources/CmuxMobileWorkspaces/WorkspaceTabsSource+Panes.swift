@@ -138,6 +138,37 @@ extension WorkspaceTabsSource {
         await onMac("move", tab.title) { try await $0.moveTab(tab, toPane: pane.id, in: $1) }
     }
 
+    /// A tab row dropped on the Panes page: `tabID` into `pane` at `offset` among its rows. The
+    /// page and the grid show it there at once, so the drop settles in one motion; then the Mac
+    /// moves it (`move-tab`), and a refusal puts both back (as the grid's drag does).
+    @discardableResult
+    public func dropTab(_ tabID: String, into pane: WorkspaceLayout.Pane, at offset: Int) -> Task<Void, Never>? {
+        guard let layout, let workspace, let paneBackend, let tab = workspaceTab(tabID),
+              let drop = layout.dropping(tabID, into: pane.id, at: offset) else { return nil }
+        let anchor = drop.before.flatMap { workspaceTab($0) }
+        let oldTabs = workspace.tabs.map(\.id)
+        store.setLayout(drop.layout, in: workspaceID)
+        // The grid lists the panes' tabs in order: the tab goes before the tab now after it.
+        let flat = drop.layout.panes.flatMap(\.tabIDs)
+        if let from = oldTabs.firstIndex(of: tabID), let own = flat.firstIndex(of: tabID) {
+            let next = flat[(own + 1)...].first { $0 != tabID && oldTabs.contains($0) }
+            let position = next.flatMap { oldTabs.firstIndex(of: $0) }.map { $0 > from ? $0 - 1 : $0 } ?? oldTabs.count - 1
+            if position != from { store.moveTab(tabID, in: workspaceID, to: position) }
+        }
+        refreshTabs()
+        return Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await paneBackend.moveTab(tab, toPane: pane.id, before: anchor, in: workspace)
+            } catch {
+                self.store.setLayout(layout, in: self.workspaceID)
+                if let from = oldTabs.firstIndex(of: tabID) { self.store.moveTab(tabID, in: self.workspaceID, to: from) }
+                self.refreshTabs()
+                self.show(error, doing: "move", tab.title)
+            }
+        }
+    }
+
     /// Resize Pane: the divider one step toward its second side (`+1`) or its first (`-1`).
     public func resize(_ split: WorkspaceLayout.ResizableSplit, _ direction: Int) async {
         guard let ratio = split.stepped(direction) else { return }

@@ -5,7 +5,7 @@
 .tma-table{width:100%;border-collapse:collapse;font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .tma-table th,.tma-table td{padding:var(--ds-space-1) var(--ds-space-2);text-align:right;white-space:nowrap}
 .tma-table thead th{font-weight:var(--weight-regular);color:var(--agent-muted)}
-.tma-table tbody tr:hover{background:var(--ds-color-hover)}
+.tma-table tbody tr:hover{background:var(--ds-surface-hover)}
 /* The key column takes the room the measure columns leave (width 100%) and never less than 12ch: the
    label inside does not size the column (contain: inline-size), so a long name ellipsizes only past
    that minimum, and a pane too narrow for 12ch and the measures scrolls the table sideways in
@@ -14,3 +14,35 @@
 .tma-key-text{display:block;contain:inline-size;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tma-table thead .tma-key{font-size:var(--text-detail);color:var(--agent-muted)}
 .tma-saved{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A drill-down's path: Everyone › a team › a project; each crumb before the last goes back to it. */
+.tma-drill{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-1);padding:0 var(--ds-space-2) var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-muted)}
+.tma-crumb-wrap{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0}
+.tma-crumb{min-width:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.tma-crumb:hover{color:var(--agent-text)}
+.tma-crumb[aria-current]{color:var(--agent-text)}
+/* A drillable row's name is a button that reads as the name; the row's hover says it is one. */
+.tma-drill-row{width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
+.tma-table tbody tr:has(.tma-drill-row){cursor:default}
+.tma-table tbody tr:has(.tma-drill-row:focus-visible){background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)}
+.tma-table tbody tr[data-others] .tma-key{color:var(--agent-muted)}
+.tma-folded{font-size:var(--text-detail);color:var(--agent-muted)}
+.tma-privacy{min-width:0}
+/* Overview: a tile per measure, its value, then a bar per day in the page's accent. Two columns in a
+   narrow pane, as many 180px tiles as fit in a wide one. */
+.tma-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:var(--ds-space-2);margin:0}
+.tma-kpi{display:flex;flex-direction:column;gap:var(--ds-space-1)}
+.tma-kpi dd{margin:0}
+.tma-kpi .tma-spark-cell{font-size:0;line-height:0}
+.tma-spark{display:block;width:100%;height:24px;fill:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 55%,transparent)}
+/* Per PR: two tables, a bar under each agent time per PR scaled to the longest shown, an outlier's
+   row tinted with the warning ink and tagged. */
+.tma-eff{gap:var(--ds-space-4)}
+.tma-eff-section{display:flex;flex-direction:column;gap:var(--ds-space-1)}
+.tma-eff-title{margin:0;padding:0 var(--ds-space-2);font-size:var(--text-detail);font-weight:var(--weight-emphasis);color:var(--agent-muted)}
+.tma-eff-table .tma-bar-col{width:30%;min-width:120px}
+.tma-bar-cell{--tma-ink:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 55%,transparent);display:flex;justify-content:flex-end;padding-bottom:var(--ds-space-1);background:linear-gradient(var(--tma-ink),var(--tma-ink)) left bottom/calc(var(--tma-share,0) * 100%) 3px no-repeat}
+.tma-eff-table tr[data-outlier] .tma-bar-cell{--tma-ink:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
+.tma-eff-table tr[data-outlier]{background:color-mix(in srgb,var(--agent-warning,var(--agent-status-warning,var(--agent-text))) 8%,transparent)}
+.tma-outlier{margin-left:var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
+.tma-eff-note{display:flex;align-items:center;gap:var(--ds-space-2);margin:0;padding:0 var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-muted)}
+.tma-outlier-mark{flex:none;width:8px;aspect-ratio:1;border-radius:50%;background:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}

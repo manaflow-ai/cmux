@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "../env.ts"
+import { envForObject } from "../build-space.ts"
+import type { Env, RawEnv } from "../env.ts"
 
 /**
  * ModelCatalogDO (one instance, name "global"): the live model catalog's store (user 2026-11-19,
@@ -43,8 +44,9 @@ export interface ScoutRun {
 }
 
 export class ModelCatalogDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    // One catalog for every build (ACCOUNT_WIDE_BINDINGS): nothing here is per user or per build space.
+    super(ctx, envForObject(ctx, raw))
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS versions (version INTEGER PRIMARY KEY, body TEXT NOT NULL, published_at INTEGER NOT NULL, note TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS kills (harness TEXT NOT NULL, model TEXT NOT NULL, reason TEXT NOT NULL, at INTEGER NOT NULL, by TEXT NOT NULL, PRIMARY KEY (harness, model))`)

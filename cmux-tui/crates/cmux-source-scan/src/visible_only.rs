@@ -45,8 +45,14 @@ pub const KNOWN_FILE: &str = "cmux-tui/crates/cmux-source-scan/src/visible_only_
 
 const WALK_STARTS: [&str; 7] =
     ["iter", "iter_mut", "into_iter", "values", "values_mut", "keys", "drain"];
-const BOUNDS: [&str; 9] =
-    ["skip", "take", "nth", "next", "next_back", "last", "step_by", "skip_while", "take_while"];
+/// What ends a walk early: the first of these after the walk start, with only `PASS` adapters
+/// between, bounds it. `last`, `nth`, `step_by` and the `_while` forms still read the whole
+/// collection (or as much of it as the data says), and a `take` after a `filter` keeps reading
+/// until enough items pass, so none of those bound a walk.
+const BOUNDS: [&str; 4] = ["skip", "take", "next", "next_back"];
+/// Adapters that yield one item per item read, so a bound after them still bounds the walk.
+const PASS: [&str; 8] =
+    ["map", "enumerate", "rev", "inspect", "cloned", "copied", "by_ref", "fuse"];
 const TEXT_WALKS: [&str; 12] = [
     "chars",
     "char_indices",
@@ -449,7 +455,13 @@ impl Body {
         if inner.iter().any(|n| TEXT_WALKS.contains(&n.as_str())) {
             return None;
         }
-        if outer.iter().any(|n| BOUNDS.contains(&n.as_str())) {
+        // `outer` runs outermost first: read it from the walk outward.
+        if outer
+            .iter()
+            .rev()
+            .find(|n| !PASS.contains(&n.as_str()))
+            .is_some_and(|n| BOUNDS.contains(&n.as_str()))
+        {
             return None;
         }
         if text_walk && start.is_none() {

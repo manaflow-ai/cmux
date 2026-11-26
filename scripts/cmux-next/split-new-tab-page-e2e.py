@@ -20,6 +20,9 @@ Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp")
@@ -91,19 +94,26 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
+def settle(what, read=None):
+    """Waits until the strips (and the focused tab's page state) stop changing; logs it when they never do."""
+    read = read or (lambda: (strips(), page()))
+    if wait_stable(read, what, timeout=10, interval=0.25, reads=4, raise_on_timeout=False) is None:
+        print(f"still changing after 10 s: {what}", flush=True)
+
+
 def fresh_workspace():
     """A shown workspace with one pane holding one terminal."""
     print("newTab (workspace):", action("newTab", focus=True), flush=True)
     if not wait(lambda: len(strips()) == 1 and len(labels(strips()[0])) == 1, 15):
         sys.exit(f"no single-pane workspace: {json.dumps(strips())[:600]}")
-    time.sleep(1)  # test harness: the strip settles
+    settle("the new workspace's strip")
 
 
 def split():
     """Cmd-D; the strips once there are two panes."""
     print("Cmd-D:", key("d", "command"), flush=True)
     found = wait(lambda: (lambda s: s if len(s) == 2 else None)(strips()), 15)
-    time.sleep(1.5)  # test harness: the new pane shows its tab and takes focus
+    settle("the new pane's tab and focus")
     return found or strips()
 
 
@@ -126,7 +136,7 @@ def checks():
     terminal = labels(strips()[0])[0]
     print("openBrowser:", action("openBrowser", focus=True), flush=True)
     wait(lambda: len(labels(strips()[0])) == 2, 15)
-    time.sleep(2)  # test harness: the browser tab loads its title
+    settle("the browser tab's title", read=lambda: labels(strips()[0]))
     source = labels(strips()[0])
     after = split()
     shown = wait(page, 10)
@@ -181,7 +191,7 @@ def chief_splits():
     """Cmd-D and Cmd-Shift-D from the Chief pane open the GUI composer (the New Tab page), not a terminal (cmux#36300)."""
     for name, modifiers in [("Cmd-D", ("command",)), ("Cmd-Shift-D", ("command", "shift"))]:
         home = chief_on_screen()
-        time.sleep(1)  # test harness: the dock tab settles
+        settle("the Chief dock tab")
         before = sum(len(labels(s)) for s in strips())
         print(name + ":", key("d", *modifiers), flush=True)
         shown = wait(page, 15)
@@ -202,11 +212,11 @@ def chief_split_follows_terminal_default():
     print("settings.set terminal:", rpc("settings.set", {"path": path, "value": "terminal"}), flush=True)
     try:
         home = chief_on_screen()
-        time.sleep(1)  # test harness: the dock tab settles
+        settle("the Chief dock tab")
         before = sum(len(labels(s)) for s in strips())
         print("Cmd-D:", key("d", "command"), flush=True)
         grew = wait(lambda: sum(len(labels(s)) for s in strips()) > before, 15)
-        time.sleep(1.5)  # test harness: the new tab takes focus
+        settle("the new tab's focus")
         shown = page()
         row("Cmd-D on the Chief pane with the Terminal default opens a terminal", "Home's Chief focused; a new tab; not the New Tab page",
             f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",

@@ -3,13 +3,16 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
-     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
-     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
-  max-height: min(
-    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
-    40vh
-  );
+  /* The draft grows to Claude desktop's composer cap, then scrolls inside (Leo 2026-11-24, comparing
+     ours with Claude's: follow Claude's max). Claude's prompt stops at 384 px (Tailwind max-h-96); his
+     screenshot of it measured a ~400 pt card in a 1348 pt window, about 30%. #51620 had raised ours to
+     thirty lines or 60% of the pane, which reached about 55% of his pane. One token, shared by every
+     composer field (styles.css --acpmux-composer-max-height); short panes still give up height
+     (bottomStack.css). */
+  --acpmux-md-max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
+  /* The attachment strip above the prompt takes its height out of this one (composerAttachments.css
+     --acpmux-attach-band), so adding an attachment never makes a capped card taller. */
+  max-height: calc(var(--acpmux-md-max-height) - var(--acpmux-attach-band, 0px));
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -31,6 +34,10 @@
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Its thumb shows only while the draft scrolls (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE) and fades
+     in and out at the transcript's pace (conversation.css .acpmux-scroll), the host's durations. */
+  --cmux-scroller-fade-in: var(--agent-motion-in);
+  --cmux-scroller-fade-out: var(--agent-motion-move);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
@@ -39,7 +46,24 @@
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);
 }
 .acpmux-md-field[data-fade-bottom] {
-  --acpmux-md-fade-bottom: var(--acpmux-md-fade-band);
+  --acpmux-md-fade-bottom: var(--acpmux-md-foot-band, var(--acpmux-md-fade-band));
+}
+/* The foot of a scrolled-up draft (draftFoot.experiment.ts). Leo, 2026-11-22, of a long draft
+   scrolled up, paraphrased: too much solid and blur at the bottom of the box; show more there, keep
+   some blur. The field's bottom padding sat inside an 18 px fade to nothing, so the box's last 18 px
+   read as a blank strip over its rim. The shipped foot (ghost) lets the draft run to the box's bottom
+   edge and fades it only to half its ink; the top edge keeps its fade to nothing. */
+.acpmux-md-field {
+  --acpmux-md-foot-ink: transparent;
+}
+.acpmux-md-field[data-draft-foot="ghost"] {
+  --acpmux-md-foot-ink: rgb(0 0 0 / 0.5); /* colour-allow: a mask stop's alpha only, never painted */
+}
+.acpmux-md-field[data-draft-foot="short"] {
+  --acpmux-md-foot-band: 8px;
+}
+.acpmux-md-field[data-draft-foot="clip"] {
+  --acpmux-md-foot-band: 0px;
 }
 .acpmux-md-field[data-fade-top],
 .acpmux-md-field[data-fade-bottom] {
@@ -49,7 +73,7 @@
       transparent,
       #000 var(--acpmux-md-fade-top),
       #000 calc(100% - var(--acpmux-md-fade-bottom)),
-      transparent
+      var(--acpmux-md-foot-ink)
     ),
     linear-gradient(#000, #000);
   mask-image:
@@ -58,7 +82,7 @@
       transparent,
       #000 var(--acpmux-md-fade-top),
       #000 calc(100% - var(--acpmux-md-fade-bottom)),
-      transparent
+      var(--acpmux-md-foot-ink)
     ),
     linear-gradient(#000, #000);
   -webkit-mask-size:
@@ -128,6 +152,22 @@
   white-space: pre-wrap;
   word-break: break-word;
   caret-color: var(--cmux-caret, var(--agent-text));
+}
+/* The field's text before its editor exists (MarkdownField.tsx `standIn`). The editor is made a task
+   or more after the field mounts; before this the field drew at its padding alone until then and grew
+   a line (or a whole draft) when the editor came, moving the composer's top on a chat's first load
+   (https://github.com/manaflow-ai/cmux/issues/48498). The editor's box: one line at the least, the
+   text wrapped as the editor wraps it. */
+.acpmux-md-standin {
+  min-height: var(--text-content--line-height);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+.acpmux-md-standin[hidden] {
+  display: none;
 }
 .acpmux-md > * {
   margin: 0;
@@ -523,7 +563,7 @@
   text-decoration: none;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -560,6 +600,7 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
   color: var(--acpmux-base, Canvas);
 }
+[data-composer-buttons-visible] .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
 .acpmux-md-inline-chip[data-state="failed"] .acpmux-md-inline-remove {
@@ -627,6 +668,11 @@
   -webkit-mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
   mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
 }
+.acpmux-md .is-titled-start[data-image]::before {
+  background: var(--cmux-link-icon) center / 100% 100% no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
 .acpmux-md .is-titled[data-title]::after {
   content: attr(data-title);
   padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
@@ -639,6 +685,23 @@
   white-space: normal;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+}
+/* Inside a selection (a drag across it, Select All) the chip is selected whole, as one character, and
+   draws as selected text does: the selection's own fill (desktop.css ::selection), square, in place of
+   the wash. The browser's highlight skips a widget, so the chip paints it (Lucas, 2026-11-24). */
+.acpmux-md .is-titled[data-title][data-selected]::after {
+  /* Selected text's highlight fills the line; an inline box's fill covers only the font's ascent and
+     descent (1.193em in the system font) and its padding. The padding takes it to the line, and an
+     inline box's block padding moves no line, so selecting reflows nothing. WebKit rounds the text's
+     highlight out to whole pixels and a fill to the nearest, so the end takes half a device pixel
+     more (a hairline's half; measured at 2x: the line's last device pixel row). */
+  padding-block: calc((var(--text-content--line-height) - 1.193em) / 2)
+    calc((var(--text-content--line-height) - 1.193em) / 2 + var(--cmux-hairline) / 2);
+  border-radius: 0;
+  background: var(
+    --cmux-selection-fill,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
+  );
 }
 /* With the icon: the wash starts under it (back by the pad and the icon), the title 4px after it,
    as chips/cmuxLinkChip.css .cv-cmux-link__icon spaces it. */

@@ -232,7 +232,7 @@ describe("per-user hub: one user's own devices", () => {
     const owner = "wes"
     const mac = crypto.randomUUID()
     // A Mac registered before per-user hubs: in the database only, never announced to this hub.
-    const r = await memoryStore().upsertDevice({ deviceId: mac, ownerUserId: owner, teamId: `personal-${owner}`, kind: "mac", name: "Old Mac", wgPublicKey: null })
+    const r = await memoryStore().upsertDevice({ deviceId: mac, space: "", ownerUserId: owner, teamId: `personal-${owner}`, kind: "mac", name: "Old Mac", wgPublicKey: null })
     expect(r).not.toBe("not_owner")
     const wes = await token(owner)
     const phone = await register(wes, "phone", `personal-${owner}`)
@@ -415,8 +415,8 @@ describe("migration from team hubs", () => {
     // A primary-project Mac in a Stack team and a non-primary one in a personal space, as the database has them.
     const dev = crypto.randomUUID()
     const prod = crypto.randomUUID()
-    await memoryStore().upsertDevice({ deviceId: dev, ownerUserId: "zed", teamId: "team-sweep", kind: "mac", name: "Zed", wgPublicKey: null })
-    await memoryStore().upsertDevice({ deviceId: prod, ownerUserId: `${PROD_PROJECT}:zed`, teamId: "personal-zed", kind: "mac", name: "Zed prod", wgPublicKey: null })
+    await memoryStore().upsertDevice({ deviceId: dev, space: "", ownerUserId: "zed", teamId: "team-sweep", kind: "mac", name: "Zed", wgPublicKey: null })
+    await memoryStore().upsertDevice({ deviceId: prod, space: "", ownerUserId: `${PROD_PROJECT}:zed`, teamId: "personal-zed", kind: "mac", name: "Zed prod", wgPublicKey: null })
     const openDev = await parkIn("team-sweep", dev)
     const openProd = await parkIn(`${PROD_PROJECT}:personal-zed`, prod)
     const r = await retireAllTeamHubs(env as never)

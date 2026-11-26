@@ -115,7 +115,7 @@ impl RowLog {
 /// `server::deliver` sends a `session_changed` for.
 pub(super) fn row_change(ev: &HubEvent) -> Option<(RowKey, bool)> {
     let rec = &ev.record;
-    if rec.kind == PEER_LAGGED {
+    if rec.kind == PEER_LAGGED || rec.kind == PEER_ROWS_CHANGED {
         return None;
     }
     if let Some(remote) = &ev.remote {
@@ -157,6 +157,7 @@ pub(super) fn row_event(session: &str) -> HubEvent {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     }
 }
 
@@ -227,6 +228,8 @@ impl Hub {
         self.events.all_rows_stale();
         self.events.row_changed(session);
         self.note_rows_reading(session);
+        // Synced winners kept for it while it was elsewhere (`synced.rs`).
+        self.synced_chat_came(&session.id);
     }
 
     /// The newest list position and this run's epoch.
@@ -358,6 +361,7 @@ impl Hub {
             update_line: Default::default(),
             row: Default::default(),
             list_seq: 0,
+            peer_batch: false,
         }
     }
 }

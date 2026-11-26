@@ -90,9 +90,11 @@ extension CloudGitHubApp {
 extension CloudOwnerAPIClient {
     /// `GET /v1/integrations/github/status?team=`: the App's state for `team` and, when ready, which
     /// repositories it reaches. Never throws: a check that does not answer is ``CloudGitHubApp/unknown``.
-    public func gitHubAppStatus(team: String) async -> (app: CloudGitHubApp, reposScope: String?) {
-        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return (.unknown, nil) }
-        return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body))
+    /// `reauthDetail` is the server's reason a ``CloudGitHubApp/needsReauth`` connection gave, when it gave one.
+    public func gitHubAppStatus(team: String) async -> (app: CloudGitHubApp, reposScope: String?, reauthDetail: String?) {
+        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return (.unknown, nil, nil) }
+        return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body),
+                CloudGitHubApp.reauthDetail(status: answer.status, body: answer.body))
     }
 
     /// Where Settings' Reconfigure opens for `team`'s ready GitHub connection (``CloudGitHubApp/reconfigureURL(status:body:)``);
@@ -112,9 +114,13 @@ extension CloudOwnerAPIClient {
     /// `key`: a replay of the key answers the same pending connection and page.
     /// `returnTo` is the app's completion link (``CloudGitHubCompletion/link(scheme:)``): GitHub's redirect comes back
     /// to this app, which finishes the connection with its own sign-in (#46018).
-    public func gitHubConnect(key: String, returnTo: String? = nil) async -> CloudGitHubConnects.Answer {
+    /// `repo` (`owner/name`, a Cloud start's Connect GitHub card): the API reuses an active connection that already covers
+    /// it (``CloudGitHubConnects/Answer/connected``), and for an owner the App is installed on already it answers GitHub's
+    /// authorize page instead of the install page, so the person only approves and comes straight back (#55104).
+    public func gitHubConnect(key: String, returnTo: String? = nil, repo: String? = nil) async -> CloudGitHubConnects.Answer {
         var params = ["provider": "github"]
         if let returnTo { params["return_to"] = returnTo }
+        if let repo { params["repo"] = repo }
         let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else {
             CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
@@ -131,22 +137,16 @@ extension CloudOwnerAPIClient {
         return result
     }
 
-    /// `integration.list` on `/v1/read` in ``teamID``'s team: whether a GitHub connection this person sees is pending
-    /// (Settings' Connect, or another launch's); nil when it did not answer.
-    public func gitHubConnectPending() async -> Bool? {
-        guard let json = try? JSONSerialization.data(withJSONObject: ["op": "integration.list", "params": [String: Any]()]),
-              let answer = await person("/v1/read", post: json) else { return nil }
-        return CloudGitHubConnects.pending(status: answer.status, body: answer.body)
-    }
-
     /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
-    /// invocation log masks it); nil when it did not answer.
+    /// invocation log masks it) and the build space (the build's public tag); nil when it did not answer, or when a
+    /// misconfigured dev build has no space to send.
     func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
               let access = try? await accessToken() else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = post == nil ? "GET" : "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        guard (try? buildSpace.apply(to: &request)) != nil else { return nil }
         if let post {
             request.httpBody = post
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -167,6 +167,8 @@ public final class CloudGitHubConnects {
     /// What one `integration.connect` answered.
     public enum Answer: Equatable, Sendable {
         case page(URL)
+        /// An active connection already covers the asked repository (`{connected: true}`): nothing to open (#55104).
+        case connected
         /// A definitive refusal or a reply this client will not use: the next click asks with a new key.
         case refused
         /// No answer, a timeout, throttling or a server failure: the connect may have happened, so the key stays.
@@ -175,38 +177,43 @@ public final class CloudGitHubConnects {
 
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.github")
     private var flows: [String: (key: String, page: URL?)] = [:]
+    /// The completions count (``CloudGitHubChanges/count``) the pages were asked under: a newer one spends them.
+    var seenChanges = 0
     private let newKey: () -> String
 
     public init(newKey: @escaping () -> String = { UUID().uuidString }) { self.newKey = newKey }
 
+    /// A completion finished (``CloudGitHubChanges/count`` moved): every page asked before is spent, since its state names
+    /// a connection that is no longer pending. The next click asks again, so a repository the link still left out gets
+    /// a fresh page instead of the used one (#55104).
+    public func forgetPages() { flows = [:] }
+
     /// The page to open for `team` at `now`: the one asked before while it holds, else what `ask(key)` answers.
     public func page(team: String, now: Date, ask: (String) async -> Answer) async -> URL? {
-        if let page = flows[team]?.page {
-            if let expires = CloudGitHubApp.authorizationExpiry(page), expires > now { return page }
-            flows[team] = nil
-        }
-        let key = flows[team]?.key ?? newKey()
-        flows[team] = (key, nil)
-        let answer = await ask(key)
-        guard flows[team]?.key == key else { if case .page(let url) = answer { return url }; return nil } // another click asked meanwhile
-        switch answer {
-        case .page(let url): flows[team] = (key, url); return url
-        case .refused: flows[team] = nil; return nil
-        case .noAnswer: return nil
-        }
+        if case .page(let url) = await answer(team: team, now: now, ask: ask) { return url }
+        return nil
     }
 
-    /// Whether this launch's picker holds a flow for `team` it can resume (its page, or a key whose answer may be lost).
-    public func resumable(team: String) -> Bool { flows[team] != nil }
-
-    /// The `integration.list` reply `{value: {connections: [{provider, status}]}}`: whether a GitHub one is pending; nil for any other reply.
-    nonisolated static func pending(status: Int, body: Data) -> Bool? {
-        guard (200..<300).contains(status), let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], reply["ok"] as? Bool != false,
-              let rows = (reply["value"] as? [String: Any])?["connections"] as? [Any] else { return nil }
-        return rows.contains { row in
-            guard let row = row as? [String: Any] else { return false }
-            return row["provider"] as? String == "github" && row["status"] as? String == "pending"
+    /// ``page(team:now:ask:)`` for one repository's Connect (`repo`, nil for none), which may also answer
+    /// ``Answer/connected``. Each repository keeps its own flow: a card for one never replays another's page.
+    public func answer(team: String, repo: String? = nil, now: Date, ask: (String) async -> Answer) async -> Answer {
+        let flow = repo.map { "\(team) \($0.lowercased())" } ?? team
+        if let page = flows[flow]?.page {
+            if let expires = CloudGitHubApp.authorizationExpiry(page), expires > now { return .page(page) }
+            flows[flow] = nil
         }
+        let key = flows[flow]?.key ?? newKey()
+        flows[flow] = (key, nil)
+        let answer = await ask(key)
+        guard flows[flow]?.key == key else { // another click asked meanwhile
+            switch answer { case .page, .connected: return answer; case .refused, .noAnswer: return .noAnswer }
+        }
+        switch answer {
+        case .page(let url): flows[flow] = (key, url)
+        case .refused, .connected: flows[flow] = nil
+        case .noAnswer: break
+        }
+        return answer
     }
 
     /// The `/v1/ops` reply: `{ok, value: {authorize_url, connection: {id}}}` with a page ``CloudGitHubApp/installationURL(_:)`` allows.
@@ -214,7 +221,9 @@ public final class CloudGitHubConnects {
         guard status < 500, status != 408, status != 429 else { return .noAnswer }
         let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         guard (200..<300).contains(status), let reply, reply["error"] == nil || reply["error"] is NSNull, reply["ok"] as? Bool != false,
-              let value = reply["value"] as? [String: Any], let raw = value["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw),
+              let value = reply["value"] as? [String: Any] else { return .refused }
+        if value["connected"] as? Bool == true, let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty { return .connected }
+        guard let raw = value["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw),
               let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else { return .refused }
         return .page(url)
     }
@@ -246,7 +255,7 @@ public struct CloudGitHubPicker {
               let team = MacInstallIdentity.team(ofToken: token) else { return nil }
         let auth = auth
         let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }), team)
+        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace), team)
     }
 
     /// `github.status`: ready, not connected, or unavailable and why.
@@ -254,32 +263,59 @@ public struct CloudGitHubPicker {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner() else { return .unavailable(.unreachable) }
-        let (app, scope) = await owner.client.gitHubAppStatus(team: owner.team)
-        return Status(app, reposScope: scope)
+        let (app, scope, detail) = await owner.client.gitHubAppStatus(team: owner.team)
+        let status = Status(app, reposScope: scope, reauthDetail: detail)
+        // A completion the API refused is the last word on a team that is still not connected: say so where Connect is.
+        if case .notConnected = status, let refusal = auth.gitHubChanges.refusal { return .linkRefused(reason: refusal.reason) }
+        return status
     }
 
-    /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`.
+    /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`. Every case but `ready` and
+    /// `unavailable` is a state with a Connect GitHub: the wire `state` stays `not_connected`, and ``problem`` and the
+    /// page's words (`AgentPaneGitHubRequest.statusReply`) say which.
     public enum Status: Equatable, Sendable {
         case ready(reposScope: String?)
         case notConnected
+        /// Linked, but GitHub no longer honors it (suspended or uninstalled); `detail` is the server's reason, if any.
+        case needsReauth(detail: String?)
+        /// A link is under way: the person has not finished on GitHub.
+        case linking
+        /// The connection is in the server's `error` state.
+        case error
+        /// The last completion the API refused (an expired state, a non-owner's request); `reason` is the API's, if any.
+        case linkRefused(reason: String?)
         case unavailable(Unavailable)
 
         /// The status route's answer for a signed-in person.
-        public init(_ app: CloudGitHubApp, reposScope: String?) {
+        public init(_ app: CloudGitHubApp, reposScope: String?, reauthDetail: String? = nil) {
             switch app {
             case .ready: self = .ready(reposScope: reposScope)
             case .notConnected: self = .notConnected
+            case .needsReauth: self = .needsReauth(detail: reauthDetail)
+            case .linking: self = .linking
+            case .error: self = .error
             case .notConfigured: self = .unavailable(.notConfigured)
             case .unknown: self = .unavailable(.unreachable)
             }
         }
 
-        /// `ready`, `not_connected` or `unavailable`.
+        /// `ready`, `not_connected` or `unavailable`: the folder menu's three, which every Connect state shares.
         public var state: String {
             switch self {
             case .ready: "ready"
-            case .notConnected: "not_connected"
+            case .notConnected, .needsReauth, .linking, .error, .linkRefused: "not_connected"
             case .unavailable: "unavailable"
+            }
+        }
+
+        /// Which kind of not connected: `needs_reauth`, `linking`, `error` or `link_refused`; nil for any other state.
+        public var problem: String? {
+            switch self {
+            case .needsReauth: "needs_reauth"
+            case .linking: "linking"
+            case .error: "error"
+            case .linkRefused: "link_refused"
+            case .ready, .notConnected, .unavailable: nil
             }
         }
 
@@ -315,13 +351,37 @@ public struct CloudGitHubPicker {
     /// What the status route alone settles for `github.connect`; nil when the team has no connection (ask `integration.connect`).
     /// A connected team opens its installation settings, or, when the status names none (an older Worker, or one whose
     /// GitHub lookup failed), opens nothing: `integration.connect` would add a second connection for the same installation.
-    nonisolated static func connectFromStatus(status: Int, body: Data) -> Connect? {
-        switch CloudGitHubApp(status: status, body: body) {
+    /// With `repo` only what makes a connect impossible settles it (no App here, no answer): the API decides the rest.
+    nonisolated static func connectFromStatus(status: Int, body: Data, repo: String? = nil) -> Connect? {
+        if let repo {
+            switch CloudGitHubApp(status: status, body: body) {
+            case .notConfigured: return .unavailable(.notConfigured)
+            case .unknown: return .unavailable(.unreachable)
+            // A suspended install on the repository's owner is fixed on its settings page, as without a repository:
+            // a new link through GitHub's authorize page would not lift the suspension.
+            case .needsReauth:
+                guard let page = CloudGitHubApp.configureURL(status: status, body: body),
+                      Self.settingsPage(page, isFor: repo) else { return nil }
+                return .open(page)
+            default: return nil
+            }
+        }
+        return switch CloudGitHubApp(status: status, body: body) {
         case .ready: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open) ?? .connected
-        case .notConnected: nil
+        // A suspended install is fixed on its settings page; with none named (or uninstalled) Connect is the fix.
+        case .needsReauth: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open)
+        case .linking, .notConnected, .error: nil
         case .notConfigured: .unavailable(.notConfigured)
         case .unknown: .unavailable(.unreachable)
         }
+    }
+
+    /// Whether `page` (an installation's settings page) belongs to `repo`'s owner: an organization's page names it
+    /// (`/organizations/<owner>/…`); a personal account's page names no account, so it is never taken as the owner's.
+    nonisolated static func settingsPage(_ page: URL, isFor repo: String) -> Bool {
+        let owner = repo.split(separator: "/").first.map { $0.lowercased() } ?? ""
+        let parts = page.path.split(separator: "/")
+        return parts.count >= 2 && parts[0] == "organizations" && parts[1].lowercased() == owner
     }
 
     /// What `github.connect` does.
@@ -330,32 +390,42 @@ public struct CloudGitHubPicker {
         case open(URL)
         /// The team is connected already: nothing to open.
         case connected
-        /// A connection this picker can't resume is pending (Settings' Connect, another launch's): finish that one.
-        case pending
         /// Signed out, no App here, a team policy that disallows GitHub, or no answer from the status route.
         case unavailable(Unavailable)
-        /// The team has no connection and `integration.connect` (or the pending check before it) gave no page.
+        /// The team has no connection and `integration.connect` gave no page.
         case failed
     }
 
     /// `github.connect` for the team ``owner()`` names (Settings' Connect GitHub asks in the active team, which can be
     /// another one): a connected team's installation settings, where the person adds repositories (More repositories);
     /// a team with no connection, the App's installation page from `integration.connect` in that team.
-    public func connect() async -> Connect {
+    ///
+    /// `repo` (`owner/name`): a Cloud start's Connect GitHub card for the repository its machine could not clone. The
+    /// team's status says nothing of that repository (a connection on the person's own account is `ready`, and its
+    /// settings page can never add an organization's repository, nor does GitHub's save there carry a state to finish
+    /// anything with), so the API is asked for it: an active connection that covers it answers ``Connect/connected``,
+    /// and an owner with the App installed answers GitHub's authorize page, whose redirect the app finishes (#55104).
+    public func connect(repo: String? = nil) async -> Connect {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
+        auth.gitHubChanges.forgetRefusal() // a new Connect starts over: the last refused link no longer applies
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
-        if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
+        if let known = Self.connectFromStatus(status: status.status, body: status.body, repo: repo) { return known }
         let client = owner.client
-        // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
-        if !connects.resumable(team: owner.team) {
-            switch await client.gitHubConnectPending() {
-            case false?: break
-            case true?: return .pending
-            case nil: return .failed
+        if auth.gitHubChanges.count != connects.seenChanges { connects.forgetPages(); connects.seenChanges = auth.gitHubChanges.count }
+        if let repo {
+            let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+            switch await connects.answer(team: owner.team, repo: repo, now: Date(), ask: { key in
+                await client.gitHubConnect(key: key, returnTo: returnTo, repo: repo)
+            }) {
+            case .page(let page): return .open(page)
+            case .connected: return .connected
+            case .refused, .noAnswer: return .failed
             }
         }
+        // A pending connection never blocks a click (#46018): one this launch can't resume (another launch's, or one
+        // whose return failed) can't be finished, and it expires on its own; the API adds a new one beside it.
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
         // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
