@@ -386,12 +386,6 @@
     "agent-pane.code-block-diagram#muted-snug": [],
     "agent-pane.code-block-diagram#row-snug": [],
     "agent-pane.code-block-diagram#row-tall": [],
-    "agent-pane.coderouter-offer#claude-key": [],
-    "agent-pane.coderouter-offer#deepseek-key": [],
-    "agent-pane.coderouter-offer#moving": [],
-    "agent-pane.coderouter-offer#on-coderouter": [],
-    "agent-pane.coderouter-offer#rate-limited": [],
-    "agent-pane.coderouter-offer#sign-in": [],
     "agent-pane.compaction-note#account-switch": [],
     "agent-pane.compaction-note#failover": [],
     "agent-pane.compaction-note#policy-no-asking-mode": [

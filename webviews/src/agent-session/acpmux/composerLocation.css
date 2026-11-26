@@ -1554,10 +1554,12 @@
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
      page scale, so the composer redeclares the ones it uses. */
-  --grid-composer-inset: calc(8px * var(--acpmux-density));
+  /* A look's `appearance.metrics.composerPadding` and `composerMinHeight` (the host sets --cmux-composer-inset and
+     --cmux-composer-box only when a look sets them; Leo 2026-11-19: "the layout and proportions as well"). */
+  --grid-composer-inset: var(--cmux-composer-inset, calc(8px * var(--acpmux-density)));
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
-  --grid-composer-box: calc(48px * var(--acpmux-density));
+  --grid-composer-box: var(--cmux-composer-box, calc(48px * var(--acpmux-density)));
   /* Claude Code's modest corner, concentric with the + chip in it: the chip's 8 corner plus the inset, 16 at
      Default (layout-grid.json composer-radius; ask-7e26f58612, Leo 2026-11-23: "now the composer is a bit too
      round i think"; ask-bfa9b41590: "just do the claude code roundedness"). The hat over it (the running tray),
@@ -1984,8 +1986,12 @@
   font-weight: inherit;
   line-height: 16px;
 }
-/* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
+/* A machine's ⌥⌘ key (ui/KeyHint), and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-env-row .acpmux-env-count {
   flex: none;
   margin-left: auto;
   padding: 0;
