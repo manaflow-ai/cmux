@@ -165,12 +165,36 @@ function markFades(list: HTMLElement) {
   list.toggleAttribute("data-fade-bottom", more && list.scrollTop + list.clientHeight < list.scrollHeight - 1);
 }
 
-/// Keeps a column's highlighted row in view as the keyboard moves it.
+/// How far a row's glide moves it (the transform its keyframe has now), in px: 0 when it does not glide.
+function glideOffset(row: HTMLElement): number {
+  const transform = row.ownerDocument.defaultView?.getComputedStyle(row).transform ?? "none";
+  const match = /^matrix\(([^)]+)\)$/.exec(transform);
+  const dy = match ? Number(match[1]!.split(",")[5]) : 0;
+  return Number.isFinite(dy) ? dy : 0;
+}
+
+/// Keeps a column's highlighted row in view as the keyboard moves it. It reads the row's own slot,
+/// not where a glide draws it this frame: a row that glides up from far below would scroll the list
+/// down to its old place, and the list stayed there (Lucas 2026-11-25, a search for "pi").
 function useRowInView(list: React.RefObject<HTMLDivElement | null>, key: unknown) {
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` names the highlighted row; the effect reads the DOM
-  useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>("[data-hl]")?.scrollIntoView?.({ block: "nearest" });
-  }, [list, key]);
+  useLayoutEffect(() => highlightInView(list.current), [list, key]);
+}
+
+/// Scrolls `scroller` the least that shows its highlighted row's own slot.
+function highlightInView(scroller: HTMLElement | null) {
+  const row = scroller?.querySelector<HTMLElement>("[data-hl]");
+  if (!scroller || !row) return;
+  if (!row.hasAttribute("data-flipping")) {
+    row.scrollIntoView?.({ block: "nearest" });
+    return;
+  }
+  const view = scroller.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  const top = box.top - glideOffset(row) - view.top;
+  const bottom = top + box.height;
+  if (top < 0) scroller.scrollTop += top;
+  else if (bottom > scroller.clientHeight) scroller.scrollTop += bottom - scroller.clientHeight;
 }
 
 type QuickSurfaceProps = React.ComponentProps<typeof QuickModelMenu>;
@@ -418,37 +442,65 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
-  // Each keeps its old place for the frame it lands and glides to the new one on one clock (a CSS
-  // keyframe, see quickModelColumns.css), so a keystroke is one continuous move, not a jump.
+  // A row that moves a short way (two rows at most) keeps its old place for the frame it lands and
+  // glides to the new one on one clock (a CSS keyframe, see quickModelColumns.css). A row that moves
+  // further would fly across the list, under headings that do not glide, and leave frames with no
+  // rows at all (Lucas 2026-11-25: "make the searching less snappy"): after a keystroke it fades in
+  // at its new slot, as a row the search just found does; after a tab it is there at once. A
+  // keystroke that only removes rows glides the rest up; one that brings rows in fades them in.
   const flipSlots = useRef<Map<string, number>>(new Map());
+  const flipQuery = useRef(query);
   useLayoutEffect(() => {
     const list = modelsList.current;
     if (!list) {
       flipSlots.current = new Map();
+      flipQuery.current = query;
       return;
     }
+    const typed = flipQuery.current !== query;
+    flipQuery.current = query;
+    // Each keystroke shows its matches from the top, the first one's heading too.
+    if (typed) list.scrollTop = 0;
     const top = list.getBoundingClientRect().top - list.scrollTop;
     const slots = new Map<string, number>();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const rows = [...list.querySelectorAll<HTMLElement>("[data-flip]")];
     // Read every row's slot first, then write: one layout, not one per row.
-    const places = rows.map((row) => row.getBoundingClientRect().top - top);
+    const places = rows.map((row) => {
+      const box = row.getBoundingClientRect();
+      return { slot: box.top - top, height: box.height };
+    });
     const moved: [HTMLElement, number][] = [];
+    const entering: HTMLElement[] = [];
+    const before = flipSlots.current;
     rows.forEach((row, at) => {
       const key = row.dataset.flip ?? "";
-      const slot = places[at]!;
+      const { slot, height } = places[at]!;
       slots.set(key, slot);
-      const was = flipSlots.current.get(key);
-      if (was !== undefined && !reduced && Math.abs(was - slot) >= 0.5) moved.push([row, was - slot]);
+      if (reduced || before.size === 0) return;
+      const was = before.get(key);
+      const dy = was === undefined ? Number.POSITIVE_INFINITY : was - slot;
+      if (Math.abs(dy) < 0.5) return;
+      if (Math.abs(dy) <= height * 2) moved.push([row, dy]);
+      else if (typed) entering.push(row);
     });
+    // A row fading in where another glides out of draws one over the other (a heading the search
+    // just found over the first model): when a keystroke brings rows in, the others take their new
+    // slots at once.
+    if (entering.length > 0) moved.length = 0;
     for (const [row, dy] of moved) {
       row.style.setProperty("--flip-dy", `${dy}px`);
       row.removeAttribute("data-flipping");
     }
-    if (moved.length > 0) void list.offsetWidth;
+    for (const row of entering) row.removeAttribute("data-entering");
+    if (moved.length > 0 || entering.length > 0) void list.offsetWidth;
     for (const [row] of moved) {
       row.setAttribute("data-flipping", "");
       row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
+    }
+    for (const row of entering) {
+      row.setAttribute("data-entering", "");
+      row.addEventListener("animationend", () => row.removeAttribute("data-entering"), { once: true });
     }
     flipSlots.current = slots;
   });

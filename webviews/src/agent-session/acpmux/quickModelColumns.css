@@ -385,7 +385,7 @@
 .acpmux-cols-rail[data-reordering] .acpmux-cols-tab { cursor: grabbing; }
 .acpmux-cols-tab[data-lifted] {
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised);
   background: var(--ds-surface-inset);
   color: var(--agent-text);
 }
@@ -490,11 +490,14 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
-/* A row that stays through a search or a tab glides from its old slot to its new one (QuickModelColumns
-   flipSlots): one keyframe on one clock, instead of the one-frame jump when rows above it leave. */
+/* A row that stays through a search or a tab and moves two rows at most glides from its old slot to
+   its new one (QuickModelColumns flipSlots): one keyframe on one clock, instead of the one-frame jump
+   when rows above it leave. A row a keystroke brings in, or moves further, fades in where it lands. */
 @keyframes acpmux-cols-flip { from { transform: translateY(var(--flip-dy, 0)); } to { transform: none; } }
+@keyframes acpmux-cols-enter { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-cols-list [data-flipping] { animation: acpmux-cols-flip var(--cmux-motion-standard) var(--cmux-ease-out) both; }
+  .acpmux-cols-list [data-entering] { animation: acpmux-cols-enter var(--cmux-motion-micro) var(--cmux-ease-out) both; }
 }
 /* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
 .acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
