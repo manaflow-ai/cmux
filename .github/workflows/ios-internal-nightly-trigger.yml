@@ -64,6 +64,7 @@ jobs:
             scripts/ci
             cmux-next-ios/project.yml
             cmux-next-ios/CmuxMobileKit/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The trigger's own quota (2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was

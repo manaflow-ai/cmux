@@ -80,6 +80,7 @@ jobs:
             scripts/ci/deadline_http.py
             ci/steps.toml
             .github/workflows/
+            .gitmodules
           sparse-checkout-cone-mode: false
       # A workflow whose reusable-workflow call asks for more permissions than its caller grants fails at startup on
       # every run, and a startup failure posts no check: #55503 merged green over two such calls to base-coalesce.yml
@@ -155,6 +156,20 @@ jobs:
           done
           echo "::warning::cmux/land-tier ($STATE) was not posted at $SHA: its land waits on the last state posted there"
           exit 1
+
+  machine-channel-pr-head:
+    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build.
+    name: machine channel PR head build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') }}
+    uses: ./.github/workflows/cmux-machine-channel.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      # The reusable package workflow's permission ceiling (cmux-machine-channel.yml's build jobs).
+      id-token: write
+      attestations: write
 
   size-budget:
     name: cmux-next size budget
