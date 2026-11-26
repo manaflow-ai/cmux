@@ -19,6 +19,7 @@
 //! [`MAX_SHOT_BYTES`]: at most 12 pictures (48 MiB) per chat. A deleted chat's go with it.
 
 use super::Session;
+use super::turn_frames_shape as shape;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -190,12 +191,13 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
-    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures")
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures", false)
 }
 
 /// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
 /// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
-/// after. The tab's id, or none with no file left.
+/// after. The tab's id, or none with no file left. The same cell reads the page's outline
+/// (`turn_frames_shape.rs`), handed over by `turn_frames_shape::take(out)`.
 pub(super) fn capture_page(
     base: &Path,
     workspace: &str,
@@ -203,9 +205,11 @@ pub(super) fn capture_page(
     repl: &str,
     label: &str,
 ) -> Option<String> {
-    capture_in(&host_socket(), base, workspace, None, out, repl, label)
+    capture_in(&host_socket(), base, workspace, None, out, repl, label, true)
 }
 
+/// With `shaped`, the cell reads the page's outline too ([`shape::cell`]) and stashes it for `out`.
+#[allow(clippy::too_many_arguments)]
 fn capture_in(
     socket: &Path,
     base: &Path,
@@ -214,24 +218,36 @@ fn capture_in(
     out: &Path,
     repl: &str,
     label: &str,
+    shaped: bool,
 ) -> Option<String> {
+    if shaped {
+        shape::stash(out, None);
+    }
     if !socket.exists() {
         return None;
+    }
+    let mut code = capture_code(workspace, out, tab);
+    if shaped {
+        code.push_str(&shape::cell());
     }
     let params = json!({
         "session": repl,
         "engine": "cef",
         "label": label,
         "cwd": base.display().to_string(),
-        "code": capture_code(workspace, out, tab),
+        "code": code,
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
     });
+    let mut outline = None;
     let taken = host_call(socket, "browser.repl.eval", params)
         .filter(|result| result.get("error").is_none_or(Value::is_null))
         .and_then(|result| {
             let text = result.get("output")?.as_str()?;
             let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
             let shown: Value = serde_json::from_str(marker).ok()?;
+            if shaped {
+                outline = shape::parse(text);
+            }
             Some(shown.get("id")?.as_str()?.to_owned())
         });
     let kept = taken.filter(|_| {
@@ -239,6 +255,8 @@ fn capture_in(
     });
     if kept.is_none() {
         let _ = crate::home_fs::remove_file(out);
+    } else if shaped {
+        shape::stash(out, outline);
     }
     kept
 }
