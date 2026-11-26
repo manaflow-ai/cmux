@@ -274,7 +274,7 @@ pub fn allow_tabs_plan(
     fresh: bool,
     dock_takes_tabs: bool,
 ) -> AllowTabsPlan {
-    if !caps.pinned_dock || !(fresh || !dock_takes_tabs) {
+    if !caps.pinned_dock || (!fresh && dock_takes_tabs) {
         return AllowTabsPlan::None;
     }
     let Some(placed) = home.and_then(page_tab) else { return AllowTabsPlan::None };
