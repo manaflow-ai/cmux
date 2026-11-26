@@ -1,3 +1,4 @@
+import CmuxNextDevices
 import Foundation
 import Observation
 import os
@@ -55,9 +56,11 @@ final class TerminalThemeStore {
 
     /// Drops themes of `machine`'s terminals that are not in `liveTabs`.
     func prune(machine: String, liveTabs: Set<String>) {
-        let prefix = "\(machine):"
-        let stale = themes.keys.filter { $0.hasPrefix(prefix) && !liveTabs.contains(String($0.dropFirst(prefix.count))) }
-        guard !stale.isEmpty else { return }
+        struct Request: Encodable { var keys: [String]; var machine: String; var liveTabs: [String] }
+        struct Answer: Decodable { var stale: [String] }
+        let request = Request(keys: Array(themes.keys), machine: machine, liveTabs: Array(liveTabs))
+        guard let stale = AppRules.ask("app_themes_store_stale", request, as: Answer.self)?.stale,
+              !stale.isEmpty else { return }
         for key in stale { themes[key] = nil }
         save()
     }
@@ -85,24 +88,25 @@ final class TerminalThemeStore {
     /// `<name>.corrupt` (`<name>.corrupt-<uuid>` when that exists, never over it) and
     /// reads as empty.
     nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
+        struct Request: Encodable { var exists: Bool; var readable: Bool; var text: String? }
+        struct Answer: Decodable { var entries: [String: String]; var complete: Bool; var moveAside: Bool }
         let manager = FileManager.default
-        guard manager.fileExists(atPath: url.path) else { return ([:], true) }
+        let exists = manager.fileExists(atPath: url.path)
         // concurrency-allow: called from a detached task in load(), off the main actor
-        guard let data = try? Data(contentsOf: url) else { return ([:], false) }
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            let first = url.appendingPathExtension("corrupt")
-            let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
-            do {
-                try manager.moveItem(at: url, to: aside)
-                logger.error("\(url.lastPathComponent, privacy: .public) is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
-                return ([:], true)
-            } catch {
-                logger.error("\(url.lastPathComponent, privacy: .public) is not JSON and could not be moved aside: \(String(describing: error), privacy: .public)")
-                return ([:], false)
-            }
+        let data = exists ? try? Data(contentsOf: url) : nil
+        let request = Request(exists: exists, readable: data != nil, text: data.flatMap { String(data: $0, encoding: .utf8) })
+        guard let read = AppRules.ask("app_themes_store_classify", request, as: Answer.self) else { return ([:], false) }
+        guard read.moveAside else { return (read.entries, read.complete) }
+        let first = url.appendingPathExtension("corrupt")
+        let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
+        do {
+            try manager.moveItem(at: url, to: aside)
+            logger.error("\(url.lastPathComponent, privacy: .public) is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
+            return ([:], true)
+        } catch {
+            logger.error("\(url.lastPathComponent, privacy: .public) is not JSON and could not be moved aside: \(String(describing: error), privacy: .public)")
+            return ([:], false)
         }
-        let themes = object.compactMapValues { $0 as? String }
-        return (themes, themes.count == object.count)
     }
 
     /// Waits for every queued write (tests).

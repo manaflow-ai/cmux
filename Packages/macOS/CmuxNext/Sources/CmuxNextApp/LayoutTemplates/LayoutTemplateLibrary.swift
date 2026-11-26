@@ -32,8 +32,7 @@ final class LayoutTemplateLibrary {
 
     /// The template named `name`, ignoring case and surrounding whitespace.
     func template(named name: String) -> LayoutTemplate? {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return templates.first { LayoutTemplateRepository.same($0.name, name) }
+        LayoutTemplateRepository.index(named: name, in: templates.map(\.name)).map { templates[$0] }
     }
 
     /// Saves `blueprint` as template `name` (replacing one of that name).
