@@ -51,8 +51,6 @@ REQUIRED = {
 # workflow -> why a docs-only pull request still starts it. Each entry must still start for some sample below.
 ALLOWED: dict[str, str] = {
     **REQUIRED,
-    "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
-                                "the workflow when the status is missing), about two minutes on Linux",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
     "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
                                    "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
