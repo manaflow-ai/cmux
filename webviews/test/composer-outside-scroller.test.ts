@@ -80,7 +80,7 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector(".acpmux-scroll .acpmux-row");
     const floats = await page.evaluate(() => document.querySelector(".acpmux-main")?.getAttribute("data-dock"));
-    expect(floats ?? null).toBe(place === "over" ? "float" : null);
+    expect(floats ?? null).toBe(place === "over" ? "float" : "flow");
     await page.locator(FIELD).click();
     await page.keyboard.press("Control+End");
     await page.evaluate(async () => {
