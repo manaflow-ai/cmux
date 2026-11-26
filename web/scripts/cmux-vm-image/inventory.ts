@@ -14,7 +14,7 @@ import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm } from ".
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
 /** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
- * exec after 49 s) is retried, a step that ran and failed (StepLog's "step X failed") is not. */
+ * exec after 49 s) or a call that timed out is retried, a step that ran and failed (StepLog's "step X failed") is not. */
 export const INVENTORY_TRIES = 3;
 
 export function retriesInventory(error: unknown, attempt: number): boolean {
@@ -24,6 +24,9 @@ export function retriesInventory(error: unknown, attempt: number): boolean {
   // freestyle's FreestyleApiError carries the HTTP status apart from its prose message (cleanup.ts notFound).
   const status = (error as { status?: unknown } | null)?.status;
   if (status === 502 || status === 503 || status === 504) return true;
+  // A call the client gave up on (TimeoutError, no status: rolls 45829777164 and 45883186922) never reached a guest
+  // verdict; the steps are detached (StepLog.detachedStep), so only a short start, poll or download can time out.
+  if ((error as { name?: unknown } | null)?.name === "TimeoutError" || /\bTimeoutError\b/.test(text)) return true;
   return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
 }
 
