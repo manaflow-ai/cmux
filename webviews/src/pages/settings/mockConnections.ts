@@ -156,6 +156,20 @@ export const MOCK_CATALOG: ConnectionEntry[] = [
   },
 ];
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The catalog with Linear's sign-in lapsing within a day and Sentry's lapsed an hour ago, as the
+ * platform will send `connection.expiresAt` (the CLI passes it through as `expiresAt`). */
+export function mockExpiringCatalog(now = Date.now()): ConnectionsCatalog {
+  return mockConnectionsCatalog(
+    defaultEntries().map((entry) => {
+      if (entry.name === "linear") return { ...entry, expiresAt: new Date(now + DAY_MS).toISOString() };
+      if (entry.name === "sentry") return { ...entry, expiresAt: new Date(now - DAY_MS / 24).toISOString() };
+      return entry;
+    }),
+  );
+}
+
 /** The catalog with `linear` connected for the team and `sentry` for the person. */
 export function mockConnectionsCatalog(entries: ConnectionEntry[] = defaultEntries()): ConnectionsCatalog {
   return {
