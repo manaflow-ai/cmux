@@ -272,6 +272,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
@@ -6794,6 +6795,9 @@ export class AcpmuxDirectClient {
       this.earlyAttach = undefined;
     }
     const result = await sent.attaching;
+    // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
+    // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
+    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
@@ -10796,8 +10800,17 @@ export class AcpmuxDirectClient {
       if (!text && assistantPhase && priorRows?.length) {
         for (const rowId of priorRows) {
           const prior = this.rows.get(rowId);
-          if (prior && prior.assistantPhase !== assistantPhase)
+          if (!prior) continue;
+          if (prior.assistantPhase !== assistantPhase)
             this.rows.set(rowId, { ...prior, assistantPhase, version: prior.version + 1 });
+          // Codex stamps a message's phase twice: once on `item/started`, before its first delta,
+          // and again on `item/completed`, when its text is whole (its deltas carry no phase,
+          // codex_app_server/message_phases.rs). The echo of a phase the row already has is that
+          // completion: `textComplete`, which is what the ask inside a final answer waits for
+          // (turns.ts `answerComplete`). The row keeps streaming until its turn ends, so what it
+          // draws (`keepsReplyRoom`, the tail's safe boundary) is unchanged here.
+          else if (prior.textComplete !== true)
+            this.rows.set(rowId, { ...prior, textComplete: true, version: prior.version + 1 });
         }
         return;
       }
@@ -10880,6 +10893,9 @@ export class AcpmuxDirectClient {
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
         }),
+        // A chunk that carries its phase together with its text is a whole message, never a delta:
+        // a watched Codex rollout's reply and a replayed history message come that way, complete.
+        ...(((text && assistantPhase) || existing?.textComplete === true) && { textComplete: true }),
         streaming: true,
       });
       this.streamingAssistant = id;
