@@ -1810,6 +1810,15 @@ fn submit_steering_prompt(
     // the phone or forwarded as arbitrary ACP metadata.
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+        // The phone the Cloud link's owner check admitted (owner_phone.rs): acpmux treats it as
+        // the owner's own phone under D13, never with Full access (RFD 0135 gate 4).
+        #[cfg(unix)]
+        if let Some(device) =
+            attachment.mux.upgrade().and_then(|mux| mux.owner_phone(attachment.client))
+        {
+            params["_meta"]["acpmux"]["ownerPhone"] =
+                json!({"device": device, "fullAccess": false});
+        }
     }
     // The owner's and a team member's steer. A link guest never steers: its prompt waits for
     // the owner (acpmux holds it whatever the flag says; the flag is not even sent).

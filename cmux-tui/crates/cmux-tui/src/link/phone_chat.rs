@@ -17,6 +17,11 @@
 //!   the daemon holds it to the phone floor (`cmux-tui-core`
 //!   `server/phone_carrier.rs`, Unix clients only): the phone reaches the
 //!   chat commands and nothing else, whatever the adapter sends.
+//! - Before that handshake the link stamps the stream with the phone it just
+//!   admitted (`cmux_link::owner_phone`); the daemon's Cloud mobile prompts
+//!   carry it to acpmux, which treats it as the owner's own phone under D13
+//!   (it may send to a Claude chat this machine started), never with Full
+//!   access (`acpmux` `server/remote_guard.rs`).
 //! - The phone speaks ACP as newline JSON on the stream; the adapter turns it
 //!   into those commands and the daemon's replies back into ACP.
 
@@ -49,7 +54,11 @@ where
     let daemon = connect_same_uid(socket, cmux_tui_core::platform::effective_uid()).await?;
     let (native_read, mut native_write) = daemon.into_split();
     let mut native_read = BufReader::new(native_read);
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake(&mut native_read, &mut native_write))
+    let handshakes = async {
+        stamp_owner_phone(&mut native_read, &mut native_write, &peer.install).await?;
+        handshake(&mut native_read, &mut native_write).await
+    };
+    tokio::time::timeout(HANDSHAKE_TIMEOUT, handshakes)
         .await
         .map_err(|_| {
             InboundRefused::PhoneCarrier(Fault {
@@ -93,6 +102,29 @@ where
     let _ = apply(&mut native_write, &mut phone_write, adapter.abandon()).await;
     let _ = phone_write.shutdown().await;
     served
+}
+
+/// Stamp the daemon stream with the phone the owner check admitted; any answer but its `ok`
+/// refuses the chat (a daemon without the stamp would hold the phone at D13 anyway).
+async fn stamp_owner_phone<R, W>(read: &mut R, write: &mut W, device: &str) -> Result<(), Fault>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let closed = |_| Fault { code: "unavailable", message: "Cloud carrier closed".into() };
+    let mut line = cmux_link::owner_phone::line(device).into_bytes();
+    line.push(b'\n');
+    write.write_all(&line).await.map_err(closed)?;
+    write.flush().await.map_err(closed)?;
+    let bytes = read_line(read, &mut Vec::new()).await?;
+    let reply: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    if reply["id"] != cmux_link::owner_phone::REQUEST_ID || reply["ok"] != Value::Bool(true) {
+        return Err(Fault {
+            code: "forbidden",
+            message: "Cloud carrier refused the phone's stamp".into(),
+        });
+    }
+    Ok(())
 }
 
 fn refused(code: &'static str, message: &str) -> InboundRefused {

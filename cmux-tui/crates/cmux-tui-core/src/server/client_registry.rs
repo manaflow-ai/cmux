@@ -475,6 +475,7 @@ impl ClientRegistry {
             ClientRecord {
                 transport,
                 native_vm_kind: None,
+                owner_phone: None,
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
