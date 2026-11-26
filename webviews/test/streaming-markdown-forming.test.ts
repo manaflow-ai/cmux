@@ -189,6 +189,9 @@ const replies: Record<string, string> = {
     "Compute 2*3 and 4*5 here, rename snake_case to file_name, match src/*.ts and /_next paths, keep __init__.py.",
   "underscore emphasis": "This is _really_ it, and (_quoted_) too.",
   "fence nested in a list item": "1. Install:\n\n   ```sh\n   bun install\n   ```\n\n2. Run it",
+  // A four-backtick fence (one that shows a ``` sample): its opener drew as a paragraph line of
+  // backticks until its line ended (the 2026-11-22 render audit).
+  "four-backtick fence": "Sample:\n\n````md\n```ts\nconst a = 1;\n```\n````\n\nDone.",
 };
 
 /// Not held yet: a table without edge pipes reads as a prose line until its separator row (holding

@@ -67,40 +67,18 @@ import Testing
         }
     }
 
-    @Test func aFullScreenAppsFirstFrameIsThePhonesGrid() async throws {
+    /// Leo, 2026-11-25: "why would the Mac on an iPhone connection ALWAYS be
+    /// resized down anyways!?" A full-screen app shows at the Mac's grid
+    /// (scaled by the page) from its first frame: no claim, so no grid that
+    /// flips once a claim is answered.
+    @Test func aFullScreenAppShowsAtTheMacsGridAndNeverClaims() {
         let mac = MacTUIPane()
         let session = TerminalProjectingSession(inner: mac)
-        let page = Page()
-        // The page measures its grid before the session starts (viewDidLayoutSubviews).
-        session.resize(columns: 54, rows: 38)
-        session.setClaimsSize(true)
-        session.start { page.take($0) }
-        #expect(mac.claims, "the full-screen app claims the phone's grid at once")
-        #expect(!page.grids.contains("118x69"), "the Mac's 118x69 is never the first frame")
-        #expect(!page.text.contains("TUI at 118x69"))
-        #expect(session.remoteColumns != 118, "the page never lays its mirror out at the Mac's 118 columns")
-        mac.answerClaim()
-        #expect(!page.grids.contains("118x69"))
-        #expect(page.grids.last == "54x38")
-        #expect(page.text.contains("TUI at 54x38"))
-        #expect(session.remoteColumns == 54)
-        session.stop()
-    }
-
-    /// The Mac's policy keeps its own grid (Prefer this Mac): the claim is
-    /// never answered, and the Mac's grid shows after the wait.
-    @Test func aGridTheMacKeepsShowsAfterTheWait() async throws {
-        let mac = MacTUIPane()
-        let session = TerminalProjectingSession(inner: mac)
-        session.reclaimWait = .milliseconds(20)
         let page = Page()
         session.resize(columns: 54, rows: 38)
         session.setClaimsSize(true)
         session.start { page.take($0) }
-        #expect(!page.grids.contains("118x69"))
-        for _ in 0..<300 where !page.grids.contains("118x69") {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(!mac.claims, "the phone never claims its grid while it projects")
         #expect(page.grids.last == "118x69")
         #expect(page.text.contains("TUI at 118x69"))
         #expect(session.remoteColumns == 118)

@@ -749,7 +749,9 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     }
 }
 
-/// `MarkdownTableView` in UIKit: the grid in a horizontal scroll area with a trailing fade.
+/// `MarkdownTableView` in UIKit: the grid in a horizontal scroll area with a trailing fade,
+/// centered when narrower than the row, scrolling sideways in its own box when wider (Leo
+/// 2026-11-22: "i dont know why we dont simply center tables in our agent chats.").
 @MainActor
 final class ChatTableView: UIScrollView, UIScrollViewDelegate {
     private var labels: [UILabel] = []
@@ -821,13 +823,25 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
         }
         for index in table.rules.count..<rules.count { rules[index].isHidden = true }
         contentSize = CGSize(width: table.contentSize.width + inset * 2, height: table.contentSize.height)
+        contentInset = .zero
         contentOffset = .zero
+        centerIfNarrow()
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        centerIfNarrow()
         updateFade()
+    }
+
+    /// A grid narrower than the row: an even inset on its leading side centers it (and it does not
+    /// scroll); a wider one keeps no inset and scrolls from its leading edge.
+    private func centerIfNarrow() {
+        let slack = max(0, ((bounds.width - contentSize.width) / 2).rounded(.down))
+        guard contentInset.left != slack else { return }
+        contentInset = UIEdgeInsets(top: 0, left: slack, bottom: 0, right: 0)
+        contentOffset = CGPoint(x: -slack, y: 0)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { updateFade() }
