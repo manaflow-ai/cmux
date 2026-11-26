@@ -228,7 +228,7 @@ fn waiting_cut(
 
 /// A sub-session's "currently doing" line for its parent: while it waits on
 /// the person, what for (the summary's `waitingOn`, from [`waiting_on`]);
-/// while a turn runs, its plan step and latest tool (`activity.rs`), else
+/// while a turn runs, its latest tool (`activity.rs`), else
 /// what the turn was asked; else null (its `state` and `lastReply` say the rest).
 pub(super) fn doing(summary: &Value) -> Value {
     let turn = &summary["turn"];
@@ -257,7 +257,9 @@ pub(super) fn doing(summary: &Value) -> Value {
     if turn.is_null() {
         return Value::Null;
     }
-    let line = super::activity::doing_line(turn["planStep"].as_str(), turn["activity"].as_str())
+    let line = turn["activity"]
+        .as_str()
+        .map(str::to_owned)
         .or_else(|| turn["prompt"].as_str().map(|p| format!("Working on: {}", short_text(p, 120))));
     line.map_or(Value::Null, Value::String)
 }

@@ -321,6 +321,7 @@ install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0755 scripts/merge-baseline.py "$MERGE_DRIVER_DIR/merge-baseline.py"
 install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 install -m 0755 scripts/merge-insertions.py "$MERGE_DRIVER_DIR/merge-insertions.py"
+install -m 0755 scripts/merge-cargo-lock.py "$MERGE_DRIVER_DIR/merge-cargo-lock.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
 printf -v XCSTRINGS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
@@ -333,6 +334,8 @@ printf -v CAPABILITIES_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
     "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 printf -v INSERTIONS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
     "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v CARGO_LOCK_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-cargo-lock.py"
 printf -v GENERATED_DRIVER '/bin/bash %q %q --generated %%O %%A %%B %%P %%L' \
     "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
@@ -357,6 +360,9 @@ echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.d
 git config merge.cmux-insertions-v1.name "Lists and logs both sides inserted into (trusted union of insertions)"
 git config merge.cmux-insertions-v1.driver "$INSERTIONS_DRIVER"
 echo "==> insertions merge driver installed (merge.cmux-insertions-v1.driver)."
+git config merge.cmux-cargo-lock-v1.name "Cargo.lock (trusted package-wise three-way merge, in cargo's order)"
+git config merge.cmux-cargo-lock-v1.driver "$CARGO_LOCK_DRIVER"
+echo "==> Cargo.lock merge driver installed (merge.cmux-cargo-lock-v1.driver)."
 # Generated files a merge host rebuilds (scripts/cmux-next/generated_merge.py regenerate) merge three-way
 # when that is clean, so the other side's rows stay even when no rebuild runs; otherwise they keep the current
 # branch's copy, said on stderr, for the rebuild. It was `true` (always keep ours): a merge stopped on a

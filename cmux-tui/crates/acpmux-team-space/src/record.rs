@@ -138,12 +138,12 @@ pub fn fold_stats(records: &[PersonRecord]) -> Stats {
     let mut shown = BTreeSet::new();
     for record in records {
         if let PersonRecord::Shown(r) = record {
-            stats.digests += 1;
-            stats.posts_seen += r.posts_seen;
-            stats.duplicates_folded += r.duplicates_folded;
-            stats.raised += r.raised;
-            stats.summarized += r.summarized;
-            stats.items_shown += r.shown.len();
+            stats.digests = stats.digests.saturating_add(1);
+            stats.posts_seen = stats.posts_seen.saturating_add(r.posts_seen);
+            stats.duplicates_folded = stats.duplicates_folded.saturating_add(r.duplicates_folded);
+            stats.raised = stats.raised.saturating_add(r.raised);
+            stats.summarized = stats.summarized.saturating_add(r.summarized);
+            stats.items_shown = stats.items_shown.saturating_add(r.shown.len());
             shown.extend(r.shown.iter().map(|id| (r.space.as_str(), id.as_str())));
         }
     }
@@ -157,9 +157,9 @@ pub fn fold_stats(records: &[PersonRecord]) -> Stats {
                 continue;
             }
             match r.action {
-                Action::Opened => stats.opened += 1,
-                Action::Answered => stats.answered += 1,
-                Action::Dismissed => stats.dismissed += 1,
+                Action::Opened => stats.opened = stats.opened.saturating_add(1),
+                Action::Answered => stats.answered = stats.answered.saturating_add(1),
+                Action::Dismissed => stats.dismissed = stats.dismissed.saturating_add(1),
             }
             if shown.contains(&key) {
                 acted.insert(key);
