@@ -273,6 +273,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
@@ -6806,6 +6807,9 @@ export class AcpmuxDirectClient {
       this.earlyAttach = undefined;
     }
     const result = await sent.attaching;
+    // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
+    // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
+    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
