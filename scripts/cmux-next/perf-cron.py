@@ -2972,6 +2972,45 @@ def streak_parts(streak):
     return sorted(set.intersection(*sets)) if sets else []
 
 
+# The issue's task block: one entry per open bisect group with its stage, so an agent (or the next one) resumes where
+# the last left off instead of reading lane memory (docs/reading/2026-11-25-openai-performance-factory.md in hq: "a
+# perf alert becomes a task that agents carry to recovery"). The cron writes the stages it can judge itself; a lane
+# that names a root cause or opens a fix says so in a comment, since the next tick rewrites this block.
+TASK_MARK = "<!-- cmux-next-perf-task -->"
+TASK_NEXT = {
+    "needs investigation": "the cron bisects the range a step per tick; nothing to do until a culprit is named",
+    "culprit named": "disprove the culprit: does a revert of it recover the rows, did the rows move at it on another "
+                     "host? Then comment the root cause, or that the culprit is wrong",
+    "recovering": "within threshold again; the cron closes the rows after their recovery runs, nothing to do",
+}
+
+
+def task_stage(rows, rng, regs):
+    """A bisect group's stage: recovering (every row within its threshold in its latest run), culprit named (the
+    bisect ended on one commit), else needs investigation."""
+    by = {r["name"]: r for r in regs}
+    if rows and all(by.get(n, {}).get("recovering") for n in rows):
+        return "recovering"
+    return "culprit named" if rng.get("culprit") else "needs investigation"
+
+
+def task_block(state):
+    """The issue's task block: {"tasks": [{id, stage, next, rows, opened_at, range, culprit, pr}]} as fenced JSON."""
+    regs = state.get("regressions") or []
+    tasks = []
+    for g in bisect_groups(state):
+        rng, rows = g["range"], g["rows"]
+        opened = [str((r.get("first_bad") or {}).get("measured_at") or "") for r in regs if r["name"] in rows]
+        opened = sorted(o for o in opened if o)
+        named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+        stage = task_stage(rows, rng, regs)
+        tasks.append({"id": f"{str(rng['good'])[:11]}..{str(rng['bad'])[:11]}", "stage": stage, "next": TASK_NEXT[stage],
+                      "rows": rows, "opened_at": opened[0] if opened else None,
+                      "range": {"good": rng["good"], "bad": rng["bad"], "steps": rng.get("steps", 0)},
+                      "culprit": rng.get("culprit"), "pr": (named or {}).get("pr")})
+    return [TASK_MARK, "```json", json.dumps({"tasks": tasks}, sort_keys=True), "```"]
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -3011,6 +3050,7 @@ def issue_body(state, repo, now):
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
+        lines += ["", "Task state (one entry per culprit range; the cron rewrites it each tick):", "", *task_block(state)]
     else:
         lines.append("No confirmed regression.")
     lines += ["", *budget_issue_lines(state, now)]
@@ -5207,10 +5247,21 @@ def result_plan(o, state, t):
     write_outputs(o.output, out)
 
 
+# The controller's error for a step that never started: its source download (the checkout's fetch) failed every
+# try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
+# build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
+# build_failed though no build ran.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started")
+
+
 def result_files(value):
     """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
-    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded. A step that
+    failed before it started (NOT_STARTED_RE: the fleet could not fetch the source) ran nothing of the commit: it is
+    a yield, so the part runs again (MAX_YIELDS bounds it), and a build part's is no build failure."""
     tail = [line for line in (value.get("error"),) if line]
+    if value["state"] == "failed" and NOT_STARTED_RE.search(str(value.get("error") or "")):
+        value = {**value, "state": "yielded"}
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
             "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),
