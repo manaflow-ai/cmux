@@ -98,7 +98,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         cache = step(daemon, "Cache cargo build")["with"]
         self.assertIn("'cmux-tui-linux'", cache["shared-key"])
         self.assertEqual(cache["cache-all-crates"], "true")
-        self.assertIn("cmux_next_", step(daemon, "cargo test cmux_next_")["run"])
+        self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
+        script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
+        self.assertIn("--locked cmux_next_", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:
@@ -185,6 +187,17 @@ class DaemonTestsGateTests(unittest.TestCase):
                            RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
                 subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
                 self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
+    def test_every_feat_run_points_at_a_tested_tree_the_channel_skipped(self) -> None:
+        # Leo, 2026-11-23: "we own/should own the in-between". The point no longer waits on one run's own tree.
+        point = jobs()["point-feat-channel"]
+        keep = step(point, "Point the channel at any tested tree it skipped (channel keeper)")
+        self.assertEqual(flat(keep["if"]), "${{ !cancelled() }}")
+        self.assertIn("cmux_tui_channel_keeper.py drive --point-only", keep["run"])
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_ENDPOINT", "GH_TOKEN"):
+            self.assertIn(name, keep["env"])
+        checkout = next(s for s in point["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertGreaterEqual(int(checkout["with"]["fetch-depth"]), 300)
+
 
     def test_the_job_frees_its_own_build_need_before_the_caches_land(self) -> None:
         # Six cold runs on 2026-11-26 lost their pool runner "No space left on device" in cargo test: the
