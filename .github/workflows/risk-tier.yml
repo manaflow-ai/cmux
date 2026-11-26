@@ -35,13 +35,19 @@ env:
 
 jobs:
   evidence:
-    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
-    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
-    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
-    # check, so the newest finished run is always a real verdict.
-    name: risk evidence
+    # Every event grades except a label added or removed that is not risk:human-ok or risk:waived:
+    # those two are the only labels risk_tier.py reads, so no other label can change the verdict,
+    # and grading again on each one cost a runner start per label event (risk evidence was 6.5k
+    # runner-min over about 3,600 runs in 6 h on 2026-11-25). A skipped job named `risk evidence`
+    # would be the newest check of that name and read as a pass, so the skipped label run is named
+    # `risk evidence label (ignored)` and the newest `risk evidence` stays a real verdict. Its own
+    # concurrency group keeps it from cancelling a grading run in flight. The unit tests live in
+    # risk-tier-tests.yml for the same reason. A newer event cancels an older grading run;
+    # gh-merge-green refuses a cancelled check, so the newest finished run is always a real verdict.
+    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived') }}
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && 'risk evidence label (ignored)' || 'risk evidence' }}
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
@@ -53,7 +59,54 @@ jobs:
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
       # request would grade it with an older classifier, or find none from before #21718.
+      # The base files over raw.githubusercontent.com at a commit sha (seconds), with actions/checkout below as
+      # the fallback. A sparse blobless checkout of a file or two took 30 to 180 s on Blacksmith (the promisor blob
+      # fetch at `git checkout`, or a ref listing the git mirror proxy answered with a 502 after 90 s): most of this
+      # job's runner time. These are files of a base commit named by sha, never the pull request's head, and nothing
+      # from the pull request runs. scripts/ci/api_call_log is left out: it switched itself off on 2026-11-23.
+      # (tests/test_ci_prt_raw_base_files.py)
+      - name: Read the classifier at the tip of the pull request's base branch
+        id: raw
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          FILES: scripts/ci/risk_tier.py
+          # Absent at a base before feat-cmux-next #36941 and again on its tip; the checkout then leaves none either.
+          OPTIONAL_FILES: scripts/ci/receipt_grammar.py
+        run: |
+          set -euo pipefail
+          # The tip as a sha, so the read is that commit and not a copy the raw CDN cached minutes ago. One git
+          # protocol v2 ls-refs request over curl (0.2 s), past the runner's git mirror proxy, whose ref
+          # listing is what answered 502 after 90 s.
+          pkt() { printf '%04x%s' $((${#1} + 4)) "$1"; }
+          SHA="$({ pkt $'command=ls-refs\n'; printf 0001; pkt "ref-prefix refs/heads/$BASE_REF"$'\n'; printf 0000; } \
+            | curl -fsS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -H 'Git-Protocol: version=2' \
+                -H 'Content-Type: application/x-git-upload-pack-request' --data-binary @- "https://github.com/$REPO.git/git-upload-pack" \
+            | tr -d '\0' | sed -n "s|^[0-9a-f]\{4\}\([0-9a-f]\{40\}\) refs/heads/$BASE_REF\$|\1|p")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          part="$RUNNER_TEMP/raw-base-files"
+          rm -rf "$part"
+          for f in $FILES ${OPTIONAL_FILES:-}; do
+            mkdir -p "$part/$(dirname "$f")"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" = 404 ] && [[ " ${OPTIONAL_FILES:-} " == *" $f "* ]]; then
+              rm -f "$part/$f"  # absent at this commit, as the sparse checkout would leave it
+            elif [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
+          done
+          cp -R "$part"/. .
+          echo "ok=true" >> "$GITHUB_OUTPUT"
       - name: Checkout the classifier at the tip of the pull request's base branch
+        if: steps.raw.outputs.ok != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.ref }}

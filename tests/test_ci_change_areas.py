@@ -637,7 +637,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'ubuntu-24.04'"
-        " || 'cmux-linux' }}"
+        " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
