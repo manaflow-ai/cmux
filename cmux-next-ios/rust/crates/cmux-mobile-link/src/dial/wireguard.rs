@@ -2949,6 +2949,35 @@ fn prepare_gathered(
     Ok(Prepared { own_endpoints: endpoints, stun, turn, own_relay_now, turn_missed })
 }
 
+/// The phone's TURN allocation as a future of its own (relay first), which
+/// the session takes over when the tunnel starts before it lands.
+pub(super) type LateAllocation = Pin<Box<dyn Future<Output = Allocated> + Send + 'static>>;
+
+/// Relay first, an answer before the gather ended: what the tunnel starts
+/// on. Host endpoints (or the STUN half's, if it ended) and the TURN
+/// allocation if it landed; the rest follows from the session. No proxy
+/// refusal ends the dial here: relay first has the relay to fall back on.
+fn prepare_partial(
+    options: &DialOptions,
+    port: u16,
+    gathered: Option<Gathered>,
+    allocated: Option<Allocated>,
+) -> Prepared {
+    let (mut endpoints, stun) = match gathered {
+        Some(Gathered { endpoints, stun, .. }) => (endpoints, stun),
+        None => (offered(host_endpoints(port, options), options), Vec::new()),
+    };
+    let turn = allocated.and_then(|allocated| {
+        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+            options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
+        }
+        allocated.carrier
+    });
+    let (relayed, _) = relayed_of(turn.as_ref());
+    endpoints.extend(relayed);
+    Prepared { own_endpoints: endpoints, stun, turn, own_relay_now: false, turn_missed: false }
+}
+
 /// The phone's WireGuard dial: its TURN allocation is `early` (started
 /// beside the signaling reconnect or open) or one it starts now, beside
 /// the STUN gather.
@@ -2966,21 +2995,6 @@ pub(super) fn dial_wireguard<'a>(
         let options: &DialOptions = &effective;
         let socket = bind_udp().map_err(transport_error)?;
         let port = socket.local_addr().map_err(transport_error)?.port();
-        let mut gather = Box::pin(async {
-            match early {
-                Some(mut early) => {
-                    let stun_side = early.stun.take();
-                    tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
-                }
-                None => {
-                    let (stun_side, turn_side) = stun_turn_link();
-                    tokio::join!(
-                        gather_endpoints(&socket, options, Some(stun_side)),
-                        turn_beside(options, true, turn_side)
-                    )
-                }
-            }
-        });
         // Relay first (RFD 0142 R1, disco over the relay): `wg-init` goes now
         // with this side's host endpoints, and STUN and TURN run beside the
         // Mac's answer instead of before it. What they find follows as the
@@ -2988,6 +3002,26 @@ pub(super) fn dial_wireguard<'a>(
         // WireGuard, riding the relay once it is joined), as the Mac's own
         // answer already does ([`answer_trickles`]).
         let init_first = init_before_gather(options);
+        // The TURN allocation runs beside the STUN gather. Relay first keeps
+        // it a future of its own, so a tunnel that starts before it lands
+        // takes it over ([`roam::Session::gather_after_offer`]).
+        let (stun_side, turn_half): (Option<StunSide>, LateAllocation) = match early {
+            Some(mut early) => (early.stun.take(), Box::pin(async move { early.carrier().await })),
+            None => {
+                let (stun_side, turn_side) = stun_turn_link();
+                let owned = options.clone();
+                (Some(stun_side), Box::pin(async move { turn_beside(&owned, true, turn_side).await }))
+            }
+        };
+        let (mut turn_half, joined) =
+            if init_first { (Some(turn_half), None) } else { (None, Some(turn_half)) };
+        let mut gather = Box::pin(async {
+            let stun = gather_endpoints(&socket, options, stun_side);
+            match joined {
+                Some(turn) => tokio::join!(stun, turn),
+                None => (stun.await, Allocated::default()),
+            }
+        });
         let mut done = if init_first { None } else { Some(gather.as_mut().await) };
         let (private_key, public_key) = keypair();
         let (init, prepared) = match done.take() {
@@ -3043,12 +3077,26 @@ pub(super) fn dial_wireguard<'a>(
         let relay_ticket;
         let classes_agreed;
         let screen_agreed;
+        // Relay first: the halves of the gather that ran beside the answer.
+        let mut stun_done: Option<Gathered> = None;
+        let mut turn_done: Option<Allocated> = None;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
+            if prepared.is_none() && stun_done.is_some() && turn_done.is_some() {
+                let (gathered, allocated) = (stun_done.take(), turn_done.take());
+                prepared =
+                    Some(prepare_gathered(options, gathered.expect("stun"), allocated.expect("turn"))?);
+            }
+            let gathering = init_first && prepared.is_none();
             let event = tokio::select! {
                 event = events.next() => event,
-                // Relay first: the gather that runs beside the answer.
-                (gathered, allocated) = &mut gather, if init_first && prepared.is_none() => {
-                    prepared = Some(prepare_gathered(options, gathered, allocated)?);
+                (gathered, _) = &mut gather, if gathering && stun_done.is_none() => {
+                    stun_done = Some(gathered);
+                    continue;
+                }
+                allocated = async { turn_half.as_mut().expect("relay first's TURN half").await },
+                    if gathering && turn_done.is_none() =>
+                {
+                    turn_done = Some(allocated);
                     continue;
                 }
             };
@@ -3119,12 +3167,33 @@ pub(super) fn dial_wireguard<'a>(
             abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
-        // The answer came before the gather beside it ended: the tunnel takes
+        // The answer came before the gather beside it ended. Relay first
+        // starts the tunnel now, on what is in: the tunnel's socket asks STUN
+        // again and the TURN allocation lands in the session, both announced
+        // as they come ([`roam::Session::gather_after_offer`]), so the link
+        // waits on the join, not the gather. The measurement baseline takes
         // the socket only once STUN is done with it (bounded by its clock).
+        let tunnel_first = init_first && prepared.is_none() && !options.tunnel_after_gather;
+        let mut late = None;
         let prepared = match prepared {
             Some(prepared) => prepared,
+            None if tunnel_first => {
+                options.timeline.mark("tunnel_before_gather");
+                let stun_pending = stun_done.is_none();
+                let turn = if turn_done.is_none() { turn_half.take() } else { None };
+                late = Some((stun_pending, turn));
+                prepare_partial(options, port, stun_done.take(), turn_done.take())
+            }
             None => {
-                let (gathered, allocated) = gather.as_mut().await;
+                let gathered = match stun_done.take() {
+                    Some(gathered) => gathered,
+                    None => gather.as_mut().await.0,
+                };
+                let allocated = match (turn_done.take(), turn_half.take()) {
+                    (Some(allocated), _) => allocated,
+                    (None, Some(turn)) => turn.await,
+                    (None, None) => Allocated::default(),
+                };
                 prepare_gathered(options, gathered, allocated)?
             }
         };
@@ -3164,7 +3233,10 @@ pub(super) fn dial_wireguard<'a>(
         let tunnel = start_tunnel(signaling, spec, options)?;
         options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
-        if init_first {
+        if let Some((stun_pending, turn)) = late {
+            // What the gather had not found yet follows as it comes.
+            tunnel.session.gather_after_offer(stun_pending, turn, options.timeline.clone());
+        } else if init_first {
             // `wg-init` carried host endpoints only: the reflexive and TURN
             // ones go now, through signaling and inside the tunnel.
             options.timeline.mark("endpoints_trickled");
