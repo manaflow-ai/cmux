@@ -30,8 +30,13 @@ cargo test --locked --release -p acpmux --test chats_search_bench --no-run 2>&1 
 [[ "$build_only" == 1 ]] && exit 0
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
+# The bench fails after printing its rows when a planted chat is not found: print the report anyway, so the miss
+# is a number on the board, then exit with the bench's status.
+status=0
 CHAT_SEARCH_BENCH_CHATS="$chats" CHAT_SEARCH_BENCH_MIB="$mib" \
-  cargo test --locked --release -p acpmux --test chats_search_bench -- --ignored --nocapture 2>&1 | tee "$out/bench.log"
+  cargo test --locked --release -p acpmux --test chats_search_bench -- --ignored --nocapture 2>&1 | tee "$out/bench.log" \
+  || status=$?
 python3 -c 'import json,sys
 rows = [json.loads(l[len("PERF_ROW "):]) for l in open(sys.argv[1]) if l.startswith("PERF_ROW ")]
 print(json.dumps({"rows": rows}))' "$out/bench.log"
+exit "$status"
