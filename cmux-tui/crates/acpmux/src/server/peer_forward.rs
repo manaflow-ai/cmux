@@ -36,6 +36,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
+    // A glyph is a pure function of the id: answered here for a peer's session too.
+    method::SESSION_SIGNATURE,
     method::MUX_STATUS,
     method::MUX_PERF,
     method::MUX_CALLERS,
@@ -105,8 +107,19 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_REVIEW_QUEUE,
     method::MUX_REVIEW_VERDICT,
     method::MUX_AUDIT,
+    // A call for a machine names that machine, never a chat: this daemon sends it on itself
+    // (`computer_use_relay.rs`, `machine_files_relay.rs`, `keys_relay.rs`). A Computer Use
+    // call's `session` is the caller's own Computer Use key and its `name` the tool; forwarded by
+    // session, both were stripped and the far side refused `unknown Computer Use tool ""`.
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
+    method::MUX_MACHINE_FILES_CALL,
+    method::MUX_KEYS_MINT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
+    // Names a peer machine, never a session (`autocloud_enroll.rs`).
+    "_acpmux/autocloud_enroll",
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
@@ -479,7 +492,7 @@ pub(super) async fn forward(
             .map(|r| r.0.name.clone());
         fields.set("via", json!("peer"));
         fields.set("toHost", json!(peer));
-        crate::xhost_audit::record("sent", fields);
+        crate::xhost_audit::record_queued("sent", fields);
     }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
