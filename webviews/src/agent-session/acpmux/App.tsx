@@ -8968,10 +8968,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
   );
+  // A new client (a reconnect) gets the watch again: the old one's listeners went with it.
   const watchSessionCommands = useCallback(
     (sessionId: string, listener: () => void) =>
       directClient.current?.watchSessionCommands(sessionId, listener) ?? (() => undefined),
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clientEpoch],
   );
   const pendingCommands = useSessionCommands(
     commandSession,
@@ -11021,6 +11023,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandSession,
     newTabSnapshot,
     pendingCommands,
+    readSessionCommands,
     extensionCommands,
     newTabFixError,
     newTabStartFailure,
