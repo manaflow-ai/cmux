@@ -10,6 +10,7 @@
 //! (`sidebar_sections`), the pending sidebar changes' record writes
 //! (`sidebar_pending_records`), where a sidebar drop or keyboard move lands
 //! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
+//! what auto-archive reads off the records (`sidebar_archive_marks`),
 //! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -309,6 +310,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     &request,
                 ))
                 .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_archive_marks" => {
+                use cmux_layout_reducer::sidebar_archive_marks;
+                let request: sidebar_archive_marks::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_archive_marks::respond(request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_doc_target" => {
                 use cmux_layout_reducer::sidebar_doc_target;
