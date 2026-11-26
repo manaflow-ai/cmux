@@ -296,15 +296,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
-    let mut config = Config::load()?;
-    // config.json holds the dashboard token: owner-only, also when another
-    // tool wrote it with the umask's mode and the daemon never saves it.
-    narrow_to_owner(&Config::path());
-    config.dev_origins = dev_origins;
-    crate::login_env::set_extra_allow(config.login_env_allow.clone());
-    if opts.memory {
-        config.store.mode = crate::config::StoreMode::Memory;
-    }
+    let load_config = || -> Result<Config> {
+        let mut config = Config::load()?;
+        // config.json holds the dashboard token: owner-only, also when another
+        // tool wrote it with the umask's mode and the daemon never saves it.
+        narrow_to_owner(&Config::path());
+        config.dev_origins = dev_origins.clone();
+        crate::login_env::set_extra_allow(config.login_env_allow.clone());
+        if opts.memory {
+            config.store.mode = crate::config::StoreMode::Memory;
+        }
+        Ok(config)
+    };
+    let config = load_config()?;
     if config.harnesses.is_empty() && !login_env {
         tracing::warn!(
             "no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}",
@@ -325,7 +329,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
     // None: another daemon answers for this home and its ready line went out; nothing to do.
     let lock_wait = async {
-        match acquire_daemon_lock(&lock, opts.take_over).await {
+        match acquire_daemon_lock(&lock, opts.take_over, opts.ready_fd.is_none()).await {
             Ok(lock) => Ok(Some(lock)),
             Err(e) => {
                 // A take-over start whose home a daemon of its own build already serves: nothing to
@@ -371,6 +375,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             return Ok(());
         }
     };
+    // config.json again, now that this daemon holds the home: the lock wait has no limit (launchd's
+    // start waits for the app's daemon for as long as the app runs), and the copy read before it
+    // could carry a token rotated since or settings changed since, which the listener would serve
+    // and the token write below would save over the newer file.
+    let mut config = load_config()?;
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
@@ -739,6 +748,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let cloned = hub.take_clone_marker(&home()).is_some();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
+    // Place modes' cutoff, before anything is answered: a chat made before it with no pin reads
+    // as pinned here, one made after as Auto (`place_pin.rs`). Some: this home's one-time
+    // migration, run after the store loads (below).
+    let place_migration =
+        if memory_store { None } else { crate::place_pin::start(&home(), crate::store::now_ms()) };
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
         tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
     }
@@ -1129,6 +1143,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                     tracing::error!("sorting the list order failed: {e}");
                 }
             }
+            // Place modes: every chat older than them is pinned to this machine, once, so
+            // nothing moves unasked (`hub/place_migrate.rs`). Beside the rest of the start, never
+            // in front of it: one saved pin per chat, thousands of chats on a busy Mac. Until it
+            // ends, a chat with no pin reads as pinned here. A later start finds the marker.
+            if let Some(cutoff) = place_migration {
+                let migrating = hub.clone();
+                tokio::task::spawn_blocking(move || {
+                    migrating.migrate_place_modes(&home(), cutoff);
+                });
+            }
             #[cfg(debug_assertions)]
             test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
@@ -1257,6 +1281,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
     // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
+    #[cfg(unix)]
     let _auto_session = crate::auto_session::laptop::start(hub.clone());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.

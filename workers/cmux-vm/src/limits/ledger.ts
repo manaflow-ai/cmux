@@ -103,6 +103,11 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
+export const RetainedCreationSlot = Schema.Struct({ key: Schema.String, vmId: Schema.String, startedMs: Schema.Number, cancelRequested: Schema.Boolean });
+export type RetainedCreationSlot = typeof RetainedCreationSlot.Type;
+const isRetainedSlot = Schema.is(Schema.Struct({ ...Reservation.fields, vmCreation: Schema.optional(Schema.Unknown) }));
+const isSlotLink = Schema.is(Schema.Struct({ key: Schema.String, vmId: Schema.String }));
+
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
@@ -505,6 +510,40 @@ export class TenantLedger {
       const held = checked(isLock, await storage.get(storageKey));
       if (held !== undefined && held.holder === holder) await storage.delete(storageKey);
     });
+  }
+
+  /**
+   * Read only: the unfinished creates `createdBy` started that still hold a retained VM slot, oldest first, at most
+   * `limit`. Nothing else ever frees a slot whose request died after its send began, so a caller that can prove the
+   * create is over (a CI principal past its run cap) cancels them through the ordinary verified cancellation.
+   */
+  async retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 64) throw new Error("invalid retained creation page");
+    const slots = new Set<string>();
+    const links = new Map<string, string>();
+    for (const [key, value] of await this.storage.list({ prefix: "reserve:" })) {
+      if (!isRetainedSlot(value) || value.kind !== "vm" || value.retained !== true) continue;
+      slots.add(key.slice("reserve:".length));
+      if (isSlotLink(value.vmCreation)) links.set(key.slice("reserve:".length), value.vmCreation.key);
+    }
+    if (slots.size === 0) return [];
+    // Slots retained before they carried their link: find their intents in one bounded page.
+    const keys = new Set(links.values());
+    if (links.size < slots.size) {
+      for (const [key, value] of await this.storage.list({ prefix: "idem:", limit: 256 })) {
+        const p = readRecord(value)?.progress;
+        if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
+      }
+    }
+    const found: RetainedCreationSlot[] = [];
+    for (const key of keys) {
+      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
+      const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
+      if (!Number.isFinite(startedMs)) continue;
+      found.push({ key, vmId: p.vmId, startedMs, cancelRequested: p.cancelRequested === true });
+    }
+    return found.sort((a, b) => a.startedMs - b.startedMs).slice(0, limit);
   }
 
   /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */
