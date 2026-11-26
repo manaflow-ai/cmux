@@ -188,8 +188,21 @@ jobs:
           APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
         run: python3 scripts/ci/app_spend_mark.py start ci-cloud-overflow-probe/watch --floor pass
 
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py ci-cloud-overflow-probe/watch
+
+      # Under both floors (cmux-bot's and the workflow token's) the switch sends nothing: neither hour is this watch's
+      # to spend. The stuck-probe cancel below still ends the run (one call), so no queued probe holds the group.
       - name: Probe and switch
         id: switch
+        if: steps.app-spend.outputs.low != 'true' || steps.job-floor.outputs.held != 'true'
         env:
           # Under the cmux-bot floor (the reading above) the switch reads on the workflow token instead: it still
           # watches its probes, and the cmux-bot hour's rest stays above HQ's NOW reserve.
