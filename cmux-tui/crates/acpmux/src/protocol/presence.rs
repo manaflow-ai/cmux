@@ -62,7 +62,6 @@ pub struct TypingParams {
 /// named before; both empty unsubscribes. A chat must be attached on this connection.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(deny_unknown_fields)]
 pub struct RoomsParams {
     #[serde(default)]
     pub chats: Vec<String>,
