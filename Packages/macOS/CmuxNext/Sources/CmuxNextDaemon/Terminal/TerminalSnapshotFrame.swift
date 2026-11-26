@@ -50,10 +50,10 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
 /// a snapshot attach), before ``TerminalSnapshotSequencer`` admits it.
 struct DecodedAttachLine: Sendable, Equatable {
     var event: TerminalChannelEvent
-    var generation: UInt64? = nil
+    var generation: UInt64?
     /// An `attach-frames-v1` OUTPUT frame's stream offset of its first byte (frames carry no
     /// generation; the offset places them against the READY's cut instead).
-    var frameOffset: UInt64? = nil
+    var frameOffset: UInt64?
 }
 
 /// The one owner of snapshot order on an attach stream (runs on the reader
@@ -85,8 +85,8 @@ struct TerminalSnapshotSequencer: Sendable {
             // A frame's bytes before the last READY's cut are already in that READY's screen.
             if let start = line.frameOffset, let cut, start < cut.offset {
                 let skip = cut.offset - start
-                guard skip < UInt64(data.count) else { return nil }
-                return .output(Data(data.dropFirst(Int(skip))), colors: colors)
+                guard skip < UInt64(truncatingIfNeeded: data.count) else { return nil }
+                return .output(Data(data.dropFirst(Int(truncatingIfNeeded: skip))), colors: colors)
             }
             return line.event
         default:

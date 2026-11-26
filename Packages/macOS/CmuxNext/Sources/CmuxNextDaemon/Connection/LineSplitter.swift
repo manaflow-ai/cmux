@@ -37,9 +37,9 @@ nonisolated struct LineSplitter {
         pending.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
             while start < count {
-                if raw[start] == Self.frameMagic {
+                if base.load(fromByteOffset: start, as: UInt8.self) == Self.frameMagic {
                     guard count - start >= Self.frameHeaderBytes else { break }
-                    let len = (0..<4).reduce(0) { $0 | Int(raw[start + 4 + $1]) << (8 * $1) }
+                    let len = Int(truncatingIfNeeded: UInt32(littleEndian: base.loadUnaligned(fromByteOffset: start + 4, as: UInt32.self)))
                     let end = start + Self.frameHeaderBytes + len
                     guard end <= count else { break }
                     frame(Data(bytes: base + start, count: end - start))

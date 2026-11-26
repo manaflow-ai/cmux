@@ -21,16 +21,19 @@ struct AttachOutputFrame: Sendable, Equatable {
     init?(message: Data) {
         let header = LineSplitter.frameHeaderBytes
         guard message.count >= header else { return nil }
-        let base = message.startIndex
-        func le(_ at: Int, _ bytes: Int) -> UInt64 {
-            (0..<bytes).reduce(0) { $0 | UInt64(message[base + at + $1]) << (8 * UInt64($1)) }
+        let fields = message.withUnsafeBytes { raw -> (magic: UInt8, kind: UInt8, stream: UInt16, len: UInt32, offset: UInt64) in
+            (raw.load(fromByteOffset: 0, as: UInt8.self),
+             raw.load(fromByteOffset: 1, as: UInt8.self),
+             UInt16(littleEndian: raw.loadUnaligned(fromByteOffset: 2, as: UInt16.self)),
+             UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self)),
+             UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: 8, as: UInt64.self)))
         }
-        guard message[base] == LineSplitter.frameMagic, message[base + 1] == Self.kindOutput,
-              Int(le(4, 4)) == message.count - header
+        guard fields.magic == LineSplitter.frameMagic, fields.kind == Self.kindOutput,
+              Int(exactly: fields.len) == message.count - header
         else { return nil }
-        stream = UInt16(le(2, 2))
-        offset = le(8, 8)
-        payload = message.subdata(in: (base + header)..<message.endIndex)
+        stream = fields.stream
+        offset = fields.offset
+        payload = Data(message.dropFirst(header))
     }
 
     init(stream: UInt16 = 0, offset: UInt64, payload: Data) {
@@ -43,7 +46,7 @@ struct AttachOutputFrame: Sendable, Equatable {
     var encoded: Data {
         var data = Data([LineSplitter.frameMagic, Self.kindOutput])
         withUnsafeBytes(of: stream.littleEndian) { data.append(contentsOf: $0) }
-        withUnsafeBytes(of: UInt32(payload.count).littleEndian) { data.append(contentsOf: $0) }
+        withUnsafeBytes(of: UInt32(truncatingIfNeeded: payload.count).littleEndian) { data.append(contentsOf: $0) }
         withUnsafeBytes(of: offset.littleEndian) { data.append(contentsOf: $0) }
         data.append(payload)
         return data
