@@ -328,7 +328,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the hub closed this device's socket ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => match serde_json::from_str::<Value>(&text) {
                 Ok(v) => v,
@@ -346,7 +346,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the request ended: {}",
                     printable(push["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }
@@ -403,12 +403,20 @@ fn view_session(
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
     let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
-    let turn: Vec<crate::carrier::TurnSetup> = rd_doc::udp_only(&turn)
+    // Every relay, UDP first (`servers` sorts them): the TCP and TLS ones are the way
+    // through a network that blocks UDP.
+    let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
             addr: t.addr,
             username: t.username,
             password: t.password,
+            transport: match t.transport {
+                rd_doc::TurnTransport::Udp => "udp",
+                rd_doc::TurnTransport::Tcp => "tcp",
+                rd_doc::TurnTransport::Tls => "tls",
+            }
+            .to_owned(),
         })
         .collect();
     let net = cmux_rd_link::net::Net::start(NetConfig {
@@ -584,7 +592,7 @@ fn wait_for_answer(
                     "signaling closed before the answer ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => text,
         };
@@ -608,7 +616,7 @@ fn wait_for_answer(
                     "the host left signaling: {}",
                     printable(frame["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }

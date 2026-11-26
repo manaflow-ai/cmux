@@ -876,8 +876,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2 0.6.5",
  "windows-sys 0.61.2",
 ]
 
