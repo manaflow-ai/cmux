@@ -39,6 +39,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   linkUp,
+  sameConnection,
   SINCE_DIVIDER,
 } from "./model";
 import {
@@ -836,7 +837,13 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return -1;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
+  for (const key of keys)
+    if (
+      key !== "rows" &&
+      !Object.is(before[key], after[key]) &&
+      !(key === "connection" && sameConnection(before[key], after[key]))
+    )
+      return -1;
   if (streamingRowBlocked()) return -1;
   const at = textOnlyRow(drawn.rows, next.rows);
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
@@ -999,7 +1006,6 @@ function newTabStartFailureOf(error: unknown, harness?: string): Omit<NewTabStar
 }
 
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
-  { const g = globalThis as any; g.__rc ??= {}; const k = "pane:" + (g.__lastKind ?? "?"); g.__rc[k] = (g.__rc[k] ?? 0) + 1; g.__lastKind = "(again)"; } // PLCE-DEBUG
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");

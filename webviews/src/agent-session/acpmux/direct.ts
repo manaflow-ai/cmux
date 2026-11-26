@@ -4043,7 +4043,6 @@ export class AcpmuxDirectClient {
   };
 
   private receive(raw: string, stale = false, deltas?: ChatDeltas): void {
-    { const m = /"kind":"([^"]+)"/.exec(raw); (globalThis as any).__lastKind = m ? m[1] : "?"; } // PLCE-DEBUG
     if (!stale) this.daemonLastFrameAt = Date.now();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.

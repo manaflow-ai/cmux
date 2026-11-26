@@ -65,7 +65,7 @@ import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
@@ -1324,7 +1324,18 @@ export function paneSnapshotEffect({
             liveSummary.set(drawn.summary!, next.summary!);
             return;
           }
-          { const g = globalThis as any; const b = (received ?? {}) as any; const n = next as any; const ks = Object.keys(n).filter((key) => !Object.is(b[key], n[key])).sort().join(","); const r = `${g.__lastKind}|${ks}|pend=${pendingPaneDraw.pending ? 1 : 0}|blk=${streamingRowBlocked() ? 1 : 0}|drawn=${drawn ? 1 : 0}`; g.__miss ??= {}; g.__miss[r] = (g.__miss[r] ?? 0) + 1; } // PLCE-DEBUG
+          // Only the event's name moved (`connection`, direct.ts names each snapshot by the event it
+          // drew from): nothing draws it but the Inspector, so the pane keeps what it drew (Leo,
+          // 2026-11-26: "Why should non visible thing even affect the renderer thread anyways?").
+          if (
+            drawn &&
+            received &&
+            !streamingRowBlocked() &&
+            !pendingPaneDraw.pending &&
+            received.rows === next.rows &&
+            sameButRows(received, next)
+          )
+            return;
           streamingRow.clear();
           liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();

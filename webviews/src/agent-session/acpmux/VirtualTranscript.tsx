@@ -947,7 +947,6 @@ function TranscriptView({
   /// view's close and Resume (subagents/SubagentViewCorner.tsx). Its rows lie as a chat's do.
   corner?: React.ReactNode;
 }) {
-  ((globalThis as any).__rc ??= {})["transcript"] = (((globalThis as any).__rc["transcript"] as number) ?? 0) + 1; // PLCE-DEBUG
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
   useCountedRender("transcript");

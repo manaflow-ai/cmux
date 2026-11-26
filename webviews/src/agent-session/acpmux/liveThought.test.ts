@@ -74,3 +74,52 @@ test("thought fast path rejects a shaped item with different text", () => {
 
   expect(thoughtOnly(previous, next)).toBeUndefined();
 });
+
+const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "go" } as AcpmuxRow;
+const closedWork = (open: boolean): AcpmuxRow =>
+  ({ id: "worked-prompt", version: 1, at: 1, kind: "worked", turnPhase: "running", foldOpen: open }) as AcpmuxRow;
+const line: AcpmuxRow = { id: "thinking-live", version: 1, at: 1, kind: "thinking" } as AcpmuxRow;
+
+test("thought fast path takes a thought the running turn's closed fold hides", () => {
+  const first: AcpmuxActivity = { kind: "thought", text: "Read", startedAt: 1, endedAt: 2 };
+  const second: AcpmuxActivity = { ...first, text: "Read the helper", endedAt: 3 };
+  const third: AcpmuxActivity = { ...second, text: "Read the helper first", endedAt: 4 };
+  const previous = snapshot([prompt, row("hidden-thought", first, 1)]);
+  const next = snapshot([prompt, row("hidden-thought", second, 2)]);
+  markOneRowChange(next.rows, previous.rows, 1);
+  // The transcript drew the prompt, its closed "Working for" and the live line: no row of the work.
+  drewThoughts([prompt, closedWork(false), line]);
+
+  // Without the pane's drawn rows it cannot tell what the hidden row holds.
+  expect(thoughtOnly(previous, next)).toBeUndefined();
+  const change = thoughtOnly(previous, next, previous.rows);
+  expect(change).toEqual({ id: "hidden-thought", before: first, after: second });
+  liveThought.set(change!.id, change!.before, change!.after);
+
+  // The next chunk moves on from the store's thought while the pane still holds the first.
+  const later = snapshot([prompt, row("hidden-thought", third, 3)]);
+  markOneRowChange(later.rows, next.rows, 1);
+  expect(thoughtOnly(next, later, previous.rows)).toEqual({ id: "hidden-thought", before: second, after: third });
+});
+
+test("thought fast path redraws a hidden thought once the fold is open or the row draws", () => {
+  const first: AcpmuxActivity = { kind: "thought", text: "Plan", startedAt: 1, endedAt: 2 };
+  const second: AcpmuxActivity = { ...first, text: "Plan the change", endedAt: 3 };
+  const previous = snapshot([prompt, row("fold-thought", first, 1)]);
+  const next = snapshot([prompt, row("fold-thought", second, 2)]);
+  markOneRowChange(next.rows, previous.rows, 1);
+
+  // An open fold draws the run: the hidden path never takes it.
+  drewThoughts([prompt, closedWork(true), line]);
+  expect(thoughtOnly(previous, next, previous.rows)).toBeUndefined();
+  // A transcript that drew the row with another thought than the client's: the row must draw.
+  drewThoughts([prompt, closedWork(false), row("fold-thought", { ...first, text: "Other" }, 5), line]);
+  expect(thoughtOnly(previous, next, previous.rows)).toBeUndefined();
+  // A turn summary between the prompt and the row: an ended stretch's runs draw.
+  const summary = { id: "summary", version: 1, at: 1, kind: "turnSummary" } as AcpmuxRow;
+  const endedBefore = snapshot([prompt, summary, row("fold-thought", first, 1)]);
+  const endedNext = snapshot([prompt, summary, row("fold-thought", second, 2)]);
+  markOneRowChange(endedNext.rows, endedBefore.rows, 2);
+  drewThoughts([prompt, closedWork(false), summary, line]);
+  expect(thoughtOnly(endedBefore, endedNext, endedBefore.rows)).toBeUndefined();
+});
