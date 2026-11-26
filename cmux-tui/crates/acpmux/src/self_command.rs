@@ -69,6 +69,18 @@ impl SelfCommand {
         command
     }
 
+    /// [`Self::command`] as an owned [`cmux_process::Command`]: its child's process group ends
+    /// when the child is dropped.
+    pub fn process_command<S: AsRef<OsStr>>(&self, words: &[S]) -> cmux_process::Command {
+        let program = self.program();
+        let mut command = cmux_process::Command::new(&program);
+        if program != self.exe {
+            command.arg0(&self.exe);
+        }
+        command.args(self.args(words));
+        command
+    }
+
     /// [`Self::command`] for tokio.
     pub fn tokio_command<S: AsRef<OsStr>>(&self, words: &[S]) -> tokio::process::Command {
         tokio::process::Command::from(self.command(words))

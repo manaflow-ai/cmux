@@ -38,6 +38,8 @@ const LEDGER_KEYS_PER_ACTOR: i64 = 256;
 /// The largest avatar image (decoded bytes).
 pub(crate) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 /// Chiefs one home may have (tombstones not counted).
+/// Measured: not timed; each live chief keeps one `optchat-chief host` brain process
+/// (`chief_brains.rs`), so 64 bounds the brain processes one home runs.
 pub(crate) const MAX_CHIEFS: usize = 64;
 const SCHEMA_VERSION: i64 = 1;
 

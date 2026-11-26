@@ -21,7 +21,7 @@ public struct LeaderLayer {
     /// cannot run in this focus, so the overlay says what Cmd-J offers.
     /// Reads the event's keys once.
     public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        let shortcuts = ActionRegistry.shortcuts(for: event)
+        let shortcuts = registry.shortcuts(for: event)
         if let first = shortcuts.first(where: registry.startsChord) { return first }
         return shortcuts.contains(Self.prefix) && hasChords(after: Self.prefix) ? Self.prefix : nil
     }
@@ -49,9 +49,10 @@ public struct LeaderLayer {
     /// - Parameters:
     ///   - event: The key-down that ended the chord.
     ///   - resolved: What the key resolves to in the current context (``ActionRegistry/resolveShortcut(for:)``).
-    public static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+    ///   - qwerty: `app.shortcutLayout` is Keep QWERTY Positions (``ActionRegistry/matchesQwertyPositions``).
+    public static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?, qwerty: Bool) -> Bool {
         guard !event.modifierFlags.isDisjoint(with: [.command, .control]), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(prefix)
+        return !ActionRegistry.shortcuts(for: event, qwerty: qwerty).contains(prefix)
     }
 
     /// A default chord to show as `id`'s shortcut, when no single key or

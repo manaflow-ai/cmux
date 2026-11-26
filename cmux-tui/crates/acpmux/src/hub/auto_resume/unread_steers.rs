@@ -15,10 +15,9 @@ use super::Hub;
 use crate::store::EventRecord;
 use serde_json::Value;
 
-/// Longest quote of one steer, in characters.
+/// Longest quote of one steer, in characters. Every unread steer is quoted: each is a message
+/// the person sent into the turn.
 const MAX_QUOTE_CHARS: usize = 4_000;
-/// Most steers one continuation quotes (the newest are kept).
-const MAX_STEERS: usize = 64;
 
 /// The record kinds the scan reads; every other line is passed without parsing.
 const KINDS: [&[u8]; 5] =
@@ -45,8 +44,7 @@ impl Hub {
                     "user_message"
                         if e.msg.get("steer").and_then(Value::as_bool) == Some(true)
                             && field("turnId") == Some(turn_id)
-                            && prompt_id.as_deref().is_some_and(|id| !settled.contains(id))
-                            && unread.len() < MAX_STEERS =>
+                            && prompt_id.as_deref().is_some_and(|id| !settled.contains(id)) =>
                     {
                         let images =
                             e.msg.get("images").and_then(Value::as_array).map_or(0, Vec::len);

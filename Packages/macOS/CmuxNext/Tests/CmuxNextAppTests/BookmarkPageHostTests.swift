@@ -34,8 +34,8 @@ struct BookmarkPageHostTests {
 
     static func tree(_ url: String) throws -> BookmarkTree {
         var tree = BookmarkTree()
-        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_folder"), index: nil))
-        try tree.apply(.create(.bookmark("Docs", url: try #require(URL(string: url)), in: "bm_folder", id: "bm_docs"), index: nil))
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_00000000000000000000000000000f01"), index: nil))
+        try tree.apply(.create(.bookmark("Docs", url: try #require(URL(string: url)), in: "bm_00000000000000000000000000000f01", id: "bm_00000000000000000000000000000d01"), index: nil))
         return tree
     }
 
@@ -50,15 +50,15 @@ struct BookmarkPageHostTests {
         host.owner = try Self.tree("https://new.example/")
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
         // Not in the app's tree yet.
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(1))
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_00000000000000000000000000000d01", "url": "https://new.example/"], context: clicked(1))
         // In it with the old URL.
         host.mirror = try Self.tree("https://old.example/")
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(2))
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_00000000000000000000000000000d01", "url": "https://new.example/"], context: clicked(2))
         #expect(host.opened == ["https://new.example/", "https://new.example/"])
         #expect(host.ownerReads == 2)
         // The same row in both: no daemon read.
         host.mirror = host.owner
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(3))
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_00000000000000000000000000000d01", "url": "https://new.example/"], context: clicked(3))
         #expect(host.ownerReads == 2)
     }
 
@@ -66,7 +66,7 @@ struct BookmarkPageHostTests {
         let host = Host()
         host.owner = try Self.tree("https://new.example/")
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
-        _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: clicked(4))
+        _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_00000000000000000000000000000f01"], context: clicked(4))
         #expect(host.opened == ["https://new.example/"])
     }
 
@@ -93,8 +93,8 @@ struct BookmarkPageHostTests {
         host.mirror = try Self.tree("https://new.example/")
         host.owner = host.mirror
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
-        for (op, params) in [("cmux.bookmarkPage.open", ["bookmark": "bm_docs"] as CmuxNextSettings.JSONValue),
-                             ("cmux.bookmarkPage.openAll", ["folder": "bm_folder"])] {
+        for (op, params) in [("cmux.bookmarkPage.open", ["bookmark": "bm_00000000000000000000000000000d01"] as CmuxNextSettings.JSONValue),
+                             ("cmux.bookmarkPage.openAll", ["folder": "bm_00000000000000000000000000000f01"])] {
             await #expect(throws: PageError.self) { _ = try await page.call(op, params: params, context: context) }
         }
         #expect(host.opened.isEmpty)
@@ -107,9 +107,9 @@ struct BookmarkPageHostTests {
         host.owner = host.mirror
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
         let click = clicked(42)
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs"], context: click)
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_00000000000000000000000000000d01"], context: click)
         await #expect(throws: PageError.self) {
-            _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: click)
+            _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_00000000000000000000000000000f01"], context: click)
         }
         #expect(host.opened == ["https://new.example/"])
     }

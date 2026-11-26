@@ -49,12 +49,12 @@ fn a_resolved_ask_is_forgotten() {
 }
 
 #[test]
-fn held_asks_are_bounded() {
+fn a_peer_holds_more_than_sixty_four_asks() {
     let held = HeldAsks::default();
     held.hold("q", 1, "s", ask("s"));
-    for i in 0..MAX_HELD + 10 {
+    for i in 0..200 {
         held.hold("p", 1, &format!("s{i}"), ask("s"));
     }
-    assert_eq!(held.take_listed("p", 1, |_| true).len(), MAX_HELD);
+    assert_eq!(held.take_listed("p", 1, |_| true).len(), 200);
     assert_eq!(held.take_listed("q", 1, |_| true).len(), 1, "one peer's asks pushed out another's");
 }

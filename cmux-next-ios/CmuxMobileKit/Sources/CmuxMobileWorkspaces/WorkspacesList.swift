@@ -126,7 +126,7 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
+    /// The listed Macs: every cmux build as its own Mac (`MacRoster`).
     private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
@@ -285,30 +285,29 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "2 need you", or with several
-    /// Macs how many are online. A refresh adds no words: the rows update in place,
-    /// and a failed one retries on its own; the phone being offline is the
-    /// connection chip's (Leo, 2026-11-16: "this needs to shut up"; the iOS
-    /// release bar read-back's "Workspaces stale: no connection text").
-    private var subtitle: String {
-        if let mac = scopedMac {
-            let now = MinuteClock.shared.now
-            let reach = store.macReachability(mac)
-            // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
-            // that bullshit fucking connecting messages. they are way too long and unactionable").
-            // While the Mac's panel shows, it carries the last-seen time and what to do: the
-            // header keeps to a few words, so it never truncates (cmux#52200 walk, step 2).
-            let line = reach == .connecting
-                ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-                : showsRecovery(mac) ? reach.shortStatus : reach.statusText(now: now)
-            return "\(displayName(mac)) · " + line
-        }
-        // A refresh of rows already on screen says nothing: the rows update in place, in the
-        // background (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
-        let waiting = inbox.needsYouCount
-        if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
-        return ""
+    /// The header: a green or red dot and the name of the computer shown by default (the
+    /// filtered one, else the one the current workspace lives on), then "2 need you" when no
+    /// computer is chosen. No presence or link words, the dot says them (#55034), and never
+    /// "x of x Macs online" (Leo, 2026-11-24: "red dot green dot when you switch between your
+    /// computers' stuff ... i dont need to see the others"). A
+    /// refresh adds no words: the rows update in place, and a failed one retries on its own
+    /// (Leo, 2026-11-16: "this needs to shut up").
+    var header: ComputerDots.Header {
+        let workspaceMacID = rememberedWorkspaceID.flatMap { store.workspace(id: $0)?.macID }
+        let linkedMacID = linking.flatMap { linking in macs.first { linking.isLinkTarget($0.id) }?.id }
+        return ComputerDots.header(macs: macs, scopedMacID: scopedMac?.id, workspaceMacID: workspaceMacID, linkedMacID: linkedMacID,
+                                   needsYou: inbox.needsYouCount,
+                                   name: { displayName($0) }, reach: { store.macReachability($0) })
+    }
+
+    /// The header as the navigation subtitle: the dot, then its text.
+    private var subtitle: Text {
+        let header = header
+        guard let dot = header.dot else { return Text(verbatim: header.text) }
+        let circle = Text(Image(systemName: "circle.fill")).font(.system(size: 7))
+            .foregroundStyle(dot.isUp ? theme.colors.success.color : theme.colors.danger.color)
+            .accessibilityLabel(dot.isUp ? "online" : "offline")
+        return Text("\(circle) \(header.text)")
     }
 
     private func isPresented<T>(_ item: Binding<T?>) -> Binding<Bool> {
@@ -357,6 +356,9 @@ public struct WorkspacesList: View {
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         LaunchMarks.shared.mark("workspace_row_tap")
+        #if DEBUG
+        OpenMarks.shared?.begin("workspace_row_tap")
+        #endif
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -375,17 +377,16 @@ public struct WorkspacesList: View {
     /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
     /// hand-off between them keeps it: two copies were two views, and the second started
     /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
+    /// Never over rows the phone has listed before: a launch and a team switch draw the team's
+    /// cached rows (`LiveSnapshotStore`), so these show only on an install that never listed it.
     private var showsSkeleton: Bool {
-        switch launchState {
-        case .firstLoad: true
-        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder
-        case .failed: false
-        }
+        launchState.showsPlaceholderRows(hasMacs: !macs.isEmpty, listLoading: inbox.isLoading, hasMacLines: !inbox.folds.isEmpty)
     }
 
     private var content: some View {
         ZStack {
             launchContent
+            // placeholder-ok: nothing cached for this team (no list ever loaded); cached rows draw instead.
             if showsSkeleton { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
         }
     }
@@ -419,9 +420,14 @@ public struct WorkspacesList: View {
 
     /// The first load's placeholder rows, captioned with what they wait for.
     private func skeleton(_ caption: LocalizedStringKey) -> some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
+        // placeholder-ok: only when `showsSkeleton`, a team this phone never listed. The rows sit
+        // where the list's rows will (no caption line pushing them down); what they wait for is
+        // their spoken label, and offline is the title's subtitle.
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .loadProbePlaceholder()
+            .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
     /// The inbox as the UIKit list shows it: one collection view with a
@@ -605,6 +611,7 @@ public struct WorkspacesList: View {
         }
         // Loading with Mac lines shown: the placeholder rows go below them, never over
         // them (full verify D7, D11: an overlay drew over the lines and took their Connect taps).
+        // Only with no row at all (`isLoading`): a Mac whose rows are cached draws them, not this.
         if inbox.isLoading, !inbox.folds.isEmpty { add("loading", [("loading", .loading)]) }
         return model
     }
@@ -642,10 +649,14 @@ public struct WorkspacesList: View {
         case .loading:
             // Its show delay keeps a quick load from flashing rows. Taking over from the page's
             // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            // placeholder-ok: no row of any Mac on screen was ever listed (cached rows replace it).
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
-                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay,
+                                 style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
-                .accessibilityIdentifier("workspaces.loading"))
+                .accessibilityIdentifier("workspaces.loading")
+                .loadProbePlaceholder()
+                .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
 
@@ -1128,7 +1139,8 @@ public struct WorkspacesList: View {
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
                                                                            linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                                           now: MinuteClock.shared.now)) : []
+                                                                           now: MinuteClock.shared.now, failure: store.macFailure,
+                                                                           phoneOffline: store.isOffline)) : []
         let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
         } ?? "All Macs"
@@ -1206,6 +1218,8 @@ struct WorkspaceListRow: View, Equatable {
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
         .buttonStyle(RowPressStyle())
+        // The layout-shift count (ios-placeholder-bounds suite): this row must not move once drawn.
+        .layoutShiftTracked("workspace.\(ws.id)")
         // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
         // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
         .accessibilityAddTraits(model.isRemembered ? .isSelected : [])
@@ -1301,8 +1315,7 @@ struct WorkspacesToolbar: View, Equatable {
     }
 }
 
-/// The Mac filter: All Macs, then each Mac (online first) with its presence
-/// (and the live link line) as the subtitle.
+/// The Mac filter: All Macs, then each Mac (online first) with a green or red dot.
 struct WorkspacesFilterMenu: View, Equatable {
     let model: WorkspacesToolbar.Model
     let host: WorkspacesList
@@ -1342,20 +1355,20 @@ struct WorkspacesFilterMenu: View, Equatable {
     @ViewBuilder private var macToggles: some View {
         Section {
             // Toggles, not an inline Picker: a Picker drops each Mac's
-            // presence subtitle. The chosen row shows the checkmark.
+            // dot. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
+                // The Mac's name and a green (online) or red (offline) dot: no presence or link
+                // words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+                // stuff"). The words stay for VoiceOver.
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
                     Text(mac.title)
-                    Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
+                    Image(uiImage: MacPresenceDot.image(online: mac.isOnline))
                 }
+                .accessibilityValue(Text(mac.detail))
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }
         }
@@ -1657,7 +1670,7 @@ struct WorkspaceRow: View {
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
                 // The time stays trailing on line 1, beside a name that wraps
                 // to two lines at accessibility sizes (no line of its own).
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1671,7 +1684,7 @@ struct WorkspaceRow: View {
                 }
             }
         }
-        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
+        .frame(minHeight: showsStatusLine ? CmuxMobileListRowMetrics.minHeight : CmuxMobileListRowMetrics.compactMinHeight, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { needsYouGlow }
         .contentShape(.rect)

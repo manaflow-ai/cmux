@@ -246,10 +246,8 @@ fn bridge(
                 while let Some((ty, payload)) = reader.next()? {
                     match ty {
                         FRAME_CONTROL => link.net.send_control(payload),
-                        FRAME_DATAGRAM => {
-                            if link.media_ready() {
-                                link.send_datagram(&payload)?;
-                            }
+                        FRAME_DATAGRAM if link.media_ready() => {
+                            link.send_datagram(&payload)?;
                         }
                         _ => {}
                     }

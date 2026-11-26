@@ -88,10 +88,8 @@ pub(super) fn json(store: &Store, x: &Automation, with_secret: bool) -> Result<V
         "signature_header": "X-Cmux-Signature-256",
         "delivery_headers": webhook::DELIVERY_HEADERS,
     });
-    if with_secret {
-        if let Some(o) = v.as_object_mut() {
-            o.insert("secret".into(), json!(store.webhook_secret(&x.id)?));
-        }
+    if with_secret && let Some(o) = v.as_object_mut() {
+        o.insert("secret".into(), json!(store.webhook_secret(&x.id)?));
     }
     Ok(v)
 }

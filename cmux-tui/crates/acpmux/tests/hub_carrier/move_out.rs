@@ -122,6 +122,7 @@ impl Tickets for MachineTickets {
             peer_key: None,
             peers: self.peers.keys().cloned().collect(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 
@@ -135,6 +136,7 @@ impl Tickets for MachineTickets {
             peer_key: Some(peer.to_owned()),
             peers: Vec::new(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 }
@@ -188,7 +190,6 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
                 max_policy: None,
                 same_user: true,
                 ops: vec!["move".into()],
-                max_policy: None,
             }],
             Some(state.join(name).join("ledger")),
         )

@@ -54,6 +54,7 @@ export function RetryModelMenu({
   );
   return (
     <Menu>
+      {/* retry-prompt-ok: sends the prompt again on another model, a paid model request. */}
       <MenuButton
         className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
         label={t("turn.retryWith")}

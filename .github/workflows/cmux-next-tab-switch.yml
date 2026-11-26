@@ -26,9 +26,9 @@ name: cmux-next tab switch (advisory)
 # build-fleet gateway runner's thin cmux-ci client, as cmux-next-perf-bench.yml and cmux-next-hot-verify.yml do. The
 # gateway admits this job only once glaeda's runner hook lists (cmux-next-tab-switch.yml, frames) in GATEWAY_JOBS.
 #
-# It is a background step (--background): it queues behind every foreground job, a foreground step that needs the
-# display worker preempts it, and when this job stops waiting the client cancels it, so it gives its place back. As a
-# foreground step it kept its place after the job gave up, with nobody left to read it. In the 24 hours to
+# It is an idle-priority step (--priority idle; the client refuses --background with --measurement, since a
+# foreground job may cancel a background step mid-measure), and when this job stops waiting (exit 75) it cancels the
+# step, so it gives its place back. A step left queued kept its place after the job gave up, with nobody to read it. In the 24 hours to
 # 2026-11-17 02:10Z the frames job submitted 321 steps; 133 started after their job had left (116 could not measure),
 # they took 31 of the 68 exclusive host-hours, the exclusive queue's p90 wait was about 9 hours, and every lane
 # measurement (startup launch A/Bs) waited behind them. Leo's ask: a measurement step waits minutes, not hours.
@@ -140,7 +140,7 @@ jobs:
     name: tab switch scope
     # After merge only (see the header): a pull request's run takes no runner.
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -180,7 +180,7 @@ jobs:
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
-    # QUEUE_WAIT_S in the queue the client cancels the background step (exit 75) and the verdict reads not measured
+    # QUEUE_WAIT_S in the queue the client stops waiting (exit 75), the job cancels the step and the verdict reads not measured
     # (green in either GATE_MODE: a missing measurement is not a budget miss).
     timeout-minutes: 90
     permissions: {}
@@ -245,12 +245,18 @@ jobs:
           fi
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
-          "$client" run --class exclusive --measurement --display --background \
+          # --priority idle, not --background: the client refuses --background with --measurement (a foreground job
+          # may cancel a background step mid-measure), so every admitted run failed before it queued.
+          "$client" run --class exclusive --measurement --display --priority idle \
             --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            # Not started within QUEUE_WAIT_S: a non-background step stays queued after the client stops waiting.
+            "$client" cancel "$step" --reason "tab switch: not started within ${QUEUE_WAIT_S}s" || true
+          fi
           out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out" || "$client" artifact --failed "$step" "$out" || true
@@ -273,7 +279,7 @@ jobs:
     name: tab switch (frames, under load)
     needs: [scope, frames]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -281,7 +287,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/tab_switch_gate.py
+          sparse-checkout: |
+            scripts/cmux-next/tab_switch_gate.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the report
         if: needs.frames.result != 'skipped'

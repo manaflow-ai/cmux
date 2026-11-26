@@ -170,6 +170,7 @@ final class RemoteTerminalService {
         let name = ref.map(machineName) ?? tab.displayTitle
         let daemon = ref.flatMap { services.machines.daemon(session: $0.sessionID) }
         view.onConnect = daemon.flatMap { connector(for: $0) }
+        if let cloud = daemon.flatMap({ services.machines.session($0.machineID) }), cloud.machine.status == .paused { services.agentTabs.cloudMachines.intent(cloud.machineID, signal: "terminal") }
         let state: RemoteTerminalPlaceholderView.State = switch daemon?.store.connectionState {
         case nil: .unknown
         case .connecting?, .connected?: .reconnecting

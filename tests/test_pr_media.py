@@ -689,6 +689,69 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(files["9/abc/next-tour/keep.png"], b"old 9/abc/next-tour/keep.png")
         self.assertEqual(origin.commits(), before + 1)
 
+    def test_an_upload_leaves_none_of_its_objects_in_the_cache_clone(self):
+        # Every upload used to stay in the clone (hash-object -w, never pruned): gigabytes a day on a busy
+        # host. Its blobs, trees and commit now live in a scratch object dir that goes with the push.
+        origin = Origin(self, existing=["12/shot.png"])
+        clone = origin.root / "cache" / "o_r.git"
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+
+        data = PNG + os.urandom(1 << 20)
+        with tempfile.TemporaryDirectory() as scratch:
+            big = written(scratch, "big.png", data)
+            MODULE.put_files("o/r", "pr-media", {"12/big.png": big, "13/big.png": big}, "m", checked=True)
+            MODULE.put_file("o/r", "pr-media", "12/again.png", big, "m", checked=True)
+        self.assertEqual(origin.files()["12/big.png"], data)
+        blob = origin.blob("12/big.png")
+        self.assertNothingWritten(clone, blob)
+        # The fetched trees are all that is packed: far under the one upload's size.
+        packed = sum(path.stat().st_size for path in (clone / "objects").rglob("*") if path.is_file())
+        self.assertLess(packed, len(data) // 4)
+        # The clone is still whole: every ref names an object it has, and the next read sees the upload.
+        for sha in git(clone, "for-each-ref", "--format=%(objectname)").split():
+            git(clone, "cat-file", "-e", f"{sha}^{{tree}}")
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/again.png"), blob)
+        MODULE._BRANCHES.clear()
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "13/big.png"), blob)
+
+    def test_a_killed_uploads_scratch_objects_are_removed_by_the_next_upload(self):
+        origin = Origin(self)
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        left = origin.root / "cache" / "o_r.git" / MODULE.WRITE_OBJECTS / "ab"
+        left.mkdir(parents=True)
+        (left / "cdef").write_bytes(b"x" * 4096)
+        with tempfile.TemporaryDirectory() as scratch:
+            MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
+        self.assertEqual(origin.files()["7/mine.png"], PNG)
+        self.assertFalse(left.parent.exists())
+
+    def test_a_failed_upload_leaves_no_objects_either(self):
+        origin = Origin(self)
+        clone = origin.root / "cache" / "o_r.git"
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        real_git = MODULE.MediaBranch.git
+
+        def git_refusing(store, *args, **kwargs):
+            if args[0] == "push":
+                return SimpleNamespace(returncode=1, stdout="", stderr="! [remote rejected] hook declined")
+            return real_git(store, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "git", git_refusing), \
+                self.assertRaises(MODULE.MediaError):
+            MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
+        uploaded = subprocess.run(["git", "hash-object", "--stdin"], input=PNG, capture_output=True, check=True)
+        self.assertNothingWritten(clone, uploaded.stdout.decode().strip())
+
+    def assertNothingWritten(self, clone, blob):
+        """No loose object (an upload's would be), no scratch dir, and the uploaded blob is not there."""
+        loose = [path for path in (clone / "objects").glob("[0-9a-f][0-9a-f]/*")]
+        self.assertEqual(loose, [])
+        self.assertFalse((clone / MODULE.WRITE_OBJECTS).exists())
+        missing = subprocess.run(["git", "-C", str(clone), "cat-file", "-e", blob],
+                                 env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
+        self.assertNotEqual(missing.returncode, 0)
+
     def test_a_write_that_lost_a_race_is_built_again_on_the_new_tip(self):
         # Two sessions uploading to the branch at once: the rejected push is the branch moving under us,
         # not a reason to lose the clip, nor to drop the other session's.

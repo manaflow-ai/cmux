@@ -47,7 +47,7 @@ jobs:
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
       # fleet-ab runs the model cases on the fleet when this join is refused.
@@ -68,6 +68,9 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false

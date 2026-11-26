@@ -51,6 +51,7 @@ const READS = new Set([
   "_acpmux/history",
   "_acpmux/attachment",
   "_acpmux/turn_shots",
+  "_acpmux/turn_frames",
   "_acpmux/session_files",
   "_acpmux/native_history",
   "_acpmux/subagent_transcript",

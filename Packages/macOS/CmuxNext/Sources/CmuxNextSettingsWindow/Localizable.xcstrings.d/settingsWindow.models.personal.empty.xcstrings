@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.personal.empty" : {
+      "comment" : "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No connections yet. Add a subscription or an API key."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا توجد اتصالات بعد. أضف اشتراكًا أو مفتاح API."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Još nema veza. Dodaj pretplatu ili API ključ."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen forbindelser endnu. Tilføj et abonnement eller en API-nøgle."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Verbindungen. Füge ein Abo oder einen API-Schlüssel hinzu."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún no hay conexiones. Añade una suscripción o una clave de API."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune connexion pour l’instant. Ajoutez un abonnement ou une clé API."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ancora nessuna connessione. Aggiungi un abbonamento o una chiave API."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだ接続がありません。サブスクリプションまたは API キーを追加してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនទាន់មានការតភ្ជាប់ទេ។ បន្ថែមការជាវ ឬសោ API។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "아직 연결이 없습니다. 구독이나 API 키를 추가하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen tilkoblinger ennå. Legg til et abonnement eller en API-nøkkel."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brak połączeń. Dodaj subskrypcję lub klucz API."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhuma conexão ainda. Adicione uma assinatura ou uma chave de API."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключений пока нет. Добавьте подписку или ключ API."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยังไม่มีการเชื่อมต่อ เพิ่มการสมัครสมาชิกหรือคีย์ API"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz bağlantı yok. Bir abonelik veya API anahtarı ekleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Підключень ще немає. Додайте підписку або ключ API."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chưa có kết nối nào. Hãy thêm gói đăng ký hoặc khóa API."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有连接。添加一个订阅或 API 密钥。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚無連線。加入一個訂閱或 API 金鑰。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

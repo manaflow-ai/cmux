@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself."
+}

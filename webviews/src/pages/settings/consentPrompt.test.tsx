@@ -40,6 +40,11 @@ afterEach(() => {
 });
 
 describe("consent before sharing", () => {
+  test("crash reports and analytics ask before turning on", async () => {
+    const { CONSENT_ROWS } = await import("./components/ConsentPrompt");
+    expect(CONSENT_ROWS.has("app.sendAnonymousTelemetry")).toBe(true);
+  });
+
   test("turning install counts on shows the consent text first; Turn On writes true", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     const row = () => rowElement(page!.container, KEY);

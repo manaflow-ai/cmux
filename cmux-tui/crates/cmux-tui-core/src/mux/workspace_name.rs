@@ -23,7 +23,7 @@ impl Mux {
             home.as_deref().is_some_and(|home| state.workspace_by_key(home).is_some());
         let mut counted = state.workspaces.len() - usize::from(home_counted);
         let mut highest = state.workspace_name_numbers.highest();
-        if crate::mux::resource_content::crosscheck_enabled() {
+        if resource_content::crosscheck_enabled() {
             #[cfg(test)]
             crate::walk_counters::workspace_list_walked(state.workspaces.len());
             let walked_counted = state

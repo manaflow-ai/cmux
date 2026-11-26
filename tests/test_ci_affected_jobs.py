@@ -194,6 +194,21 @@ class Routes(unittest.TestCase):
         self.assertTrue(all(result.run.values()))
         self.assertIn("could not be read", result.everything)
 
+    def test_check_reports_an_unreadable_graph_and_still_checks_the_other_jobs(self):
+        # #53846: a base whose Cargo.toml did not parse crashed the whole check, which hid the PR's own missing path.
+        import tempfile
+        broken = {**FILES, "cmux-tui/crates/app/Cargo.toml": "[package\n"}
+        with tempfile.TemporaryDirectory() as tmp, fake_tree(broken) as tree:
+            root = Path(tmp)
+            (root / jobs.MAP).parent.mkdir(parents=True, exist_ok=True)
+            (root / jobs.MAP).write_text(MAP)
+            (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+            (root / ".github/workflows/w.yml").write_text("on:\n  pull_request:\n    paths:\n      - cmux-tui/**\njobs:\n")
+            problems = jobs.check(root, tree)
+        text = "\n".join(problems)
+        self.assertIn("cmux-tui/crates/app/Cargo.toml does not parse", text)
+        self.assertIn('the pull_request paths miss "schemas/core.json"', text)
+
     def test_the_root_package_is_its_targets_not_the_workspace(self):
         files = {**FILES, "cmux-tui/Cargo.toml": '[package]\nname = "watch"\nbuild = "build-support/b.rs"\n'
                                                  '[lib]\npath = "build-support/lib.rs"\n' + WORKSPACE_TOML,
@@ -704,6 +719,18 @@ class TheRepository(unittest.TestCase):
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+
+    def test_fix_writes_a_missing_path_in_the_entry_style(self):
+        text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - "b.txt"\n  pull_request:\n    paths:\n      - a/**\njobs:\n  x:\n'
+        pushed = jobs.add_workflow_paths(text, "push", ["skills/x/SKILL.md"])
+        self.assertEqual(jobs.workflow_paths(pushed, "push"), ["a/**", "b.txt", "skills/x/SKILL.md"])
+        self.assertIn('      - "skills/x/SKILL.md"\n', pushed)
+        pulled = jobs.add_workflow_paths(pushed, "pull_request", ["c.txt"])
+        self.assertEqual(jobs.workflow_paths(pulled, "pull_request"), ["a/**", "c.txt"])
+        self.assertIn("      - c.txt\n", pulled)
+        batch = '{"suites": [{"paths": [\n  "a/**"\n]}, {"paths": [\n  "a/**",\n  "b.txt"\n]}]}'
+        added = json.loads(jobs.add_batch_paths(batch, ["a/**", "b.txt"], ["c.txt"]))
+        self.assertEqual([suite["paths"] for suite in added["suites"]], [["a/**"], ["a/**", "b.txt", "c.txt"]])
 
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'

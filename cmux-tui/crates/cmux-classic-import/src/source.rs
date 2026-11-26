@@ -130,6 +130,30 @@ impl Finder {
             .collect()
     }
 
+    /// Metadata of a bounded set of paths. The archive directory's mtime changes
+    /// when Classic adds an archive, so the offer need never open the directory.
+    pub fn session_metadata(&self) -> Vec<(usize, u64, u128)> {
+        let paths =
+            CHANNELS.iter().flat_map(|channel| [self.primary(channel), self.previous(channel)]);
+        paths
+            .chain(std::iter::once(self.folder().join("session-history")))
+            .enumerate()
+            .filter_map(|(index, path)| {
+                let stat = std::fs::symlink_metadata(path).ok()?;
+                if index == CHANNELS.len() * 2 {
+                    if !stat.is_dir() {
+                        return None;
+                    }
+                } else if !stat.is_file() {
+                    return None;
+                }
+                let nanos =
+                    stat.modified().ok()?.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+                Some((index, stat.len(), nanos))
+            })
+            .collect()
+    }
+
     /// The files to try, best first, for `channel` (else [`Finder::channel`]):
     /// the session file, its `-previous` copy, then the newest archive.
     pub fn candidates(&self, channel: Option<&str>) -> Vec<(PathBuf, String)> {

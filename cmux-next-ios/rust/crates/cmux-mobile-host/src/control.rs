@@ -356,6 +356,10 @@ pub enum Event {
     /// 4002 `removed`). hostd exits after this line and must not be restarted until
     /// the person allows iPhone connections again (a new device id then).
     Removed,
+    /// The service refused this Mac's device id: another account registered it
+    /// (`POST /v1/devices` answered `403 not_owner`). hostd exits (status 79); the app
+    /// makes a new id for the signed-in account and starts hostd again.
+    DeviceNotOwned,
     /// A phone's link is up.
     PhoneUp {
         session_id: String,
@@ -583,6 +587,8 @@ pub fn spawn_stdin_reader() -> Supplied {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
+                    // A removed phone resumes no dormant tunnel either.
+                    cmux_mobile_link::dial::wireguard::dormant::forget(&phone_device_id);
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
                 }
@@ -797,6 +803,7 @@ mod tests {
                 w: 576,
                 h: 360,
                 captured_at_ms: 5,
+                tab: None,
             }))
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
@@ -896,6 +903,7 @@ mod tests {
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("bundle_id"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
+        assert_eq!(serde_json::to_string(&Event::DeviceNotOwned).unwrap(), r#"{"type":"device_not_owned"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

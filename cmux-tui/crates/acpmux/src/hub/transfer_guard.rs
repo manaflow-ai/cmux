@@ -42,6 +42,12 @@ pub(super) struct GuardedImport<'a> {
 pub(super) struct Guard {
     pub(super) control: Control,
     pub(super) roots: Vec<PathBuf>,
+    /// A hub move between two daemons of the same person (`hub/transfer_pull.rs`: op `move` is
+    /// granted only through `sameUser`): the chat lands as the origin it had on the source, so
+    /// the person's own chat stays theirs and its local prompts are owner prompts. Never read
+    /// from a request's `guard` (`parse` refuses the key), only set by the pull and kept in the
+    /// receive's guard file.
+    pub(super) owner: bool,
 }
 
 impl Guard {
@@ -86,11 +92,15 @@ impl Guard {
                 roots.push(root);
             }
         }
-        Ok(Guard { control, roots })
+        Ok(Guard { control, roots, owner: false })
     }
 
     pub(super) fn to_value(&self) -> Value {
-        json!({"control": self.control.as_str(), "roots": self.roots})
+        let mut v = json!({"control": self.control.as_str(), "roots": self.roots});
+        if self.owner {
+            v["owner"] = json!(true);
+        }
+        v
     }
 
     pub(super) fn store(&self, dir: &Path) -> std::io::Result<()> {
@@ -119,7 +129,8 @@ impl Guard {
         if roots.is_empty() {
             return Err(guard_error("guard", "the stored guard has no roots"));
         }
-        Ok(Some(Guard { control, roots }))
+        let owner = control == Control::Peer && v["owner"] == true;
+        Ok(Some(Guard { control, roots, owner }))
     }
 
     /// The canonical form of `path` when it is a folder under one of the roots.
@@ -185,6 +196,12 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         {
             Some(true)
         }
+        // A Claude subagent's transcript, beside the session's: `<dir>/<sid>/subagents/<f>`.
+        ["native", "claude-subagent", ".claude", "projects", dir, sid, "subagents", f]
+            if !dir.is_empty() && !sid.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
         ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {
@@ -230,6 +247,28 @@ pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
 }
 
 impl Hub {
+    /// Refuses a moved chat that lands remote when its agent cannot start here under the remote
+    /// start rule (a `webAskingModes` entry for its harness): it would land and refuse every
+    /// prompt sent to it.
+    async fn remote_startable(&self, harness: &str) -> Result<(), RpcError> {
+        let startable = {
+            let cfg = self.config.read().await;
+            match cfg.harnesses.get(harness) {
+                Some(profile) => crate::web_modes::remote_start_for_config(&cfg, harness, profile),
+                None => Err(format!("agent {harness:?} is not configured here")),
+            }
+        };
+        let Err(why) = startable else { return Ok(()) };
+        let e = guard_error(
+            "harness",
+            format!(
+                "agent {harness:?} cannot start here for a moved chat ({why}): this machine \
+                 needs a `webAskingModes` entry for it"
+            ),
+        );
+        Err(e.with_data(json!({"reason": "remote.mode_not_asking", "harness": harness})))
+    }
+
     /// What a guarded receive takes, from its manifest: a configured agent that is not a
     /// terminal one (and for `web`, of a family the Web drives), and only bundle files.
     pub(super) async fn guarded_receive_check(
@@ -251,6 +290,17 @@ impl Hub {
                 "family",
                 format!("a {family} chat is never driven from a remote connection"),
             ));
+        }
+        // A guarded chat lands as a remote one (`guard_session`), and its agent starts only
+        // under the remote start rule (`spawn.rs`, `resolve::admit_remote_profile`). A chat
+        // that rule refuses here would land and refuse every prompt sent to it (the ring run
+        // of 2026-11-24: sends right after the move answered "no reviewed asking mode", each
+        // a lost message). Refused here instead, before the source freezes it, so the chat
+        // stays where its prompts run. A same-person hub move (`owner`) keeps the source's
+        // origin instead; one that was remote there is checked at finish, where its session
+        // file says so.
+        if !guard.owner {
+            self.remote_startable(harness).await?;
         }
         let (mut native, mut native_bytes) = (0usize, 0u64);
         for f in manifest["files"].as_array().into_iter().flatten() {
@@ -368,7 +418,16 @@ impl Hub {
             }
         }
         meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
-        meta.remote_origin = true;
+        // The person's own move keeps the chat's origin: one they started is still theirs here,
+        // so its local prompts are owner prompts (the super-highway goal: a chat moves between
+        // the same person's machines and keeps working). Any other guarded move lands remote.
+        if guard.owner {
+            if meta.remote_origin {
+                self.remote_startable(&meta.harness).await?;
+            }
+        } else {
+            meta.remote_origin = true;
+        }
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {
@@ -519,7 +578,7 @@ mod retired_root_tests {
             "status": "idle", "createdAt": 1, "updatedAt": 1,
         });
         std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-        let guard = Guard { control: Control::Peer, roots: vec![work] };
+        let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
         let (meta, taken) =
             hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
         assert!(!taken);

@@ -6,7 +6,9 @@ import Testing
 /// when a view's frame changes, so after the Home pane got narrower (a browser opened beside the docked Chief) or
 /// zoomed and unzoomed, VoiceOver's cursor stayed at the compose field's old, wider frame, over the browser beside the
 /// chat (fleet capture, Nov 24). The field tells assistive apps each time it moves or changes size, once, and says
-/// nothing when its frame is unchanged.
+/// nothing when its frame is unchanged. `.resized` and `.moved` alone did not move VoiceOver's cursor on the fleet's
+/// VoiceOver mini (they are window notices): a view whose frame changes posts `.layoutChanged`, which VoiceOver reads
+/// as "read the frames again".
 @MainActor @Suite struct ComposeAccessibilityFrameTests {
     private final class Heard {
         var notices: [(NSView, NSAccessibility.Notification)] = []
@@ -32,6 +34,14 @@ import Testing
         field.place(CGRect(x: 10, y: 80, width: 700, height: 36))
         #expect(heard.notices.contains { $0.0 === field.view && $0.1 == .moved }, "VoiceOver hears no move: \(heard.notices.map(\.1))")
         #expect(!heard.notices.contains { $0.1 == .resized }, "a move alone tells of a new size")
+    }
+
+    @Test(arguments: [CGRect(x: 10, y: 10, width: 360, height: 36), CGRect(x: 10, y: 80, width: 700, height: 36)])
+    func aChangedFrameTellsVoiceOverTheLayoutChangedOnce(_ frame: CGRect) {
+        let (field, heard) = field()
+        field.place(frame)
+        let layouts = heard.notices.filter { $0.1 == .layoutChanged }
+        #expect(layouts.count == 1 && layouts.first?.0 === field.view, "VoiceOver hears no layout change of the field: \(heard.notices.map(\.1))")
     }
 
     @Test func anUnchangedFrameSaysNothing() {

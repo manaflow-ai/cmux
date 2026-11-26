@@ -1026,7 +1026,7 @@ pub(crate) async fn forward_put(
         let piece = window::Piece {
             offset,
             len: bytes.len(),
-            data: base64::engine::general_purpose::STANDARD.encode(&*bytes),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
         };
         offset += bytes.len() as u64;
         Ok(Some(piece))

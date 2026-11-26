@@ -97,6 +97,7 @@ impl Hub {
         }
         self.note_harness_sandbox(session, update);
         self.note_claim_run(session, update);
+        self.note_prefetch_read(session, update);
         self.surgery_note_tool(session, update);
         self.turn_rules_tool(session, update);
         // RFD 0144's command placer, in shadow behind `cloud.autoCloud`: records only.
@@ -193,6 +194,8 @@ impl Hub {
         // A prompt just written starts with no tool call open; an adopted turn keeps the ones
         // its log holds (`recover_work` set them).
         if heard_ms.is_none() {
+            // Its prompt line, which Claude Code may hold behind its own work (`queued_turn.rs`).
+            self.prompt_line_written(session);
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
             self.reset_loop_detector(session);
             self.reset_claim_runs(session);
