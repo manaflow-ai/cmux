@@ -392,10 +392,12 @@ def _is_react_input(path: str, matcher) -> bool:
     return path in REACT_EXACT or path.startswith(REACT_PREFIXES) or (matcher is not None and matcher(path))
 
 
-def _is_agent_pane_input(path: str, matcher) -> bool:
+def _is_agent_pane_input(path: str, matcher, root: Path) -> bool:
+    # The same set routes() runs the lane on: a cmux-tui/ path counts only when acpmux's build reads it.
     return (
         path in AGENT_PANE_EXACT
         or path.startswith(AGENT_PANE_PREFIXES)
+        or acpmux_build_input(path, root)
         or _is_react_input(path, matcher)
     )
 
@@ -420,8 +422,11 @@ def green_key(kind: str, root: Path | None = None) -> str:
     """`kind` is react or agent. The key of HEAD's inputs and its merge parent's, or "" (no reuse) when unreadable."""
     root = Path.cwd() if root is None else root
     matcher = web_bundle_input_matcher(str(root.resolve()))
-    inputs = _is_react_input if kind == "react" else _is_agent_pane_input
-    heads = [tree_input_key(rev, root, lambda p: inputs(p, matcher)) for rev in ("HEAD", "HEAD^1")]
+    if kind == "react":
+        predicate = lambda p: _is_react_input(p, matcher)  # noqa: E731
+    else:
+        predicate = lambda p: _is_agent_pane_input(p, matcher, root)  # noqa: E731
+    heads = [tree_input_key(rev, root, predicate) for rev in ("HEAD", "HEAD^1")]
     if None in heads:
         return ""
     return hashlib.sha256(f"{KEY_VERSION} {kind} {heads[0]} {heads[1]}".encode()).hexdigest()[:40]
