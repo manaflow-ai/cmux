@@ -101,7 +101,7 @@ jobs:
       # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
       # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with:
@@ -109,7 +109,7 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
       - if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with:
           persist-credentials: false
@@ -120,7 +120,7 @@ jobs:
       # tried once more, as the branch checkout above is: one curl 56 here ends the tick too.
       - name: Checkout the gh rate-limit wait
         id: tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with: &request-tooling
@@ -135,7 +135,7 @@ jobs:
           fetch-depth: 1
       - name: Checkout the gh rate-limit wait (retry)
         if: steps.tooling.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with: *request-tooling
 
@@ -439,7 +439,7 @@ jobs:
       # checkout with an `origin` (it reads nightly-next with ls-remote). A reset fetch is tried
       # once more.
       - id: tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with: &unstick-tooling
@@ -453,7 +453,7 @@ jobs:
           # second fetch to stall.
           fetch-depth: 1
       - if: steps.tooling.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with: *unstick-tooling
 
