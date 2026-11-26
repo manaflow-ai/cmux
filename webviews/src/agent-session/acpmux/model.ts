@@ -1,6 +1,5 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ApprovedPlan } from "./approvedPlan";
-import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
@@ -123,12 +122,6 @@ import { PASS_MARK, PlacedHeightIndex } from "./placedHeightIndex";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
 export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
-
-/** One item of an agent's todo list (an ACP `plan` entry). */
-export type AcpmuxPlanEntry = {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-};
 
 /** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
 export type AcpmuxBackgroundTask = {
@@ -539,14 +532,6 @@ export type AcpmuxRow = {
   /// A prompt this pane sent: where it is on its way (PromptDelivery).
   delivery?: PromptDelivery;
   items?: AcpmuxActivity[];
-  /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
-  plan?: AcpmuxPlanEntry[];
-  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
-  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
-  planEarlier?: boolean;
-  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
-  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
-  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -901,8 +886,6 @@ export type AcpmuxRow = {
   continuable?: boolean;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
-  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
-  turnEnded?: boolean;
   /// The final drawn row of a latest turn that has no turnSummary. It keeps the same turn gap as a
   /// footer without adding a permanent runway under every turn (conversation/turns.ts).
   lastTurn?: boolean;
@@ -1131,6 +1114,9 @@ export type ExternalAccess = {
 
 export type AcpmuxPermission = {
   externalAccess?: ExternalAccess;
+  /// A risky step on a Cloud machine (acpmux fork_risky.rs, behind `cloud.autoCloud`): "Fork first"
+  /// has the app fork the machine under `clientKey` before the step runs; the copy stays as the checkpoint.
+  forkOffer?: { machine: string; reason: string; clientKey: string };
   permissionId: string;
   groupId?: string;
   turnId?: string;
@@ -1327,15 +1313,6 @@ export type AcpmuxSnapshot = {
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.
   supersededRows?: string[];
-  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
-  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
-  /// its turn stopped or a later prompt came in.
-  progress?: {
-    plan: AcpmuxPlanEntry[];
-    completed?: number;
-    total?: number;
-    ended?: boolean;
-  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
@@ -1436,9 +1413,6 @@ export type AcpmuxSnapshot = {
     icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
-    /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
-    /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
-    taskList?: ChatTaskList;
     /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
     /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
     approvedPlan?: ApprovedPlan;
@@ -1709,6 +1683,12 @@ export type AcpmuxSnapshot = {
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /**
+   * The time of the oldest event the pane holds. A row older than it left with the records a chat left open let go
+   * of (direct.ts `shedOlderHeld`), so the view does not keep it on screen (conversation/turns.ts
+   * `retainVisibleReplies`).
+   */
+  heldFromAt?: number;
+  /**
    * The chat goes on past the rows: a reader scrolled far up holds a window of the chat, whose newest records
    * are read again as the view nears the rows' end (direct.ts `loadNewer`), or with the newest page when the
    * reader goes to the latest message (`returnToLatest`). Absent while the rows reach the chat's end.
@@ -1867,11 +1847,9 @@ const isStepRow = (row: AcpmuxRow) =>
   row.kind === SUBAGENT_ROW ||
   (row.kind === SUBAGENTS && !isRunGroup(row)) ||
   isWorkedLine(row) ||
-  (row.kind === ACTIVITY_LINE && !row.below) ||
   isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
-export const isLiveLine = (row: AcpmuxRow) =>
-  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
+export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind === WORKING || row.kind === THINKING);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
 /// finished", "Scheduled check", a compaction): its box and the gap over it are transcriptGrid.ts's
 /// (TRANSCRIPT_LIVE_STEP_BOX, MARK_LIVE_STEP; `.acpmux-row--below.acpmux-row--after-step`); the waiting
@@ -1999,9 +1977,16 @@ const LIVE_STEP_EDGE = "+step";
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-/// Read once per layout pass, with the scale (layoutConversation).
+/// Read once per layout pass (layoutConversation). `--cv-tool-row-height` is 22px plus the row air at every
+/// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
+/// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
-const toolRowHeight = () => lineRowPt * chromeScale;
+const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
+/// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
+/// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
+/// the estimates as they were, an edits group at its closed line and a tool row scaled with the grid.
+const editsEstimateOn = () => experimentSwitchOn("expandedEditsEstimate");
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -2261,10 +2246,145 @@ export function openRunBody(steps: number): number {
   return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
 
+/// An opened edits group's body under its line (ToolGroupRow.tsx, its `kind === "edits"` arm): the
+/// line's gap, then a diff card per changed file (EditDiff.tsx) and a row for each edit that carried
+/// no diff (a delete, a move); with no file to show, the edits' rows. No scroll box: the cards are as
+/// tall as they draw.
+function openEditsBody(
+  items: readonly AcpmuxActivity[],
+  width: number,
+  sessionId?: string,
+  rowId = "",
+  thoughts = 0,
+): number {
+  const files = toolFiles(items.flatMap((item) => (item.tool ? [item.tool] : [])));
+  const gap = gridLength("base") * chromeScale;
+  if (!files.length) return gap + stepsHeight(items, width, sessionId, rowId, thoughts);
+  const plain = items.filter((item) => !item.tool?.diffs?.length);
+  return (
+    gap +
+    files.reduce((sum, file) => sum + editDiffHeight(file, width), 0) +
+    (plain.length ? stepsHeight(plain, width, sessionId, rowId, thoughts) : 0)
+  );
+}
+
+/// One changed file's diff card (EditDiff.tsx, conversation.css `.cv-edit-diff`), at the lengths the card draws
+/// with (conversation/editDiffBox.ts, at the chat's text and code size and the Interface Size): the room above and
+/// below it, its head, and its body: the edits' rows, with the separator Pierre draws before a hunk that skips
+/// lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is drawn at the rendered diff's height),
+/// and the scrollbar lane under unwrapped rows (`--cv-edit-diff-lane`, padded in every engine). Past PREVIEW_LINES rows the body is cut to that many
+/// and the lane (`--cv-block-cut`). An edit with no line changes is its note. Wrapped (a prose file, by default), a
+/// row takes as many lines as its text needs at the card's width.
+function editDiffHeight(file: TurnFile, width: number): number {
+  const box = editDiffBox(drawnFontSize(chatDisplay()), chatCodeBlock(), chromeScale);
+  const wrap = blockWrapOf(fileBlockKind(file.path));
+  // The card is as wide as the group's body, inside its icon column (conversation.css `.cv-tool-group`).
+  const card = width - gridLength("icon-box") * chromeScale;
+  let rows = 0;
+  let body = 0;
+  for (const edit of file.edits) {
+    if (!edit.hunks.length) {
+      body += box.empty;
+      continue;
+    }
+    // Wrapped, a row's room: the card less the number column (or the unnumbered indicator lane) and the
+    // row's hanging indent (sideways.ts PIERRE_BLOCK_CSS), in monospace cells.
+    const room = wrap ? wrapRoom(edit, card, box.code) : undefined;
+    let lastEnd = 0;
+    for (const hunk of edit.hunks) {
+      const kept = hunk.lines.filter((line) => line.type !== "del");
+      const start = kept[0]?.newLine ?? Math.max(0, (hunk.lines.find((line) => line.type !== "add")?.oldLine ?? 1) - 1);
+      if (start - 1 - lastEnd > 0) body += box.separator;
+      lastEnd = start + kept.length - 1;
+      for (const line of hunk.lines) {
+        const lines = room ? wrappedRows(line.text, room.first, room.rest) : 1;
+        rows += lines;
+        body += lines * box.row;
+      }
+    }
+  }
+  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
+  else if (!wrap && rows) body += EDIT_DIFF_LANE;
+  return box.margins + box.head + body;
+}
+
+/// A wrapped diff row's room in monospace cells (a cell is `monoAdvance()` of the code's size): the card's width less
+/// Pierre's number column (its digits, 4 at least, 3ch of padding and a 2px divider; EditDiffLoading.tsx draws the
+/// same) or, unnumbered, its 6px indicator lane, then the row's 1ch end padding and its hanging indent: 2ch on its
+/// first line, 4ch under it (sideways.ts PIERRE_BLOCK_CSS).
+function wrapRoom(edit: TurnFile["edits"][number], card: number, code: number): { first: number; rest: number } {
+  const cell = code * monoAdvance();
+  let digits = 4;
+  for (const hunk of edit.hunks)
+    for (const line of hunk.lines)
+      digits = Math.max(digits, String(Math.max(line.newLine ?? 0, line.oldLine ?? 0)).length);
+  const lead = edit.numbered ? (digits + 3) * cell + 2 : 6;
+  const cells = (card - lead) / cell - 1;
+  return { first: Math.max(8, Math.floor(cells - 2)), rest: Math.max(8, Math.floor(cells - 4)) };
+}
+
+/// A monospace cell's width per px of size, in the face the chat's code draws in (`--cv-mono`, or the chat's own
+/// code font, chatDisplay.ts): read once per code font from a probe the page lays out, so a wrapped diff's rows
+/// break where the engine's face breaks them (Menlo and SF Mono are 0.602; a face with another advance moves a
+/// long line's wrap by a row). 0.602 where nothing lays out or the font is still loading (not kept then).
+const MONO_ADVANCE = 0.602;
+const monoAdvanceRead = new Map<string, number>();
+function monoAdvance(): number {
+  const display = chatDisplay();
+  const key = display.codeFamily ?? "";
+  const known = monoAdvanceRead.get(key);
+  if (known !== undefined) return known;
+  if (typeof document === "undefined" || !document.body) return MONO_ADVANCE;
+  const family = chatDisplayVariables(display)["--cv-mono"] ?? "var(--cv-mono)";
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:pre";
+  probe.style.fontFamily = family;
+  probe.textContent = "0".repeat(50);
+  document.body.append(probe);
+  // The probe takes the page's own size (no size of its own, webviews/src/ui/README.md Type scale): the
+  // advance is a share of whatever size it drew at.
+  const width = probe.getBoundingClientRect().width;
+  const size = Number.parseFloat(document.defaultView?.getComputedStyle(probe).fontSize ?? "");
+  probe.remove();
+  const styled =
+    (document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--cv-mono").trim() ?? "") !==
+    "";
+  if (!styled || !(width > 0) || !(size > 0) || document.fonts?.status === "loading") return MONO_ADVANCE;
+  const advance = width / (50 * size);
+  monoAdvanceRead.set(key, advance);
+  return advance;
+}
+
+/// How many lines `text` takes wrapped as `pre-wrap` with `break-word` does: whole words while they fit, a word
+/// longer than a line broken where the line ends; `first` cells on its first line, `rest` on the others.
+function wrappedRows(text: string, first: number, rest: number): number {
+  let rows = 1;
+  let room = first;
+  let used = 0;
+  for (const word of text.split(" ")) {
+    let left = word.length;
+    if (used > 0 && used + 1 + left <= room) {
+      used += 1 + left;
+      continue;
+    }
+    if (used > 0) {
+      rows += 1;
+      room = rest;
+    }
+    while (left > room) {
+      left -= room;
+      rows += 1;
+      room = rest;
+    }
+    used = left;
+  }
+  return rows;
+}
+
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
-/// Open (`closed` false), a group is its line over its calls, but an edits group stays closed
-/// (ToolGroupRow.tsx).
+/// Open (`closed` false), a group is its line over its calls; an edits group, over its files' diffs
+/// (`openEditsBody`).
 /// `sessionId`, `rowId` and `thoughts` (the row's thoughts before it) read the lines in it the reader
 /// opened (`stepsHeight`); `live`, its last thought may still stream.
 function foldedGroupHeight(
@@ -2276,8 +2396,13 @@ function foldedGroupHeight(
   thoughts = 0,
   live = false,
 ): number {
-  if (group.type === "group" && !closed && group.kind !== "edits")
-    return toolRowHeight() + openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts));
+  if (group.type === "group" && !closed && (group.kind !== "edits" || editsEstimateOn()))
+    return (
+      toolRowHeight() +
+      (group.kind === "edits"
+        ? openEditsBody(group.items, width, sessionId, rowId, thoughts)
+        : openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts)))
+    );
   if (group.type === "send")
     return (
       messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file)) +
@@ -2778,11 +2903,9 @@ const isBlankFooter = (row: AcpmuxRow) =>
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||
-  row.kind === "plan" ||
   row.kind === WORKED ||
   row.kind === WORKING ||
-  row.kind === THINKING ||
-  row.kind === ACTIVITY_LINE;
+  row.kind === THINKING;
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -2790,11 +2913,9 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
   next !== undefined &&
   (next.kind === "assistant" ||
     next.kind === "activity" ||
-    next.kind === "plan" ||
     next.kind === WORKED ||
     next.kind === WORKING ||
-    next.kind === THINKING ||
-    next.kind === ACTIVITY_LINE);
+    next.kind === THINKING);
 /// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
 /// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
@@ -2858,8 +2979,10 @@ function fallbackRowHeight(
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
-      // reader opened draws them too.
-      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+      // reader opened draws them too. An edits group draws as its group even alone (a lone edit with a
+      // diff, toolGroups.ts), its line opening to its files' diffs (`openEditsBody`).
+      const editsGroup = editsEstimateOn() && groups.some((group) => group.type === "group" && group.kind === "edits");
+      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items) || editsGroup)
         return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
     if (!items.length) return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
@@ -2963,9 +3086,6 @@ function fallbackRowHeight(
   // The running turn's "Working for" over its work keeps the "Worked for" line's box (WorkingFor.tsx).
   if (row.kind === WORKED || row.kind === WORKING) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
-  // The activity line under a plan is the live footer. It reserves the finished footer's 24px
-  // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
   // A tagged ask's card (conversation/NextStepCard.tsx), the same in every pane, waiting or answered
@@ -3048,15 +3168,6 @@ function fallbackRowHeight(
   }
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
-  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  // Ended, it folds to its one 24px progress line, with no card and no padding or margin
-  // (conversation.css `.cv-plan[data-ended]`), unless the reader opened it, which adds the items.
-  if (row.kind === "plan" && row.plan) {
-    const items = row.plan.length * 24;
-    // An earlier turn's list adds its one "from before your last message" line.
-    if (row.planEarlier) return finish(40 + 24 + items);
-    return finish(row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : 40 + items);
-  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   // A Connect GitHub card (conversation/GitHubConnectCard.tsx) adds its one line and button above it.
@@ -3073,7 +3184,6 @@ function fallbackRowHeight(
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
-    row.kind === "plan" ||
     row.kind === "typing" ||
     row.kind === BACKGROUND_TURN
   )
@@ -3399,9 +3509,6 @@ function measuredRowHeight(
     if (isOverlayFooter(row)) return 0;
     return footerRow();
   }
-  // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
-  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
   if (row.kind === MESSAGE_RUN) return finish(lineRow());
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
@@ -4632,6 +4739,8 @@ import {
 import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./conversation/turnRowsModel";
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { PREVIEW_LINES } from "./conversation/blockPartsModel";
+import { blockWrapOf, fileBlockKind } from "./conversation/blockWrap";
+import { toolFiles, type TurnFile } from "./diff";
 import { cardOpen } from "./turnChanges/openStore";
 import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
@@ -4639,7 +4748,6 @@ import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts, thoughtParts } from "./conversation/thoughts";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
-  ACTIVITY_LINE,
   DATE,
   isEmptyFooter,
   isFoldedCopy,
@@ -4659,13 +4767,18 @@ import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import {
+  chatCodeBlock,
   chatDensityTextScale,
   chatDisplay,
+  chatDisplayVariables,
   currentChatMetrics,
   type ChatMetrics,
+  drawnFontSize,
   promptCoachEnabled,
   transcriptGapScale,
 } from "./chatDisplay";
+import { EDIT_DIFF_LANE, editDiffBox } from "./conversation/editDiffBox";
+import { experimentSwitchOn } from "../../experiments/switches";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
 import { rowOpenState } from "./conversation/rowOpenState";
@@ -4679,7 +4792,6 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
-import { planOpen } from "./conversation/planOpen";
 import type { SurgeHold } from "./conversation/surgeHold";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

@@ -550,28 +550,63 @@ fn openh264_line_in(dir: Option<std::path::PathBuf>) -> String {
     }
 }
 
-/// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
+/// `grant [--control]`: the Wayland portal's grant, made now so no share asks. A GNOME
+/// desktop (mutter on the session bus) needs none and is asked nothing.
 fn grant(control: bool) -> Res<()> {
     if CaptureBackend::from_env(None)? != CaptureBackend::Portal {
         println!("This is not a Wayland session: sharing it needs no portal grant.");
         return Ok(());
     }
-    println!("{}", portal_grant(control, None)?);
+    let line = portal_grant(control, None)?;
+    println!("{line}");
+    if line.starts_with(MUTTER_LINE_START) {
+        return Ok(());
+    }
     if identity::runtime_dir().is_ok_and(|dir| dir.join("capture").exists()) {
         println!("Restart the host to use it: systemctl --user restart cmux-screen-host.service");
     }
     Ok(())
 }
 
+/// How [`mutter_line`] starts (`grant` tells it from a portal grant by it).
+const MUTTER_LINE_START: &str = "Screen sharing on this GNOME desktop needs no approval";
+
+/// What a join says on a GNOME desktop, where shares go through mutter's own screen cast
+/// (mutter.rs) and nothing is asked: `None` when the portal is the path. `remote_desktop`:
+/// mutter offers keyboard and pointer.
+fn mutter_line(
+    capture: crate::capture_backend::WaylandCapture,
+    remote_desktop: bool,
+    control: bool,
+) -> Option<String> {
+    if capture.needs_grant() {
+        return None;
+    }
+    let what = if !control {
+        ""
+    } else if remote_desktop {
+        " (view and control)"
+    } else {
+        " (view only: this desktop offers no keyboard and pointer control)"
+    };
+    Some(format!("{MUTTER_LINE_START}{what}: no dialog appears on this screen."))
+}
+
 /// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
 /// its restore token (portal.rs); what it granted. Prints the join's notes on what this portal
 /// cannot keep (setup.rs). `within` bounds the wait on the dialog: past it nothing is saved and
 /// the first share asks. A build that cannot capture through the portal asks nothing: a grant
-/// would show a dialog for shares it cannot serve.
+/// would show a dialog for shares it cannot serve. On GNOME (mutter on the session bus) it asks
+/// nothing either: mutter casts with no grant, and it says so ([`mutter_line`]).
 #[cfg(feature = "portal-dbus")]
 fn portal_grant(control: bool, within: Option<Duration>) -> Res<String> {
+    use crate::capture_backend::WaylandCapture;
     use crate::portal::{PortalState, SessionKind};
     CaptureBackend::Portal.available()?;
+    let (screen_cast, remote_desktop) = crate::capture_backend::mutter_on_bus();
+    if let Some(line) = mutter_line(WaylandCapture::choose(screen_cast), remote_desktop, control) {
+        return Ok(line);
+    }
     let (done, result) = std::sync::mpsc::channel();
     // On its own thread, so a dialog nobody answers cannot hold the join past `within`. Not
     // joined: past `within` it is left to the process, which ends with `enable`.
@@ -704,7 +739,8 @@ fn join_consent(
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
 /// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
 /// the restore token it returns: later sessions start from that token with no dialog, so no
-/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant.
+/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant,
+/// and neither does GNOME, which is cast through mutter directly: it asks nothing.
 /// A refusal, a missing portal or no answer `within` only says so: the host still serves, and
 /// its first session asks.
 fn grant_capture_now(control: bool, desktop: &setup::Desktop, within: Option<Duration>) {
@@ -2023,6 +2059,23 @@ mod tests {
         identity::write_private(&dir.join("capture"), b"x11").unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On GNOME the join's grant step asks nothing and says shares need no grant; elsewhere
+    /// the portal grant runs as before.
+    #[test]
+    fn a_gnome_join_asks_nothing_and_says_shares_need_no_grant() {
+        use crate::capture_backend::WaylandCapture;
+        assert_eq!(mutter_line(WaylandCapture::Portal, true, true), None);
+        let line = mutter_line(WaylandCapture::Mutter, true, true).unwrap();
+        assert!(line.starts_with(MUTTER_LINE_START));
+        assert!(line.contains("view and control"));
+        assert!(line.contains("needs no approval") && line.contains("no dialog appears"));
+        assert!(!line.contains("mutter"));
+        let view = mutter_line(WaylandCapture::Mutter, false, true).unwrap();
+        assert!(view.contains("view only") && !view.contains("mutter"));
+        let plain = mutter_line(WaylandCapture::Mutter, false, false).unwrap();
+        assert!(plain.starts_with(&format!("{MUTTER_LINE_START}:")));
     }
 }
 
