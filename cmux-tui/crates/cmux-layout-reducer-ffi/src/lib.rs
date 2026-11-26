@@ -14,8 +14,6 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
-//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
-//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
@@ -40,6 +38,8 @@
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);
+//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
+//! addresses, keysyms, security choice, version, authentication responses);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -52,8 +52,11 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -98,8 +101,10 @@ pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
-mod pane_focus;
 pub mod keychain;
+mod notification_rings;
+mod pane_focus;
+mod pane_placement;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -108,7 +113,10 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
+mod tab_strip;
 pub mod typed;
+mod vnc;
 pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
@@ -257,12 +265,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
-            b"sidebar_automatic_plan" => {
-                use cmux_layout_reducer::automatic;
-                let request: automatic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
-            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -304,6 +306,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
@@ -374,6 +383,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: capability::AnswerRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
@@ -631,9 +647,17 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
+            }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
+            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
@@ -641,6 +665,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
+            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
