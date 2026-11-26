@@ -134,6 +134,18 @@ test("place carries Rust's blocked reason and slot holders, and drops ones it do
       ?.holders,
   ).toEqual([{ session: "h", title: "Held" }]);
   expect(placeOf({ mode: "auto", at: "local", holders: [] })?.holders).toBeUndefined();
+  expect(
+    placeOf({ mode: "auto", at: "local", keep: { priority: "high", lit: false, waiting: true, used: 1, total: 1 } })
+      ?.keep,
+  ).toEqual({ priority: "high", lit: false, waiting: true, used: 1, total: 1 });
+  expect(placeOf({ mode: "auto", at: "local", keep: { used: -2, total: "3" } })?.keep).toEqual({
+    priority: "normal",
+    lit: false,
+    waiting: false,
+    used: 0,
+    total: 0,
+  });
+  expect(placeOf({ mode: "auto", at: "local" })?.keep).toBeUndefined();
 });
 
 test("the header state keeps the place until a push names it again", () => {
