@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+import CCmuxDaemonConnFFI
 import CmuxNextDevices
 import Darwin
 public import Foundation
@@ -63,7 +64,8 @@ public nonisolated struct ShareHostDevice {
     /// exchange (`/v1/auth/stack`, not device-signed), which the hub then keeps; when it fails this
     /// throws, so the hub start retries instead of switching devices. The daemon registers the
     /// device and holds its sign-in: the hub is made with ``DeviceHub/ownsDevice`` false.
-    @MainActor static func daemonHub(_ devices: CmuxRemoteDevices, socketPath path: String,
+    /// `declined` hears the daemon's user when it is another account's.
+    @MainActor static func daemonHub(_ devices: CmuxRemoteDevices, socketPath path: String, declined: (String) -> Void = { _ in },
                                      make: (DeviceIdentity) -> DeviceHub) async throws -> DeviceHub? {
         guard let found = await identity(devices, socketPath: path) else { return nil }
         guard let daemonUser = found.userID else {
@@ -73,15 +75,16 @@ public nonisolated struct ShareHostDevice {
         let hub = make(found.identity)
         guard try await hub.client.accountSession().userId == daemonUser else {
             shareHostLogger.info("device hub: the acpmux daemon's device is another account's; using the app's")
+            declined(daemonUser)
             return nil
         }
         hub.ownsDevice = false
         return hub
     }
 
-    /// From now on `deviceHub` makes its hub with the daemon's device whenever ``daemonHub(_:socketPath:make:)`` gives one (its channel
-    /// answers for the app's account), checked at each hub start (sign-in, another account or address, each retry), never
-    /// polled. Else it uses what it used before: the cmux Remote worker's device when this build runs
+    /// From now on `deviceHub` makes its hub with the daemon's device whenever ``daemonHub(_:socketPath:declined:make:)`` gives one (its
+    /// channel answers for the app's account), checked at each hub start (sign-in, another account or address, each retry) and
+    /// again each time the daemon says it came online as a device the running hub is not (``follow(_:in:devices:link:)``). Else it uses what it used before: the cmux Remote worker's device when this build runs
     /// it (the `makeRemoteHub` already set), else the app's own Secure Enclave identity. Call after
     /// cmux Remote set its hooks and before ``DeviceHubService/start(settings:)``.
     @MainActor public static func prefer(in deviceHub: DeviceHubService, build: BuildIdentity, bundleID: String?, loginKeychain: LoginKeychain,
@@ -105,7 +108,8 @@ public nonisolated struct ShareHostDevice {
         let worker = deviceHub.makeRemoteHub, workerChanged = deviceHub.hubChanged
         deviceHub.makeRemoteHub = { url, user in
             link.made = nil
-            if let hub = try await ShareHostDevice.daemonHub(devices, socketPath: path, make: { identity in
+            link.declined = nil
+            if let hub = try await ShareHostDevice.daemonHub(devices, socketPath: path, declined: { link.declined = $0 }, make: { identity in
                 devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, buildSpace: .nightly, tokens: tokens)
             }) {
                 link.made = hub
@@ -118,6 +122,8 @@ public nonisolated struct ShareHostDevice {
             workerChanged?(hub, user, url)
             let wasDaemons = link.running != nil
             link.running = hub.flatMap { $0 === link.made ? $0 : nil }
+            link.watch?.cancel()
+            link.watch = hub.map { follow($0, in: deviceHub, devices: devices, link: link) }
             // Recorded by the daemon for `acpmux share-host status` (which account and hub the app runs).
             if link.running != nil, let user, let url {
                 // task-owner: one status line to the daemon; nothing waits on it.
@@ -129,9 +135,53 @@ public nonisolated struct ShareHostDevice {
         }
     }
 
-    /// The hub made with the daemon's device, and the one running now.
+    /// While `hub` runs: each time the daemon comes online (`device.watch`) as a device `hub` is not, for an account the
+    /// last pick did not decline, `deviceHub` starts its hub again and picks the daemon's. That is the app that asked before
+    /// the daemon was up or signed in (it took the worker's or its own identity, which the hub then shows offline beside
+    /// the daemon's online one), or that holds a device the daemon replaced. A channel that ends (no daemon yet, one
+    /// restarting) opens again after a Rust-paced backoff, capped at 30 s.
+    @MainActor private static func follow(_ hub: DeviceHub, in deviceHub: DeviceHubService, devices: CmuxRemoteDevices,
+                                          link: Link) -> Task<Void, Never> {
+        // task-owner: Link.watch: lives with the running hub; the next hubChanged cancels it.
+        Task.detached(priority: .utility) { [weak deviceHub, weak hub, weak link] in
+            var retry = cmux_retry_pacer_new(cmux_retry_policy_new(1_000_000_000, 30_000_000_000, 10, 0, true))
+            // wakeup-allow: a watch channel that ends or cannot open suspends for Rust backoff (capped at 30s); the daemon's
+            // events wake it otherwise, and cancellation (another hub) ends it.
+            while !Task.isCancelled {
+                for await online in devices.onlineEvents() {
+                    guard let deviceHub, let hub, let link else { return }
+                    if await restart(deviceHub, replacing: hub, for: online, link: link) { return }
+                }
+                let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
+                guard delay >= 0 else { return }
+                // wakeup-allow: cancellable backoff before the watch channel opens again, paced by Rust and capped at 30s.
+                do { try await ContinuousClock().sleep(for: .nanoseconds(delay)) } catch { return }
+            }
+        }
+    }
+
+    /// Starts `deviceHub`'s hub again when the daemon came online as `online` and ``shouldFollow(_:running:declined:)``
+    /// says `hub` should give way to it; whether it did.
+    @MainActor private static func restart(_ deviceHub: DeviceHubService, replacing hub: DeviceHub, for online: ShareHostOnline,
+                                           link: Link) -> Bool {
+        guard shouldFollow(online, running: hub.identity.id, declined: link.declined) else { return false }
+        shareHostLogger.info("device hub: the acpmux daemon is online as another device; following it")
+        deviceHub.restartHub(replacing: hub)
+        return true
+    }
+
+    /// Whether the daemon online as `online` should replace the running hub's device `running`: another device, of an
+    /// account the last pick did not find to be another one's.
+    nonisolated static func shouldFollow(_ online: ShareHostOnline, running: String, declined: String?) -> Bool {
+        online.id != running.lowercased() && online.userID != declined
+    }
+
+    /// The hub made with the daemon's device, the one running now, the daemon's user the last pick found to be another
+    /// account's, and the watch that follows the daemon while a hub runs.
     @MainActor private final class Link {
         weak var made: DeviceHub?
         weak var running: DeviceHub?
+        var declined: String?
+        var watch: Task<Void, Never>?
     }
 }
