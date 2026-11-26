@@ -1,0 +1,15 @@
+[package]
+name = "cmux-app-agents"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux NEXT app's agent-recents, new-tab, control-session and apps rules (pure; the macOS app asks them over the app FFI): the subagent limit dialog, Recently Closed rows, the new tab submission plan, control session qualifiers, app reach and provider registration refusals"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

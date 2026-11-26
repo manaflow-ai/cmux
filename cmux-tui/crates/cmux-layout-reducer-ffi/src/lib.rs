@@ -81,6 +81,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod app_agents;
 mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
@@ -641,6 +642,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if app_agents::handles(operation) => app_agents::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
