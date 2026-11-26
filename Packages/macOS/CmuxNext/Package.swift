@@ -1445,6 +1445,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
+                "CmuxNextTerminal",
             ],
             resources: [
                 .process("Resources"),
@@ -2399,8 +2400,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // DesignScale.generated.swift, from schemas/design-scale/design-scale.json.
+            plugins: [.plugin(name: "DesignScalePlugin")]
         ),
+        // Runs scripts/cmux-next/gen-design-scale-swift.py --swift-out into its work directory.
+        .plugin(name: "DesignScalePlugin", capability: .buildTool()),
         .target(
             name: "CmuxNextDesign",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
