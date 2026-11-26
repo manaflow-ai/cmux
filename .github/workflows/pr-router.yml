@@ -87,6 +87,7 @@ jobs:
             scripts/ci/check_reusable_workflow_permissions.py
             scripts/ci/deadline_http.py
             scripts/ci/cmux-machine-channel-pr-plan.sh
+            scripts/ci/cmux_machine_channel_head_built.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
             scripts/cmux-next/cmux-tui-build-profiles.json
@@ -117,6 +118,12 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A ready-to-land head's base merge onto a green head runs nothing too (head_tier.py's labelled base merge
+          # rule; the land pulses the label and runs the land tier at the head it merges); 0 turns that off.
+          CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
+          # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
+          # rule); 0 turns that off.
+          CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -131,6 +138,10 @@ jobs:
         timeout-minutes: 3
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # An earlier run of this same head that built both artifacts: no second build (the land hands a head over
+          # more than once; cmux_machine_channel_head_built.py). The job's token has actions: read for head_tier.py.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.
@@ -157,6 +168,11 @@ jobs:
         continue-on-error: true
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
+          # The CI pool Apps' tokens (quota-goblin, each its own installation hour; the key home sets them every 15
+          # minutes), between the App and the job token. 2026-11-26 15:00-19:00Z the post spent 61 s of a 72 s
+          # median router job asleep with cmux-bot and the job token both refused for their spent hour (job
+          # 140020669492), about 800 of the router's 1,188 runner-minutes in 4 h.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           JOB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
@@ -171,9 +187,10 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
-          # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the other, then again.
+          # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the next, then again.
           for round in 1 2 3; do
-            for token in "$APP_TOKEN" "$JOB_TOKEN"; do
+            # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
+            for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
               [ -n "$token" ] || continue
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
                   -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null; then
@@ -189,12 +206,14 @@ jobs:
     # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build. Started only on a
     # land's own heads (pr_router.json land_handoff_only), not on every full-tier push.
     name: machine channel PR head build
-    needs: route
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates]
     # The land tier (tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next builds the thin
     # machine channel only once it is handed to land (`ready-to-land` or `full-ci`), not on every push or base merge.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The merge train's tip
     # (lane/merge-train, never labeled) builds too: its last member squashes to the tip's tree.
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'lane/merge-train' && github.event.pull_request.head.repo.full_name == github.repository) || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'lane/merge-train' && github.event.pull_request.head.repo.full_name == github.repository) || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
     uses: ./.github/workflows/cmux-machine-channel.yml
     with:
       build: ${{ needs.route.outputs.machine_channel_build }}
@@ -228,8 +247,10 @@ jobs:
 
   screen-share-drop-gate:
     name: screen share drop gate
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
     uses: ./.github/workflows/screen-share-drop-gate.yml
     permissions:
       contents: read
@@ -245,8 +266,10 @@ jobs:
 
   swift-linux-packages:
     name: Swift packages on Linux
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
     uses: ./.github/workflows/swift-linux-packages.yml
     # A called workflow may ask no more than its caller job grants; with none granted here, every run
     # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
@@ -255,8 +278,10 @@ jobs:
 
   ios-link-ffi-linux:
     name: iOS link FFI on Linux
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
     uses: ./.github/workflows/ios-link-ffi-linux.yml
     permissions:
       contents: read
@@ -278,8 +303,10 @@ jobs:
 
   pipeline:
     name: pr pipeline
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}

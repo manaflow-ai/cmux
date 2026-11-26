@@ -104,6 +104,7 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
@@ -187,10 +188,13 @@ members = [
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-felt",
     "crates/cmux-terminal-projection",
@@ -361,10 +365,13 @@ default-members = [
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-felt",
     "crates/cmux-terminal-projection",
@@ -462,6 +469,7 @@ cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
+cmux-browser-sync = { path = "crates/cmux-browser-sync" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-presence = { path = "crates/cmux-presence" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }

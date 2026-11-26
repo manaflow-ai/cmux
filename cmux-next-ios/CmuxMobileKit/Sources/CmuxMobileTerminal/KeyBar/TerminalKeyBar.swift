@@ -155,6 +155,9 @@ struct KeyBarScrollerKey: View {
                 // Glyph and the word "Paste": an icon-only cap between ⇧ and
                 // Tab read as an unlabeled key that did nothing (Leo, 11-22).
                 PasteKeyCap(model: model)
+                    // A paste control's colours are fixed when it is made (writing them later throws),
+                    // so a new Mac theme makes a new control.
+                    .id(PasteKeyCap.ThemeKey(palette: CmuxMobileMacTheme.shared.palette))
                     .frame(height: TerminalDockMetrics.keyRowHeight)
                     .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
@@ -349,9 +352,11 @@ enum KeyRowGlass {
     static let stripCornerRadius: CGFloat = 12
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
     static let liftRoom: CGFloat = 8
-    /// Paste's own cap (`PasteKeyCap`): opaque, the tone of a glass key over
-    /// the terminal's black.
-    static let pasteBackground = UIColor(white: 0.2, alpha: 1)
+    /// Paste's own cap (`PasteKeyCap`): opaque, the theme's raised surface (the
+    /// tone of a glass key over the terminal's ground), so it follows the Mac's theme.
+    static var pasteBackground: UIColor { CmuxMobileTheme.standard.colors.surfaceRaised.uiColor }
+    /// Paste's glyph: the theme's text color.
+    static var pasteForeground: UIColor { CmuxMobileTheme.standard.colors.label.uiColor }
 }
 
 extension View {
@@ -390,7 +395,7 @@ struct PasteKeyCap: UIViewRepresentable {
         configuration.cornerStyle = .medium
         // Opaque, near the dark glass keys over the terminal's black.
         configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
-        configuration.baseForegroundColor = .white
+        configuration.baseForegroundColor = KeyRowGlass.pasteForeground
         let control = UIPasteControl(configuration: configuration)
         control.target = model.controller?.surface
         control.accessibilityIdentifier = "terminal.key.paste"
@@ -409,6 +414,12 @@ struct PasteKeyCap: UIViewRepresentable {
                                                   withHorizontalFittingPriority: .fittingSizeLevel,
                                                   verticalFittingPriority: .required)
         return CGSize(width: max(TerminalDockMetrics.minKeyWidth, ceil(fit.width)), height: height)
+    }
+
+    /// The Mac theme the control was made in: its `.id`, so a theme change makes a new control.
+    struct ThemeKey: Hashable {
+        let palette: CmuxMobileMacPalette?
+        func hash(into hasher: inout Hasher) {}
     }
 }
 #endif
