@@ -811,3 +811,88 @@ fn rtt_nack_retry_follows_the_measured_repair_round_trip() {
         assert_eq!(r.repair_rtt_us(), Some(1_000));
     }
 }
+
+/// A path whose jitter reorders shards past the fixed 5 ms grace (netem
+/// `delay 15ms 15ms`, Wi-Fi aggregation) had nearly every gap requested and
+/// repaired, and the host counts each repair as path loss: rd-netem-linux's
+/// jitter-15-burst read 39 % path loss (p50) on a 1 % loss link, so FEC sat at
+/// its 50 % cap and the wire ran at twice the target. The reorder window
+/// learns how late an unrequested gap filled and waits that long next time.
+#[test]
+fn the_reorder_window_waits_out_the_reordering_the_path_showed() {
+    use cmux_rd_core::reassembly::{MAX_REORDER_GRACE_US, NACK_AFTER_US, REORDER_MARGIN_US};
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_gap_grace(true);
+    r.set_reorder_window(true);
+    r.set_path_rtt_us(Some(40_000));
+    let frame = |p: &mut Packetizer, f: u32| -> Vec<Shard> {
+        shards(p, f, if f == 1 { flags::KEYFRAME } else { 0 }, &body(f, 2_400, f == 1), 0)
+    };
+    // Frame 1: shard 1 is overtaken by shard 2 and arrives 3 ms after the gap
+    // showed, inside the fixed grace and unrequested.
+    let f1 = frame(&mut p, 1);
+    assert!(f1.len() >= 4);
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), NACK_AFTER_US, "no reordering seen yet");
+    r.push(&f1[0].0, &f1[0].1, 0);
+    r.push(&f1[2].0, &f1[2].1, 1_000);
+    r.push(&f1[1].0, &f1[1].1, 4_000);
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), NACK_AFTER_US, "3 ms is under the base grace");
+    push_all(&mut r, &f1[3..], 4_000);
+    // Frame 2: shard 1 is 12 ms late. The fixed grace requests it at 5 ms; the
+    // arrival of the original is a fill the window cannot tell from a repair...
+    let f2 = frame(&mut p, 2);
+    r.push(&f2[0].0, &f2[0].1, 20_000);
+    r.push(&f2[2].0, &f2[2].1, 20_000);
+    let nacks = r.take_nacks(20_000 + NACK_AFTER_US, NACK_AFTER_US, 50_000);
+    assert_eq!(nacks.len(), 1, "the fixed grace requests a 12 ms reorder");
+    r.push(&f2[1].0, &f2[1].1, 32_000);
+    push_all(&mut r, &f2[3..], 32_000);
+    // ...until the repair arrives as a duplicate (DSACK): the request was spurious.
+    r.push(&f2[1].0, &f2[1].1, 60_000);
+    let grace = r.reorder_grace_us(NACK_AFTER_US);
+    assert_eq!(grace, 12_000 + REORDER_MARGIN_US, "the window covers the 12 ms reorder");
+    // Frame 3: the same 12 ms reorder is now waited out, never requested.
+    let f3 = frame(&mut p, 3);
+    r.push(&f3[0].0, &f3[0].1, 70_000);
+    r.push(&f3[2].0, &f3[2].1, 70_000);
+    assert!(r.take_nacks(70_000 + NACK_AFTER_US, NACK_AFTER_US, 50_000).is_empty());
+    assert_eq!(r.next_nack_us(NACK_AFTER_US, 50_000), Some(70_000 + grace));
+    r.push(&f3[1].0, &f3[1].1, 82_000);
+    assert!(r.take_nacks(82_000, NACK_AFTER_US, 50_000).is_empty());
+    push_all(&mut r, &f3[3..], 82_000);
+    // A real loss is requested after the widened grace, no later.
+    let f4 = frame(&mut p, 4);
+    r.push(&f4[0].0, &f4[0].1, 100_000);
+    r.push(&f4[2].0, &f4[2].1, 100_000);
+    assert!(r.take_nacks(100_000 + grace - 1, NACK_AFTER_US, 50_000).is_empty());
+    assert_eq!(r.take_nacks(100_000 + grace, NACK_AFTER_US, 50_000).len(), 1);
+    // The grace never passes its cap however late an original was...
+    let f5 = frame(&mut p, 5);
+    r.push(&f5[0].0, &f5[0].1, 200_000);
+    r.push(&f5[2].0, &f5[2].1, 200_000);
+    r.push(&f5[1].0, &f5[1].1, 290_000);
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), MAX_REORDER_GRACE_US);
+    // ...nor the round trip.
+    r.set_path_rtt_us(Some(20_000));
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), 20_000);
+    // Once the path stops reordering, the grace falls back to the caller's.
+    r.note_datagram(2_400_000);
+    let f9 = frame(&mut p, 9);
+    push_all(&mut r, &f9, 2_400_000);
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), NACK_AFTER_US);
+}
+
+/// Off (the default), the grace is the caller's whatever arrives late.
+#[test]
+fn without_the_reorder_window_the_grace_is_fixed() {
+    use cmux_rd_core::reassembly::NACK_AFTER_US;
+    let mut p = Packetizer::new(0, 256);
+    let mut r = Reassembler::new(200_000);
+    r.set_gap_grace(true);
+    let f = shards(&mut p, 1, flags::KEYFRAME, &body(1, 2_400, true), 0);
+    r.push(&f[0].0, &f[0].1, 0);
+    r.push(&f[2].0, &f[2].1, 0);
+    r.push(&f[1].0, &f[1].1, 20_000);
+    assert_eq!(r.reorder_grace_us(NACK_AFTER_US), NACK_AFTER_US);
+}

@@ -236,6 +236,8 @@ pub fn run(
     let mut reassembler = Reassembler::new(DEADLINE_US);
     // A gap's reorder grace counts from when the gap is first seen.
     reassembler.set_gap_grace(true);
+    // ...and widens to the reordering the path shows, so reorder is not repaired as loss.
+    reassembler.set_reorder_window(true);
     // Every frame decodes into this; the newest of a batch is swapped into the mailbox.
     let mut current = I420::new(2, 2);
     let mut sender = InputSender::new();
