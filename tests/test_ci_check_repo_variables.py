@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import check_repo_variables as check  # noqa: E402
 
 GOOD_RUNNERS = "LINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\nMACOS_RUNNER_PR=blacksmith-6vcpu-macos-26\nWINDOWS_RUNNER=\n"
-GOOD_SLOTS = '{"glaeda-std-xcode-26.6": 42, "glaeda-light-xcode-26.6": 4, "glaeda-root-std-xcode-26.6": 10}'
+GOOD_SLOTS = '{"glaeda-std-xcode-27.2": 42, "glaeda-light-xcode-27.2": 4, "glaeda-root-std-xcode-27.2": 10}'
 # The pools as the writer left them on 2026-11-19 01:49Z: the two declared-hosted pools keep their hosted labels.
 GOOD_POOLS = ('{"_updated": "2026-11-19T01:49:43Z", "linux": "blacksmith-2vcpu-ubuntu-2404", '
               '"linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_16": "blacksmith-16vcpu-ubuntu-2404", '
@@ -32,7 +32,7 @@ def env(**overrides: str) -> dict[str, str]:
     base = {
         "CMUX_CI_RUNNER_VARIABLES": GOOD_RUNNERS,
         "CI_OWNED_POOL_SLOTS": GOOD_SLOTS,
-        "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.6.app",
+        "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_27.2.app",
         "RUNNER_POOLS": GOOD_POOLS,
     }
     base.update(overrides)
@@ -45,14 +45,14 @@ class Values(unittest.TestCase):
         self.assertEqual(check.problems(env(CI_OWNED_POOL_SLOTS="")), [])
 
     def test_slot_values_the_picker_reads_as_zero_fail(self) -> None:
-        for value in ('{"glaeda-std-xcode-26.6": "42"}', "forty", '{"glaeda-std-xcode": 4}', "[4]"):
+        for value in ('{"glaeda-std-xcode-27.2": "42"}', "forty", '{"glaeda-std-xcode": 4}', "[4]"):
             with self.subTest(value=value):
                 found = check.problems(env(CI_OWNED_POOL_SLOTS=value))
                 self.assertTrue(found)
                 self.assertIn("set-owned-slots.sh", found[0])
 
     def test_runner_labels_the_guard_refuses_fail(self) -> None:
-        for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-26.6"):
+        for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-27.2"):
             with self.subTest(label=label):
                 found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"MACOS_RUNNER_PR={label}\n"))
                 self.assertEqual(len(found), 1)

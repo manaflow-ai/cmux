@@ -34,8 +34,8 @@ def load(name: str, path: Path):
 
 rescue = load("owned_pool_rescue", ROOT / "scripts/ci/owned_pool_rescue.py")
 
-MINI = "glaeda-std-xcode-26.6"
-LIGHT = "glaeda-light-xcode-26.6"
+MINI = "glaeda-std-xcode-27.2"
+LIGHT = "glaeda-light-xcode-27.2"
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
 START = dt.datetime(2026, 9, 24, 12, 0, tzinfo=dt.timezone.utc)
 RUN_ID = 555
@@ -799,7 +799,7 @@ class Rescuing(unittest.TestCase):
         # job counts as accepted, but this attempt's shards exist only after its admission: the watch goes on
         # and rescues a shard stuck on the owned label.
         clock = Clock()
-        root = "glaeda-root-std-xcode-26.6"
+        root = "glaeda-root-std-xcode-27.2"
 
         def rerun_jobs(seconds):
             admission = job(rescue.ADMISSION_JOB, labels=[root], created=0, runner="mini-1",
@@ -1109,7 +1109,7 @@ class Dispatch(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
 
 
-SIDE = "glaeda-side-std-xcode-26.6"
+SIDE = "glaeda-side-std-xcode-27.2"
 
 
 def side_event(**overrides):
@@ -1562,7 +1562,7 @@ class SideLanes(unittest.TestCase):
         self.assertIn("refused", summary)
 
 
-TRUSTED = "glaeda-trusted-std-xcode-26.6"
+TRUSTED = "glaeda-trusted-std-xcode-27.2"
 
 
 def nightly_event(**overrides):
@@ -1691,11 +1691,11 @@ class Nightly(unittest.TestCase):
     def test_the_trusted_pool_is_an_owned_label_only_here(self):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
         # The nightly slot nightly-next's build picker offers first (also when it cannot read the runners).
-        self.assertEqual(rescue.job_pool({"labels": ["glaeda-nightly-std-xcode-26.6"]}), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-nightly-std-xcode-27.2"]}), "glaeda-nightly-std-xcode-27.2")
         # nightly.yml asks for the pool and one runner's own label together.
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
-        self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
-                         "glaeda-root-trusted-std-xcode-26.6")
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-27.2"]}),
+                         "glaeda-root-trusted-std-xcode-27.2")
         # NEXT's all-nightly reservation is not a normal persistent pool, but
         # its queued app build is still eligible for the nightly rescue.
         for label in ("glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro-builder",
@@ -1707,13 +1707,13 @@ class Nightly(unittest.TestCase):
 
     def test_the_fast_lane_is_an_owned_pool(self):
         # cmux-next.yml's fast tier runs on CI_FAST_LANE_RUNNER, a reserved glaeda-fast-* runner.
-        self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}),
-                         "glaeda-fast-std-xcode-26.6")
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-27.2"]}),
+                         "glaeda-fast-std-xcode-27.2")
 
     def test_the_session_lane_is_an_owned_pool(self):
         # cmux-next.yml's generated files run on CI_SESSION_LANE_RUNNER, a glaeda-session-* runner.
-        self.assertEqual(rescue.job_pool({"labels": ["glaeda-session-light-xcode-26.6"]}),
-                         "glaeda-session-light-xcode-26.6")
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-session-light-xcode-27.2"]}),
+                         "glaeda-session-light-xcode-27.2")
 
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
@@ -1912,12 +1912,12 @@ class Nightly(unittest.TestCase):
         self.assertTrue(rescue.nightly_watched({"name": "other", "labels": [TRUSTED]}))
         self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly", "labels": [SESSION]}))
         self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly",
-                                                 "labels": ["glaeda-gui-std-xcode-26.6"]}))
+                                                 "labels": ["glaeda-gui-std-xcode-27.2"]}))
         # decide on the nightly slot is judged, so a busy slot moves it to Blacksmith Linux on the re-run.
-        self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["glaeda-nightly-std-xcode-27.2"]}))
         self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["gcp-linux-control"]}))
         self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
-        self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-27.2"]}))
 
     def test_the_all_nightly_reservation_is_judged(self):
         self.assertTrue(rescue.nightly_watched({"name": "build-nightly-app",
@@ -1946,9 +1946,9 @@ class Nightly(unittest.TestCase):
         self.assertIsNone(rescue.queued_pool({**control, "labels": ["ubuntu-24.04"]}))
 
 
-SESSION = "glaeda-session-std-xcode-26.6"
+SESSION = "glaeda-session-std-xcode-27.2"
 IOS_SIM = "glaeda-ios-sim"
-SIM_FIRST = "glaeda-sim-xcode-26.6"
+SIM_FIRST = "glaeda-sim-xcode-27.2"
 
 
 class IOSDispatch(unittest.TestCase):

@@ -278,7 +278,7 @@ before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
 
 Owned Mac minis (fleet RFC cmuxterm-hq#573) join as class pools keyed by the
 label glaeda issues to a dedicated member once it has verified the pinned
-Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-26.6`.
+Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-27.2`.
 The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
 pool, and no machine carries the new label until glaeda has verified the new
 Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
@@ -313,11 +313,11 @@ preference off. A pin path that is not `/Applications/Xcode_<version>.app`
 names no owned pool.
 
 Headless Macs use a separate namespace. A pool such as
-`glaeda-aws-std-xcode-26.6` is never included by the default office-first
+`glaeda-aws-std-xcode-27.2` is never included by the default office-first
 order, even when an AWS runner also carries a compatibility office label.
 Add the full namespaced pool to `CI_PR_POOL_ORDER` to opt that Xcode lane into
 AWS capacity, for example
-`glaeda-aws-std-xcode-26.6,glaeda-std-xcode-26.6,...`. The picker then counts
+`glaeda-aws-std-xcode-27.2,glaeda-std-xcode-27.2,...`. The picker then counts
 only runners carrying the selected namespace, while GUI and canonical-root
 labels remain independent. Keep the AWS entry out of the variable until its
 toolchain, cache warm-up, and headless job mix have been verified; this keeps
@@ -326,7 +326,7 @@ the existing office route unchanged while allowing a reversible canary.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-27.2": 12, "glaeda-light-xcode-27.2": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
 | `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age: capacity, and which labels route (a pool's root, gui and side labels route while an online runner carries them, `routing_slots()`). Any failure falls back to them |
 
@@ -858,7 +858,7 @@ Clear both variables to send every side lane back.
 skipped, only when `ci-compile-attribution.yml` needs it to narrow a compile
 break down to one merge (rare: a burst of merges with a break inside). It asks
 for the PR pool's root label (`vars.CI_COMPILE_PROBE_POOL`, default
-`glaeda-root-std-xcode-26.6`) and adopts the nearest main seed. A probe still
+`glaeda-root-std-xcode-27.2`) and adopts the nearest main seed. A probe still
 queued after three minutes is cancelled and dispatched on
 `blacksmith-12vcpu-macos-26`. The per-push compile itself is
 `seed-derived-data.yml`, which costs the canary no extra Mac time.

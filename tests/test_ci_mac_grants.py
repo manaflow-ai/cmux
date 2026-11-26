@@ -16,7 +16,7 @@ import mac_grants  # noqa: E402
 
 PR = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
       "GITHUB_REPOSITORY_OWNER": "manaflow-ai", "HEAD_REPO": "manaflow-ai/cmux",
-      "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "XCODE_APP": "/Applications/Xcode_26.6.app"}
+      "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "XCODE_APP": "/Applications/Xcode_27.2.app"}
 
 
 class MacGrantsTest(unittest.TestCase):
@@ -34,11 +34,11 @@ class MacGrantsTest(unittest.TestCase):
 
     def test_plain_cmux_mac_with_xcode(self):
         out = mac_grants.outputs(PR, self.switch({"jobs": ["generated-files"]}))
-        self.assertEqual(out, {"grant_runner": '["cmux-mac","xcode-26.6"]', "grant_jobs": " generated-files "})
+        self.assertEqual(out, {"grant_runner": '["cmux-mac","xcode-27.2"]', "grant_jobs": " generated-files "})
 
     def test_per_run_opt_in(self):
         out = mac_grants.outputs(PR, self.switch({"jobs": ["generated-files", "fast-tier"], "per_run": True}))
-        self.assertEqual(json.loads(out["grant_runner"]), ["cmux-123-1-mac", "xcode-26.6"])
+        self.assertEqual(json.loads(out["grant_runner"]), ["cmux-123-1-mac", "xcode-27.2"])
         self.assertEqual(out["grant_jobs"], " generated-files fast-tier ")
 
     def test_a_rerun_takes_no_per_run_label(self):
@@ -48,7 +48,7 @@ class MacGrantsTest(unittest.TestCase):
             out = mac_grants.outputs(env, self.switch({"jobs": ["generated-files"], "per_run": True}))
             self.assertEqual(out, {"grant_runner": "", "grant_jobs": ""}, attempt)
             out = mac_grants.outputs(env, self.switch({"jobs": ["generated-files"]}))
-            self.assertEqual(json.loads(out["grant_runner"]), ["cmux-mac", "xcode-26.6"], attempt)
+            self.assertEqual(json.loads(out["grant_runner"]), ["cmux-mac", "xcode-27.2"], attempt)
 
     def test_no_xcode_no_xcode_label(self):
         out = mac_grants.outputs({**PR, "XCODE_APP": ""}, self.switch({"jobs": ["generated-files"]}))

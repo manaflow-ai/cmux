@@ -25,7 +25,7 @@ Each listed label must name a machine that runs no pull request code (same trust
 
 - `fallback`: FALLBACK_MAC (an ephemeral Blacksmith Mac, whose image has Xcode 27) when the runner census
   (CI_RUNNER_STATE) shows no online Mac runner carrying FLEET_XCODE's Xcode label, else empty (the archive
-  takes the fleet's `cmux-mac` + `xcode-27.0`). Leo, 2026-11-26: "refuse to queue a job for a label no live
+  takes the fleet's `cmux-mac` + `xcode-27.2`). Leo, 2026-11-26: "refuse to queue a job for a label no live
   runner has". Run 45717448413's archive asked for cmux-mac + xcode-27.0 at 22:59Z on 11-25 and started at
   01:22Z on 11-26: 2 h 23 min with no Mac offering Xcode 27, while a Blacksmith Mac takes it in minutes. An
   unread or stale census keeps the fleet label: the reroute needs a reading, never a guess.
@@ -52,7 +52,7 @@ WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
 # The archive's fleet fallback (ios-internal-nightly.yml's runs-on ends with it): the scheduler grants cmux-mac
 # on demand, so its Xcode label is what needs a live carrier.
-FLEET_XCODE = ("cmux-mac", "xcode-27.0")
+FLEET_XCODE = ("cmux-mac", "xcode-27.2")
 
 
 def labels_of(value: str) -> list[str]:

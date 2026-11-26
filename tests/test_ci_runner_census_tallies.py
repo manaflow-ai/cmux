@@ -39,7 +39,7 @@ LINUX = "cmux-fleet-linux"
 FLEET = "cmux-fleet-linux-x64"
 LINUX_LABELS = ["self-hosted", "Linux", "X64", FLEET]
 MINI = {"id": 10, "name": "cmux-mini-1-glaeda", "os": "macOS", "status": "online", "busy": False,
-        "labels": [{"name": "glaeda-std-xcode-26.6"}]}
+        "labels": [{"name": "glaeda-std-xcode-27.2"}]}
 
 
 def tally(idle: int, busy: int, offline: int, labels=None, os_name: str = "Linux") -> dict:
@@ -108,7 +108,7 @@ class CensusTallies(unittest.TestCase):
 
     def test_malformed_tallies_make_the_census_unusable(self):
         bad = {
-            "the required mini group": {pool.RUNNER_GROUP: [tally(1, 0, 0, labels=["glaeda-std-xcode-26.6"],
+            "the required mini group": {pool.RUNNER_GROUP: [tally(1, 0, 0, labels=["glaeda-std-xcode-27.2"],
                                                                   os_name="macOS")]},
             "an unapproved group": {"someone-elses-pool": [tally(1, 0, 0)]},
             "a negative count": {LINUX: [tally(-1, 0, 0)]},

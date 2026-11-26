@@ -1857,7 +1857,7 @@ fn a_relayed_notice_reads_as_its_detector_and_counts_its_condition() {
     let relayed = |n: &str, queued: u32| {
         format!(
             "[message {n}x from cmux-cp-1/now (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message {n}x]\"]\n\
-             [notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, {queued} queued\n\
+             [notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-27.2, {queued} queued\n\
              [end of message {n}x]"
         )
     };
@@ -1878,7 +1878,7 @@ fn a_relayed_notice_reads_as_its_detector_and_counts_its_condition() {
     let part = &parts[0];
     assert_eq!(part["notice"]["sender"], "now", "{part}");
     assert_eq!(part["notice"]["severity"], "fire");
-    assert_eq!(part["notice"]["title"], "Runner label stalled: trusted xcode-26.6, 12 queued");
+    assert_eq!(part["notice"]["title"], "Runner label stalled: trusted xcode-27.2, 12 queued");
     assert_eq!(part["notice"]["host"], "cmux-cp-1");
     assert_eq!(part["notice"]["repeats"], 2, "the disk notice is another condition");
     assert_eq!(part["notice"]["lastAt"], 3_000);
@@ -1906,8 +1906,8 @@ fn a_notice_repeat_folds_by_its_condition() {
         page_rule::record(&mut folds, m, v, t);
         v
     };
-    assert_eq!(at(t0, &msg("Runner label stalled: trusted xcode-26.6, 9 queued")), Page);
-    assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-26.6, 12 queued")), Fold);
+    assert_eq!(at(t0, &msg("Runner label stalled: trusted xcode-27.2, 9 queued")), Page);
+    assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-27.2, 12 queued")), Fold);
     assert_eq!(at(t0 + 120_000, &msg("Runner label stalled: trusted linux-x64, 3 queued")), Page);
 }
 

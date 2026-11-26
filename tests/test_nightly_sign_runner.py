@@ -44,9 +44,9 @@ SIGN_PICKERS = {
     "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
 # #53861: the verify jobs dropped the PR-shared CI_SIDE_LANE_RUNNER fallback for the nightly's reserved label.
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-27.2' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
-RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-27.2' }}"
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
 # label they share with nightly builds or PR side lanes.
 SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
@@ -278,7 +278,7 @@ class LinuxPick(unittest.TestCase):
         self.assertEqual((label, alternate, verified), (LINUX4, LINUX16, False))
 
     def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:
-        for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-26.6"):
+        for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-27.2"):
             label, alternate, _, _ = picker.linux_place(variable, None, NOW, 1)
             self.assertIn(label, picker.LINUX_LABELS)
             self.assertIn(alternate, picker.LINUX_LABELS)
@@ -720,8 +720,8 @@ class OwnedVerify(unittest.TestCase):
             self.OWNED: "glaeda-runner-old-single-host",
             "needs.pick-nightly-sign-runner.outputs.alternate": LARGE,
             "needs.pick-nightly-sign-runner.outputs.runner": SMALL,
-            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6",
-            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-27.2",
+            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-27.2",
             "vars.CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-fleet.app",
             "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
         }
@@ -729,19 +729,19 @@ class OwnedVerify(unittest.TestCase):
         # slot, then the nightly's reserved std label (never the PR-shared side lane, #53861), with the overflow Xcode variable (both name the
         # same Xcode on the minis).
         cases = (
-            ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-27.2", "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
-            ({"github.run_attempt": "1", self.OWNED: ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
-             "glaeda-side-light-xcode-26.6", "fleet"),
+            ({"github.run_attempt": "1", self.OWNED: ""}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, "glaeda-nightly-std-xcode-27.2", "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-27.2"},
+             "glaeda-side-light-xcode-27.2", "fleet"),
         )
         for name in ("verify-signed-nightly", "verify-final-dmg-nightly"):
             job = WORKFLOW["jobs"][name]

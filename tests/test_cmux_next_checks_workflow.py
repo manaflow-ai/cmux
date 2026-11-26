@@ -1282,7 +1282,7 @@ class PathRoutingStructure(unittest.TestCase):
                     )
                     if event == "pull_request" and any(separate_pr_cascade(part) for part in alternatives):
                         # This fixture has a current retry allocation only on attempt 1.
-                        wanted = "blacksmith-6vcpu-macos-26" if attempt == 1 else "glaeda-side-std-xcode-26.6"
+                        wanted = "blacksmith-6vcpu-macos-26" if attempt == 1 else "glaeda-side-std-xcode-27.2"
                     else:
                         wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
@@ -2948,7 +2948,7 @@ class FastTierRunner(unittest.TestCase):
 class ReservedLaneLabels(unittest.TestCase):
     """No runs-on waits on one small reserved pool with no way off it (rulebook: "No job waits on one
     reserved machine"; 2026-10-25, 15 runs' fast tiers queued an hour behind the two runners left on
-    glaeda-fast-light-xcode-26.6). A reserved lane's label reaches a runs-on only through a placement
+    glaeda-fast-light-xcode-27.2). A reserved lane's label reaches a runs-on only through a placement
     output that names it while one of its runners is idle; reading the variable there is refused."""
 
     # Variables naming one reserved owned lane, and the runs-on still reading one directly, with why.
@@ -2969,7 +2969,7 @@ class ReservedLaneLabels(unittest.TestCase):
     def test_the_fast_tier_takes_its_label_only_while_the_placement_saw_it_idle(self):
         runs_on = one_runs_on(load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"])
 
-        def context(fast="", side="glaeda-side-std-xcode-26.6", attempt=1, actor="someone", **outputs):
+        def context(fast="", side="glaeda-side-std-xcode-27.2", attempt=1, actor="someone", **outputs):
             values = {
                 "github.repository_owner": "manaflow-ai",
                 "github.repository": "manaflow-ai/cmux",
@@ -2978,7 +2978,7 @@ class ReservedLaneLabels(unittest.TestCase):
                 "github.run_attempt": attempt,
                 "github.triggering_actor": actor,
                 "vars.CI_PR_POOL_OWNED": "1",
-                "vars.CI_FAST_LANE_RUNNER": "glaeda-fast-light-xcode-26.6",
+                "vars.CI_FAST_LANE_RUNNER": "glaeda-fast-light-xcode-27.2",
                 "vars.CI_SIDE_LANE_RUNNER": side,
                 "needs.macos-placement.outputs.fast_runner": fast,
                 "needs.macos-placement.outputs.runner": side,
@@ -2988,18 +2988,18 @@ class ReservedLaneLabels(unittest.TestCase):
             values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
             return values
 
-        fast = "glaeda-fast-light-xcode-26.6"
+        fast = "glaeda-fast-light-xcode-27.2"
         self.assertEqual(evaluate(runs_on, context(fast)), fast)
         # An available cascade slot wins; exhaustion preserves the base side queue.
         self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
         # An old placement's hosted reading is never read (Leo, 2026-10-27: no GitHub-hosted Mac).
         self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")),
-                         "glaeda-side-std-xcode-26.6")
-        self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
+                         "glaeda-side-std-xcode-27.2")
+        self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-27.2")
         # Only a current allocation can select the generic side route.
-        self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ")), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ")), "glaeda-side-std-xcode-27.2")
         self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ", placed_attempt="0")),
-                         "glaeda-side-std-xcode-26.6")
+                         "glaeda-side-std-xcode-27.2")
         # The rescue's overflow attempt never goes back to the fast label.
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
@@ -3020,7 +3020,7 @@ class ReservedLaneLabels(unittest.TestCase):
                                                            blacksmith_6_jobs=" fast-tier ")),
                                  "blacksmith-6vcpu-macos-26")
                 self.assertEqual(evaluate(runs_on, context(fast, attempt=5, actor=actor)),
-                                 "glaeda-side-std-xcode-26.6")
+                                 "glaeda-side-std-xcode-27.2")
                 # A carried reading (placement did not run in this attempt) never takes the owned label.
                 self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor, placed_attempt="1")),
                                  "blacksmith-6vcpu-macos-26")
@@ -3033,17 +3033,17 @@ class GeneratedFilesRunner(unittest.TestCase):
             "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
             "github.event_name": "push", "github.run_attempt": 1,
             "needs.macos-placement.outputs.placed_attempt": "1", "vars.CI_PR_POOL_OWNED": "1",
-            "vars.CI_SESSION_LANE_RUNNER": "glaeda-session-light-xcode-26.6",
-            "needs.macos-placement.outputs.session_lane_runner": "glaeda-session-light-xcode-26.6",
-            "needs.macos-placement.outputs.gui_runner": "glaeda-gui-std-xcode-26.6",
-            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+            "vars.CI_SESSION_LANE_RUNNER": "glaeda-session-light-xcode-27.2",
+            "needs.macos-placement.outputs.session_lane_runner": "glaeda-session-light-xcode-27.2",
+            "needs.macos-placement.outputs.gui_runner": "glaeda-gui-std-xcode-27.2",
+            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-27.2",
         }
-        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-session-light-xcode-26.6")
-        context["needs.macos-placement.outputs.free_session_runner"] = "glaeda-session-std-xcode-26.6"
-        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-session-std-xcode-26.6")
+        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-session-light-xcode-27.2")
+        context["needs.macos-placement.outputs.free_session_runner"] = "glaeda-session-std-xcode-27.2"
+        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-session-std-xcode-27.2")
         context["github.event_name"] = "pull_request"
         context["github.event.pull_request.head.repo.full_name"] = "manaflow-ai/cmux"
-        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-27.2")
         context["github.event.pull_request.head.repo.full_name"] = "outside/cmux"
         self.assertEqual(evaluate(one_runs_on(job), context), "blacksmith-6vcpu-macos-26")
         context["github.repository_owner"] = "outside"
@@ -3463,10 +3463,10 @@ printf 200
                 self.assertEqual(self.runs(context), runs)
         # The refused side pool is not asked again: the fallback takes the last-resort
         # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
-        context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
+        context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-27.2"
         for result, verdict, label in (("failure", "", "blacksmith-6vcpu-macos-26"),
-                                       ("success", "", "glaeda-side-std-xcode-26.6"),
-                                       ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
+                                       ("success", "", "glaeda-side-std-xcode-27.2"),
+                                       ("success", "unavailable", "glaeda-side-std-xcode-27.2")):
             with self.subTest(result=result, verdict=verdict, route=label):
                 context["needs.release-compile-fast.result"] = result
                 context["needs.release-compile-fast.outputs.verdict"] = verdict
@@ -3827,12 +3827,12 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     (vars.CI_COMPILE_CHECK_GATEWAY, a side-light label, or macos-placement's gateway_runner) runs only on
     a gateway runner macos-placement saw idle in the same attempt; in every other case it skips and its
     Mac fallback runs, in the cascade (an idle owned mini, then Blacksmith). 2026-10-26 06:00Z: 44 jobs
-    queued on glaeda-side-light-xcode-26.6, the oldest 58 minutes, and PR #24155's app compile queued
+    queued on glaeda-side-light-xcode-27.2, the oldest 58 minutes, and PR #24155's app compile queued
     there three times without running. A new job pinned to the gateway fails here until it is in
     FALLBACKS, with the guard."""
 
-    LIGHT = "glaeda-side-light-xcode-26.6"
-    STD = "glaeda-side-std-xcode-26.6"
+    LIGHT = "glaeda-side-light-xcode-27.2"
+    STD = "glaeda-side-std-xcode-27.2"
     # The job whose gateway reading each gateway job takes: macos-placement, after the PR quiet period, except
     # the PR's app compile, judged at once (app-compile-placement; Leo, 2026-11-08: only the Mac jobs wait).
     READING = {"app-compile-fleet": "app-compile-placement"}
@@ -3989,7 +3989,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         for reading in ({}, {"needs.macos-placement.outputs.gateway_attempt": "1",
                              "needs.macos-placement.outputs.gateway_runner": ""},
                         {"needs.macos-placement.outputs.gateway_attempt": "1",
-                         "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}):
+                         "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-27.2"}):
             with self.subTest(reading=reading):
                 self.assertTrue(evaluate(job["if"], {**context, **reading}))
                 self.assertEqual(route_of(job, {**context, **reading}), "cmux-linux")
@@ -4004,7 +4004,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         for reading in ({}, {"needs.app-compile-placement.outputs.gateway_attempt": "1",
                              "needs.app-compile-placement.outputs.gateway_runner": ""},
                         {"needs.app-compile-placement.outputs.gateway_attempt": "1",
-                         "needs.app-compile-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}):
+                         "needs.app-compile-placement.outputs.gateway_runner": "glaeda-side-std-xcode-27.2"}):
             for attempt in (1, 2):
                 with self.subTest(reading=reading, attempt=attempt):
                     ctx = {**context, **reading, "github.run_attempt": attempt}
@@ -4501,7 +4501,7 @@ esac
             self.assertIn(f'submit {"1" if "Shared" in package else "2"} {package} ', step["run"])
 
     def context(self, *, event: str = "pull_request", attempt: int = 1, fleet: str = " fast-tier ",
-                gateway: tuple[str, str] = ("1", "glaeda-gateway-xcode-26.6"), head: str = "manaflow-ai/cmux") -> dict:
+                gateway: tuple[str, str] = ("1", "glaeda-gateway-xcode-27.2"), head: str = "manaflow-ai/cmux") -> dict:
         return with_linux_fast_tier_read(self.jobs(), {"github.event_name": event, "github.repository": "manaflow-ai/cmux",
                 "github.repository_owner": "manaflow-ai", "github.base_ref": "feat-cmux-next",
                 "github.ref": "refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge",
@@ -4515,7 +4515,7 @@ esac
         job = self.jobs()["fast-tier-fleet-mac"]
         push = self.context(event="push")
         self.assertTrue(evaluate(job["if"], push))
-        self.assertEqual(evaluate(one_runs_on(job), push), "glaeda-gateway-xcode-26.6")
+        self.assertEqual(evaluate(one_runs_on(job), push), "glaeda-gateway-xcode-27.2")
         for why, context in (("not listed", self.context(event="push", fleet="")),
                              ("another tier", self.context(event="push", fleet=" swift-canary ")),
                              ("no idle gateway", self.context(event="push", gateway=("1", ""))),
@@ -4542,7 +4542,7 @@ esac
         # runs on the re-run and reads the gateway now: with a runner idle there the client runs on it and
         # the tier only reports, from Linux.
         jobs = self.jobs()
-        gateway = "glaeda-gateway-xcode-26.6"
+        gateway = "glaeda-gateway-xcode-27.2"
         place, client, tier = jobs["fast-tier-rerun-placement"], jobs["fast-tier-fleet-mac"], jobs["fast-tier"]
         self.assertIn("fast-tier-rerun-placement", client["needs"])
         # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556): the re-run placement is a push's.
@@ -4678,7 +4678,7 @@ esac
                 "github.event_name": "pull_request", "github.run_attempt": 1,
                 "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
                 "needs.macos-placement.outputs.placed_attempt": "1",
-                "needs.macos-placement.outputs.deferred_runner": "glaeda-side-std-xcode-26.6",
+                "needs.macos-placement.outputs.deferred_runner": "glaeda-side-std-xcode-27.2",
                 "needs.fast-tier-fleet-mac.result": "success", "needs.fast-tier-fleet-mac.outputs.verdict": "queued"}
         for extra in ({}, {"vars.LINUX_RUNNER": "glaeda-linux"}, {"vars.CI_CLOUD_OVERFLOW_SAVED": "1"}):
             with self.subTest(**extra):
@@ -4694,7 +4694,7 @@ esac
         place = jobs["fast-tier-handback-placement"]
         self.assertIn("fast-tier-handback-placement", tier["needs"])
         self.assertEqual(place["needs"], ["fast-tier-fleet", "fast-tier-fleet-mac"])
-        for label in ("glaeda-fast-light-xcode-26.6", "glaeda-side-std-xcode-26.6"):
+        for label in ("glaeda-fast-light-xcode-27.2", "glaeda-side-std-xcode-27.2"):
             with self.subTest(handback=label):
                 handed = {**base, "needs.fast-tier-handback-placement.outputs.runner": label,
                           "needs.fast-tier-handback-placement.outputs.placed_attempt": "1"}
@@ -4719,11 +4719,11 @@ esac
         side = step["env"]["SIDE_LABEL"]
         self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
                                          "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
-                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
-                         "glaeda-side-std-xcode-26.6")
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-27.2"}),
+                         "glaeda-side-std-xcode-27.2")
         self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
                                          "github.event.pull_request.head.repo.full_name": "someone/cmux",
-                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-27.2"}),
                          "blacksmith-6vcpu-macos-26")
         self.assertIn("^def handback_main", step["run"])
         # A verdict, or no verdict for any other reason, is still only reported.

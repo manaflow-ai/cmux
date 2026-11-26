@@ -52,7 +52,7 @@ else, and never waits:
 4. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
    resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
-   is one or two runners (glaeda-dev-std-xcode-26.6: one busy with feed work and one offline from 10:12Z
+   is one or two runners (glaeda-dev-std-xcode-27.2: one busy with feed work and one offline from 10:12Z
    on 2026-11-02, when 15 DEV daily compiles queued there for up to 1.5 h), so a busy slot is no fallback;
 5. only while a fresh snapshot sees every Blacksmith macOS label stalled, the shared DEV slot label while a DEV
    slot is online: it waits there behind feed work only (the slots admit nothing else), never at the back of the
@@ -329,7 +329,7 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
                 "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
     # Never the shared side label, even with a side runner idle in this one listing: GitHub hands that label's queue
     # out oldest first, so the compile joins the tail behind every PR job queued there (run 44941204257, 2026-11-21:
-    # queued 76 min on glaeda-side-std-xcode-26.6 behind about 130 jobs, then refused for capacity). Leo's rule:
+    # queued 76 min on glaeda-side-std-xcode-27.2 behind about 130 jobs, then refused for capacity). Leo's rule:
     # "Nightlies come first on the fleet".
     label, why, stalled_everywhere = overflow() if overflow is not None else ("", "no Blacksmith pick", True)
     if label and not stalled_everywhere:

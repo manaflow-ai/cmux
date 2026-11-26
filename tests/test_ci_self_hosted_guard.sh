@@ -1262,7 +1262,7 @@ check_no_self_hosted_fleet_runners() {
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  # Owned pool labels (glaeda-std-xcode-26.6) are fleet labels too, so no
+  # Owned pool labels (glaeda-std-xcode-27.2) are fleet labels too, so no
   # MACOS_RUNNER_* variable may hold one and no bare `runs-on:` or list item
   # names one; `owned` is that label shape, which runner_label_policy.py
   # accepts in CI_PR_POOL_ORDER. check_owned_pools_route_through_picker holds
@@ -1355,20 +1355,20 @@ PYTHON
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
                '      group: cmux-persistent-compile' '- cmux-persistent-macos-compile' \
-               '- glaeda-std-xcode-26.6' '- glaeda-aws-std-xcode-26.3' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
-               '- GLAEDA-std-xcode-26.6' '- Tart-canary'; do
+               '- glaeda-std-xcode-27.2' '- glaeda-aws-std-xcode-26.3' "runs-on: \${{ vars.X || 'glaeda-light-xcode-27.2' }}" 'runs-on: glaeda-xl-xcode-26' \
+               '- GLAEDA-std-xcode-27.2' '- Tart-canary'; do
     if ! printf '%s\n' "$probe" | grep -Eiq "($fleet)" && ! printf '%s\n' "$probe" | grep -Eq "($selfhosted)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
     fi
   done
-  for probe in glaeda-std-xcode-26.6 glaeda-light-xcode-26.6 glaeda-xl-xcode-26; do
+  for probe in glaeda-std-xcode-27.2 glaeda-light-xcode-27.2 glaeda-xl-xcode-26; do
     if ! [[ "$probe" =~ ^($owned)$ ]] || ! printf '%s\n' "$probe" | grep -Eq "($fleet)"; then
       echo "FAIL: owned pool pattern must match, and the fleet pattern refuse, the owned label: $probe"
       exit 1
     fi
   done
-  for probe in glaeda-std-xcode glaeda-mini-xcode-26.6 blacksmith-6vcpu-macos-26; do
+  for probe in glaeda-std-xcode glaeda-mini-xcode-27.2 blacksmith-6vcpu-macos-26; do
     if [[ "$probe" =~ ^($owned)$ ]]; then
       echo "FAIL: owned pool pattern matched a label that is not an owned pool: $probe"
       exit 1
@@ -1405,8 +1405,8 @@ PYTHON
   fi
 
   # Owned pools through the picker/vars pattern pass; direct names do not.
-  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
-               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}" \
+  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-27.2' }}" \
+               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-27.2') || 'blacksmith-6vcpu-macos-26' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.sign_owned || vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"; do
     content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
@@ -1414,13 +1414,13 @@ PYTHON
       exit 1
     fi
   done
-  probe="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}"
+  probe="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-27.2' || 'blacksmith-6vcpu-macos-26' }}"
   if printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
     echo "FAIL: fleet-runner guard self-test refused a pull request owned pool behind the fork branch: $probe"
     exit 1
   fi
-  for probe in "runs-on: glaeda-std-xcode-26.6" \
-               "runs-on: \${{ 'glaeda-std-xcode-26.6' }}" \
+  for probe in "runs-on: glaeda-std-xcode-27.2" \
+               "runs-on: \${{ 'glaeda-std-xcode-27.2' }}" \
                "runs-on: \${{ vars.X || 'cmux-macos-26' }}" \
                "runs-on: \${{ vars.X || 'mac-mini' }}" \
                "runs-on: \${{ vars.X || 'glaeda-mini-7' }}"; do
@@ -1432,15 +1432,15 @@ PYTHON
   done
   # The fork branch must come FIRST: an earlier picker/variable operand would
   # resolve an owned runner for a fork before the fork branch is evaluated.
-  for probe in "runs-on: \${{ needs.untrusted.outputs.runner || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.X == '1' && 'glaeda-std-xcode-26.6' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}" \
-               "runs-on: \${{ vars.CI_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'glaeda-std-xcode-26.6' }}"; do
+  for probe in "runs-on: \${{ needs.untrusted.outputs.runner || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-27.2' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.X == '1' && 'glaeda-std-xcode-27.2' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-27.2' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ vars.CI_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'glaeda-std-xcode-27.2' }}"; do
     if ! printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
       echo "FAIL: fleet-runner guard self-test let a pull request reach an owned pool with a selector before the fork branch: $probe"
       exit 1
     fi
   done
-  probe="runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}"
+  probe="runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-27.2' || 'blacksmith-6vcpu-macos-26' }}"
   if ! printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
     echo "FAIL: fleet-runner guard self-test let a pull request reach an owned pool without the fork branch first: $probe"
     exit 1

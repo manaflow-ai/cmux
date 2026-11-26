@@ -44,7 +44,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-side-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-side-std-xcode-27.2' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 75
     steps:
       - name: Refuse any ref but feat-cmux-next, and a malformed team

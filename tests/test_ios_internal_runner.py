@@ -118,10 +118,10 @@ class Pick(unittest.TestCase):
             with contextlib.redirect_stdout(printed):
                 self.assertEqual(picker.main(env, read_runners=broken), 0)
             self.assertNotIn("token-like", printed.getvalue())
-            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.0\"]\n")
+            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.2\"]\n")
             Path(out).write_text("")
             self.assertEqual(picker.main(env, read_runners=lambda token, repo: [runner()]), 0)
-            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.0\"]\n")
+            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.2\"]\n")
 
 
 class SharedFirstLook(unittest.TestCase):
@@ -156,7 +156,7 @@ class SharedFirstLook(unittest.TestCase):
 
     def test_document_preserves_repository_only_scope_and_invalid_state_falls_back(self):
         output, _, pages = self.run_main(self.document(repository=False))
-        self.assertIn("archive runner: cmux-mac + xcode-27.0", output)
+        self.assertIn("archive runner: cmux-mac + xcode-27.2", output)
         pages.assert_not_called()
         for raw in ("", "invalid-base64"):
             with self.subTest(raw=raw):
@@ -189,13 +189,13 @@ class NoCarrierReroutes(unittest.TestCase):
     def test_a_declared_xcode_label_no_online_runner_carries_takes_the_fallback(self) -> None:
         only_26 = census([self.mac("online", "glaeda-side-std-xcode-26.6", "xcode-26.6")])
         self.assertEqual(self.fallback(only_26)[0], self.FALLBACK)
-        offline_27 = census([self.mac("offline", "glaeda-side-std-xcode-27.0", "xcode-27.0")])
+        offline_27 = census([self.mac("offline", "glaeda-side-std-xcode-27.2", "xcode-27.2")])
         self.assertEqual(self.fallback(offline_27)[0], self.FALLBACK)
         self.assertIn("no online runner carries", self.fallback(offline_27)[1])
 
     def test_a_live_carrier_keeps_the_fleet_label(self) -> None:
         # Busy still counts: the job waits for a Mac that has Xcode 27, not for none.
-        live = census([self.mac("online", "cmux-mac", "xcode-27.0")])
+        live = census([self.mac("online", "cmux-mac", "xcode-27.2")])
         self.assertEqual(self.fallback(live)[0], "")
 
     def test_no_reading_or_no_fallback_keeps_the_fleet_label(self) -> None:
@@ -230,10 +230,10 @@ class Workflow(unittest.TestCase):
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
         # The fallback must land on an Xcode 27 Mac: plain cmux-mac took 26.6-only Macs.
-        # ... unless no online runner carries xcode-27.0: then the picker's fallback (a Blacksmith Mac).
+        # ... unless no online runner carries xcode-27.2: then the picker's fallback (a Blacksmith Mac).
         self.assertTrue(runs_on.rstrip("} ").endswith(
             "|| vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && "
-            "needs.pick-archive-runner.outputs.fallback || fromJSON('[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
+            "needs.pick-archive-runner.outputs.fallback || fromJSON('[\"cmux-mac\",\"xcode-27.2\"]')"), runs_on)
         self.assertEqual(jobs["pick-archive-runner"]["outputs"]["fallback"], "${{ steps.pick.outputs.fallback }}")
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])

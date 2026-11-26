@@ -542,7 +542,7 @@ class Workflow(unittest.TestCase):
                             + ("sys.exit(1)\n" if have_output is None else f"print({have_output!r})\n"))
             out = root / "out"
             proc = subprocess.run(["bash", "-e", "-c", self.steps["hybrid-ref"]["run"]], cwd=root, capture_output=True,
-                                  text=True, env={**os.environ, "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6",
+                                  text=True, env={**os.environ, "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-27.2",
                                                   "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "o/r"})
             outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
             outputs["rc"] = str(proc.returncode)

@@ -230,7 +230,7 @@ class RunnerPoolsVariable(unittest.TestCase):
     def test_json_pool_members_reject_hosted_macs_and_fleet_labels(self) -> None:
         for value in (
             '{"macos_26":"macos-26"}',
-            '{"linux":"glaeda-std-xcode-26.6"}',
+            '{"linux":"glaeda-std-xcode-27.2"}',
             '{"linux":"self-hosted"}',
             '{"linux":["self-hosted","Linux"]}',
             '{"linux":"macOS"}',
@@ -322,11 +322,11 @@ class RunnerPoolsVariable(unittest.TestCase):
 class NightlyNextBuildVariable(unittest.TestCase):
     def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
         name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
-        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6",
+        for label in ("glaeda-dev-std-xcode-27.2", "glaeda-side-std-xcode-27.2", "glaeda-nightly-std-xcode-27.2",
                       "blacksmith-6vcpu-macos-26", ""):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
+        for label in ("glaeda-std-xcode-27.2", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
                       "glaeda-nightly-nonsense", "glaeda-nightly-std"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
@@ -342,9 +342,9 @@ class NightlySigningPoolVariable(unittest.TestCase):
         for label in ("glaeda-trusted-next-signing", ""):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
-        for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-std-xcode-26.6",
-                      "blacksmith-6vcpu-macos-26", "glaeda-signing-xcode-26.6", "glaeda-trusted-std-xcode-26.6",
-                      "glaeda-root-std-xcode-26.6", "glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing self-hosted"):
+        for label in ("glaeda-nightly-std-xcode-27.2", "glaeda-side-std-xcode-27.2", "glaeda-std-xcode-27.2",
+                      "blacksmith-6vcpu-macos-26", "glaeda-signing-xcode-27.2", "glaeda-trusted-std-xcode-27.2",
+                      "glaeda-root-std-xcode-27.2", "glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing self-hosted"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
 
@@ -353,11 +353,11 @@ class SideLaneVariable(unittest.TestCase):
     def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER are the picker-less side lanes' whole runs-on.
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
-            self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
-            self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
+            self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-27.2"}), [])
+            self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-27.2"}), [])
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
             # The glaeda-aws pools have no runners; their Macs now serve cmux-next only.
-            for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
+            for label in ("glaeda-std-xcode-27.2", "glaeda-root-light-xcode-27.2", "glaeda-side-nonsense",
                           "warp-macos-26-arm64-12x", "glaeda-aws-side-std-xcode-26.3"):
                 with self.subTest(name=name, label=label):
                     self.assertEqual(
@@ -365,37 +365,37 @@ class SideLaneVariable(unittest.TestCase):
                         [name],
                     )
         # Other runner variables still may not name one.
-        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-27.2"}))
 
 
 class FastLaneVariable(unittest.TestCase):
     def test_only_an_owned_fast_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_FAST_LANE_RUNNER is the cmux-next fast tier's own reserved runner label.
         name = "CI_FAST_LANE_RUNNER"
-        for label in ("", "glaeda-fast-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+        for label in ("", "glaeda-fast-std-xcode-27.2", "blacksmith-6vcpu-macos-26"):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-fast-nonsense",
+        for label in ("glaeda-std-xcode-27.2", "glaeda-side-std-xcode-27.2", "glaeda-fast-nonsense",
                       "warp-macos-26-arm64-12x"):
             with self.subTest(label=label):
                 self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
         # Other runner variables still may not name one.
-        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-fast-std-xcode-26.6"}))
+        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-fast-std-xcode-27.2"}))
 
 
 class SessionLaneVariable(unittest.TestCase):
     def test_only_an_owned_session_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SESSION_LANE_RUNNER is cmux-next generated files' own owned session runner label.
         name = "CI_SESSION_LANE_RUNNER"
-        for label in ("", "glaeda-session-light-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+        for label in ("", "glaeda-session-light-xcode-27.2", "blacksmith-6vcpu-macos-26"):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
-        for label in ("glaeda-light-xcode-26.6", "glaeda-fast-light-xcode-26.6", "glaeda-session-nonsense",
+        for label in ("glaeda-light-xcode-27.2", "glaeda-fast-light-xcode-27.2", "glaeda-session-nonsense",
                       "warp-macos-26-arm64-12x"):
             with self.subTest(label=label):
                 self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
         # Other runner variables still may not name one.
-        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-session-light-xcode-26.6"}))
+        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-session-light-xcode-27.2"}))
 
 
 class AwsSideRunnerVariable(unittest.TestCase):
@@ -404,14 +404,14 @@ class AwsSideRunnerVariable(unittest.TestCase):
         # runners: a job routed there would queue forever. Only empty is fine.
         name = "CI_AWS_SIDE_RUNNER"
         self.assertEqual(drifted_runner_variables({name: ""}), [])
-        for label in ("glaeda-aws-std-xcode-26.6", "glaeda-aws-light-xcode-26.3", "glaeda-std-xcode-26.6",
-                      "glaeda-side-std-xcode-26.6", "blacksmith-6vcpu-macos-15", "warp-macos-26-arm64-12x"):
+        for label in ("glaeda-aws-std-xcode-27.2", "glaeda-aws-light-xcode-26.3", "glaeda-std-xcode-27.2",
+                      "glaeda-side-std-xcode-27.2", "blacksmith-6vcpu-macos-15", "warp-macos-26-arm64-12x"):
             with self.subTest(label=label):
                 self.assertEqual(
                     [found for found, _, _ in drifted_runner_variables({name: label})],
                     [name],
                 )
-        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_BACKGROUND": "glaeda-aws-std-xcode-26.6"}))
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_BACKGROUND": "glaeda-aws-std-xcode-27.2"}))
 
     def test_no_workflow_routes_through_it(self) -> None:
         # A runs-on that reads the variable would route there again the day
@@ -428,9 +428,9 @@ class TrustedPoolVariable(unittest.TestCase):
         # CI_SEED_TRUSTED_POOL carries the ci-cache-writer seeds and nightly.yml's
         # app build (attempt 1 of main's push and schedule runs): only the
         # trusted pool, never a pull request pool.
-        self.assertEqual(drifted_runner_variables({"CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-27.2"}), [])
         self.assertEqual(drifted_runner_variables({"CI_SEED_TRUSTED_POOL": ""}), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-trusted-nonsense",
+        for label in ("glaeda-std-xcode-27.2", "glaeda-side-std-xcode-27.2", "glaeda-trusted-nonsense",
                       "blacksmith-6vcpu-macos-26"):
             with self.subTest(label=label):
                 self.assertEqual(
@@ -438,7 +438,7 @@ class TrustedPoolVariable(unittest.TestCase):
                     ["CI_SEED_TRUSTED_POOL"],
                 )
         # Other runner variables still may not name it.
-        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-trusted-std-xcode-26.6"}))
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-trusted-std-xcode-27.2"}))
 
     def test_the_reports_check_it(self) -> None:
         for workflow in ("ci-health-report.yml",):
@@ -452,7 +452,7 @@ class NightlyRunnerVariable(unittest.TestCase):
         # nightly.yml asks for ["<CI_SEED_TRUSTED_POOL>", "<CI_NIGHTLY_TRUSTED_RUNNER>"]: one trusted runner.
         self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_TRUSTED_RUNNER": "glaeda-runner-cmux15-glaeda"}), [])
         self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_TRUSTED_RUNNER": ""}), [])
-        for label in ("glaeda-trusted-std-xcode-26.6", "glaeda-runner-", "glaeda-runner-CMUX15",
+        for label in ("glaeda-trusted-std-xcode-27.2", "glaeda-runner-", "glaeda-runner-CMUX15",
                       'glaeda-runner-x", "self-hosted', "blacksmith-12vcpu-macos-26", "cmux15-glaeda"):
             with self.subTest(label=label):
                 self.assertEqual(
@@ -473,18 +473,18 @@ class NightlyRunnerVariable(unittest.TestCase):
 class NextNightlyTrustedLabels(unittest.TestCase):
     def test_next_has_a_separate_trusted_pool_and_runner(self):
         self.assertEqual(drifted_runner_variables({
-            "CI_NIGHTLY_NEXT_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+            "CI_NIGHTLY_NEXT_TRUSTED_POOL": "glaeda-trusted-std-xcode-27.2",
             "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": "glaeda-runner-next-glaeda",
         }), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-promote-trusted-std-xcode-26.6",
-                      "glaeda-side-std-xcode-26.6", 'x", "self-hosted'):
+        for label in ("glaeda-std-xcode-27.2", "glaeda-promote-trusted-std-xcode-27.2",
+                      "glaeda-side-std-xcode-27.2", 'x", "self-hosted'):
             with self.subTest(label=label):
                 self.assertEqual([name for name, _, _ in drifted_runner_variables({
                     "CI_NIGHTLY_NEXT_TRUSTED_POOL": label})], ["CI_NIGHTLY_NEXT_TRUSTED_POOL"])
 
 
 class OwnedPoolLabels(unittest.TestCase):
-    OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
+    OWNED = ("glaeda-std-xcode-27.2", "glaeda-light-xcode-27.2", "glaeda-xl-xcode-26")
 
     def test_no_runner_variable_may_hold_an_owned_label(self) -> None:
         # MACOS_RUNNER_PR would send every lane, forks' fallbacks included, to
@@ -498,32 +498,32 @@ class OwnedPoolLabels(unittest.TestCase):
                 )
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
-        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        order = "glaeda-std-xcode-27.2, glaeda-light-xcode-27.2,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
         self.assertIsNone(pool_order_reason(order))
         self.assertIsNone(pool_order_reason(""))
         self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])
 
     def test_the_pool_order_cannot_name_an_aws_pool(self) -> None:
         # The glaeda-aws pools have no runners; minis first, Blacksmith overflow.
-        for label in ("glaeda-aws-std-xcode-26.6", "glaeda-aws-std-xcode-26.3", "glaeda-aws-root-std-xcode-26.6"):
+        for label in ("glaeda-aws-std-xcode-27.2", "glaeda-aws-std-xcode-26.3", "glaeda-aws-root-std-xcode-27.2"):
             with self.subTest(label=label):
-                reason = pool_order_reason(f"glaeda-std-xcode-26.6,{label}")
+                reason = pool_order_reason(f"glaeda-std-xcode-27.2,{label}")
                 self.assertIsNotNone(reason)
                 self.assertIn(label, reason)
 
     def test_the_pool_order_cannot_smuggle_in_other_fleet_labels(self) -> None:
-        for bad in ("tart-canary", "warp-macos-26-arm64-12x", "self-hosted", "glaeda-mini-xcode-26.6", "cmux-macos-26"):
+        for bad in ("tart-canary", "warp-macos-26-arm64-12x", "self-hosted", "glaeda-mini-xcode-27.2", "cmux-macos-26"):
             with self.subTest(label=bad):
-                reason = pool_order_reason(f"glaeda-std-xcode-26.6,{bad}")
+                reason = pool_order_reason(f"glaeda-std-xcode-27.2,{bad}")
                 self.assertIsNotNone(reason)
                 self.assertIn(bad, reason)
 
     def test_case_does_not_hide_a_fleet_label(self) -> None:
         # GitHub matches runner labels without regard to case.
-        for label in ("GLAEDA-std-xcode-26.6", "Glaeda-Light-Xcode-26.6", "Tart-Canary", "WARP-macos-26-arm64-12x"):
+        for label in ("GLAEDA-std-xcode-27.2", "Glaeda-Light-Xcode-26.6", "Tart-Canary", "WARP-macos-26-arm64-12x"):
             with self.subTest(label=label):
                 self.assertIsNotNone(forbidden_reason(label))
-        self.assertIn("lowercase", pool_order_reason("GLAEDA-std-xcode-26.6,blacksmith-6vcpu-macos-26"))
+        self.assertIn("lowercase", pool_order_reason("GLAEDA-std-xcode-27.2,blacksmith-6vcpu-macos-26"))
         self.assertIsNone(forbidden_reason("blacksmith-6vcpu-macos-26"))
 
     def test_the_guard_and_the_picker_agree_on_the_owned_shape(self) -> None:
@@ -531,7 +531,7 @@ class OwnedPoolLabels(unittest.TestCase):
         import runner_label_policy
 
         guard = runner_label_policy._owned_pattern()
-        for label in (*self.OWNED, "glaeda-std-xcode", "glaeda-mini-xcode-26.6", "blacksmith-6vcpu-macos-26", "glaeda-std-xcode-26.6.1"):
+        for label in (*self.OWNED, "glaeda-std-xcode", "glaeda-mini-xcode-27.2", "blacksmith-6vcpu-macos-26", "glaeda-std-xcode-27.2.1"):
             with self.subTest(label=label):
                 self.assertEqual(bool(guard.fullmatch(label)), pr_runner_pool.persistent(label))
 

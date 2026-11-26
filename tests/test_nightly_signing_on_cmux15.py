@@ -50,7 +50,7 @@ from test_nightly_owned_minis_only import NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from signing_runner import SIGNING_JOBS  # noqa: E402
 
-DRIFTED = ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
+DRIFTED = ("glaeda-nightly-std-xcode-27.2", "glaeda-side-std-xcode-27.2")
 LABEL = "glaeda-trusted-next-signing"
 # Upload-only publisher: it holds the release App key and signs nothing, so it runs on the JIT VM, off the signer (5).
 UPLOADS = ("publish-nightly-next-github",)
@@ -161,8 +161,8 @@ class SigningOnCmux15Test(unittest.TestCase):
                 context.update({"vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice((LABEL, "", *DRIFTED)),
                                 "vars.CI_NIGHTLY_MINI": rng.choice(("glaeda-nightly-mini", "")),
                                 "vars.CI_NIGHTLY_SIGNING_POOL": rng.choice((LABEL, "", *DRIFTED)),
-                                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6",
-                                "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+                                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-27.2",
+                                "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-27.2",
                                 "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro"})
                 value = route(name, context)
                 if name in NIGHTLY_NEXT_ONLY_OWNED and context["github.ref"] != "refs/heads/nightly-next":
@@ -203,7 +203,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                          "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "'glaeda-nightly-std-xcode-26.6' }}")
+                         "'glaeda-nightly-std-xcode-27.2' }}")
 
 
 if __name__ == "__main__":

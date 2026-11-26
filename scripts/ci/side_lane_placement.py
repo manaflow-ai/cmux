@@ -247,7 +247,7 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
     # glaeda's per-label listener reading (the snapshot's `gates`, from CI_FLEET_GATES) has its own clock, so a
     # janitor snapshot too old for the counts does not void it: seen() already ages its oldest queued wait by its
     # own as_of. On 2026-11-10 the janitor snapshot was late while the gates showed 55 jobs queued on
-    # glaeda-side-std-xcode-26.6, the oldest for 21 hours, and this read None, so no dead end was seen.
+    # glaeda-side-std-xcode-27.2, the oldest for 21 hours, and this read None, so no dead end was seen.
     snapshot = getattr(seen, "snapshot", None)
     gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
     labels = gates.get("labels") if isinstance(gates, Mapping) else None
@@ -344,7 +344,7 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     A label the janitor found unserved (`seen.unserved`: a job queued on it and none running or started
     within starved_labels.STARVED_AFTER) has no room whatever its counts say, unless a runner carrying it is
     idle now: its queue is not moving. On 2026-10-29 cmux#24295's daemon tests waited 90 minutes on
-    glaeda-session-std-xcode-26.6, twice, with five session runners online and busy and the queue shorter
+    glaeda-session-std-xcode-27.2, twice, with five session runners online and busy and the queue shorter
     than them, while the gui label beside it started jobs within a minute.
     """
     online, idle = _role_online(candidate, runners)
@@ -513,8 +513,8 @@ def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
                   route: str, taken: Sequence[str] = ()) -> tuple[str, tuple[str, ...]]:
     """(the owned label, the SESSION_SPILL_JOBS that take it), else ("", ()): the shorter of the owned queues.
 
-    On 2026-11-15 at 03:15Z glaeda-side-std-xcode-26.6 had 57 jobs queued, the oldest 76 minutes, on its 8
-    online runners, while glaeda-session-std-xcode-26.6 had none queued on 13 online (3 listening). A same-repo
+    On 2026-11-15 at 03:15Z glaeda-side-std-xcode-27.2 had 57 jobs queued, the oldest 76 minutes, on its 8
+    online runners, while glaeda-session-std-xcode-27.2 had none queued on 13 online (3 listening). A same-repo
     PR's daemon tests and generated files could run on either, yet their runs-on reached `deferred_runner` (the
     side queue) before `session_runner`, which only a push reaches. With Blacksmith macOS off (#43103) nothing
     took them off the side queue either.
@@ -529,8 +529,8 @@ def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
 
     When the session label takes none, the gui label is the other owned queue these jobs run on (a push's
     daemon tests and generated files take it whenever the session label has no room): they take it while the
-    side route's queue is deeper by that rule (_shallower_jobs()). On 2026-11-15 glaeda-side-std-xcode-26.6 had
-    61 queued, the oldest 203 min, and glaeda-gui-std-xcode-26.6 had 1, yet a PR's daemon tests queued on side.
+    side route's queue is deeper by that rule (_shallower_jobs()). On 2026-11-15 glaeda-side-std-xcode-27.2 had
+    61 queued, the oldest 203 min, and glaeda-gui-std-xcode-27.2 had 1, yet a PR's daemon tests queued on side.
     """
     if runners is None:
         return "", ()
@@ -692,7 +692,7 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     """FAST_LABEL while an online runner carrying it is idle now, else "".
 
     The fast tier's reserved label is one small pool. On 2026-10-25 the fleet
-    reservation left two runners carrying glaeda-fast-light-xcode-26.6, each
+    reservation left two runners carrying glaeda-fast-light-xcode-27.2, each
     running a 20-minute fast tier back to back, and 15 runs' fast tiers queued
     behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
     joined the cascade, and nothing else moved it. So the label is a
@@ -707,8 +707,8 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
 
 
 def light_side_label(label: str) -> str:
-    """The light class's side label for an owned side label (glaeda-side-std-xcode-26.6 ->
-    glaeda-side-light-xcode-26.6), or "" when `label` is no owned side label or is light already."""
+    """The light class's side label for an owned side label (glaeda-side-std-xcode-27.2 ->
+    glaeda-side-light-xcode-27.2), or "" when `label` is no owned side label or is light already."""
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
     own = pool.owned_class(label)
@@ -721,7 +721,7 @@ def light_side_label(label: str) -> str:
 def _family(label: str) -> str:
     """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
     (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than pool.OWNED_LABEL alone:
-    the nightly builder's pool (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must
+    the nightly builder's pool (glaeda-trusted-light-xcode-27.2, cmux22) is a light mini, and its queue must
     hold the light minis too."""
     parts = (label or "").split("-")
     if not parts or parts[0] != "glaeda":
@@ -738,7 +738,7 @@ def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]
     Leo, 2026-11-08, on the PR verdict taking p50 31 minutes against 10: "Ci it's fine to start stuff in
     parallel sometimes the light minis are largely idling rn". Over the 7 days to 2026-11-08 the light
     minis (cmux17 to cmux23, 16 GB, glaeda class light) averaged 16 to 28% CPU and held 0.1 to 0.3 of their
-    12 capacity units, while the std minis averaged 63 to 80% and glaeda-side-std-xcode-26.6 queued its
+    12 capacity units, while the std minis averaged 63 to 80% and glaeda-side-std-xcode-27.2 queued its
     jobs p50 4.7 min and p90 34 min (ci-dash speed.json). On the fast lane the light minis already run
     the fast tier (1,371 runs in 4 days, p50 8.8 min against 10.1 min on the std minis), but only on
     their one fast runner each (FAST_LABEL); a busy fast runner sent the tier to the std side queue while
@@ -837,7 +837,7 @@ def light_rerun_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     """(the light minis' side label, the LIGHT_FIT_JOBS its idle runners take on the rescue's re-run), else ("", ()).
 
     Leo, 2026-11-15: "you can decide on best routing for stuff". On 2026-11-15 from 01:10Z, 32 jobs queued on
-    glaeda-side-std-xcode-26.6 (generated files, the fast tier, the app scheme compile) while no std side runner
+    glaeda-side-std-xcode-27.2 (generated files, the fast tier, the app scheme compile) while no std side runner
     was idle, and stayed there after light side runners freed: light_spill_route() places only attempt 1, and
     a queued job keeps its label. The rescue now cancels such a run and re-runs its placement once a light side
     runner is idle (owned_pool_rescue.light_wait()), and this is that re-run's light spill: each job of
@@ -879,9 +879,9 @@ def borrow_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | 
                  taken: Sequence[str] = (), lender_own: int = 0) -> tuple[str, tuple[str, ...]]:
     """(a lender label, the BORROW_JOBS its idle runners take), else ("", ()): an idle pool lends to a backed-up one.
 
-    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-26.6 had 48 queued (oldest 178 min) and
-    glaeda-side-std-xcode-26.6 44 (oldest 113 min), and the slowest PR verdicts ended on the Release compile, while
-    glaeda-gui-std-xcode-26.6 had 0 queued. Side jobs only ever took the side label, its wider classes, the session
+    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-27.2 had 48 queued (oldest 178 min) and
+    glaeda-side-std-xcode-27.2 44 (oldest 113 min), and the slowest PR verdicts ended on the Release compile, while
+    glaeda-gui-std-xcode-27.2 had 0 queued. Side jobs only ever took the side label, its wider classes, the session
     label or Blacksmith, never an idle gui runner.
 
     A job of BORROW_JOBS that runs this attempt (CASCADE_RUNS) and that no idle side or light runner took (`taken`)
@@ -937,7 +937,7 @@ def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | N
     only the jobs in FRESH_SLOT_JOBS (cmux-scheme-compile, a DEV daily's Release
     compile). Only those of FRESH_JOBS take it. On 2026-10-26 the DEV feed did
     not publish from 21:01Z: every DEV Release compile from 22:18Z queued on
-    glaeda-side-std-xcode-26.6 behind PR compiles, with all 22 online side
+    glaeda-side-std-xcode-27.2 behind PR compiles, with all 22 online side
     runners busy and Blacksmith macOS 68 deep. So the slot comes first, then
     the owned side label, then Blacksmith, like fast_route() a preference
     taken only while free: a busy, unregistered or unread label sends the
@@ -993,7 +993,7 @@ def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     hand a commit to the fleet controller over the tailnet, so any owned runner
     that carries the gateway label or a wider class of it can host them. They
     took vars.CI_COMPILE_CHECK_GATEWAY as is, and nothing moved them: at 06:00Z
-    on 2026-10-26 glaeda-side-light-xcode-26.6 had 5 jobs running and 44 queued,
+    on 2026-10-26 glaeda-side-light-xcode-27.2 had 5 jobs running and 44 queued,
     the oldest for 58 minutes, with four of its minis reserved, and PR #24155's
     app compile was queued there three times until each newer push cancelled
     it. So a label is taken only while it has an idle runner for each of
@@ -1138,10 +1138,10 @@ def delimited(jobs: Sequence[str]) -> str:
 FEAT_BRANCH = "refs/heads/feat-cmux-next"
 
 # STACK_SLOT: a same-repository pull request labelled stack-blocker (a base-red repair, or a PR a stack of others waits
-# on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-26.6, a label no other PR job asks
+# on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-27.2, a label no other PR job asks
 # for, so a busy side label's queue never holds it. GitHub hands a label's queued jobs out in arrival order, so on
 # 2026-11-17 cmux#45498, the repair of a daemon-test red on every feat-cmux-next head, queued behind about 70 PR jobs
-# on glaeda-side-std-xcode-26.6. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
+# on glaeda-side-std-xcode-27.2. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
 # need every day ... build it as the standing mechanism (the stack-blocker path), with a test." glaeda's runner hook
 # admits such a job on the slot (STACK_SLOT there) and ranks it right after nightly jobs. The workflow sets STACK_SLOT
 # only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads

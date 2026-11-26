@@ -10,7 +10,7 @@ run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder bra
 # workflow file and the signing script therefore come from that frozen branch;
 # feat-cmux-next code (inputs.sha) runs only in `archive`, which reads no
 # secret. Archive on the dedicated mini while it is free, else on a fleet Mac
-# that has Xcode 27 (labels cmux-mac + xcode-27.0); sign/validate/upload on an
+# that has Xcode 27 (labels cmux-mac + xcode-27.2); sign/validate/upload on an
 # ephemeral Blacksmith Mac. "What to Test" is written by `notes`, which holds
 # no signing secret (scripts/ci/ios_internal_notes.py).
 on:
@@ -109,7 +109,7 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
-          # Where the archive goes when no online runner carries xcode-27.0 (the signer's Mac: its image has Xcode 27).
+          # Where the archive goes when no online runner carries xcode-27.2 (the signer's Mac: its image has Xcode 27).
           FALLBACK_MAC: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
         run: python3 scripts/ci/ios_internal_runner.py
 
@@ -120,12 +120,12 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'"
     # The pick counts only on the attempt it was made for, so a re-run of failed
     # jobs that keeps the picker's outputs takes the fallback. The fallback asks for
-    # cmux-mac AND xcode-27.0: the fleet scheduler places an xcode-X label only on a
+    # cmux-mac AND xcode-27.2: the fleet scheduler places an xcode-X label only on a
     # Mac that has that Xcode (build-fleet sched grant.go, Mac.canRun). Plain
     # cmux-mac (#49326) also took 26.6-only Macs (cmux8s, cmux10s), where
     # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
     # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
-    # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
+    # xcode-27.0 (the pin then): run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON(needs.pick-archive-runner.outputs.fallback) }}
     timeout-minutes: 90
     outputs:
@@ -263,7 +263,7 @@ jobs:
 
           apps = Path(os.environ.get("CMUX_XCODE_APPLICATIONS_DIR", "/Applications"))
           preferred = [Path(value) for value in [os.environ.get("IOS_STORE_XCODE_APP")] if value]
-          preferred += [apps / "Xcode_27.1.app", apps / "Xcode_27.1.0.app"]
+          preferred += [apps / "Xcode_27.2.app"]
           prerelease = re.compile(r"beta|preview|release[ _-]*candidate|rc(?=[ _.0-9-]|$)", re.I)
           usable = []
           for app in dict.fromkeys(preferred + sorted(apps.glob("Xcode*.app"))):

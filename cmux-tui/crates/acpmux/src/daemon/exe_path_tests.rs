@@ -134,7 +134,7 @@ fn stop(peer: &str, home: &str, allow: bool) -> Option<String> {
 /// `~/.acpmux` daemon off from Xcode's `swiftpm-testing-helper`.
 #[test]
 fn a_test_runner_never_stops_the_persons_daemon() {
-    let helper = "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper";
+    let helper = "/Applications/Xcode_27.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper";
     let refused = stop(helper, "/Users/cmux/.acpmux", false).expect("refused");
     assert!(refused.contains("a test runner"), "{refused}");
     assert!(stop(helper, "/Users/cmux/.acpmux", true).is_some());

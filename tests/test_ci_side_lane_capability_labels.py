@@ -2,7 +2,7 @@
 """Every runs-on that reads vars.CI_SIDE_LANE_RUNNER takes vars.CI_SIDE_LANE_LABELS first.
 
 Leo, 2026-11-16: "the roles/labels need to be modernized to what they actually are hiwhc is just genearl
-blobs of compute". A side-lane job used to ask for one pool label (glaeda-side-std-xcode-26.6), so it could
+blobs of compute". A side-lane job used to ask for one pool label (glaeda-side-std-xcode-27.2), so it could
 land only on the hosts that pool's class names. CI_SIDE_LANE_LABELS is the same requirement as what the job
 needs: a JSON label array, one side pool label and the capability tiers
 (scripts/ci/runner_label_policy.py side_lane_labels_reason). GitHub gives the job any runner carrying every
@@ -41,7 +41,7 @@ WRAPPED = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS
 # comparison is a condition (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-'), X != vars.CI_SIDE_LANE_RUNNER)
 # and stays a string.
 BARE_READ = re.compile(r"(?<![\w.(])(?<!!= )(?<!== )vars\.CI_SIDE_LANE_RUNNER(?!\w)(?! *(?:==|!=|,))")
-SIDE_LABEL = "glaeda-side-std-xcode-26.6"
+SIDE_LABEL = "glaeda-side-std-xcode-27.2"
 # Jobs that keep the single label for now, each because its own env copies the route as one label string,
 # which the job's scripts read as a runner label (an array would reach them as JSON text). Each leaves when
 # that copy reads the array too; an entry whose copy is gone fails, so the list only shrinks.
@@ -58,9 +58,9 @@ ENV_COPY = {
 # Arrays the variable may hold: what a std side job needs today (any side runner with Xcode 26.6; every one
 # has at least 16 GiB, the measured std footprint), and a job that needs a 48 GiB host.
 ARRAYS = (
-    ["glaeda-side-xcode-26.6", "glaeda-ram-16"],
-    ["glaeda-side-xcode-26.6", "glaeda-ram-48", "glaeda-cores-12"],
-    ["glaeda-side-std-xcode-26.6", "glaeda-ram-48"],
+    ["glaeda-side-xcode-27.2", "glaeda-ram-16"],
+    ["glaeda-side-xcode-27.2", "glaeda-ram-48", "glaeda-cores-12"],
+    ["glaeda-side-std-xcode-27.2", "glaeda-ram-48"],
 )
 
 
@@ -116,13 +116,13 @@ class SideLaneCapabilityLabelsTests(unittest.TestCase):
     def test_the_policy_refuses_an_array_no_runner_carries(self) -> None:
         for value, why in (
             ('["glaeda-ram-48"]', "exactly one side pool"),
-            ('["glaeda-side-xcode-26.6", "glaeda-side-std-xcode-26.6"]', "exactly one side pool"),
-            ('["glaeda-side-xcode-26.6", "glaeda-runner-cmux16-glaeda"]', "not a capability label"),
-            ('["glaeda-side-xcode-26.6", "glaeda-ram-32"]', "not a capability label"),
-            ('["glaeda-side-xcode-26.6", "glaeda-ram-16", "glaeda-ram-16"]', "twice"),
-            ('"glaeda-side-xcode-26.6"', "JSON array"),
+            ('["glaeda-side-xcode-27.2", "glaeda-side-std-xcode-27.2"]', "exactly one side pool"),
+            ('["glaeda-side-xcode-27.2", "glaeda-runner-cmux16-glaeda"]', "not a capability label"),
+            ('["glaeda-side-xcode-27.2", "glaeda-ram-32"]', "not a capability label"),
+            ('["glaeda-side-xcode-27.2", "glaeda-ram-16", "glaeda-ram-16"]', "twice"),
+            ('"glaeda-side-xcode-27.2"', "JSON array"),
             ("[]", "JSON array"),
-            ("glaeda-side-xcode-26.6", "valid JSON"),
+            ("glaeda-side-xcode-27.2", "valid JSON"),
         ):
             with self.subTest(value=value):
                 self.assertIn(why, policy.side_lane_labels_reason(value) or "")

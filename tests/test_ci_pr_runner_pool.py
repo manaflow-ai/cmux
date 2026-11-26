@@ -150,7 +150,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(choose(snap).runner, SMALL)
         self.assertEqual(pool.pool(snap, LARGE)["capacity"], 5)
         self.assertTrue(pool.cold(OLD))
-        self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-26.6"))
+        self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-27.2"))
 
     def test_shortest_queue_in_rounds_when_every_pool_is_full(self):
         # Queued jobs over capacity; the macOS 15 pool has no seed, so it
@@ -409,15 +409,15 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 2)
 
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
-        mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
+        mini = {"labels": ["glaeda-std-xcode-27.2"], "status": "queued"}
         self.assertTrue(janitor.is_macos_job(mini))
-        self.assertEqual(janitor.runner_pool(mini), "glaeda-std-xcode-26.6")
+        self.assertEqual(janitor.runner_pool(mini), "glaeda-std-xcode-27.2")
         self.assertFalse(janitor.is_macos_job({"labels": ["glaeda-mini"], "status": "queued"}))
         self.assertEqual(janitor.runner_pool({"labels": [SMALL]}), SMALL)
 
     def test_counts_jobs_on_an_owned_pool_label(self):
         runs = [{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}]
-        mini = "glaeda-std-xcode-26.6"
+        mini = "glaeda-std-xcode-27.2"
         jobs = {1: [self.job(mini, "in_progress"), self.job(mini, "in_progress"), self.job(mini, "queued"),
                     self.job("glaeda-mini", "queued"), self.job("blacksmith-4vcpu-ubuntu-2404", "queued")]}
         snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
@@ -427,7 +427,7 @@ class JanitorSnapshot(unittest.TestCase):
     def test_the_snapshot_says_what_each_owned_runner_is_running(self):
         # pr_runner_pool.py's warm routing estimates a busy warm runner's wait from it.
         runs = [{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}]
-        root = "glaeda-root-std-xcode-26.6"
+        root = "glaeda-root-std-xcode-27.2"
         running = {**self.job(root, "in_progress"), "runner_name": "cmux14-glaeda-1",
                    "name": "macOS / macOS compile admission", "started_at": "2026-09-24T10:25:00Z"}
         jobs = {1: [running, {**self.job(root, "queued"), "runner_name": ""},
@@ -437,7 +437,7 @@ class JanitorSnapshot(unittest.TestCase):
                                                                "started_at": "2026-09-24T10:25:00Z"}})
 
     def test_owned_pool_commitments_count_jobs_not_created_yet(self):
-        mini = "glaeda-std-xcode-26.6"
+        mini = "glaeda-std-xcode-27.2"
         runs = [{"id": 1, "status": "in_progress", "path": ".github/workflows/ci.yml"},
                 {"id": 2, "status": "in_progress", "path": ".github/workflows/ci.yml"},
                 {"id": 3, "status": "completed", "path": ".github/workflows/ci.yml"}]
@@ -472,7 +472,7 @@ class JanitorSnapshot(unittest.TestCase):
     def test_owned_pool_marker_holds_until_every_placed_job_finished(self):
         # Admission and cli-product-tests placed on one machine (jobs=1, placed=2):
         # admission finishing before cli-product-tests exists does not release it.
-        mini = "glaeda-std-xcode-26.6"
+        mini = "glaeda-std-xcode-27.2"
         run = {"id": 1, "status": "in_progress", "path": ".github/workflows/ci.yml"}
         marker = janitor.owned_marker({"id": 1, "run_attempt": 1}, [f"macos-pool-persistent-1-1-1p2-{mini}"])
         admitted = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
@@ -484,26 +484,26 @@ class JanitorSnapshot(unittest.TestCase):
 
     def test_owned_marker_names_this_attempts_pool_and_peak(self):
         run = {"id": 42, "run_attempt": 1}
-        name = "macos-pool-persistent-42-1-3-glaeda-std-xcode-26.6"
-        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 3, 3))
+        name = "macos-pool-persistent-42-1-3-glaeda-std-xcode-27.2"
+        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-27.2", 3, 3))
         # A re-run of failed jobs uploads no marker: it holds the pool of the attempt that last picked.
-        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-26.6", 3, 3))
-        self.assertEqual(pool.run_marker([{"name": name}], {"id": 42, "run_attempt": 2}), ("glaeda-std-xcode-26.6", 3))
+        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-27.2", 3, 3))
+        self.assertEqual(pool.run_marker([{"name": name}], {"id": 42, "run_attempt": 2}), ("glaeda-std-xcode-27.2", 3))
         self.assertIsNone(pool.run_marker([{"name": name.replace("-42-1-", "-42-3-")}], {"id": 42, "run_attempt": 2}))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
-        self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-99-glaeda-std-xcode-26.6"]),
-                         ("glaeda-std-xcode-26.6", pool.MAX_RUN_JOBS, pool.MAX_RUN_JOBS))
+        self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-99-glaeda-std-xcode-27.2"]),
+                         ("glaeda-std-xcode-27.2", pool.MAX_RUN_JOBS, pool.MAX_RUN_JOBS))
         # ci.yml's marker also names the owned jobs it placed, which may exceed its peak.
-        self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-1p2-glaeda-std-xcode-26.6"]),
-                         ("glaeda-std-xcode-26.6", 1, 2))
+        self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-1p2-glaeda-std-xcode-27.2"]),
+                         ("glaeda-std-xcode-27.2", 1, 2))
 
     def test_only_runs_that_may_hold_an_owned_pool_cost_a_listing(self):
         repo = {"id": 7}
         run = {"event": "pull_request", "run_attempt": 1, "path": ".github/workflows/ci.yml",
                "repository": repo, "head_repository": repo}
         self.assertTrue(janitor.may_hold_owned_pool(run, []))
-        self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-26.6", "queued")]))
+        self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-27.2", "queued")]))
         # swift-package-tests sits on Blacksmith beside a full-suite run on an owned pool.
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job(OLD, "queued")]))
         # The bot's host-fault re-run: attempt 2 is placed like attempt 1 (pr_runner_pool.LAST_OWNED_ATTEMPT).
@@ -586,9 +586,9 @@ def warm_lane(index: str = "") -> str:
         f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
 
-PR_XCODE = "/Applications/Xcode_26.6.app"
-MINI = "glaeda-std-xcode-26.6"
-LIGHT = "glaeda-light-xcode-26.6"
+PR_XCODE = "/Applications/Xcode_27.2.app"
+MINI = "glaeda-std-xcode-27.2"
+LIGHT = "glaeda-light-xcode-27.2"
 OWNED_PINS = {**PINS, "CMUX_CI_XCODE_APP_PR": PR_XCODE}
 
 
@@ -613,7 +613,7 @@ class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
 
     def test_root_demand_is_scoped_to_each_pool_gui_capacity(self):
-        aws = "glaeda-aws-std-xcode-26.6"
+        aws = "glaeda-aws-std-xcode-27.2"
         aws_root = pool.root_label(aws)
         snap = backlog(small=0, large=0, old=0)
         for label in (aws, aws_root, MINI, ROOT_MINI):
@@ -636,7 +636,7 @@ class OwnedPools(unittest.TestCase):
         def runner(labels, status="online", busy=False):
             return {"status": status, "busy": busy, "labels": [{"name": name} for name in labels]}
         runners = [runner(["self-hosted", MINI]), runner([MINI], busy=True), runner([MINI], status="offline"),
-                   runner([MINI, "glaeda-root-std-xcode-26.6"]), runner([LIGHT]), runner(["cmux15"])]
+                   runner([MINI, "glaeda-root-std-xcode-27.2"]), runner([LIGHT]), runner(["cmux15"])]
         self.assertEqual(pool.live_owned_free(runners, (MINI, LIGHT)), {MINI: 2, LIGHT: 1})
 
     def test_live_capacity_replaces_the_slot_count_and_snapshot_age(self):
@@ -909,21 +909,21 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
 
     def test_namespaced_pool_is_opt_in_through_the_explicit_order(self):
-        aws = "glaeda-aws-std-xcode-26.6"
+        aws = "glaeda-aws-std-xcode-27.2"
         self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
         self.assertEqual(pool.owned_pools(PR_XCODE, aws), (MINI, LIGHT, aws))
         self.assertEqual(pool.owned_pools(PR_XCODE, f"{aws},glaeda-aws-light-xcode-26.3"),
                          (MINI, LIGHT, aws))
 
     def test_namespaced_pool_order_is_accepted_and_default_stays_office_only(self):
-        aws = "glaeda-aws-std-xcode-26.6"
+        aws = "glaeda-aws-std-xcode-27.2"
         self.assertEqual(pool.settings("", aws, "", "1", PR_XCODE).order,
                          (aws,))
         self.assertEqual(pool.settings("", "", "", "1", PR_XCODE).order,
                          (MINI, LIGHT, pool.LARGE_RUNNER, pool.DEFAULT_RUNNER, pool.MACOS_15_RUNNER))
 
     def test_explicit_aws_pool_can_be_selected_with_its_own_capacity(self):
-        aws = "glaeda-aws-std-xcode-26.6"
+        aws = "glaeda-aws-std-xcode-27.2"
         snap = backlog(small=0, large=0, old=0)
         snap["pools"][aws] = {"queued": 0, "running": 0}
         choice = choose(snap, pins=OWNED_PINS, owned="1", order=f"{aws},{MINI}", jobs=1,
@@ -932,11 +932,11 @@ class OwnedPools(unittest.TestCase):
 
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
-        self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
+        self.assertTrue(pool.persistent("glaeda-light-xcode-27.2"))
         # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
-        self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
+        self.assertTrue(pool.persistent("glaeda-fast-std-xcode-27.2"))
         # So is generated files' session runner (CI_SESSION_LANE_RUNNER).
-        self.assertTrue(pool.persistent("glaeda-session-light-xcode-26.6"))
+        self.assertTrue(pool.persistent("glaeda-session-light-xcode-27.2"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
@@ -1117,13 +1117,13 @@ class OwnedPools(unittest.TestCase):
 
     def test_bad_slot_entries_are_named(self):
         problems = pool.slot_problems('{"%s": 11, "glaeda-std-xcode-26.6x": 2, "%s": "3", "%s": 11.0}'
-                                      % (MINI, LIGHT, "glaeda-xl-xcode-26.6"))
+                                      % (MINI, LIGHT, "glaeda-xl-xcode-27.2"))
         self.assertEqual(len(problems), 3, problems)
         self.assertTrue(any("glaeda-std-xcode-26.6x" in p and "not an owned pool label" in p for p in problems))
         self.assertTrue(any(LIGHT in p and "'3'" in p for p in problems))
         self.assertEqual(pool.slot_problems(""), [])
         self.assertEqual(pool.slot_problems('{"%s": 11}' % MINI), [])
-        for side in ("side-std", "glaeda-side-std-xcode-26.6"):
+        for side in ("side-std", "glaeda-side-std-xcode-27.2"):
             self.assertIn("names side runners", pool.slot_problems('{"%s": 11, "%s": 4}' % (MINI, side))[0])
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
@@ -1163,7 +1163,7 @@ class OwnedPools(unittest.TestCase):
                 self.assertEqual("**Error:**" in Path(tmp, "summary").read_text(), flagged, case)
 
     def test_slots_take_a_bare_count_or_a_class_for_the_lane_pin(self):
-        pin = "/Applications/Xcode_26.6.app"
+        pin = "/Applications/Xcode_27.2.app"
         for raw in ("40", " 40\n", '{"std": 40}'):
             self.assertEqual(pool.slots(raw, pin), {MINI: 40}, raw)
             self.assertEqual(pool.slot_problems(raw, pin), [], raw)
@@ -1177,7 +1177,7 @@ class OwnedPools(unittest.TestCase):
 
     def test_slots_ignore_anything_malformed(self):
         self.assertEqual(pool.slots('{"%s": 11, "blacksmith-6vcpu-macos-26": 5, "glaeda-std-xcode-26.3": 0,'
-                                    ' "glaeda-light-xcode-26.6": true}' % MINI), {MINI: 11})
+                                    ' "glaeda-light-xcode-27.2": true}' % MINI), {MINI: 11})
         for raw in ("", "nope", "[1]", '{"%s": "3"}' % MINI):
             self.assertEqual(pool.slots(raw), {}, raw)
 
@@ -1365,7 +1365,7 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual((choice.label, choice.how), (LIGHT, "owned"))
 
     def test_invalid_full_label_slots_are_not_replaced_by_the_class(self):
-        pin = "/Applications/Xcode_26.6.app"
+        pin = "/Applications/Xcode_27.2.app"
         raw = '{"std": 40, "%s": 0}' % MINI
         self.assertEqual(pool.slots(raw, pin), {})
         self.assertTrue(any("positive whole number" in problem for problem in pool.slot_problems(raw, pin)))
@@ -1409,9 +1409,9 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
 
-ROOT_MINI = "glaeda-root-std-xcode-26.6"
-SIDE_MINI = "glaeda-side-std-xcode-26.6"
-GUI_MINI = "glaeda-gui-std-xcode-26.6"
+ROOT_MINI = "glaeda-root-std-xcode-27.2"
+SIDE_MINI = "glaeda-side-std-xcode-27.2"
+GUI_MINI = "glaeda-gui-std-xcode-27.2"
 
 
 class QueueBehindBusyRunners(unittest.TestCase):
@@ -1519,8 +1519,8 @@ class QueueBehindBusyRunners(unittest.TestCase):
         snap = fleet(busy=37)
         snap["pools"][ROOT_MINI] = {"queued": 0, "running": 19}
         snap["pools"][LIGHT] = {"queued": 0, "running": 0}
-        snap["pools"]["glaeda-root-light-xcode-26.6"] = {"queued": 0, "running": 0}
-        slots = json.dumps({MINI: 42, ROOT_MINI: 19, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2})
+        snap["pools"]["glaeda-root-light-xcode-27.2"] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 42, ROOT_MINI: 19, LIGHT: 4, "glaeda-root-light-xcode-27.2": 2})
         first = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2")
         self.assertEqual(first.runner, LIGHT)
         self.assertIn("first owned pool free for this run now", first.reason)
@@ -1867,7 +1867,7 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(routed[SIDE_MINI], 0)
 
     def test_gui_jobs_take_the_gui_label_beside_a_root_and_gui_count(self):
-        gui = "glaeda-gui-std-xcode-26.6"
+        gui = "glaeda-gui-std-xcode-27.2"
         self.assertTrue(pool.persistent(gui))
         self.assertEqual((pool.gui_label(MINI), pool.pool_label(gui)), (gui, MINI))
         self.assertEqual((pool.gui_label(ROOT_MINI), pool.gui_label(gui), pool.gui_label(SMALL)), ("", "", ""))
@@ -1887,11 +1887,11 @@ class RootRunners(unittest.TestCase):
         # glaeda#1530: a mini's console gui runner and its extra session runners carry
         # glaeda-session-<class>-xcode-<version>. Jobs that need a logged-in session but not the
         # console gui token take it, so they run beside a console GUI job.
-        session = "glaeda-session-std-xcode-26.6"
+        session = "glaeda-session-std-xcode-27.2"
         self.assertTrue(pool.persistent(session))
         self.assertEqual((pool.session_label(MINI), pool.pool_label(session)), (session, MINI))
-        self.assertEqual(pool.session_label("glaeda-light-xcode-26.6"), "glaeda-session-light-xcode-26.6")
-        for label in (session, "glaeda-gui-std-xcode-26.6", ROOT_MINI, SMALL, ""):
+        self.assertEqual(pool.session_label("glaeda-light-xcode-27.2"), "glaeda-session-light-xcode-27.2")
+        for label in (session, "glaeda-gui-std-xcode-27.2", ROOT_MINI, SMALL, ""):
             self.assertEqual(pool.session_label(label), "", label)
         self.assertEqual((pool.root_label(session), pool.side_label(session), pool.gui_label(session)), ("", "", ""))
         # The class form counts. A mini with guiRunners 2 carries it on two runners, so a count above
@@ -2045,7 +2045,7 @@ class WarmAffinity(unittest.TestCase):
                         # Not installed with its static label yet: a job naming it would wait forever.
                         [live_runner(1, MINI, ROOT_MINI, own=False)],
                         # A runner of another root pool, or no root runner.
-                        [live_runner(1, LIGHT, "glaeda-root-light-xcode-26.6")],
+                        [live_runner(1, LIGHT, "glaeda-root-light-xcode-27.2")],
                         [live_runner(1, MINI)]):
             self.assertEqual(pool.warm_admission_runner(runners, ROOT_MINI, MERGE_BASE, warm(1)), "", runners)
         # Warm for another commit, another runner warm, or no warm state at all.
@@ -2127,7 +2127,7 @@ class WarmAffinity(unittest.TestCase):
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
     def test_explicit_aws_order_uses_aws_light_side_runners(self):
-        aws_light = "glaeda-aws-light-xcode-26.6"
+        aws_light = "glaeda-aws-light-xcode-27.2"
         aws_side = pool.side_label(aws_light)
         office_side = pool.side_label(LIGHT)
         runners = [live_runner(1, LIGHT, office_side), live_runner(2, aws_light, aws_side)]
@@ -2402,7 +2402,7 @@ class LiveCapacity(unittest.TestCase):
 
     def test_aws_namespace_does_not_count_as_office_pool_capacity(self):
         aws = mini_runner("aws-m4pro-9", 0, MINI, ROOT_MINI,
-                          "glaeda-aws-std-xcode-26.6", "glaeda-aws-root-std-xcode-26.6")
+                          "glaeda-aws-std-xcode-27.2", "glaeda-aws-root-std-xcode-27.2")
         office = mini_runner("cmux7s", 0, MINI, ROOT_MINI)
         self.assertEqual(pool.live_online([aws, office], (MINI, ROOT_MINI)),
                          {MINI: 1, ROOT_MINI: 1})
@@ -2410,8 +2410,8 @@ class LiveCapacity(unittest.TestCase):
                          {MINI: 1, ROOT_MINI: 1})
 
     def test_explicit_aws_order_exposes_only_its_namespace_labels(self):
-        aws = "glaeda-aws-std-xcode-26.6"
-        aws_root = "glaeda-aws-root-std-xcode-26.6"
+        aws = "glaeda-aws-std-xcode-27.2"
+        aws_root = "glaeda-aws-root-std-xcode-27.2"
         runners = [mini_runner("aws-m4pro-9", 0, aws, aws_root)]
         slots = pool.routing_slots("", PR_XCODE, runners, aws)
         self.assertEqual((slots.get(aws), slots.get(aws_root), slots.get(pool.side_label(aws))), (1, 1, 0))
@@ -2868,7 +2868,7 @@ class MainFullSuite(unittest.TestCase):
         self.assertEqual((pull.runner, pull.root_budget), (MINI, 6))
         # A pool too small for the whole run (light: 4 machines, 2 root
         # runners) keeps the split: the excess would wait past the rescue.
-        light_root = "glaeda-root-light-xcode-26.6"
+        light_root = "glaeda-root-light-xcode-27.2"
         snap = self.snap(roots_busy=14)
         snap["pools"][ROOT_MINI]["queued"] = 30
         snap["pools"][LIGHT] = {"queued": 0, "running": 0}
@@ -3654,7 +3654,7 @@ class IOSRouting(unittest.TestCase):
                                                f"macos-pool-persistent-7-1-2-{MINI}"]), (MINI, 2, 2))
 
     def test_the_janitor_counts_a_sim_first_job_as_a_simulator_not_a_pool_machine(self):
-        sim_first = "glaeda-sim-xcode-26.6"
+        sim_first = "glaeda-sim-xcode-27.2"
 
         def job(labels, status):
             return {"labels": labels, "status": status, "created_at": "2026-09-24T10:00:00Z", "name": "x"}
@@ -3684,7 +3684,7 @@ class IOSRouting(unittest.TestCase):
 
     def test_a_capability_label_as_the_runner_variable_takes_the_default(self):
         # cmux#43307, run 43970068980: vars.MACOS_RUNNER_IOS read glaeda-ios-sim, and every output named it.
-        for bad in (IOS_SIM, "glaeda-sim-xcode-26.6"):
+        for bad in (IOS_SIM, "glaeda-sim-xcode-27.2"):
             out, err = io.StringIO(), io.StringIO()
             with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
                 code = ios_pool.main(["--lane", "kit", "--variable", bad], env={})
@@ -3727,9 +3727,9 @@ class IOSRouting(unittest.TestCase):
         base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
                     pr_xcode_app=PR_XCODE)
         granted = ios_pool.granted_default(ios_pool.ephemeral(SMALL), **base)
-        self.assertEqual(json.loads(granted.runs_on), ["cmux-mac", IOS_SIM, "xcode-26.6"])
-        self.assertEqual(json.loads(granted.build_runs_on), ["cmux-mac", IOS_SIM, "xcode-26.6"])
-        self.assertEqual(json.loads(granted.package_runs_on), ["cmux-mac", "xcode-26.6"])
+        self.assertEqual(json.loads(granted.runs_on), ["cmux-mac", IOS_SIM, "xcode-27.2"])
+        self.assertEqual(json.loads(granted.build_runs_on), ["cmux-mac", IOS_SIM, "xcode-27.2"])
+        self.assertEqual(json.loads(granted.package_runs_on), ["cmux-mac", "xcode-27.2"])
         self.assertEqual((granted.label, json.loads(granted.retry_runs_on), granted.persistent),
                          ("cmux-mac", SMALL, False))
         # The variable naming the default itself, an overflow pool the simple picker chose, and the plain
@@ -3738,7 +3738,7 @@ class IOSRouting(unittest.TestCase):
                                (ios_pool.ephemeral(LARGE), {}),
                                (ios_pool.ephemeral(SMALL), {"overflow": "cmux-mac", "requested": ""})):
             self.assertEqual(json.loads(ios_pool.granted_default(route, **{**base, **changes}).runs_on),
-                             ["cmux-mac", IOS_SIM, "xcode-26.6"], changes)
+                             ["cmux-mac", IOS_SIM, "xcode-27.2"], changes)
         self.assertEqual(ios_pool.pinned_xcode("26"), "26.6")
         self.assertEqual(json.loads(ios_pool.granted_default(ios_pool.ephemeral(SMALL),
                                                              **{**base, "pr_xcode_app": ""}).runs_on),
@@ -3765,7 +3765,7 @@ class IOSRouting(unittest.TestCase):
 
     def test_no_free_runner_keeps_the_default_it_logged_instead_of_the_grant(self):
         # cmux#53546: the picker logged "staying on blacksmith-6vcpu-macos-26" and the job still took
-        # cmux-mac + glaeda-ios-sim + xcode-26.6, a 39 min queue. With 0 runners free the labels match the log.
+        # cmux-mac + glaeda-ios-sim + xcode-27.2, a 39 min queue. With 0 runners free the labels match the log.
         base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
                     pr_xcode_app=PR_XCODE, event="pull_request")
         for pool_free, sim_free in ((0, 0), (2, 0), (0, 2)):
@@ -3798,8 +3798,8 @@ class IOSRouting(unittest.TestCase):
         args = ["--lane", "kit", "--pr-xcode-app", PR_XCODE]
         outputs = run(args, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
         self.assertEqual({k: outputs[k] for k in ("label", "runs_on", "package_runs_on", "retry_runs_on", "persistent")},
-                         {"label": "cmux-mac", "runs_on": json.dumps(["cmux-mac", IOS_SIM, "xcode-26.6"]),
-                          "package_runs_on": json.dumps(["cmux-mac", "xcode-26.6"]),
+                         {"label": "cmux-mac", "runs_on": json.dumps(["cmux-mac", IOS_SIM, "xcode-27.2"]),
+                          "package_runs_on": json.dumps(["cmux-mac", "xcode-27.2"]),
                           "retry_runs_on": json.dumps(SMALL), "persistent": "false"})
         # A fork, an outage's overflow label and another repository keep the simple picker's Blacksmith pool.
         for extra, env in ((["--fork", "true"], {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}),
@@ -3868,12 +3868,12 @@ class IOSRouting(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
 
-    SIM_FIRST = "glaeda-sim-xcode-26.6"
+    SIM_FIRST = "glaeda-sim-xcode-27.2"
 
     def sim_first_runner(self, host, k=3, *, status="online", busy=False, label=SIM_FIRST):
         return {"name": f"{host}-glaeda-{k}", "status": status, "busy": busy,
                 "labels": [{"name": "self-hosted"}, {"name": "glaeda-mini"}, {"name": "glaeda-dedicated"},
-                           {"name": "xcode-26.6"}, {"name": label}]}
+                           {"name": "xcode-27.2"}, {"name": label}]}
 
     def test_sim_first_label_follows_the_xcode_pin(self):
         self.assertEqual(pool.sim_first_label(PR_XCODE), self.SIM_FIRST)
@@ -3996,7 +3996,7 @@ class IOSRouting(unittest.TestCase):
 
     def test_build_route_takes_the_sim_first_label_for_an_owned_test_ios_run(self):
         # 2026-11-17: cmux#44053's ios-simulator-build (job 133824519208) queued from 04:44Z on
-        # glaeda-std-xcode-26.6 + glaeda-ios-sim behind glaeda-side-std's 101 queued jobs; glaeda#2057
+        # glaeda-std-xcode-27.2 + glaeda-ios-sim behind glaeda-side-std's 101 queued jobs; glaeda#2057
         # admits the build on the sim-first runner.
         owned = ios_pool.Route(MINI, SMALL, True)
         placed = ios_pool.build_route(owned, lane="test-ios", swift_package="", sim_first_label=self.SIM_FIRST, idle=1)
@@ -4229,9 +4229,9 @@ class IOSRouting(unittest.TestCase):
 class E2EQueueRounds(unittest.TestCase):
     """e2e_runner_pool.py queues for an owned pool within CI_PR_POOL_QUEUE_ROUNDS, as pull requests do."""
 
-    LIGHT = "glaeda-light-xcode-26.6"
-    ROOT_LIGHT = "glaeda-root-light-xcode-26.6"
-    SLOTS = {MINI: 32, "glaeda-light-xcode-26.6": 4, ROOT_MINI: 15, "glaeda-root-light-xcode-26.6": 2}
+    LIGHT = "glaeda-light-xcode-27.2"
+    ROOT_LIGHT = "glaeda-root-light-xcode-27.2"
+    SLOTS = {MINI: 32, "glaeda-light-xcode-27.2": 4, ROOT_MINI: 15, "glaeda-root-light-xcode-27.2": 2}
 
     def snapshot(self):
         """The janitor snapshot of 2026-09-25 12:34:57 UTC that run 36136190497 read."""
@@ -4500,7 +4500,7 @@ class LiveIdleRunners(unittest.TestCase):
         # Without gui runners on std (another pool's gui count does not count), a newer
         # run's jobs after admission take root runners too: its whole peak is charged.
         whole = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, LIGHT: 4,
-                                                                     "glaeda-gui-light-xcode-26.6": 4}), **kwargs)
+                                                                     "glaeda-gui-light-xcode-27.2": 4}), **kwargs)
         self.assertEqual((whole.runner, whole.root_runner, whole.root_budget), (MINI, ROOT_MINI, 0))
         self.assertIn("0 of 15 root runners free", whole.reason)
 

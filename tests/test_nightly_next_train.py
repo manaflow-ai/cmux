@@ -486,7 +486,7 @@ class OwnedRefusal(unittest.TestCase):
         return {"name": drive.GATE_JOB, "labels": labels, "conclusion": conclusion, "steps": steps}
 
     def test_only_an_owned_job_that_never_ran_its_steps_is_refused(self) -> None:
-        owned = ["glaeda-side-std-xcode-26.6"]
+        owned = ["glaeda-side-std-xcode-27.2"]
         self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [])))
         self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [self.SETUP, {"name": "Complete job", "conclusion": "success"}])))
         self.assertTrue(drive.refused_on_owned(self.job(owned, "cancelled", [{"name": "Set up job", "conclusion": "success"}])))
@@ -500,7 +500,7 @@ class OwnedRefusal(unittest.TestCase):
 
     def test_a_refused_compile_is_re_run_once_then_read(self) -> None:
         commit = "c" * 40
-        refused = self.job(["glaeda-side-std-xcode-26.6"], "failure", [self.SETUP])
+        refused = self.job(["glaeda-side-std-xcode-27.2"], "failure", [self.SETUP])
         green = self.job(["blacksmith-6vcpu-macos-26"], "success", [{"name": "Release compile", "conclusion": "success"}])
         # The second poll still shows attempt 1 completed (GitHub has not started the re-run): no second re-run.
         polls = iter([({"id": 7, "status": "completed", "run_attempt": 1}, refused),
@@ -531,7 +531,7 @@ class OwnedRefusal(unittest.TestCase):
 
     def test_a_compile_red_on_an_owned_mac_is_red(self) -> None:
         commit = "d" * 40
-        red = self.job(["glaeda-side-std-xcode-26.6"], "failure",
+        red = self.job(["glaeda-side-std-xcode-27.2"], "failure",
                        [{"name": "Set up job", "conclusion": "success"}, {"name": "Release compile", "conclusion": "failure"}])
         calls = []
 
@@ -564,7 +564,7 @@ class OwnedRefusal(unittest.TestCase):
         picker = load("nightly_build_runner", "nightly_build_runner.py")
         for label in ("macos-26", "macos-latest", "blacksmith-6vcpu-macos-26"):
             self.assertFalse(picker.owned_label(label))
-        self.assertTrue(picker.owned_label("glaeda-side-std-xcode-26.6"))
+        self.assertTrue(picker.owned_label("glaeda-side-std-xcode-27.2"))
         text = (ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8")
         self.assertEqual([line.split(":")[0].strip() for line in text.splitlines()
                           if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in line and not line.lstrip().startswith("#")],

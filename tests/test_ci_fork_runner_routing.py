@@ -1830,7 +1830,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
             self.assertTrue(label.startswith("blacksmith-"), label)
-        widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",')
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-27.2","blacksmith-2vcpu-ubuntu-2404",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
         for variant in (widened, renamed, unforked):

@@ -1106,9 +1106,9 @@ def runner(name, *labels, busy=False, status="online"):
 class IdleRunnerTests(unittest.TestCase):
     """The gate takes only a session (else gui) runner idle now: a queued job would hold publish-nightly."""
     media = load_media_runner()
-    XCODE = "/Applications/Xcode_26.6.app"
-    SESSION = "glaeda-session-std-xcode-26.6"
-    GUI = "glaeda-gui-std-xcode-26.6"
+    XCODE = "/Applications/Xcode_27.2.app"
+    SESSION = "glaeda-session-std-xcode-27.2"
+    GUI = "glaeda-gui-std-xcode-27.2"
 
     def pick(self, runners, **overrides):
         options = dict(same_repo=True, owned="1", pr_xcode_app=self.XCODE, runners=runners)
@@ -1116,10 +1116,10 @@ class IdleRunnerTests(unittest.TestCase):
         return self.media.pick_idle(**options)
 
     def test_an_idle_session_runner_first_then_an_idle_gui_runner(self):
-        both = [runner("a", "glaeda-std-xcode-26.6", self.GUI, self.SESSION, busy=True),
-                runner("b", "glaeda-std-xcode-26.6", self.SESSION)]
+        both = [runner("a", "glaeda-std-xcode-27.2", self.GUI, self.SESSION, busy=True),
+                runner("b", "glaeda-std-xcode-27.2", self.SESSION)]
         self.assertEqual(self.pick(both)[0], self.SESSION)
-        gui_only = [runner("a", "glaeda-std-xcode-26.6", self.GUI), runner("b", self.SESSION, busy=True)]
+        gui_only = [runner("a", "glaeda-std-xcode-27.2", self.GUI), runner("b", self.SESSION, busy=True)]
         self.assertEqual(self.pick(gui_only)[0], self.GUI)
 
     def test_nothing_idle_or_unreadable_places_nothing(self):

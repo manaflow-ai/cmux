@@ -25,7 +25,7 @@ sys.modules["publisher_testing"] = publisher
 spec.loader.exec_module(publisher)
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
-POOL = "glaeda-side-light-xcode-26.6"
+POOL = "glaeda-side-light-xcode-27.2"
 
 
 def gate_runs_on(workflow: str) -> str:
@@ -46,9 +46,9 @@ def testing(jobs, pool=POOL, limit=20.0):
 class VerdictTests(unittest.TestCase):
     def test_the_2026_10_21_stall_does_not_defer(self):
         # Queued since 05:43Z on the old side label.
-        stale = job("queued", minutes_ago=47, labels=("glaeda-side-std-xcode-26.6",))
+        stale = job("queued", minutes_ago=47, labels=("glaeda-side-std-xcode-27.2",))
         self.assertFalse(testing([stale]))
-        self.assertFalse(testing([job("queued", minutes_ago=2, labels=("glaeda-side-std-xcode-26.6",))]))
+        self.assertFalse(testing([job("queued", minutes_ago=2, labels=("glaeda-side-std-xcode-27.2",))]))
 
     def test_a_long_queue_on_the_current_pool_does_not_defer(self):
         self.assertFalse(testing([job("queued", minutes_ago=25)]))

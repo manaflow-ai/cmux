@@ -3,7 +3,7 @@
 another owned pool, never to Blacksmith macOS while vars.CI_BLACKSMITH_MACOS is off or the label is dead.
 
 The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
-43978720557's `build xcframework` sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to 02:38Z behind about 70
+43978720557's `build xcframework` sat queued on glaeda-side-std-xcode-27.2 from 23:23Z to 02:38Z behind about 70
 pull request jobs and was cancelled having never had a runner, while the FFI pin it publishes kept feat-cmux-next's
 startup path waiting. The owned-pool rescue (owned_pool_rescue.py) runs from main's copy and does not watch this
 workflow, so the release watches its own build.
@@ -19,7 +19,7 @@ build that waits for an older build in its concurrency group as queued too (2026
 waits in the group on the rescue route instead. The watch ends after WATCH_MINUTES whatever it saw.
 
 A rescued run rescues again, to an owned pool its chain has not named (2026-11-20: rescued run 44734106982's build sat
-110 min with no runner on glaeda-side-std-xcode-26.6, the pool its rescue picked, while a push run's build got another
+110 min with no runner on glaeda-side-std-xcode-27.2, the pool its rescue picked, while a push run's build got another
 owned Mac in 15 s, and nothing moved it). Each dispatch carries `rescue_tried`, the keys of every owned pool the chain
 has named (rescue_inputs()), never empty. A rescued run (rescue_tried set) rescues only as `owned`, to a pool not in
 it, and leaves the build queued when none is left, so a chain dispatches at most once per owned pool: no loop.

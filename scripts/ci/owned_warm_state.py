@@ -9,7 +9,7 @@ lands on another Mac and compiles from a seed instead. ci-macos.yml compile
 admission uploads the `owned-warm-keys` artifact on an owned Mac: the output
 of `owned_build_state.py warm-keys`,
 
-    {"runner": "<runner name>", "pool": "glaeda-root-std-xcode-26.6",
+    {"runner": "<runner name>", "pool": "glaeda-root-std-xcode-27.2",
      "keys": ["<sha12>", "pr-<n>", ...],
      "roots": [{"root": 1, "merged_onto": "<sha40>", "pr": <n>,
                 "pr_app_swift_files": [...], "pr_app_swift_total": <n>,

@@ -107,8 +107,8 @@ VARS_LOG = textwrap.dedent("""\
     2026-09-25T23:06:57.9Z shell: /usr/bin/bash -e {0}
     2026-09-25T23:06:57.9Z env:
     2026-09-25T23:06:57.9Z   GITHUB_REPO_NAME: manaflow-ai/cmux
-    2026-09-25T23:06:57.9Z   CI_OWNED_POOL_SLOTS: {"glaeda-std-xcode-26.6": 42}
-    2026-09-25T23:06:57.9Z   CMUX_CI_XCODE_APP_PR: /Applications/Xcode_26.6.app
+    2026-09-25T23:06:57.9Z   CI_OWNED_POOL_SLOTS: {"glaeda-std-xcode-27.2": 42}
+    2026-09-25T23:06:57.9Z   CMUX_CI_XCODE_APP_PR: /Applications/Xcode_27.2.app
     2026-09-25T23:06:57.9Z   CMUX_CI_RUNNER_VARIABLES: CI_PR_POOL_ORDER=
     LINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404
     MACOS_RUNNER_PR={pr}
@@ -172,14 +172,14 @@ class RepositoryVariables(unittest.TestCase):
     def test_values_from_the_step_header_and_their_diff(self) -> None:
         green = ga.variable_values(ga.parse_step_env(VARS_LOG.replace("{pr}", "blacksmith-6vcpu-macos-26").replace("{result}", "repository variables: ok")))
         self.assertEqual(green["MACOS_RUNNER_PR"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(green["CI_OWNED_POOL_SLOTS"], '{"glaeda-std-xcode-26.6": 42}')
+        self.assertEqual(green["CI_OWNED_POOL_SLOTS"], '{"glaeda-std-xcode-27.2": 42}')
         self.assertEqual(green["CI_PR_POOL_ORDER"], "")
         self.assertNotIn("GITHUB_REPO_NAME", green)
-        red_log = VARS_LOG.replace("{pr}", "glaeda-std-xcode-26.6").replace(
+        red_log = VARS_LOG.replace("{pr}", "glaeda-std-xcode-27.2").replace(
             "{result}", "##[error]MACOS_RUNNER_PR is an owned label; use the picker")
         red = ga.variable_values(ga.parse_step_env(red_log))
         self.assertEqual(ga.variable_changes(red, green),
-                         [{"name": "MACOS_RUNNER_PR", "old": "blacksmith-6vcpu-macos-26", "new": "glaeda-std-xcode-26.6"}])
+                         [{"name": "MACOS_RUNNER_PR", "old": "blacksmith-6vcpu-macos-26", "new": "glaeda-std-xcode-27.2"}])
         self.assertEqual(ga.error_annotations(red_log), ["MACOS_RUNNER_PR is an owned label; use the picker"])
 
     def test_the_issue_says_what_changed_and_how_to_restore_it(self) -> None:

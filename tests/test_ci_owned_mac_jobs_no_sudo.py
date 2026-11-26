@@ -4,7 +4,7 @@
 An owned mini's runner user has no passwordless sudo: `sudo` there asks for a password and fails (`sudo -n`
 fails at once). relay-tls.yml's system-keychain job read the macos_15 pool, which a picker can point at an owned
 label, and went red at `sudo xcode-select` before any test ran (jobs 139913440688 and 139893245346 on
-glaeda-std-xcode-26.6). A job that needs root (a System keychain trust root, a new macOS user) needs a one-job
+glaeda-std-xcode-27.2). A job that needs root (a System keychain trust root, a new macOS user) needs a one-job
 machine anyway, so it names a literal ephemeral label and marks its runs-on line `ephemeral-required`; a job that
 only needs another Xcode sets DEVELOPER_DIR instead of `sudo xcode-select`.
 
@@ -155,7 +155,7 @@ class OwnedMacJobsNoSudo(unittest.TestCase):
 
     def test_route_patterns(self) -> None:
         for runs_on in ("${{ vars.CI_OVERFLOW_MAC || 'cmux-mac' }}", "${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}",
-                        "${{ vars.MACOS_RUNNER_15 }}", "glaeda-std-xcode-26.6".join("''")):
+                        "${{ vars.MACOS_RUNNER_15 }}", "glaeda-std-xcode-27.2".join("''")):
             self.assertTrue(reaches_owned_mac({"runs-on": runs_on}), runs_on)
         for runs_on in ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}",
                         "${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}"):

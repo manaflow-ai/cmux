@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 pool = importlib.import_module("pr_runner_pool")
 import deadline_http  # noqa: E402
 
-MINI = "glaeda-std-xcode-26.6"
+MINI = "glaeda-std-xcode-27.2"
 REPO_RUNNERS = "/repos/manaflow-ai/cmux/actions/runners?per_page=100&page=1"
 GROUPS = "/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux"
 GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/23/runners?per_page=100&page=1"

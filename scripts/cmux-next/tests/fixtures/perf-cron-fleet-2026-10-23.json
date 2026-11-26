@@ -69,7 +69,7 @@
    "lane_distance_to_head": -1,
    "xcodes": [
     {
-     "app": "/Applications/Xcode_26.6.app",
+     "app": "/Applications/Xcode_27.2.app",
      "version": "26.6",
      "build": "17F113"
     }
@@ -221,7 +221,7 @@
      "build": "17F42"
     },
     {
-     "app": "/Applications/Xcode_26.6.app",
+     "app": "/Applications/Xcode_27.2.app",
      "version": "26.6",
      "build": "17F113"
     }

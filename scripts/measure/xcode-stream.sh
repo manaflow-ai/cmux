@@ -2,10 +2,10 @@
 # Stream this Mac's installed Xcode (the pool pin, iOS and macOS platforms only) as a gzip -1 tar over plain TCP
 # to a fleet Linux host on the tailnet that listens with `nc -l PORT > xcode.tgz`, for a fleet pool job that needs
 # the toolchain off a Mac. Prints XCODE_STREAM lines (bytes, seconds, MB/s).
-#   cmux-ci run --class exclusive --measurement --label measure --label xcode-26.6 \
-#     --script scripts/measure/xcode-stream.sh --ref SHA --arg dest=100.x.y.z:8899 [--arg xcode=26.6] --timeout 7200
+#   cmux-ci run --class exclusive --measurement --label measure --label xcode-27.2 \
+#     --script scripts/measure/xcode-stream.sh --ref SHA --arg dest=100.x.y.z:8899 [--arg xcode=27.2] --timeout 7200
 set -euo pipefail
-dest="" ver="26.6"
+dest="" ver="27.2"
 for a in "$@"; do case "$a" in dest=*) dest=${a#dest=} ;; xcode=*) ver=${a#xcode=} ;; esac; done
 [ -n "$dest" ] || { echo "usage: xcode-stream.sh dest=HOST:PORT [xcode=VER]" >&2; exit 2; }
 host=${dest%:*} port=${dest##*:}

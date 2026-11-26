@@ -101,7 +101,7 @@ class Host:
         for name, text in (("xcrun", FAKE_XCRUN), ("c++", FAKE_CXX)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
-        self.developer = root / "Applications/Xcode_26.6.app/Contents/Developer"
+        self.developer = root / "Applications/Xcode_27.2.app/Contents/Developer"
         self.xcode_sdk = self.developer / "Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk"
         self.clt_sdk = root / "Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk"
         self.xcode_sdk.mkdir(parents=True)

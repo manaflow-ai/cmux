@@ -19,7 +19,7 @@ import cloud_overflow_switch as switch  # noqa: E402
 import signing_runner_variables as signing  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-cloud-overflow-probe.yml"
-PIN = "/Applications/Xcode_26.6.app"
+PIN = "/Applications/Xcode_27.2.app"
 NOW = dt.datetime(2026, 9, 29, 12, 0, tzinfo=dt.timezone.utc)
 LANE_SWITCHES = ("CI_PR_POOL_OWNED", "CI_E2E_OWNED_UI", "CI_IOS_OWNED", "CI_OWNED_POOL_RESCUE",
                  "CI_PR_POOL_OVERFLOW", "CI_PR_POOL_ORDER", "CI_OWNED_POOL_SLOTS")
@@ -115,8 +115,8 @@ class FailoverTests(unittest.TestCase):
         # The merge-gating checks leave Blacksmith with the rest of Linux.
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "ubuntu-24.04")
         for name in switch.STD_VARIABLES:
-            self.assertEqual(values[name], "glaeda-std-xcode-26.6")
-        self.assertEqual(values["MACOS_RUNNER_DISPLAY"], "glaeda-gui-std-xcode-26.6")
+            self.assertEqual(values[name], "glaeda-std-xcode-27.2")
+        self.assertEqual(values["MACOS_RUNNER_DISPLAY"], "glaeda-gui-std-xcode-27.2")
         self.assertEqual(values["MACOS_RUNNER_IOS"], "glaeda-ios-sim")
         self.assertEqual(values["CI_PAID_MACOS_OVERFLOW"], "1")
         # Moving the pin moves the failover: nothing names 26.6 itself.
@@ -136,7 +136,7 @@ class FailoverTests(unittest.TestCase):
             "CI_PR_POOL_OWNED": "0"}))
         self.assertEqual(values["MACOS_RUNNER_15"], "macos-15")
         self.assertNotIn("MACOS_RUNNER_26_LARGE", values)
-        self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
+        self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-27.2")
         self.assertEqual(len(problems), 3)
         self.assertNotIn("CI_PR_POOL_OWNED", values)
         _, problems = switch.failover_values(PIN, "[1]")
@@ -152,7 +152,7 @@ class FailoverTests(unittest.TestCase):
 class SigningVariableTests(unittest.TestCase):
     """Signing jobs read their runner from these variables; the switch never points one at a reused machine."""
 
-    PINS = ("/Applications/Xcode_26.6.app", "/Applications/Xcode_27.0.app", "", None)
+    PINS = ("/Applications/Xcode_27.2.app", "/Applications/Xcode_27.0.app", "", None)
 
     def test_the_switch_reads_the_one_list(self) -> None:
         self.assertIs(switch.SIGNING_VARIABLES, signing.EPHEMERAL_RUNNER_VARIABLES)
@@ -161,7 +161,7 @@ class SigningVariableTests(unittest.TestCase):
         self.assertNotIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
-        overrides = ("", json.dumps({"MACOS_RUNNER_26": "glaeda-std-xcode-26.6",
+        overrides = ("", json.dumps({"MACOS_RUNNER_26": "glaeda-std-xcode-27.2",
                                      "LINUX_RUNNER": "cmux-linux-owned"}))
         for pin in self.PINS:
             for override in overrides:
@@ -181,15 +181,15 @@ class SigningVariableTests(unittest.TestCase):
     def test_plan_off_never_writes_a_reused_machine_to_a_signing_variable(self) -> None:
         # Even a failover map that carries one (an older caller) is filtered.
         changed = switch.plan_off({"MACOS_RUNNER_26": "blacksmith-6vcpu-macos-26", "LINUX_RUNNER": None},
-                                  {"MACOS_RUNNER_26": "glaeda-std-xcode-26.6", "LINUX_RUNNER": "ubuntu-24.04"})
+                                  {"MACOS_RUNNER_26": "glaeda-std-xcode-27.2", "LINUX_RUNNER": "ubuntu-24.04"})
         self.assertEqual(changed, {"LINUX_RUNNER": {"before": None, "after": "ubuntu-24.04"}})
 
     def test_resume_skips_an_old_record_naming_a_signing_variable(self) -> None:
         # 2026-10-28: MACOS_RUNNER_26 was put back by hand, equal to the record's before, and the
         # next stalled probe re-applied the owned failover.
         record = {"changed": {
-            "MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
-            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+            "MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"}}}
         resumes = {item.name: item for item in switch.plan_resume(record, {
             "MACOS_RUNNER_26": "blacksmith-6vcpu-macos-26", "MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26"})}
         self.assertTrue(resumes["MACOS_RUNNER_26"].skipped)
@@ -197,25 +197,25 @@ class SigningVariableTests(unittest.TestCase):
 
     def test_a_record_key_in_another_case_is_still_a_signing_variable(self) -> None:
         # GitHub reads variable names without regard to case.
-        record = {"changed": {"macos_runner_26": {"before": None, "after": "glaeda-std-xcode-26.6"},
+        record = {"changed": {"macos_runner_26": {"before": None, "after": "glaeda-std-xcode-27.2"},
                               "Linux_Runner": {"before": None, "after": "cmux-linux-owned"}}}
         resumes = {item.name: item for item in switch.plan_resume(record, {})}
         self.assertEqual(len(resumes), 2)
         self.assertTrue(resumes["macos_runner_26"].skipped)
         # LINUX_RUNNER is no signing variable, in any case: its owned value is put back like any other.
         self.assertFalse(resumes["Linux_Runner"].skipped)
-        self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-26.6"))
+        self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-27.2"))
 
     def test_restore_still_puts_back_a_recorded_value(self) -> None:
         record = {"changed": {"MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26",
-                                                  "after": "glaeda-std-xcode-26.6"}}}
-        restores = switch.plan_on(record, {"MACOS_RUNNER_26": "glaeda-std-xcode-26.6"})
+                                                  "after": "glaeda-std-xcode-27.2"}}}
+        restores = switch.plan_on(record, {"MACOS_RUNNER_26": "glaeda-std-xcode-27.2"})
         self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
                          [("MACOS_RUNNER_26", "blacksmith-6vcpu-macos-26", "")])
 
     def test_a_stall_with_an_old_record_never_writes_a_signing_variable(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+            "MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
                "VAR_MACOS_RUNNER_26": "blacksmith-6vcpu-macos-26", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
@@ -246,7 +246,7 @@ class PlanTests(unittest.TestCase):
         }, failover)
         self.assertEqual(changed["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
                                                    "after": "ubuntu-24.04"})
-        self.assertEqual(changed["MACOS_RUNNER_15"], {"before": None, "after": "glaeda-std-xcode-26.6"})
+        self.assertEqual(changed["MACOS_RUNNER_15"], {"before": None, "after": "glaeda-std-xcode-27.2"})
         self.assertEqual(changed["CI_PAID_MACOS_OVERFLOW"], {"before": None, "after": "1"})
         self.assertNotIn("MACOS_RUNNER_26", changed)
         self.assertNotIn("MACOS_RUNNER_IOS", changed)
@@ -255,7 +255,7 @@ class PlanTests(unittest.TestCase):
         record = {"changed": {
             "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
-            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"},
         }}
         restores = {item.name: item for item in switch.plan_on(record, {
             "LINUX_RUNNER": "ubuntu-24.04", "CI_PAID_MACOS_OVERFLOW": "1", "MACOS_RUNNER_PR": "macos-26"})}
@@ -288,7 +288,7 @@ class PlanTests(unittest.TestCase):
     def test_stuck_job_needs_a_blacksmith_label_and_the_wait(self) -> None:
         jobs = [
             {"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"], "created_at": ago(3)},
-            {"status": "queued", "labels": ["glaeda-std-xcode-26.6"], "created_at": ago(60)},
+            {"status": "queued", "labels": ["glaeda-std-xcode-27.2"], "created_at": ago(60)},
             {"status": "queued", "labels": ["blacksmith-4vcpu-ubuntu-2404"], "created_at": ago(40),
              "runner_name": "bs"},
         ]
@@ -321,7 +321,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(record["changed"]["LINUX_RUNNER"]["before"], "blacksmith-4vcpu-ubuntu-2404")
         written = dict(writer.writes[1:])
         self.assertEqual(written["LINUX_RUNNER"], "ubuntu-24.04")
-        self.assertEqual(written["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
+        self.assertEqual(written["MACOS_RUNNER_PR"], "glaeda-std-xcode-27.2")
         self.assertEqual(written["CI_PAID_MACOS_OVERFLOW"], "1")
         for name in LANE_SWITCHES:
             self.assertNotIn(name, written)
@@ -332,7 +332,7 @@ class MainTests(unittest.TestCase):
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
             "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
-            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
                "VAR_CI_PAID_MACOS_OVERFLOW": "1", "VAR_MACOS_RUNNER_PR": "macos-26",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
@@ -349,10 +349,10 @@ class MainTests(unittest.TestCase):
     def test_a_stalled_record_finishes_a_partial_switch(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
             "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
-            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-27.2"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
                "VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
-               "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+               "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-27.2", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
         code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
         self.assertEqual(code, 0)
@@ -455,7 +455,7 @@ class WorkflowTests(unittest.TestCase):
 
 class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\n"
+        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-27.2\n"
                                             "LINUX_RUNNER=blacksmith-2vcpu-ubuntu-2404\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN,
                 "RUNNER_POOLS": '{"linux": "blacksmith-2vcpu-ubuntu-2404"}', **extra}
@@ -470,16 +470,16 @@ class RepoVariableCheckTests(unittest.TestCase):
         self.assertTrue(check.problems(self.env()))
 
     def test_the_switch_failover_is_expected_while_the_record_exists(self) -> None:
-        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-std-xcode-26.6"}}}
+        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-std-xcode-27.2"}}}
         self.assertEqual(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record))), [])
-        other = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-light-xcode-26.6"}}}
+        other = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-light-xcode-27.2"}}}
         self.assertTrue(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(other))))
         self.assertTrue(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED="not json")))
 
     def test_a_record_never_excuses_a_reused_machine_in_a_signing_variable(self) -> None:
-        record = {"changed": {"MACOS_RUNNER_26": {"before": None, "after": "glaeda-std-xcode-26.6"}}}
+        record = {"changed": {"MACOS_RUNNER_26": {"before": None, "after": "glaeda-std-xcode-27.2"}}}
         env = self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record),
-                       CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26=glaeda-std-xcode-26.6\n")
+                       CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26=glaeda-std-xcode-27.2\n")
         self.assertTrue(any("MACOS_RUNNER_26" in p for p in check.problems(env)))
 
 

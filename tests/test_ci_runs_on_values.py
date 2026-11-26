@@ -51,7 +51,7 @@ class Expressions(unittest.TestCase):
     def test_a_pool_value_passes(self) -> None:
         self.assertEqual(self.bad("vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'",
                                   LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404"), [])
-        self.assertEqual(self.bad("vars.CI_SIDE_LANE_RUNNER", CI_SIDE_LANE_RUNNER="glaeda-side-std-xcode-26.6"), [])
+        self.assertEqual(self.bad("vars.CI_SIDE_LANE_RUNNER", CI_SIDE_LANE_RUNNER="glaeda-side-std-xcode-27.2"), [])
         self.assertEqual(check.unguarded("vars.CI_IOS_INTERNAL_RUNNER || 'x'", {"CI_IOS_INTERNAL_RUNNER": ""}), [])
 
     def test_a_live_pick_with_a_later_label_passes(self) -> None:
@@ -85,7 +85,7 @@ class Expressions(unittest.TestCase):
         for value in ("glaeda-runner-cmux15-glaeda", "GLAEDA-RUNNER-cmux7s-mac-mini-nightly-next", "cmux22",
                       "cmuxs-mac-mini-6", " glaeda-runner-x "):
             self.assertTrue(check.single_host(value), value)
-        for value in ("", "glaeda-trusted-next-nightly", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26",
+        for value in ("", "glaeda-trusted-next-nightly", "glaeda-std-xcode-27.2", "blacksmith-6vcpu-macos-26",
                       "1", '{"probe": ""}', "glaeda-ios-internal-next-pool"):
             self.assertFalse(check.single_host(value), value)
 
@@ -120,13 +120,13 @@ def runner(name: str, *labels: str) -> dict:
     return {"name": name, "status": "online", "labels": [{"name": label} for label in labels]}
 
 
-POOL, PAIR_RUNNER = "glaeda-trusted-std-xcode-26.6", "glaeda-runner-cmux15-glaeda"
+POOL, PAIR_RUNNER = "glaeda-trusted-std-xcode-27.2", "glaeda-runner-cmux15-glaeda"
 PAIR = ("needs.pick-nightly-app-runner.outputs.trusted != 'false' && "
         "fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || "
         "needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26'")
 TRUSTED = {"CI_SEED_TRUSTED_POOL": POOL, "CI_NIGHTLY_TRUSTED_RUNNER": PAIR_RUNNER}
 ONE_HOST = [runner("cmux15-glaeda", POOL, PAIR_RUNNER), runner("cmux15-glaeda-1", POOL, "glaeda-runner-cmux15-glaeda-1"),
-            runner("cmux3-glaeda", "glaeda-std-xcode-26.6")]
+            runner("cmux3-glaeda", "glaeda-std-xcode-27.2")]
 
 
 def counted(runs_on: str, runners: list[dict], **extra: str) -> list[str]:
@@ -149,7 +149,7 @@ class Hosts(unittest.TestCase):
     def test_a_pool_one_host_serves_fails_and_two_hosts_pass(self) -> None:
         found = counted("vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26'", ONE_HOST)
         self.assertEqual(len(found), 1, found)
-        self.assertIn("vars.CI_SEED_TRUSTED_POOL asks for ['glaeda-trusted-std-xcode-26.6'], which only host cmux15",
+        self.assertIn("vars.CI_SEED_TRUSTED_POOL asks for ['glaeda-trusted-std-xcode-27.2'], which only host cmux15",
                       found[0])
         self.assertIn("cmux15-glaeda, cmux15-glaeda-1", found[0])
         self.assertIn("b:w.yml build", found[0])
@@ -161,7 +161,7 @@ class Hosts(unittest.TestCase):
         found = counted(PAIR, ONE_HOST)
         self.assertEqual(len(found), 1, found)
         self.assertIn("vars.CI_SEED_TRUSTED_POOL + vars.CI_NIGHTLY_TRUSTED_RUNNER asks for "
-                      "['glaeda-runner-cmux15-glaeda', 'glaeda-trusted-std-xcode-26.6'], which only host cmux15", found[0])
+                      "['glaeda-runner-cmux15-glaeda', 'glaeda-trusted-std-xcode-27.2'], which only host cmux15", found[0])
         # A second host with only the pool label (or only the runner label) does not serve the pair.
         split = ONE_HOST + [runner("cmux7s-mac-mini-glaeda", POOL), runner("cmux9-glaeda", PAIR_RUNNER)]
         self.assertEqual(len(counted(PAIR, split)), 1)
@@ -175,7 +175,7 @@ class Hosts(unittest.TestCase):
         self.assertEqual(counted("vars.CI_SEED_TRUSTED_POOL || 'x'", ONE_HOST, CI_SEED_TRUSTED_POOL=""), [])
 
     def test_a_json_field_and_a_nested_group_resolve(self) -> None:
-        pools = '{"linux": "glaeda-trusted-std-xcode-26.6"}'
+        pools = '{"linux": "glaeda-trusted-std-xcode-27.2"}'
         self.assertEqual(len(counted("fromJSON(vars.RUNNER_POOLS || '{}').linux || 'x'", ONE_HOST, RUNNER_POOLS=pools)), 1)
         self.assertEqual(counted("fromJSON(vars.RUNNER_POOLS).linux || 'x'", ONE_HOST, RUNNER_POOLS='{"linux": "b"}'), [])
         self.assertEqual(len(counted("a && (needs.p.outputs.ok && vars.CI_SEED_TRUSTED_POOL || 'x')", ONE_HOST)), 1)

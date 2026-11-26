@@ -6,7 +6,7 @@ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone on nightly-next, for every attempt: one
 label and no fallback. Time spent waiting for a runner does not count toward
 timeout-minutes, so a label that serves nothing stalls the run for up to 24 h,
 and a re-run went back to the same label. On 2026-10-27 runs 40446901975 and
-40448164753 died at "Set up runner" on glaeda-dev-std-xcode-26.6, and run
+40448164753 died at "Set up runner" on glaeda-dev-std-xcode-27.2, and run
 40453543604's attempt 2 was refused at "Set up runner" on the side label it had
 just been moved off. The routing order is Linux, then owned Macs, then
 Blacksmith macOS last (Leo, 2026-10-24), and no job waits on one reserved
@@ -113,7 +113,7 @@ pool = placement.pool
 # Only labels ci-owned-pool-rescue.yml watches (pr_runner_pool.persistent, the rescue's job_pool()):
 # a refusal or a stuck queue there is re-run as attempt 2, which takes Blacksmith. The DEV compile
 # slot (glaeda-dev-*) is not one, so it is never offered: runs 40446901975 and 40448164753 died at
-# "Set up runner" on glaeda-dev-std-xcode-26.6 and nothing re-ran them.
+# "Set up runner" on glaeda-dev-std-xcode-27.2 and nothing re-ran them.
 # glaeda's nightly slot (glaeda#1684, runner.nightlySlot): one runner per mini whose label no PR job asks for and
 # whose hook takes only nightly jobs, ahead of every job waiting on that mini. A build queued on the shared side label
 # waited behind every PR job queued there first (2026-10-27 14:08Z: run 40518198747 was never acquired on the light

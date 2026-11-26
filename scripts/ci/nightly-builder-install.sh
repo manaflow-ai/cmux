@@ -12,7 +12,7 @@ set -euo pipefail
 host="${1:?usage: nightly-builder-install.sh HOST}"
 repo="manaflow-ai/cmux"
 name="${host}-nightly-next"
-labels="glaeda-trusted-light-xcode-26.6,glaeda-runner-${name},glaeda-trusted-next-nightly"
+labels="glaeda-trusted-light-xcode-27.2,glaeda-runner-${name},glaeda-trusted-next-nightly"
 here="$(cd "$(dirname "$0")" && pwd)"
 
 version="$(gh api repos/actions/runner/releases/latest --jq .tag_name)"
@@ -27,7 +27,7 @@ scp -q "$here/nightly_builder.py" "$host:nightly-builder/nightly_builder.py"
   NAME="$name" LABELS="$labels" VERSION="$version" REPO="$repo" \
   "bash -c 'read -r TOKEN; export TOKEN; exec bash -s'"
 echo "Point the NEXT build at it:"
-echo "  gh variable set CI_NIGHTLY_NEXT_TRUSTED_POOL -R $repo --body glaeda-trusted-light-xcode-26.6"
+echo "  gh variable set CI_NIGHTLY_NEXT_TRUSTED_POOL -R $repo --body glaeda-trusted-light-xcode-27.2"
 echo "  gh variable set CI_NIGHTLY_NEXT_TRUSTED_RUNNER -R $repo --body glaeda-runner-${name}"
 exit 0
 

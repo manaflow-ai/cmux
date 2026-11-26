@@ -4,7 +4,7 @@
 A self-hosted fleet label (``glaeda-*``) whose runners all stopped listening
 looks like an ordinary queue from GitHub's side: the job waits, nothing fails,
 and nobody hears about it (PR #23047's `cmux-next app compile (build fleet)`
-sat queued on glaeda-side-light-xcode-26.6 for over two hours on 2026-10-22).
+sat queued on glaeda-side-light-xcode-27.2 for over two hours on 2026-10-22).
 The workflow tokens cannot list org runners, so this judges a label from the
 jobs the queue janitor already listed: a label is starved when a job on it has
 been queued with no runner for STARVED_AFTER and no job on it is running or

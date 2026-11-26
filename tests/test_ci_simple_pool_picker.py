@@ -64,13 +64,13 @@ class PickRuleTests(unittest.TestCase):
             ),
             (
                 "owned free slots win",
-                picker.State(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=2),),
+                picker.State(jobs=2, owned=(pool("glaeda-std-xcode-27.2", 8, free=2),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True),
-                "glaeda-std-xcode-26.6",
+                "glaeda-std-xcode-27.2",
             ),
             (
                 "forks use an ephemeral Blacksmith pool",
-                picker.State(jobs=1, fork=True, owned=(pool("glaeda-std-xcode-26.6", 8, free=8),),
+                picker.State(jobs=1, fork=True, owned=(pool("glaeda-std-xcode-27.2", 8, free=8),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True),
                 picker.BLACKSMITH[0],
             ),
@@ -98,14 +98,14 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[0])
 
     def test_owned_capacity_uses_free_not_queue(self):
-        state = picker.State(jobs=3, owned=(pool("glaeda-std-xcode-26.6", 8, running=5, queued=20),),
+        state = picker.State(jobs=3, owned=(pool("glaeda-std-xcode-27.2", 8, running=5, queued=20),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True)
-        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-27.2")
 
     def test_gui_required_skips_aws_owned_pool(self):
         state = picker.State(
             jobs=1,
-            owned=(pool("glaeda-aws-std-xcode-26.6", 5, free=5),),
+            owned=(pool("glaeda-aws-std-xcode-27.2", 5, free=5),),
             blacksmith=(pool(picker.BLACKSMITH[1], 10),),
             owned_enabled=True,
             gui_required=True,
@@ -118,14 +118,14 @@ class PickRuleTests(unittest.TestCase):
         state = picker.State(
             jobs=1,
             owned=(
-                pool("glaeda-aws-std-xcode-26.6", 5, free=5),
-                pool("glaeda-std-xcode-26.6", 5, free=5),
+                pool("glaeda-aws-std-xcode-27.2", 5, free=5),
+                pool("glaeda-std-xcode-27.2", 5, free=5),
             ),
             blacksmith=(pool(picker.BLACKSMITH[1], 10),),
             owned_enabled=True,
             gui_required=True,
         )
-        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-27.2")
 
     def test_owned_retry_uses_matching_blacksmith_xcode(self):
         state = picker.State(
@@ -133,7 +133,7 @@ class PickRuleTests(unittest.TestCase):
             owned=(pool("glaeda-aws-std-xcode-26.3", 5, free=5,
                         xcode_app="/Applications/Xcode_26.3.app"),),
             blacksmith=(
-                pool(picker.BLACKSMITH[0], 5, xcode_app="/Applications/Xcode_26.6.app"),
+                pool(picker.BLACKSMITH[0], 5, xcode_app="/Applications/Xcode_27.2.app"),
                 pool(picker.BLACKSMITH[2], 10, xcode_app="/Applications/Xcode_26.3.app"),
             ),
             owned_enabled=True,
@@ -143,13 +143,13 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
-LIGHT = "glaeda-light-xcode-26.6"
-STD = "glaeda-std-xcode-26.6"
+LIGHT = "glaeda-light-xcode-27.2"
+STD = "glaeda-std-xcode-27.2"
 OWNED_ENV = {
     "GITHUB_REPOSITORY": "manaflow-ai/cmux",
     "CI_PR_POOL_OWNED": "1",
-    "CI_OWNED_POOL_SLOTS": json.dumps({STD: 42, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2}),
-    "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.6.app",
+    "CI_OWNED_POOL_SLOTS": json.dumps({STD: 42, LIGHT: 4, "glaeda-root-light-xcode-27.2": 2}),
+    "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_27.2.app",
     "RUN_MACOS": "true",
 }
 
@@ -159,12 +159,12 @@ def runner(name, labels, *, busy, status="online"):
 
 
 def light_runner(index, *, busy, status="online"):
-    return runner(f"light-{index}", [LIGHT, "glaeda-root-light-xcode-26.6", "glaeda-side-light-xcode-26.6"],
+    return runner(f"light-{index}", [LIGHT, "glaeda-root-light-xcode-27.2", "glaeda-side-light-xcode-27.2"],
                   busy=busy, status=status)
 
 
 def std_runner(index, *, busy):
-    return runner(f"std-{index}", [STD, "glaeda-root-std-xcode-26.6", "glaeda-gui-std-xcode-26.6"], busy=busy)
+    return runner(f"std-{index}", [STD, "glaeda-root-std-xcode-27.2", "glaeda-gui-std-xcode-27.2"], busy=busy)
 
 
 def snapshot(pools):
@@ -333,7 +333,7 @@ class LiveRunnerReadTests(unittest.TestCase):
         self.assertEqual(choice.xcode_app, "/Applications/Xcode_26.3.app")
 
     def test_aws_family_queue_does_not_charge_the_mini_family(self):
-        aws_label = "glaeda-aws-std-xcode-26.6"
+        aws_label = "glaeda-aws-std-xcode-27.2"
         env = {**OWNED_ENV,
                "CI_OWNED_POOL_SLOTS": json.dumps({STD: 8, aws_label: 8})}
         runners = [std_runner(index, busy=False) for index in range(8)]
@@ -346,13 +346,13 @@ class LiveRunnerReadTests(unittest.TestCase):
     def test_owned_order_uses_numeric_versions_and_namespace_tie_break(self):
         labels = [
             "glaeda-aws-std-xcode-26.10",
-            "glaeda-std-xcode-26.6",
-            "glaeda-aws-std-xcode-26.6",
+            "glaeda-std-xcode-27.2",
+            "glaeda-aws-std-xcode-27.2",
             "glaeda-std-xcode-26.10",
         ]
         self.assertEqual(sorted(labels, key=picker.owned_order), [
-            "glaeda-std-xcode-26.6",
-            "glaeda-aws-std-xcode-26.6",
+            "glaeda-std-xcode-27.2",
+            "glaeda-aws-std-xcode-27.2",
             "glaeda-std-xcode-26.10",
             "glaeda-aws-std-xcode-26.10",
         ])
@@ -374,9 +374,9 @@ class OwnedQueueTests(unittest.TestCase):
         # mini busy. #16306's admission still went to light and waited an hour.
         runners = [light_runner(i, busy=True) for i in range(3)] + [light_runner(3, busy=False, status="offline")]
         runners += [std_runner(i, busy=True) for i in range(12)]
-        pools = {"glaeda-root-light-xcode-26.6": {"queued": 14, "running": 1},
+        pools = {"glaeda-root-light-xcode-27.2": {"queued": 14, "running": 1},
                  LIGHT: {"queued": 6, "running": 2},
-                 "glaeda-side-light-xcode-26.6": {"queued": 5, "running": 1},
+                 "glaeda-side-light-xcode-27.2": {"queued": 5, "running": 1},
                  STD: {"queued": 4, "running": 3},
                  picker.BLACKSMITH[0]: {"queued": 0, "running": 2},
                  picker.BLACKSMITH[1]: {"queued": 0, "running": 4}}
@@ -389,7 +389,7 @@ class OwnedQueueTests(unittest.TestCase):
         # Two light runners idle, but six jobs queued on the light root label:
         # they take those runners first.
         runners = [light_runner(0, busy=False), light_runner(1, busy=False), light_runner(2, busy=True)]
-        pools = {"glaeda-root-light-xcode-26.6": {"queued": 6, "running": 1}}
+        pools = {"glaeda-root-light-xcode-27.2": {"queued": 6, "running": 1}}
         state = observed(runners, pools, jobs=1)
         light = next(pool for pool in state.owned if pool.label == LIGHT)
         self.assertEqual((light.available, light.queued), (0, 6))
@@ -498,7 +498,7 @@ class LiveReaderTests(unittest.TestCase):
     def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
         """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
         minis = [{"id": index, "status": "online", "busy": False,
-                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+                  "labels": [{"name": "glaeda-std-xcode-27.2"}]} for index in range(3)]
 
         class Grouped(picker.LiveState):
             def _group_runners(self):
@@ -572,9 +572,9 @@ class LiveReaderTests(unittest.TestCase):
 
     def test_outputs_keep_workflow_contract_for_owned_choice(self):
         values = picker.write_outputs(
-            picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True), 3,
+            picker.Choice("glaeda-std-xcode-27.2", "owned", owned=True), 3,
             env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true", "RUN_CLI": "true"})
-        self.assertEqual(values["runner"], "glaeda-std-xcode-26.6")
+        self.assertEqual(values["runner"], "glaeda-std-xcode-27.2")
         self.assertEqual(values["persistent"], "true")
         self.assertEqual(values["jobs"], "3")
         self.assertIn(" admission ", values["owned_jobs"])
@@ -582,10 +582,10 @@ class LiveReaderTests(unittest.TestCase):
         self.assertIn(" cli-product ", values["owned_jobs"])
 
         values = picker.write_outputs(
-            picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True), 1,
-            env={"RUN_MACOS": "true", "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-26.6": 8, "glaeda-root-std-xcode-26.6": 2}'})
-        self.assertEqual(values["root_runner"], "glaeda-root-std-xcode-26.6")
-        self.assertEqual(values["admission_runner"], '["glaeda-root-std-xcode-26.6"]')
+            picker.Choice("glaeda-std-xcode-27.2", "owned", owned=True), 1,
+            env={"RUN_MACOS": "true", "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-27.2": 8, "glaeda-root-std-xcode-27.2": 2}'})
+        self.assertEqual(values["root_runner"], "glaeda-root-std-xcode-27.2")
+        self.assertEqual(values["admission_runner"], '["glaeda-root-std-xcode-27.2"]')
 
     def test_outputs_preserve_aws_namespace_for_root_and_side_labels(self):
         choice = picker.Choice("glaeda-aws-std-xcode-26.3", "owned", owned=True)
@@ -625,7 +625,7 @@ class LiveReaderTests(unittest.TestCase):
 
     def test_owned_runs_and_the_macos_15_pool_never_borrow_12vcpu(self):
         large, small, mac15 = picker.BLACKSMITH
-        owned = picker.pick(picker.State(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=2),),
+        owned = picker.pick(picker.State(jobs=2, owned=(pool("glaeda-std-xcode-27.2", 8, free=2),),
                                          blacksmith=(pool(large, 5), pool(small, 10)), owned_enabled=True))
         self.assertEqual(owned.admission_label, "")
         # The macOS 15 pool runs another Xcode; its product must come from that Xcode.
@@ -647,7 +647,7 @@ class LiveReaderTests(unittest.TestCase):
 
     def test_full_suite_release_build_keeps_swift_package_off_the_minis(self):
         """swift-package-tests builds the SDK 15 helper there, which the minis cannot."""
-        owned = picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True)
+        owned = picker.Choice("glaeda-std-xcode-27.2", "owned", owned=True)
         helper = picker.write_outputs(owned, 3, env={
             "RUN_MACOS": "true", "RUN_FULL_SUITE": "true",
             "RUN_SWIFT_PACKAGES": "true", "RUN_RELEASE_BUILD": "true"})

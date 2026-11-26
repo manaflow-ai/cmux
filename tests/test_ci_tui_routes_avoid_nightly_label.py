@@ -33,11 +33,11 @@ import workflow_jobs  # noqa: E402
 
 WORKFLOWS = ROOT / ".github" / "workflows"
 NIGHTLY_LABEL = "blacksmith-12vcpu-macos-26"
-SIDE_LABEL = "glaeda-side-std-xcode-26.6"
-PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
-DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
-LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
-PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
+SIDE_LABEL = "glaeda-side-std-xcode-27.2"
+PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-27.2"
+DAEMON_LABEL = "glaeda-daemon-tests-xcode-27.2"
+LIGHT_LABEL = "glaeda-side-light-xcode-27.2"
+PIN_LABEL = "glaeda-pin-daemon-xcode-27.2"
 PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones

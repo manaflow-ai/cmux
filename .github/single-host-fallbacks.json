@@ -10,19 +10,19 @@
       "fallback": "an owned Mac after the Linux-pool queue fallback",
       "after_minutes": 8
     },
-    "glaeda-daemon-trusted-light-xcode-26.6": {
+    "glaeda-daemon-trusted-light-xcode-27.2": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
-    "glaeda-promote-side-trusted-std-xcode-26.6": {
+    "glaeda-promote-side-trusted-std-xcode-27.2": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
-    "glaeda-promote-trusted-light-xcode-26.6": {
+    "glaeda-promote-trusted-light-xcode-27.2": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
-    "glaeda-promote-trusted-std-xcode-26.6": {
+    "glaeda-promote-trusted-std-xcode-27.2": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
@@ -38,7 +38,7 @@
       "fallback": "Blacksmith macOS after the dedicated-builder grace",
       "after_minutes": 5
     },
-    "glaeda-gateway-xcode-26.6": {
+    "glaeda-gateway-xcode-27.2": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
       "after_minutes": 10
     },
@@ -88,7 +88,7 @@
       "after_minutes": 5
     },
     "CI_RELEASE_PIN_SLOT": {
-      "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
+      "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-27.2, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
     },
     "CI_FFI_RELEASE_POOL": {
@@ -128,7 +128,7 @@
       "after_minutes": 5
     },
     "CI_EVAL_STEP_GATEWAY": {
-      "fallback": "opt-in and read only by three feat-cmux-next eval workflows (cmux-next-perf-bench.yml bench, cu-driver-eval.yml eval, screen-stream-eval.yml eval; cmux#36955, #37019) and the iPhone What's New clips (cmux-next-iphone-clips.yml record, nightly-next pushes only), each of which skips its job when the variable is unset (if: vars.CI_EVAL_STEP_GATEWAY != ''), so no PR job and no nightly build job waits on it. Set to glaeda-gateway-xcode-26.6 since 2026-11-05, the value the sibling gateway variables use: a pool, not one host, the two gateway runners on every dedicated untrusted ci-runner mini (build-fleet/mini-fleet.json, runner.gatewayRunners), so a busy or lost mini's job is taken by the next mini's gateway runner. The job there is a thin cmux-ci client that hands the eval to the controller, which picks the measure or bench worker. Clearing the variable skips the three evals again. Owner: Leo's eval lane that opened cmux#36955. after_minutes is the gateway-label window, as for CI_COMPILE_CHECK_GATEWAY",
+      "fallback": "opt-in and read only by three feat-cmux-next eval workflows (cmux-next-perf-bench.yml bench, cu-driver-eval.yml eval, screen-stream-eval.yml eval; cmux#36955, #37019) and the iPhone What's New clips (cmux-next-iphone-clips.yml record, nightly-next pushes only), each of which skips its job when the variable is unset (if: vars.CI_EVAL_STEP_GATEWAY != ''), so no PR job and no nightly build job waits on it. Set to glaeda-gateway-xcode-27.2 since 2026-11-05, the value the sibling gateway variables use: a pool, not one host, the two gateway runners on every dedicated untrusted ci-runner mini (build-fleet/mini-fleet.json, runner.gatewayRunners), so a busy or lost mini's job is taken by the next mini's gateway runner. The job there is a thin cmux-ci client that hands the eval to the controller, which picks the measure or bench worker. Clearing the variable skips the three evals again. Owner: Leo's eval lane that opened cmux#36955. after_minutes is the gateway-label window, as for CI_COMPILE_CHECK_GATEWAY",
       "after_minutes": 5
     },
     "CI_FAST_LANE_RUNNER": {
@@ -354,12 +354,12 @@
       "after_minutes": 10,
       "served_by": "owned Mac runners carrying cmux-mac"
     },
-    "xcode-27.0": {
-      "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
+    "xcode-27.2": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27.2 pool is unavailable",
       "after_minutes": 10,
-      "served_by": "owned Mac runners carrying Xcode 27.0"
+      "served_by": "owned Mac runners carrying Xcode 27.2"
     },
-    "glaeda-gateway-xcode-26.6": {
+    "glaeda-gateway-xcode-27.2": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
       "after_minutes": 10,
       "served_by": "the build-fleet gateway runners"
@@ -410,55 +410,55 @@
       "after_minutes": 10,
       "served_by": "GitHub-hosted Linux"
     },
-    "glaeda-std-xcode-26.6": {
+    "glaeda-std-xcode-27.2": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned std Macs (every std runner, CI_OWNED_POOL_SLOTS)",
       "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
     },
-    "glaeda-light-xcode-26.6": {
+    "glaeda-light-xcode-27.2": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned light Macs (every light runner, CI_OWNED_POOL_SLOTS)",
       "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
     },
-    "glaeda-root-std-xcode-26.6": {
+    "glaeda-root-std-xcode-27.2": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned std Macs' root runners (CI_OWNED_POOL_SLOTS)",
       "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
     },
-    "glaeda-root-light-xcode-26.6": {
+    "glaeda-root-light-xcode-27.2": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned light Macs' root runners (CI_OWNED_POOL_SLOTS)",
       "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
     },
-    "glaeda-side-std-xcode-26.6": {
+    "glaeda-side-std-xcode-27.2": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so build-nightly-app takes pick-nightly-build-runner.blacksmith, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned std side-lane Macs (CI_NIGHTLY_NEXT_BUILD_RUNNER and CI_SIDE_LANE_RUNNER name it today)",
       "note": "nightly.yml build-nightly-app on attempt 1 of a nightly-next push run only, and only when nightly_build_runner.py saw an idle runner carrying it (pick-nightly-build-runner.owned, cmux#26017)."
     },
-    "glaeda-session-std-xcode-26.6": {
+    "glaeda-session-std-xcode-27.2": {
       "fallback": "none is needed for publication: publish-nightly never waits on this label. It waits on visual-gate-nightly-verdict (Blacksmith Linux), which reads a visual-gate-nightly still queued for a runner as verdict `unavailable` and lets publication go ahead unchecked, within 15 minutes at most (cmux scripts/ci/nightly_next_canary_mode.py await-gate); nothing is cancelled. Blacksmith macOS cannot take the job instead: its sessions sit at a locked screen (cmux scripts/ci/cmux_next_media_runner.py), so there is no runner to fail over to and the gate is skipped",
       "after_minutes": 15,
       "served_by": "the owned std minis' session runners (glaeda#1530); each std mini's console gui runner carries it too",
       "note": "nightly.yml visual-gate-nightly only, on a nightly-next run, and only when route-visual-gate-nightly saw an online runner carrying it idle at that moment (cmux_next_media_runner.py --idle-now, cmux#28190). The job is a check beside the signed build, not a step of it."
     },
-    "glaeda-session-light-xcode-26.6": {
+    "glaeda-session-light-xcode-27.2": {
       "fallback": "none is needed for publication: publish-nightly never waits on this label. It waits on visual-gate-nightly-verdict (Blacksmith Linux), which reads a visual-gate-nightly still queued for a runner as verdict `unavailable` and lets publication go ahead unchecked, within 15 minutes at most (cmux scripts/ci/nightly_next_canary_mode.py await-gate); nothing is cancelled. Blacksmith macOS cannot take the job instead: its sessions sit at a locked screen (cmux scripts/ci/cmux_next_media_runner.py), so there is no runner to fail over to and the gate is skipped",
       "after_minutes": 15,
       "served_by": "the owned light minis' session runners (glaeda#1530); each light mini's console gui runner carries it too",
       "note": "nightly.yml visual-gate-nightly only, on a nightly-next run, and only when route-visual-gate-nightly saw an online runner carrying it idle at that moment (cmux_next_media_runner.py --idle-now, cmux#28190). The job is a check beside the signed build, not a step of it."
     },
-    "glaeda-gui-std-xcode-26.6": {
+    "glaeda-gui-std-xcode-27.2": {
       "fallback": "none is needed for publication: publish-nightly never waits on this label. It waits on visual-gate-nightly-verdict (Blacksmith Linux), which reads a visual-gate-nightly still queued for a runner as verdict `unavailable` and lets publication go ahead unchecked, within 15 minutes at most (cmux scripts/ci/nightly_next_canary_mode.py await-gate); nothing is cancelled. Blacksmith macOS cannot take the job instead: its sessions sit at a locked screen (cmux scripts/ci/cmux_next_media_runner.py), so there is no runner to fail over to and the gate is skipped",
       "after_minutes": 15,
       "served_by": "the owned std minis' console gui runners, one per mini",
       "note": "nightly.yml visual-gate-nightly only, on a nightly-next run, and only when route-visual-gate-nightly saw an online runner carrying it idle at that moment (cmux_next_media_runner.py --idle-now, cmux#28190). The job is a check beside the signed build, not a step of it."
     },
-    "glaeda-gui-light-xcode-26.6": {
+    "glaeda-gui-light-xcode-27.2": {
       "fallback": "none is needed for publication: publish-nightly never waits on this label. It waits on visual-gate-nightly-verdict (Blacksmith Linux), which reads a visual-gate-nightly still queued for a runner as verdict `unavailable` and lets publication go ahead unchecked, within 15 minutes at most (cmux scripts/ci/nightly_next_canary_mode.py await-gate); nothing is cancelled. Blacksmith macOS cannot take the job instead: its sessions sit at a locked screen (cmux scripts/ci/cmux_next_media_runner.py), so there is no runner to fail over to and the gate is skipped",
       "after_minutes": 15,
       "served_by": "the owned light minis' console gui runners, one per mini",
@@ -476,7 +476,7 @@
       "served_by": "one ephemeral GCP VM per job, provisioned for that lease by fleet-reconciler-gha-runners.yml: its JIT listener carries only this unique label, so no other queued job can take it. The label stands for the run-time name cmux-nightly-<24-hex lease id>-<job>; no runs-on spells it, and no nightly.yml job reads it now.",
       "note": "Emitted only for a status fleet receipt, which the controller grants only when the provisioner's ready receipt names exactly these listeners, started before the lease expired; nightly_linux_admission.py validate() refuses any other runner name. The listener is already online and bound to its one job when the job is queued. If it is lost after that, nothing re-routes the queued job."
     },
-    "glaeda-nightly-std-xcode-26.6": {
+    "glaeda-nightly-std-xcode-27.2": {
       "fallback": "no single host to fall back from: the label is the nightly slot (overrides.runner.nightlySlot, glaeda#1684) on every std PR-runner mini, and build-fleet/nightly_slot_policy_test.py fails any std PR mini without one (#5641). No PR job asks for the label, so a queued job goes to the first idle slot on any of those minis. There is no paid overflow by design: cmux#30058 keeps main's nightly decide job on the owned fleet until controller admission can give a run-bound no-start receipt (Leo, 2026-10-31: \"FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT\").",
       "after_minutes": 25,
       "served_by": "the nightly slot on every std PR-runner mini (nightly_slot_policy_test.py), never one host",
@@ -499,18 +499,18 @@
     "nightly-next-launch-smoke.yml:pick.runner": {
       "labels": [
         "vars.CI_SIDE_LANE_RUNNER",
-        "glaeda-side-std-xcode-26.6",
-        "glaeda-std-xcode-26.6"
+        "glaeda-side-std-xcode-27.2",
+        "glaeda-std-xcode-27.2"
       ],
-      "constrained_by": "cmux scripts/ci/side_lane_placement.py (cmux#27429 on feat-cmux-next, cmux#27449 on main), run with SIDE_LABEL = vars.CI_SIDE_LANE_RUNNER on a trusted run: `runner` is route_label(), the side label itself or the same label on a wider class while it has more live room (compatible_labels(); std is the widest), else pool_label() of it, the owned pool label, while no compatible side runner is online. CI_SIDE_LANE_RUNNER names glaeda-side-std-xcode-26.6 today, which has no wider class, and its owned pool label at the 26.6 pin is glaeda-std-xcode-26.6; a light value would add its std forms. Empty when the runners cannot be read or SIDE_LABEL is empty (a fork, owned pools off).",
+      "constrained_by": "cmux scripts/ci/side_lane_placement.py (cmux#27429 on feat-cmux-next, cmux#27449 on main), run with SIDE_LABEL = vars.CI_SIDE_LANE_RUNNER on a trusted run: `runner` is route_label(), the side label itself or the same label on a wider class while it has more live room (compatible_labels(); std is the widest), else pool_label() of it, the owned pool label, while no compatible side runner is online. CI_SIDE_LANE_RUNNER names glaeda-side-std-xcode-27.2 today, which has no wider class, and its owned pool label at the 26.6 pin is glaeda-std-xcode-27.2; a light value would add its std forms. Empty when the runners cannot be read or SIDE_LABEL is empty (a fork, owned pools off).",
       "empty_falls_back_to": "vars.CI_SIDE_LANE_RUNNER, then vars.MACOS_RUNNER_26, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; the smoke reads the owned route only when vars.CI_PR_POOL_OWNED is 1 and on attempt 1, and the place step is continue-on-error, so a failed pick reads as empty."
     },
     "nightly.yml:pick-nightly-sign-runner.owned": {
       "labels": [
-        "glaeda-std-xcode-26.6",
-        "glaeda-light-xcode-26.6",
-        "glaeda-root-std-xcode-26.6",
-        "glaeda-root-light-xcode-26.6"
+        "glaeda-std-xcode-27.2",
+        "glaeda-light-xcode-27.2",
+        "glaeda-root-std-xcode-27.2",
+        "glaeda-root-light-xcode-27.2"
       ],
       "constrained_by": "cmux nightly.yml's `owned` step runs scripts/ci/e2e_runner_pool.py --requested auto and keeps its answer only when it matches glaeda-*, else writes empty. auto_runner() returns choice.root_runner or choice.runner; the owned candidates are pr_runner_pool.owned_pools(vars.CMUX_CI_XCODE_APP_PR, vars.CI_PR_POOL_ORDER): glaeda-std and glaeda-light at the lane's Xcode pin (26.6 today), and their root labels (root_label()). A namespaced family (glaeda-aws-*) is emitted only when CI_PR_POOL_ORDER names it, and CI_PR_POOL_ORDER is unset; moving the Xcode pin changes the version, and this list with it. The step runs only on attempt 1 of a nightly-next push run, the scope ci-owned-pool-rescue watches.",
       "empty_falls_back_to": "needs.pick-nightly-sign-runner.outputs.runner, then vars.MACOS_RUNNER_26, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; a re-run (attempt 2 on) never reads the owned output."
@@ -536,16 +536,16 @@
       "labels": [
         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
         "vars.CI_SIDE_LANE_RUNNER",
-        "glaeda-side-std-xcode-26.6"
+        "glaeda-side-std-xcode-27.2"
       ],
-      "constrained_by": "cmux scripts/ci/nightly_build_runner.py owned_route(): the first of OWNED_LABELS (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then vars.CI_SIDE_LANE_RUNNER) that pr_runner_pool.persistent() accepts, or that label on a wider class (side_lane_placement.compatible_labels(); std is the widest), while an online runner carrying it is idle. Both variables name glaeda-side-std-xcode-26.6 today, which has no wider class; a light value would add its std form, which at the 26.6 pin is the literal listed here. Empty on attempt 2 and later.",
+      "constrained_by": "cmux scripts/ci/nightly_build_runner.py owned_route(): the first of OWNED_LABELS (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then vars.CI_SIDE_LANE_RUNNER) that pr_runner_pool.persistent() accepts, or that label on a wider class (side_lane_placement.compatible_labels(); std is the widest), while an online runner carrying it is idle. Both variables name glaeda-side-std-xcode-27.2 today, which has no wider class; a light value would add its std form, which at the 26.6 pin is the literal listed here. Empty on attempt 2 and later.",
       "empty_falls_back_to": "needs.pick-nightly-build-runner.outputs.blacksmith, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; a re-run (attempt 2 on) never reads the owned output (cmux#26017)."
     },
     "nightly.yml:pick-nightly-build-runner.helper": {
       "labels": [
         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
         "vars.CI_SIDE_LANE_RUNNER",
-        "glaeda-side-std-xcode-26.6"
+        "glaeda-side-std-xcode-27.2"
       ],
       "constrained_by": "cmux scripts/ci/nightly_build_runner.py (cmux#27894): `helper` is `owned` when the app build did not take the dedicated builder, else a fresh owned_route() over the same OWNED_LABELS (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then vars.CI_SIDE_LANE_RUNNER, or that label on a wider class; std is the widest) while an online runner carrying it is idle; the dedicated builder's hook admits only build-nightly-app, so the helper never takes it. The same labels as nightly.yml:pick-nightly-build-runner.owned. Empty unless a push run's attempt 1 or a run whose owned-pool watch marker was written.",
       "empty_falls_back_to": "build-nightly-ghostty-cli-helper reads helper only on a nightly-next run whose pick-nightly-build-runner.outputs.attempt is the run's own attempt and only when helper differs from pick-nightly-build-runner.outputs.dedicated; otherwise, or when empty, needs.pick-nightly-build-runner.outputs.blacksmith, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression."
@@ -554,9 +554,9 @@
       "labels": [
         "vars.NIGHTLY_NEXT_TRAIN_RUNNER",
         "vars.CI_SIDE_LANE_RUNNER",
-        "glaeda-side-std-xcode-26.6"
+        "glaeda-side-std-xcode-27.2"
       ],
-      "constrained_by": "cmux scripts/ci/nightly_build_runner.py owned_route() with OWNED_LABELS = vars.NIGHTLY_NEXT_TRAIN_RUNNER, then vars.CI_SIDE_LANE_RUNNER (cmux#26685 on main, cmux#26688 on feat-cmux-next): the first of them that owned_label() accepts, or that label on a wider class (side_lane_placement.compatible_labels(); std is the widest), while an online runner carrying it is idle now. NIGHTLY_NEXT_TRAIN_RUNNER is unset today and CI_SIDE_LANE_RUNNER names glaeda-side-std-xcode-26.6, which has no wider class; a light value would add its std form, which at the 26.6 pin is the literal listed here.",
+      "constrained_by": "cmux scripts/ci/nightly_build_runner.py owned_route() with OWNED_LABELS = vars.NIGHTLY_NEXT_TRAIN_RUNNER, then vars.CI_SIDE_LANE_RUNNER (cmux#26685 on main, cmux#26688 on feat-cmux-next): the first of them that owned_label() accepts, or that label on a wider class (side_lane_placement.compatible_labels(); std is the widest), while an online runner carrying it is idle now. NIGHTLY_NEXT_TRAIN_RUNNER is unset today and CI_SIDE_LANE_RUNNER names glaeda-side-std-xcode-27.2, which has no wider class; a light value would add its std form, which at the 26.6 pin is the literal listed here.",
       "empty_falls_back_to": "needs.pick-train-runner.outputs.blacksmith, then vars.MACOS_RUNNER_26, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; the build reads `owned` only when pick-train-runner.outputs.attempt is the run's own attempt, so a re-run of a refused compile leaves the owned label, and the picker is continue-on-error, so a failed pick reads as empty."
     },
     "nightly-next-train.yml:pick-train-runner.blacksmith": {
@@ -604,17 +604,17 @@
         "vars.MACOS_RUNNER_26",
         "blacksmith-6vcpu-macos-26",
         "cmux-mac",
-        "xcode-27.0"
+        "xcode-27.2"
       ],
       "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
-      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.2] when a live Xcode 27.2 runner exists."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [
-        "glaeda-session-std-xcode-26.6",
-        "glaeda-session-light-xcode-26.6",
-        "glaeda-gui-std-xcode-26.6",
-        "glaeda-gui-light-xcode-26.6"
+        "glaeda-session-std-xcode-27.2",
+        "glaeda-session-light-xcode-27.2",
+        "glaeda-gui-std-xcode-27.2",
+        "glaeda-gui-light-xcode-27.2"
       ],
       "constrained_by": "cmux scripts/ci/cmux_next_media_runner.py pick_idle() (--idle-now, cmux#28190): the session role first, then the gui role, each over pr_runner_pool.owned_pools(vars.CMUX_CI_XCODE_APP_PR) called with no CI_PR_POOL_ORDER (glaeda-std, then glaeda-light, at the lane's Xcode pin, 26.6 today); the first role label with an online, idle runner carrying it, read live with the route App token; else empty. A namespaced family is never emitted, since no order is passed; moving the Xcode pin changes the version, and this list with it.",
       "empty_falls_back_to": "nothing runs: visual-gate-nightly and visual-gate-nightly-verdict are both skipped on an empty runs_on (their `if`), the route job reports verdict `unavailable`, and publish-nightly goes ahead unchecked."
@@ -633,7 +633,7 @@
       ],
       "array_pin": "glaeda-runner-",
       "constrained_by": "cmux scripts/ci/signing_runner.py owned in find-nightly-next-recovery's sign-owned step (cmux 0962b8a946c), with OWNED_LABELS = vars.CI_NIGHTLY_NEXT_BUILD_RUNNER only: the JSON runs-on array [\"<pool label>\", \"glaeda-runner-<name>\"] for an idle runner on a drained mini, or one to drain, where the pool label is that variable's value; the pin adds no host the pool label does not already name. Empty unless vars.CI_SIGN_OWNED and vars.CI_PR_POOL_OWNED are 1 on a nightly-next push or dispatch.",
-      "empty_falls_back_to": "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then glaeda-nightly-std-xcode-26.6, in the same runs-on of recover-nightly-next-notarization and verify-recovered-nightly-next (a nightly-next push reads vars.CI_NIGHTLY_SIGN_RUNNER first in the recovery). They read sign_owned only when find-nightly-next-recovery.outputs.attempt is the run's own attempt."
+      "empty_falls_back_to": "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then glaeda-nightly-std-xcode-27.2, in the same runs-on of recover-nightly-next-notarization and verify-recovered-nightly-next (a nightly-next push reads vars.CI_NIGHTLY_SIGN_RUNNER first in the recovery). They read sign_owned only when find-nightly-next-recovery.outputs.attempt is the run's own attempt."
     }
   }
 }

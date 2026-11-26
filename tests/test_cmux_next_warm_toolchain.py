@@ -33,7 +33,7 @@ class ExportToolchain(unittest.TestCase):
         self.tool("xcrun", 'test -z "${SDKROOT:-}" || exit 92\n'
                   'echo "sdk:$DEVELOPER_DIR" >> "$TOOLCHAIN_TRACE"\necho "$TEST_SDK"')
         self.env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}",
-                    "CMUX_CI_XCODE_APP": "/selected/Xcode_26.6.app", "TEST_SDK": str(self.sdk),
+                    "CMUX_CI_XCODE_APP": "/selected/Xcode_27.2.app", "TEST_SDK": str(self.sdk),
                     "TOOLCHAIN_TRACE": str(self.root / "trace"), "SDKROOT": "/stale/sdk"}
         self.env.pop("DEVELOPER_DIR", None)
         self.env.pop("CMUX_NEXT_JOB_BUILT", None)
@@ -52,9 +52,9 @@ class ExportToolchain(unittest.TestCase):
     def test_selects_pinned_compiler_and_replaces_inherited_sdk(self):
         result = self.run_select()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"RESULT=/selected/Xcode_26.6.app/Contents/Developer|{self.sdk}", result.stdout)
+        self.assertIn(f"RESULT=/selected/Xcode_27.2.app/Contents/Developer|{self.sdk}", result.stdout)
         self.assertEqual((self.root / "trace").read_text().splitlines(),
-                         ["selected", "sdk:/selected/Xcode_26.6.app/Contents/Developer"])
+                         ["selected", "sdk:/selected/Xcode_27.2.app/Contents/Developer"])
 
     def test_existing_actions_selection_is_preserved_but_sdk_is_refreshed(self):
         self.env["DEVELOPER_DIR"] = "/actions/Xcode/Contents/Developer"

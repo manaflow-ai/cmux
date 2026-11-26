@@ -47,12 +47,12 @@ def runs_on_text(job: dict, name: str) -> str:
     return cells[0]
 
 NOW = dt.datetime(2026, 10, 27, 6, 0, tzinfo=dt.timezone.utc)
-SIDE = "glaeda-side-std-xcode-26.6"
-DEV = "glaeda-dev-std-xcode-26.6"
+SIDE = "glaeda-side-std-xcode-27.2"
+DEV = "glaeda-dev-std-xcode-27.2"
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 DEDICATED = "glaeda-trusted-next-nightly"
-BUILDER = ("glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", DEDICATED)
-TRUSTED_POOL = "glaeda-trusted-std-xcode-26.6"
+BUILDER = ("glaeda-trusted-light-xcode-27.2", "glaeda-runner-cmux7s-mac-mini-nightly-next", DEDICATED)
+TRUSTED_POOL = "glaeda-trusted-std-xcode-27.2"
 TRUSTED_RUNNER = "glaeda-runner-cmux15-glaeda"
 # Each guarded job and the picker job whose outputs route it.
 GUARDED = {"build-nightly-app": "pick-nightly-build-runner"}
@@ -109,9 +109,9 @@ class OwnedRoute(unittest.TestCase):
     def test_the_nightly_slot_comes_first_while_idle(self) -> None:
         # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER names glaeda's nightly slot, then the side label: an idle slot takes the
         # build, and a busy one leaves it to the side label, never a wait.
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         self.assertTrue(picker.owned_label(slot))
-        for label in ("glaeda-nightly", "glaeda-nightly-std", "glaeda-nightlyx-std-xcode-26.6"):
+        for label in ("glaeda-nightly", "glaeda-nightly-std", "glaeda-nightlyx-std-xcode-27.2"):
             self.assertFalse(picker.owned_label(label), label)
         labels = f"{slot} {SIDE}"
 
@@ -406,7 +406,7 @@ class BlacksmithRoute(unittest.TestCase):
         self.assertEqual(picker.blacksmith_route(SMALL, snapshot({LARGE: 90}), NOW, exclude=SMALL)[0], SMALL)
 
     def test_never_empty(self) -> None:
-        for variable in ("", "glaeda-side-std-xcode-26.6", "macos-26"):
+        for variable in ("", "glaeda-side-std-xcode-27.2", "macos-26"):
             with self.subTest(variable=variable):
                 self.assertTrue(picker.blacksmith_route(variable, None, NOW)[0].startswith("blacksmith-"))
 
@@ -777,7 +777,7 @@ class Workflow(unittest.TestCase):
                            "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                            "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": owned_on,
                            "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": DEV,
-                           "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+                           "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-27.2",
                            "vars.MACOS_RUNNER_26": variable, f"needs.{pick}.outputs.attempt": picked_for,
                            f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.blacksmith": blacksmith}
                 with self.subTest(job=job, event=event, attempt=attempt, picked_for=picked_for, owned=owned,
@@ -802,7 +802,7 @@ class Workflow(unittest.TestCase):
             context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                        "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                        "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
-                       "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+                       "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-27.2",
                        "vars.LINUX_RUNNER": "", "inputs.nightly_next_unsigned_run": "",
                        f"needs.{pick}.outputs.attempt": picked_for,
                        "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": "false",
@@ -818,7 +818,7 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(label, SIDE)
                 else:
                     # The owned nightly pool, never the picker's Blacksmith label nor a dropped pick.
-                    self.assertEqual(label, "glaeda-nightly-std-xcode-26.6")
+                    self.assertEqual(label, "glaeda-nightly-std-xcode-27.2")
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():

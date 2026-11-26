@@ -131,7 +131,7 @@ class NoGitHubHostedMacos(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertTrue(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment(line))))
         for line in ("    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
-                     "    runs-on: glaeda-side-light-xcode-26.6", "    runs-on: blacksmith-12vcpu-macos-26",
+                     "    runs-on: glaeda-side-light-xcode-27.2", "    runs-on: blacksmith-12vcpu-macos-26",
                      "    # runs on hosted macos-26 only in a fork", "      matrix.hosted_runner"):
             with self.subTest(line=line):
                 self.assertFalse(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment(line))))

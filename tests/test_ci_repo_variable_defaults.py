@@ -147,7 +147,7 @@ def is_comparison(text: str, end: int) -> bool:
 def default_chain_reaches_literal(text: str, end: int) -> bool:
     """True when a chain ends in a literal, a literal label list or a declared runner pool.
 
-    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback) is a constant
+    A literal list (`fromJSON('["cmux-mac","xcode-27.2"]')`, ios-internal-nightly's archive fallback) is a constant
     non-empty runs-on, as a quoted label is.
     """
     rest = text[end:]

@@ -280,7 +280,7 @@ class WarmKeys(Fixture):
     def keys(self, fingerprint="fp", cache=True):
         env = {"CMUX_SEED_LOCAL_CACHE": str(self.seeds) if cache else ""}
         with unittest.mock.patch.dict(os.environ, env):
-            return state.warm_keys(self.store, "cmux11s-glaeda-1", "glaeda-root-std-xcode-26.6", fingerprint)
+            return state.warm_keys(self.store, "cmux11s-glaeda-1", "glaeda-root-std-xcode-27.2", fingerprint)
 
     def test_keep_stamps_the_merge_base_and_replaces_it(self):
         self.kept(merged_onto=A.upper())
@@ -297,7 +297,7 @@ class WarmKeys(Fixture):
         self.seed(D, when=20)
         self.seed(E, fingerprint="other", when=40)  # another Xcode: never adopted here
         self.seed("f" * 40, when=50, manifest=False)  # incomplete
-        self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
+        self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-27.2",
                                        "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12],
                                        "roots": [{"root": 1, "merged_onto": A}]})
 
@@ -659,7 +659,7 @@ class WarmKeys(Fixture):
              unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.seeds),
                                                    "GITHUB_OUTPUT": str(self.store / "out")}):
             self.assertEqual(state.main(["x", "warm-keys", str(self.store), "cmux11s-glaeda-1",
-                                         "glaeda-root-std-xcode-26.6", "fp"]), 0)
+                                         "glaeda-root-std-xcode-27.2", "fp"]), 0)
         document = json.loads(output.getvalue())
         self.assertFalse((self.store / "out").exists())
         jobs = [{"name": "CI / " + owned_warm_state.ADMISSION_JOB, "runner_name": "cmux11s-glaeda-1",
@@ -1093,7 +1093,7 @@ class WorkflowCommandLines(unittest.TestCase):
                    "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
                    "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
                    "MERGED_ONTO": "a" * 40, "RUNNER_NAME": "runner", "RUNNER_TEMP": str(base),
-                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)})
+                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-27.2", "HOME": str(base)})
             for step in calls:
                 script = step["run"]
                 # The fingerprint comes from Xcode; stand in for it.
@@ -1196,7 +1196,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(index("Keep this owned Mac's build state"), index("Hold consumers behind the fast Linux gate"))
         self.assertIn("steps.owned-adopt.outcome", self.step("Forget the adopted-build inode override")["if"])
 
-    def slot(self, root, runner="glaeda-std-xcode-26.6"):
+    def slot(self, root, runner="glaeda-std-xcode-27.2"):
         """Run the build-slot step; (exit code, GITHUB_ENV, GITHUB_OUTPUT)."""
         import os
         import subprocess
@@ -1217,7 +1217,7 @@ class Wiring(unittest.TestCase):
 
     def test_a_second_compile_slot_keeps_its_own_root_and_state(self):
         # The first slot, and every Blacksmith job, keeps the default root and store.
-        for runner in ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+        for runner in ("glaeda-std-xcode-27.2", "blacksmith-6vcpu-macos-26"):
             self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)

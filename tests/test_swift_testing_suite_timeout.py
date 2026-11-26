@@ -267,7 +267,7 @@ class FleetStepXcodeTests(unittest.TestCase):
     def test_a_fleet_step_without_developer_dir_builds_with_the_pinned_xcode(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
-            pinned = root / "Xcode_26.6.app/Contents/Developer"
+            pinned = root / "Xcode_27.2.app/Contents/Developer"
             record = root / "developer-dirs.txt"
             result = SettingsExportCatalogTests.run_export(
                 SettingsExportCatalogTests(), root, "scripts/ci/run-swift-testing-suites.sh",

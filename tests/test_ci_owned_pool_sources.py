@@ -304,7 +304,7 @@ class OwnedPoolSources(unittest.TestCase):
     def test_a_runs_on_is_owned_by_a_label_a_pool_variable_or_a_picker_output(self) -> None:
         markers = sources.Markers(sources.Tree(ROOT))
         owned = (
-            "${{ vars.CI_PR_POOL_OWNED == '1' && 'glaeda-session-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ vars.CI_PR_POOL_OWNED == '1' && 'glaeda-session-std-xcode-27.2' || 'blacksmith-6vcpu-macos-26' }}",
             "${{ github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}",
             "${{ fromJSON(needs.runner.outputs.runs_on) }}",
         )
@@ -355,7 +355,7 @@ class OwnedPoolSources(unittest.TestCase):
                   workflow_dispatch:
                     inputs:
                       runner:
-                        default: glaeda-root-std-xcode-26.6
+                        default: glaeda-root-std-xcode-27.2
                 jobs:
                   compile:
                     runs-on: ${{ inputs.runner }}
@@ -382,7 +382,7 @@ class OwnedPoolSources(unittest.TestCase):
                   build:
                     uses: ./.github/workflows/reusable.yml
                     with:
-                      runner: glaeda-side-light-xcode-26.6
+                      runner: glaeda-side-light-xcode-27.2
             """,
             "plain-caller.yml": """
                 on: push
@@ -418,7 +418,7 @@ class OwnedPoolSources(unittest.TestCase):
         self.assertIn("reusable.yml", paths["caller.yml"])
 
     def test_run_39638669325s_workflow_is_watched(self) -> None:
-        # The base autofix's Mac exports take glaeda-session-std-xcode-26.6 on feat-cmux-next.
+        # The base autofix's Mac exports take glaeda-session-std-xcode-27.2 on feat-cmux-next.
         if self.watched is None:
             self.skipTest("main's rescue is not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.watched)

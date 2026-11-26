@@ -39,7 +39,7 @@ RESTORE_FAILED = textwrap.dedent(f"""\
     """)
 
 HOOK_REFUSED = textwrap.dedent("""\
-    2026-09-27T10:26:16.9930940Z   pr_refused_retry_runner: glaeda-std-xcode-26.6
+    2026-09-27T10:26:16.9930940Z   pr_refused_retry_runner: glaeda-std-xcode-27.2
     2026-09-27T10:26:17.2532030Z glaeda-cmux-runner-hook: refused: capacity: 0 of 5 units free, swift-package-tests (light) needs 1
     2026-09-27T10:26:17.2547700Z ##[error]glaeda-cmux-runner-hook: refused: capacity: 0 of 5 units free, swift-package-tests (light) needs 1
     2026-09-27T10:26:17.2594190Z ##[error]Process completed with exit code 1.
@@ -87,7 +87,7 @@ ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"
 )
-# Run 36553044270's swift-package-tests on cmux14 (glaeda-std-xcode-26.6), as
+# Run 36553044270's swift-package-tests on cmux14 (glaeda-std-xcode-27.2), as
 # the job printed it then (a head branched before the marker), and as
 # scripts/select-ci-xcode.sh prints it now.
 XCODE_PIN_MISSING_LEGACY = textwrap.dedent("""\
@@ -100,7 +100,7 @@ XCODE_PIN_MISSING_LEGACY = textwrap.dedent("""\
 XCODE_PIN_MISSING = (
     "2026-09-29T12:23:37.1000000Z ##[error]Pinned Xcode developer dir does not exist: "
     "/Applications/Xcode_26.3.app/Contents/Developer on runner cmux14-glaeda-1. "
-    "[cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3 Xcode_26.6.app=26.6\n"
+    "[cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3 Xcode_27.2.app=26.6\n"
 )
 POOL_XCODE_MISSING = (
     "2026-09-29T12:23:37.1000000Z ##[error]This macOS 26 runner has no Xcode 26.6, the version "

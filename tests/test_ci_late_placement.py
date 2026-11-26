@@ -16,9 +16,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
-XCODE = "/Applications/Xcode_26.6.app"
-ROOT_STD = "glaeda-root-std-xcode-26.6"
-ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
+XCODE = "/Applications/Xcode_27.2.app"
+ROOT_STD = "glaeda-root-std-xcode-27.2"
+ROOT_AWS = "glaeda-aws-root-std-xcode-27.2"
 FULL = {"MACOS": "true", "FULL_SUITE": "true", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
 
@@ -68,7 +68,7 @@ class Decide(unittest.TestCase):
         self.assertIn("nothing to move", why)
 
     def test_the_gui_token_job_takes_an_idle_gui_runner(self):
-        gui = "glaeda-gui-std-xcode-26.6"
+        gui = "glaeda-gui-std-xcode-27.2"
         runners = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(2)),
                    runner("gui-busy", gui, busy=True)]
         slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
@@ -110,11 +110,11 @@ class Decide(unittest.TestCase):
         self.assertEqual(late.decide(env, roots(idle=4))[0], {})
 
 
-GUI = "glaeda-gui-std-xcode-26.6"
+GUI = "glaeda-gui-std-xcode-27.2"
 SLOTS = '{"std": 40, "root-std": 19, "gui-std": 10}'
 RETRY = "blacksmith-12vcpu-macos-26"
 # An owned full suite: the picker gave admission and cli-product the minis.
-OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-26.6",
+OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-27.2",
              OWNED_JOBS=" admission cli-product ")
 
 
@@ -193,7 +193,7 @@ class GuiOverflow(unittest.TestCase):
 
     def test_no_blacksmith_retry_pool_keeps_the_job(self):
         count, _ = self.backlog(queued=40)
-        for retry in ("", "glaeda-std-xcode-26.6"):
+        for retry in ("", "glaeda-std-xcode-27.2"):
             with self.subTest(retry=retry):
                 env = dict(OWNED, RETRY_RUNNER=retry)
                 self.assertEqual(late.decide(env, [*roots(idle=2), *guis(idle=0, busy=10)], count)[0], {})
@@ -262,9 +262,9 @@ class GuiOverflow(unittest.TestCase):
         import datetime as dt
         now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
         runs = [
-            ({"id": 22, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["glaeda-other-xcode-26.6"]),
+            ({"id": 22, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["glaeda-other-xcode-27.2"]),
             ({"id": 23, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["ubuntu-latest"]),
-            ({"id": 24, "created_at": "2026-09-28T00:00:00Z"}, "ci.yml", ["glaeda-other-xcode-26.6"]),
+            ({"id": 24, "created_at": "2026-09-28T00:00:00Z"}, "ci.yml", ["glaeda-other-xcode-27.2"]),
         ]
 
         class API:

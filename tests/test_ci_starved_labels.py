@@ -27,8 +27,8 @@ sys.modules["starved_labels"] = starved_labels
 SPEC.loader.exec_module(starved_labels)
 
 NOW = dt.datetime(2026, 10, 22, 6, 0, tzinfo=dt.timezone.utc)
-SIDE = "glaeda-side-light-xcode-26.6"
-OTHER = "glaeda-xl-xcode-26.6"
+SIDE = "glaeda-side-light-xcode-27.2"
+OTHER = "glaeda-xl-xcode-27.2"
 _ids = iter(range(5000, 100000))
 
 

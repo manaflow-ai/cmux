@@ -1885,7 +1885,7 @@ class ContractParity(unittest.TestCase):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by
         # its SDK. Both select Xcode 26.6, so both must name one product.
         pinned = self.contract_with({
-            "CMUX_CI_XCODE_APP": "/Applications/Xcode_26.6.app",
+            "CMUX_CI_XCODE_APP": "/Applications/Xcode_27.2.app",
             "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "26",
             "CMUX_SKIP_ZIG_BUILD": "1",
         })

@@ -705,7 +705,7 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
                                      "recover-nightly-next-notarization", "verify-signed-nightly",
                                      "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
                                      "verify-recovered-nightly-next"})
-OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-27.2' }}"
 SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
 
 
@@ -1091,18 +1091,18 @@ class Wiring(unittest.TestCase):
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
         for attempt, retry, owned_jobs, runner in (
-            ("1", "blacksmith-12vcpu-macos-26", " admission cli-product ", "glaeda-std-xcode-26.6"),
+            ("1", "blacksmith-12vcpu-macos-26", " admission cli-product ", "glaeda-std-xcode-27.2"),
             ("1", "blacksmith-12vcpu-macos-26", " cli-product ", "blacksmith-12vcpu-macos-26"),
             ("1", "blacksmith-12vcpu-macos-26", "", "blacksmith-12vcpu-macos-26"),
-            ("2", "blacksmith-12vcpu-macos-26", " admission ", "glaeda-std-xcode-26.6"),
+            ("2", "blacksmith-12vcpu-macos-26", " admission ", "glaeda-std-xcode-27.2"),
             ("3", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
-            ("3", "", "", "glaeda-std-xcode-26.6"),
+            ("3", "", "", "glaeda-std-xcode-27.2"),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                      triggering_actor="github-actions[bot]",
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
+            context["inputs"].update(pr_runner="glaeda-std-xcode-27.2", pr_retry_runner=retry,
                                      pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, retry=retry, owned_jobs=owned_jobs):
                 self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
@@ -1115,14 +1115,14 @@ class Wiring(unittest.TestCase):
         # Blacksmith retry runner, so its re-runs never loop. A person's re-run
         # always goes back to the owned label.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for actor, attempt, runner in (("github-actions[bot]", "2", "glaeda-std-xcode-26.6"),
-                                       ("someone", "2", "glaeda-std-xcode-26.6"),
+        for actor, attempt, runner in (("github-actions[bot]", "2", "glaeda-std-xcode-27.2"),
+                                       ("someone", "2", "glaeda-std-xcode-27.2"),
                                        ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
-                                       ("someone", "3", "glaeda-std-xcode-26.6")):
+                                       ("someone", "3", "glaeda-std-xcode-27.2")):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
+            context["inputs"].update(pr_runner="glaeda-std-xcode-27.2", pr_retry_runner="blacksmith-12vcpu-macos-26",
                                      pr_owned_jobs=" admission ")
             with self.subTest(actor=actor, attempt=attempt):
                 self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
@@ -1133,7 +1133,7 @@ class Wiring(unittest.TestCase):
         self.assertLessEqual(SIGNING_NIGHTLY_ANCHORS, SIGNING_NIGHTLY_JOBS)
         # The class #36559 hit in backend.yml: a secret job split out on the shared side-lane chain, unlisted. Both a
         # new name and an owned-only name that gains a secret are named, since a secret outranks the exemption.
-        side = "glaeda-side-std-xcode-26.6"
+        side = "glaeda-side-std-xcode-27.2"
         runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.owned "
                    + OWNED_ONLY_NIGHTLY_FALLBACK)
         for name, secret in (("staple-fixture-nightly", "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"),
@@ -1173,8 +1173,8 @@ class Wiring(unittest.TestCase):
         # run_attempt <= 3 (cx-urd.50). owned_pool_rescue.py stops watching
         # cmux-next bot runs after attempt 2 (#21438), so it does not re-run a
         # refused attempt 3.
-        mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
-                                 "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
+        mini, root, gui, side = ("glaeda-std-xcode-27.2", "glaeda-root-std-xcode-27.2",
+                                 "glaeda-gui-std-xcode-27.2", "glaeda-side-std-xcode-27.2")
         owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
         late = json.dumps({"shard-1": root, "lag": gui, "cli-product": root})
         checked = set()
@@ -1199,7 +1199,7 @@ class Wiring(unittest.TestCase):
                         # docs/ci/cmux-next-workflow-notes.md#note-350) the owned label is the only route.
                         context = github_context("pull_request", ref="refs/pull/1/merge",
                                                  CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
-                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6",
+                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-27.2",
                                                  CI_BLACKSMITH_MACOS="on")
                         context["github"].update(
                             repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
@@ -1248,7 +1248,7 @@ class Wiring(unittest.TestCase):
         # attempt 3 takes the Blacksmith retry runner. Without pr_root_runner
         # nothing changes.
         macos = load("ci-macos.yml")["jobs"]
-        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        root, mini, retry = "glaeda-root-std-xcode-27.2", "glaeda-std-xcode-27.2", "blacksmith-12vcpu-macos-26"
         for attempt, actor, owned_jobs, root_runner, runner in (
             ("1", "someone", " admission shard-1 lag cli-product ", root, root),
             ("1", "someone", " admission shard-1 lag cli-product ", "", mini),
@@ -1277,8 +1277,8 @@ class Wiring(unittest.TestCase):
         # glaeda runs cli-product-tests under the mini's gui token, so on the
         # root label it was refused behind a shard's token (run 36316398822).
         job = load("ci-macos.yml")["jobs"]["cli-product-tests"]
-        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
-        gui = "glaeda-gui-std-xcode-26.6"
+        root, mini, retry = "glaeda-root-std-xcode-27.2", "glaeda-std-xcode-27.2", "blacksmith-12vcpu-macos-26"
+        gui = "glaeda-gui-std-xcode-27.2"
         owned = " admission shard-1 lag cli-product "
         for attempt, owned_jobs, gui_runner, runner in (
             ("1", owned, gui, gui),
@@ -1307,7 +1307,7 @@ class Wiring(unittest.TestCase):
         # admission-placement ran again for it; the bot's attempt 3 goes to
         # the retry runner.
         macos = load("ci-macos.yml")["jobs"]
-        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        root, mini, retry = "glaeda-root-std-xcode-27.2", "glaeda-std-xcode-27.2", "blacksmith-12vcpu-macos-26"
         warm = json.dumps([root, "glaeda-runner-cmux7-glaeda"])
         owned_jobs = " admission shard-1 lag cli-product "
         for attempt, actor, admission_runner, runner in (
@@ -1336,7 +1336,7 @@ class Wiring(unittest.TestCase):
         # pr_runner_pool.py may put main's full-suite dispatch on an owned
         # pool; every job of it reads the same inputs a pull request's do.
         macos = load("ci-macos.yml")["jobs"]
-        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"
+        root, mini, retry = "glaeda-root-std-xcode-27.2", "glaeda-std-xcode-27.2", "blacksmith-6vcpu-macos-26"
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
                                        # Attempt 2 is placed like attempt 1; attempt 3 goes to Blacksmith.

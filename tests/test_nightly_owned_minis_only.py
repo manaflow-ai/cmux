@@ -362,7 +362,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                              "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                              "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                              "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "'glaeda-nightly-std-xcode-26.6' }}")
+                             "'glaeda-nightly-std-xcode-27.2' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
@@ -466,7 +466,7 @@ class RecoveryTakesAnOwnedPick(unittest.TestCase):
         route = re.sub(r"\s+", " ", manaflow_route("recover-nightly-next-notarization"))
         self.assertIn(OWNED_PICK, route)
         self.assertNotIn("CI_SIDE_LANE_RUNNER", route)
-        self.assertNotIn("'glaeda-std-xcode-26.6'", route)
+        self.assertNotIn("'glaeda-std-xcode-27.2'", route)
 
     def test_recovered_verify_never_takes_the_signer_pin(self) -> None:
         # glaeda admits only signing jobs on a signing mini: on the recovery signer's pin this secret-free job was

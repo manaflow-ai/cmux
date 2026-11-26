@@ -2415,7 +2415,7 @@ def print_calls(cmd):
     print(f"perf-cron {cmd}: {total} GitHub API call(s){': ' + detail if detail else ''}")
 
 
-# A fleet runner, named positively: glaeda's labels (glaeda-mini, glaeda-trusted-std-xcode-26.6, glaeda-side-...), or
+# A fleet runner, named positively: glaeda's labels (glaeda-mini, glaeda-trusted-std-xcode-27.2, glaeda-side-...), or
 # `self-hosted` with a macOS label. Anything else is rented or hosted capacity (GitHub's macos-26, Blacksmith,
 # Depot, Namespace, Warp, ...), which a perf part never competes with: on 2026-10-24 a dev build waiting 2 h for
 # blacksmith-12vcpu-macos-26 held every Mac part back while cmux20-bench was idle.

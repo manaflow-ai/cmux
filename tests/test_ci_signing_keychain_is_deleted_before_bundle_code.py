@@ -1173,14 +1173,14 @@ def check_literal_selectors(failures: list[str]) -> None:
     cases = {
         "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}":
             "${{ 'blacksmith-32vcpu-ubuntu-2404' }}",
-        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
-        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-27.2' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'glaeda-std-xcode-27.2' && 'glaeda-std-xcode-27.2' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
         # The nightly's hosted switch, routed to the one-job JIT VM: dropped.
         "${{ vars.X == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || 'glaeda-trusted-next-signing' }}":
             "${{ 'glaeda-trusted-next-signing' }}",
         # A JIT label behind a persistent runner's name, or a persistent label behind an ephemeral one: kept.
-        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
-        "${{ vars.X == 'ubuntu-24.04' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'glaeda-std-xcode-27.2' && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'ubuntu-24.04' && 'glaeda-std-xcode-27.2' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
         # Any other cmux-gcp label (outside JIT_EPHEMERAL_LABELS) is not admitted as ephemeral.
         "${{ vars.X == 'cmux-gcp-nightly-x64' && 'cmux-gcp-nightly-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
     }

@@ -33,9 +33,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
 import workflow_jobs  # noqa: E402
 
-PR_XCODE = "/Applications/Xcode_26.6.app"
-GUI = "glaeda-gui-std-xcode-26.6"
-SESSION = "glaeda-session-std-xcode-26.6"
+PR_XCODE = "/Applications/Xcode_27.2.app"
+GUI = "glaeda-gui-std-xcode-27.2"
+SESSION = "glaeda-session-std-xcode-27.2"
 RUNNER_POOLS = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
 FALLBACK = RUNNER_POOLS["macos_26"]["members"][0]
 
@@ -163,7 +163,7 @@ class IdleGuiOnly(unittest.TestCase):
         return media.pick_idle(**options)
 
     def test_an_idle_gui_runner_never_the_session_label(self):
-        both = [runner("a", "glaeda-std-xcode-26.6", SESSION), runner("b", "glaeda-std-xcode-26.6", GUI, SESSION)]
+        both = [runner("a", "glaeda-std-xcode-27.2", SESSION), runner("b", "glaeda-std-xcode-27.2", GUI, SESSION)]
         self.assertEqual(self.pick(both)[0], GUI)
         # Without --gui-only the same runners give the session label (the visual gate's rule).
         self.assertEqual(self.pick(both, gui_only=False)[0], SESSION)

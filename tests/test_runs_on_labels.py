@@ -140,7 +140,7 @@ class DisallowedLabels(unittest.TestCase):
             "${{ vars.X && 'windows-2022' || 'blacksmith-4vcpu-ubuntu-2404' }}": "windows-2022",
             "${{ vars.X && '%s' || 'blacksmith-4vcpu-ubuntu-2404' }}" % PERSONAL_WORKSTATION_LABEL: PERSONAL_WORKSTATION_LABEL,
             "${{ vars.X && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}": "blacksmith-6vcpu-macos-26",
-            "${{ vars.X && 'glaeda-side-light-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}": "glaeda-side-light-xcode-26.6",
+            "${{ vars.X && 'glaeda-side-light-xcode-27.2' || 'blacksmith-4vcpu-ubuntu-2404' }}": "glaeda-side-light-xcode-27.2",
             "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}": "vars.LINUX_RUNNER",
             "${{ vars.X && 'ubuntu-slim' || 'blacksmith-4vcpu-ubuntu-2404' }}": "ubuntu-slim",
             "${{ vars.X && 'blacksmith-4vcpu-ubuntu-2404' }}": "''",

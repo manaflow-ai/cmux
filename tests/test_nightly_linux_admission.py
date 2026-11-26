@@ -20,7 +20,7 @@ import fleet_admission_transport as transport
 
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40,
-       "JOBS": "control", "SIDE_LABEL": "glaeda-side-std-xcode-26.6",
+       "JOBS": "control", "SIDE_LABEL": "glaeda-side-std-xcode-27.2",
        "OVERFLOW_LINUX": "ubuntu-24.04"}
 ENV["JOBS"] = " ".join(sorted(admission.JOBS))
 REQUEST = admission.identity(ENV)
@@ -42,7 +42,7 @@ def receipt(status="pending"):
 
 def expected_fallback(job):
     # build-nightly-inputs falls back to the owned nightly Mac pool; the light controls to hosted Ubuntu.
-    return "glaeda-nightly-std-xcode-26.6" if job == "build-nightly-inputs" else "ubuntu-24.04"
+    return "glaeda-nightly-std-xcode-27.2" if job == "build-nightly-inputs" else "ubuntu-24.04"
 
 
 def pool_context(overflow):
@@ -138,7 +138,7 @@ class Receipts(unittest.TestCase):
         self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"})
         # Blacksmith is outside it: nightlies never run on Blacksmith.
         for label in ("blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "untrusted",
-                      "glaeda-side-std-xcode-26.6"):
+                      "glaeda-side-std-xcode-27.2"):
             with self.subTest(label=label), self.assertRaises(ValueError):
                 admission.routes({**ENV, "OVERFLOW_LINUX": label}, REQUEST, receipt("overflow"))
 

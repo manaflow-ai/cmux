@@ -5,14 +5,14 @@ const BROKER: &str = "[message ab12cd from cmux-cp-1/now (an agent, not Leo), re
 #[test]
 fn reads_the_rendered_head_past_the_broker_label() {
     let text = format!(
-        "{BROKER}\n[notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, 9 queued\n\
+        "{BROKER}\n[notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-27.2, 9 queued\n\
          Oldest waits 41m.\nLinks: https://github.com/o/r/actions (runs), https://x.test/a?b=1\n[end of message ab12cd]"
     );
     let n = read(&text).expect("a notice");
     assert_eq!(n["sender"], "now");
     assert_eq!(n["host"], "cmux-cp-1");
     assert_eq!(n["severity"], "fire");
-    assert_eq!(n["title"], "Runner label stalled: trusted xcode-26.6, 9 queued");
+    assert_eq!(n["title"], "Runner label stalled: trusted xcode-27.2, 9 queued");
     assert_eq!(n["read"], true);
     assert_eq!(
         n["links"],
@@ -58,9 +58,9 @@ fn plain_text_and_bad_heads_are_no_notice() {
 
 #[test]
 fn a_condition_keeps_its_key_whatever_its_counts() {
-    let a = condition_key("now", "Runner label stalled: trusted xcode-26.6, 9 queued");
-    assert_eq!(a, condition_key("NOW", "Runner  label stalled: trusted xcode-26.6, 12 queued"));
+    let a = condition_key("now", "Runner label stalled: trusted xcode-27.2, 9 queued");
+    assert_eq!(a, condition_key("NOW", "Runner  label stalled: trusted xcode-27.2, 12 queued"));
     assert_eq!(a, "now\nrunner label stalled: trusted xcode-#.#, # queued");
     assert_ne!(a, condition_key("now", "Runner label stalled: trusted linux-x64, 9 queued"));
-    assert_ne!(a, condition_key("land", "Runner label stalled: trusted xcode-26.6, 9 queued"));
+    assert_ne!(a, condition_key("land", "Runner label stalled: trusted xcode-27.2, 9 queued"));
 }

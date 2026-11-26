@@ -29,10 +29,10 @@ WORKFLOWS = ROOT / ".github/workflows"
 WORKFLOW = WORKFLOWS / "cmux-next.yml"
 LARGE, SMALL, HOSTED = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "macos-26"
 MACOS_15 = "blacksmith-6vcpu-macos-15"
-SIDE = "glaeda-side-light-xcode-26.6"
-GUI = "glaeda-gui-std-xcode-26.6"
+SIDE = "glaeda-side-light-xcode-27.2"
+GUI = "glaeda-gui-std-xcode-27.2"
 CASCADED = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
-PROMOTE = "glaeda-promote-side-trusted-std-xcode-26.6"
+PROMOTE = "glaeda-promote-side-trusted-std-xcode-27.2"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 ALL_JOBS = "fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"
 NOW = dt.datetime(2026, 10, 19, 22, 0, tzinfo=dt.timezone.utc)
@@ -294,7 +294,7 @@ class Counts(unittest.TestCase):
     def test_the_pools_other_labels_count_from_the_snapshot(self):
         shot = snapshot(large=1, small=2)
         shot["pools"][MACOS_15] = {"queued": 4, "running": 3}
-        shot["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 121, "running": 10}
+        shot["pools"]["glaeda-side-std-xcode-27.2"] = {"queued": 121, "running": 10}
         # Queued counts every Blacksmith macOS label, never an owned or hosted one.
         self.assertEqual(cascade.queued(shot, NOW), {LARGE: 1, SMALL: 2, MACOS_15: 4})
         self.assertEqual(cascade.pool_queued(cascade.queued(shot, NOW)), 7)
@@ -764,7 +764,7 @@ class Place(unittest.TestCase):
 
     def test_side_lane_placement_writes_the_cascade_outputs(self):
         runners = [{"name": "mini", "status": "online", "busy": False,
-                    "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}]
+                    "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}]
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
             fake = mock.Mock()
@@ -784,14 +784,14 @@ class Place(unittest.TestCase):
 
     def test_side_lane_placement_reads_the_promotion_minis_load(self):
         side = {"name": "side-mini", "status": "online", "busy": True,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
 
         def outputs(promote_busy: bool | None, **extra: str) -> dict:
             runners = [side]
             if promote_busy is not None:
                 runners.append({"name": "cmux14-glaeda", "status": "online", "busy": promote_busy,
                                 "labels": [{"name": label} for label in
-                                           ("self-hosted", "glaeda-promote-trusted-std-xcode-26.6", PROMOTE)]})
+                                           ("self-hosted", "glaeda-promote-trusted-std-xcode-27.2", PROMOTE)]})
             with tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "out"
                 fake = mock.Mock()
@@ -814,10 +814,10 @@ class Place(unittest.TestCase):
 
     def test_dedicated_nightly_builder_gets_release_compile_before_blacksmith(self):
         side = {"name": "side-mini", "status": "online", "busy": True,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         dedicated = {"name": "cmux22", "status": "online", "busy": False,
                      "labels": [{"name": label} for label in
-                                ("self-hosted", "glaeda-trusted-light-xcode-26.6",
+                                ("self-hosted", "glaeda-trusted-light-xcode-27.2",
                                  "glaeda-runner-cmux22-nightly-next", "glaeda-trusted-next-nightly")]}
 
         def run(busy: bool):
@@ -832,7 +832,7 @@ class Place(unittest.TestCase):
                     placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
                                        GITHUB_OUTPUT=str(output), CASCADE_RUNS=" release-compile ",
                                        PROMOTE_LABEL=PROMOTE,
-                                       NIGHTLY_POOL="glaeda-trusted-light-xcode-26.6",
+                                       NIGHTLY_POOL="glaeda-trusted-light-xcode-27.2",
                                        NIGHTLY_RUNNER="glaeda-runner-cmux22-nightly-next"))
                 return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
@@ -1014,7 +1014,7 @@ class Rerun(unittest.TestCase):
 
     Until 2026-10-26 every attempt after 1 skipped the placement's steps, so the re-run's outputs were
     empty and its cascade jobs rejoined the end of the side queue they had waited in. Run 40287033454's
-    DEV Release compile (DEV daily 7cf3398a) waited on glaeda-side-std-xcode-26.6 from 07:39Z and a
+    DEV Release compile (DEV daily 7cf3398a) waited on glaeda-side-std-xcode-27.2 from 07:39Z and a
     mini refused it at 08:02Z; a re-run would have queued there again.
     """
 
@@ -1110,7 +1110,7 @@ class Rerun(unittest.TestCase):
         self.assertEqual(place["run"].count(call), 1)
         shell = place["run"].replace(call, ":\n")
         idle = {"name": "mini", "status": "online", "busy": False,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         for attempt, actor in (("2", BOT), ("1", "teamleaderleo")):
             with self.subTest(attempt=attempt), tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "out"
@@ -1147,7 +1147,7 @@ class Rerun(unittest.TestCase):
 
     def test_bot_fast_tier_uses_actual_fresh_owned_placement(self):
         idle = {"name": "side-mini", "status": "online", "busy": False,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         runs_on = runs_on_of(yaml.safe_load(WORKFLOW.read_text())["jobs"]["fast-tier"])
         for runners, expected in (([idle], SIDE), ([], SMALL)):
             with self.subTest(idle=bool(runners)):
@@ -1186,9 +1186,9 @@ class Rerun(unittest.TestCase):
         # cascade jobs fall back to SIDE_LABEL itself, so an idle std mini is no room for a light re-run.
         std = SIDE.replace("-light-", "-std-")
         idle_std = {"name": "std-mini", "status": "online", "busy": False,
-                    "labels": [{"name": label} for label in ("self-hosted", "glaeda-std-xcode-26.6", std)]}
+                    "labels": [{"name": label} for label in ("self-hosted", "glaeda-std-xcode-27.2", std)]}
         busy_light = {"name": "light-mini", "status": "online", "busy": True,
-                      "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                      "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         free = {LARGE: 0, SMALL: 0}
         lines = self.rerun_outputs([idle_std, busy_light], free, dict(free), CASCADE_RUNS=" cmux-scheme-compile ")
         self.assertEqual(lines["owned_jobs"], "")
@@ -1228,7 +1228,7 @@ class Rerun(unittest.TestCase):
         # Review of #25707: JOBS lists release-compile first, so an idle mini counted for it left the
         # scheme compile on the owned label with no mini to take it.
         idle = {"name": "light-mini", "status": "online", "busy": False,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         free = {LARGE: 0, SMALL: 0}
         push = self.rerun_outputs([idle], free, dict(free), JOBS="release-compile cmux-scheme-compile",
                                   CASCADE_RUNS=" cmux-scheme-compile release-compile ", GITHUB_EVENT_NAME="push",
@@ -1262,7 +1262,7 @@ class Rerun(unittest.TestCase):
         jobs = next(step for step in jobs if step.get("id") == "place")["env"]["JOBS"]
         self.assertTrue(jobs.startswith("fast-tier swift-canary cmux-scheme-compile"))
         idle = {"name": "side-mini", "status": "online", "busy": False,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         for runners, small, owned in (([], " cmux-scheme-compile ", ""),
                                      ([idle], "", " fast-tier "),
                                      ([idle, dict(idle, name="side-mini-2")], "", " fast-tier swift-canary ")):
@@ -1448,7 +1448,7 @@ class Wiring(unittest.TestCase):
         Blacksmith label only when no idle mini took it."""
         runs_on = runs_on_of(self.jobs["release-compile"])
         self.assertEqual(env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"], runs_on)
-        side = "glaeda-side-std-xcode-26.6"
+        side = "glaeda-side-std-xcode-27.2"
         self.assertEqual(evaluate(runs_on, self.context(runner=side)), side)
         self.assertEqual(evaluate(runs_on, self.context(runner=side, large=" release-compile ")), LARGE)
         self.assertEqual(evaluate(runs_on, self.context(runner=side, small=" release-compile ")), SMALL)
@@ -1505,7 +1505,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on_of(self.jobs["release-compile"]))
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"])
 
-    NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+    NIGHTLY_POOL = "glaeda-trusted-light-xcode-27.2"
     NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 
     # The events release-compile runs on: a push to either branch, a dispatch, and a same-repo or fork pull request.
@@ -1558,7 +1558,7 @@ class Wiring(unittest.TestCase):
     def test_a_feeds_compile_takes_the_freshness_slot_first(self):
         """The DEV compile slot (glaeda-dev-std-xcode-<v>), then the owned side label, then Blacksmith: the slot
         is taken only on attempt 1 and only when placement named the job and the label."""
-        fresh = "glaeda-dev-std-xcode-26.6"
+        fresh = "glaeda-dev-std-xcode-27.2"
         feat = "refs/heads/" + "feat-cmux-next"
         # The slot's hook (glaeda#1636) admits cmux-scheme-compile and a push's Release compile, the
         # nightly-next promote gate.
@@ -1671,11 +1671,11 @@ class Wiring(unittest.TestCase):
         self.assertEqual(runs(native="false"), heavy - {"release-compile"})
         self.assertEqual(runs(labels=()), set())
         self.assertEqual(runs(labels=(), canary="false", scheme="false"), set())
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), heavy)
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-27.2"), heavy)
         # The fast lane's label is a preference the placement takes only while it is idle
         # (side_lane_placement.fast_route()), so on a push the fast tier is always a cascade candidate.
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
-        self.assertEqual(runs("push", labels=(), fast_lane="glaeda-fast-std-xcode-26.6", canary="false"),
+        self.assertEqual(runs("push", labels=(), fast_lane="glaeda-fast-std-xcode-27.2", canary="false"),
                          {"fast-tier", "cmux-scheme-compile", "release-compile"})
         self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), set())
         self.assertEqual(runs(labels=("dev-build",)), {"cmux-scheme-compile"})
@@ -1736,7 +1736,7 @@ class Wiring(unittest.TestCase):
 
     def test_all_excluded_without_fleet_client_preserves_base_queue_and_coverage(self):
         busy = {"name": "side-mini", "status": "online", "busy": True,
-                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}
         for reason in ("outage", "nightly"):
             with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
                 shot = snapshot(large=1, small=1)
@@ -1813,12 +1813,12 @@ class CarriedPlacement(unittest.TestCase):
     need: macos-placement, and any re-run placement job skipped on attempt 1, keep the earlier attempt's
     result and outputs. Such a reading may be hours old, so a Mac job that took the owned label from it had
     no way off: cmux#38484's run 42728317341 (a same-tree dispatch) kept `cmux app scheme compile (Debug)`
-    on glaeda-side-std-xcode-26.6 through cmux-bot's attempt 2 (03:06Z to 05:17Z) and teamleaderleo's attempts
+    on glaeda-side-std-xcode-27.2 through cmux-bot's attempt 2 (03:06Z to 05:17Z) and teamleaderleo's attempts
     3 (05:45Z to 20:48Z) and 4 (21:27Z to 23:16Z). Only an attempt the placement read itself takes an owned
     label; a carried one takes the moving Blacksmith label, as the push Release compile's fallback does.
     """
 
-    OWNED = (SIDE, GUI, "glaeda-session-std-xcode-26.6", "glaeda-dev-std-xcode-26.6")
+    OWNED = (SIDE, GUI, "glaeda-session-std-xcode-27.2", "glaeda-dev-std-xcode-27.2")
 
     def setUp(self):
         self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -1898,7 +1898,7 @@ class SaturatedOwnedPool(unittest.TestCase):
     host serves) has a fallback within minutes ... The target is zero queue (Leo, 2026-10-24: 'THERE SHOULD
     BE 0 QUEUE EVER HERE')." GitHub never moves a queued job, and a run with no free Blacksmith slot takes
     the refusals-only marker, so the rescue leaves its queue alone: the placement is the only lever.
-    cmux#26723's fast tier (run 40810932618, 2026-10-29) queued on glaeda-side-std-xcode-26.6 from 03:14Z
+    cmux#26723's fast tier (run 40810932618, 2026-10-29) queued on glaeda-side-std-xcode-27.2 from 03:14Z
     for hours: no idle side runner, a stale pool snapshot, and so "no job leaves the minis' queue".
     """
 
@@ -2056,7 +2056,7 @@ class SaturatedOwnedPool(unittest.TestCase):
 
     def test_the_placement_marks_the_owned_pool_saturated_only_when_it_read_the_runners(self):
         busy = [{"name": "mini", "status": "online", "busy": True,
-                 "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}]
+                 "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-27.2", SIDE)]}]
         moving = ({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 2}, cascade.Seen(waits={LARGE: 0.0, SMALL: 2.0}))
         for extra in ({}, self.BOT_RERUN):
             with self.subTest(extra=extra):
@@ -2192,7 +2192,7 @@ class DeadEndRoute(unittest.TestCase):
     Leo (rulebook, routing order): "No job waits on one reserved machine: every reservation (a label one host
     serves) has a fallback within minutes ... a CI test fails on a runs-on that can resolve to a single-host
     label with no fallback." On 2026-10-29 cmux#26723's fast tier (run 40841809952, job 123340021719) queued on
-    glaeda-side-std-xcode-26.6 from 08:24Z behind 96 jobs, the oldest 443 minutes old, while
+    glaeda-side-std-xcode-27.2 from 08:24Z behind 96 jobs, the oldest 443 minutes old, while
     blacksmith-6vcpu-macos-26 ran 4 with its oldest queued 27 minutes: overflow() called that queue stalled and
     kept the job on the longer one.
     """
@@ -2244,20 +2244,20 @@ class DeadEndRoute(unittest.TestCase):
 
     def test_seen_reads_the_owned_labels_waits(self):
         snap = snapshot(minutes_old=5)
-        snap["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 96, "running": 0, "oldest_queued_minutes": 438}
-        snap["pools"]["glaeda-gui-std-xcode-26.6"] = {"queued": 0, "running": 10, "oldest_queued_minutes": 0}
+        snap["pools"]["glaeda-side-std-xcode-27.2"] = {"queued": 96, "running": 0, "oldest_queued_minutes": 438}
+        snap["pools"]["glaeda-gui-std-xcode-27.2"] = {"queued": 0, "running": 10, "oldest_queued_minutes": 0}
         seen = cascade.seen(snap, NOW)
-        self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
-        self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+        self.assertEqual(seen.owned, {"glaeda-side-std-xcode-27.2": 443.0})
+        self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-27.2": 96})
         self.assertEqual(seen.unserved, frozenset())
 
     def test_seen_reads_the_janitors_unserved_owned_labels(self):
         # queue_janitor.py writes starved_labels.unserved(): fleet label keys, joined with "+" for a job asking
         # for several. Only a single owned label says that label starts nothing.
         snap = snapshot(minutes_old=5)
-        snap["unserved"] = ["glaeda-session-std-xcode-26.6", "glaeda-ios-sim+glaeda-std-xcode-26.6",
+        snap["unserved"] = ["glaeda-session-std-xcode-27.2", "glaeda-ios-sim+glaeda-std-xcode-27.2",
                             "blacksmith-6vcpu-macos-26", 7]
-        self.assertEqual(cascade.seen(snap, NOW).unserved, frozenset({"glaeda-session-std-xcode-26.6"}))
+        self.assertEqual(cascade.seen(snap, NOW).unserved, frozenset({"glaeda-session-std-xcode-27.2"}))
 
 
 def observed_dead(minutes_old: float = 2, *, dead: str = LARGE, **overrides: dict) -> dict:
@@ -2361,7 +2361,7 @@ class DeadLabel(unittest.TestCase):
                                 SMALL: {"queued": 77, "running": 0, "oldest_queued_minutes": 552}})
         both["label_started"] = {}
         self.assertEqual(cascade.dead(both, NOW), frozenset({LARGE, SMALL}))
-        for live in ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0, "glaeda-side-std-xcode-26.6": 4}):
+        for live in ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0, "glaeda-side-std-xcode-27.2": 4}):
             with self.subTest(live=live):
                 result = self.placed(both, live)
                 self.assertEqual((result.jobs[LARGE], result.jobs[SMALL]), ((), ()), result.why)
@@ -2893,7 +2893,7 @@ class RerunPastTheAttemptCap(unittest.TestCase):
 
 
 # vars.CI_BLACKSMITH_MACOS=pr-rescue (hq#11523): Blacksmith macOS for cmux-next.yml's pull-request jobs only.
-# 2026-11-15 17:32Z glaeda-side-std-xcode-26.6 had 76 jobs queued, the oldest 150 min, and `on` would also have
+# 2026-11-15 17:32Z glaeda-side-std-xcode-27.2 had 76 jobs queued, the oldest 150 min, and `on` would also have
 # moved the nightly, promote, signing and release jobs, which stay off Blacksmith.
 RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
@@ -2987,7 +2987,7 @@ class BlacksmithPrRescue(unittest.TestCase):
                 self.assertEqual((result.retry_runner, result.retry_jobs), ("", ()))
 
     def test_a_pull_requests_same_tree_dispatch_is_placed_like_its_pull_request(self):
-        """cmux#44529's scheme compile (run 43879624016) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16.
+        """cmux#44529's scheme compile (run 43879624016) queued on glaeda-side-std-xcode-27.2 from 13:50Z on 2026-11-16.
         cmux#44673 sent such a dispatch's bot re-run off the side lane; cmux#45176 moved every re-run to the
         placement's retry label, and placement honored pull_request runs only, so the dispatch was stuck again."""
         jobs = " fast-tier swift-canary cmux-scheme-compile release-compile "
@@ -3075,7 +3075,7 @@ class BlacksmithPrRescue(unittest.TestCase):
 
     def test_a_bot_rerun_of_a_pull_requests_dispatch_takes_only_the_placements_label(self):
         """cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016, `cmux-next · <head>`, queued
-        on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
+        on glaeda-side-std-xcode-27.2 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
         fallback, vars.MACOS_RUNNER_26, until cmux#44966 showed that label can have no runner online: a re-run now
         takes Blacksmith macOS only through the placement's retry label, as the pull_request run's does."""
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]

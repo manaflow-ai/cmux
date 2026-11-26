@@ -224,7 +224,7 @@ class LabelHasProvider(unittest.TestCase):
         # The labels of 2026-11-19 and one of each source, so a scan that silently reads nothing fails here.
         for label, source in (("cmux-fleet-linux-x64", "scripts/ci/"), ("cmux-gcp-lane-build-x64", "runs-on"),
                               ("blacksmith-4vcpu-ubuntu-2404", ".github/runners.json"),
-                              ("glaeda-side-std-xcode-26.6", "runs-on")):
+                              ("glaeda-side-std-xcode-27.2", "runs-on")):
             self.assertIn(label, self.labels)
             self.assertTrue(any(source in s for s in self.labels[label]), (label, self.labels[label]))
         self.assertEqual(providers_of("cmux-fleet-linux-x64", self.data["providers"]), ["gha-runners"])
@@ -249,9 +249,9 @@ class LabelHasProvider(unittest.TestCase):
         py = python_constants('FLEET_LINUX = "cmux-fleet-linux-x64"\nRUNNER_PREFIX = "glaeda-runner-"\n'
                               'LABELS = ("glaeda-a-xcode", "hold")\nISSUE_LABEL = "ci-runner-starved"\n', "f.py")
         self.assertEqual(set(py), {"cmux-fleet-linux-x64", "glaeda-a-xcode"})
-        sh = shell_constants('FLEET_LINUX=cmux-fleet-linux-x64\nexport MAC_RUNNER="glaeda-std-xcode-26.6"\n'
+        sh = shell_constants('FLEET_LINUX=cmux-fleet-linux-x64\nexport MAC_RUNNER="glaeda-std-xcode-27.2"\n'
                              'OTHER=cmux-x\n', "f.sh")
-        self.assertEqual(set(sh), {"cmux-fleet-linux-x64", "glaeda-std-xcode-26.6"})
+        self.assertEqual(set(sh), {"cmux-fleet-linux-x64", "glaeda-std-xcode-27.2"})
 
 
 if __name__ == "__main__":
