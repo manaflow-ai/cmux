@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315"
+	SDKIRSHA256        = "904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886"
 )
 
 type Authority string
@@ -387,6 +387,7 @@ var eventMetadata = map[string]EventMetadata{
 	"agent-inventory-watch-ended":       {Name: "agent-inventory-watch-ended", Since: 12, Capability: "agent-inventory-watch-v1", Streams: []string{"control"}, Emission: "emitted"},
 	"agent-presence-changed":            {Name: "agent-presence-changed", Since: 12, Capability: "agent-presence-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"agent-session-share-changed":       {Name: "agent-session-share-changed", Since: 12, Capability: "agent-session-share-events-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"apps-cloud-machine":                {Name: "apps-cloud-machine", Since: 12, Capability: "apps-v1", Streams: []string{"control"}, Emission: "emitted"},
 	"bell":                              {Name: "bell", Since: 5, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"bookmarks-changed":                 {Name: "bookmarks-changed", Since: 12, Capability: "bookmarks-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"browser-state":                     {Name: "browser-state", Since: 6, Capability: "", Streams: []string{"attach-browser"}, Emission: "emitted"},
@@ -842,7 +843,7 @@ func AllCommandMetadata() []CommandMetadata {
 }
 
 func AllEventMetadata() []EventMetadata {
-	result := make([]EventMetadata, 0, 99)
+	result := make([]EventMetadata, 0, 100)
 	var metadata EventMetadata
 	metadata = eventMetadata["activity-changed"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
@@ -866,6 +867,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["agent-session-share-changed"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["apps-cloud-machine"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["bell"]

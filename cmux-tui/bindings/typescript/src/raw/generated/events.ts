@@ -86,6 +86,13 @@ export type AgentSessionShareChangedEvent = { event: "agent-session-share-change
   "session": string;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type AppsCloudMachineEvent = { event: "apps-cloud-machine" } & {
+  "kind": "record" | "live" | "lost";
+  "machine": string;
+  "record"?: T.JsonValue;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
   "surface": T.Id;
@@ -820,6 +827,7 @@ export type KnownCmuxEvent =
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
   | AgentSessionShareChangedEvent
+  | AppsCloudMachineEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
