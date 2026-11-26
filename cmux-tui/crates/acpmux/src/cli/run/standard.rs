@@ -60,7 +60,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     let deadline = caller_deadline(match &cmd {
         Command::New(args) => args.timeout,
-        Command::Send { timeout, .. } => *timeout,
+        Command::Send { timeout, no_wait, .. } => send_deadline_secs(*timeout, *no_wait),
         _ => None,
     })?;
     match cmd {
@@ -1669,6 +1669,19 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
 /// whether the target's machine is paused. It may go to
 /// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
 /// waiting on peers.
+/// How long a `--no-wait` send given no --timeout may take to hand its message to this daemon.
+/// The hand-off is one local request and a 500 ms status read, so a minute is far past any
+/// healthy one; unbounded, a hung hand-off held its caller until the caller's own kill
+/// (session-move-gcp 2026-11-26 22:57Z: `send --no-wait` killed at 120 s, exit 124, no word of
+/// where it stopped). Past it the send exits 3 and says whether the outbox recorded the delivery.
+const NO_WAIT_HANDOFF_SECS: u64 = 60;
+
+/// The deadline, in seconds, of a send: its --timeout, else [`NO_WAIT_HANDOFF_SECS`] for one
+/// with --no-wait, else none (a send that waits streams the reply for as long as the turn runs).
+fn send_deadline_secs(timeout: Option<u64>, no_wait: bool) -> Option<u64> {
+    timeout.or(no_wait.then_some(NO_WAIT_HANDOFF_SECS))
+}
+
 const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// How `acpmux send` was asked to wait.
@@ -1961,6 +1974,14 @@ fn print_listen(listen: &Value) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_no_wait_send_without_a_timeout_is_bounded() {
+        assert_eq!(super::send_deadline_secs(None, true), Some(super::NO_WAIT_HANDOFF_SECS));
+        assert_eq!(super::send_deadline_secs(Some(5), true), Some(5));
+        assert_eq!(super::send_deadline_secs(Some(9), false), Some(9));
+        assert_eq!(super::send_deadline_secs(None, false), None);
+    }
+
     #[test]
     fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
         // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
