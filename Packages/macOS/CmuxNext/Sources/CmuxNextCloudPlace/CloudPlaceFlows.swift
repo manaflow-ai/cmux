@@ -124,8 +124,11 @@ public final class CloudPlaceFlows {
         self.clock = clock ?? { UInt64(ProcessInfo.processInfo.systemUptime * 1000) }
         if let kept = defaults.stringArray(forKey: key + ".autoMoved") { autoMoved = Set(kept) }
         if let kept = defaults.stringArray(forKey: key + ".evacuated") { evacuated = Set(kept) }
+        // main-actor-ok: read once at launch; one session id and one short word per chat the person picked a mode for.
         if let data = defaults.data(forKey: key), let kept = try? JSONDecoder().decode([String: String].self, from: data) { modes = kept }
+        // main-actor-ok: read once at launch; one session id and a timestamp per chat with Keep Running on.
         if let data = defaults.data(forKey: key + ".priority"), let kept = try? JSONDecoder().decode([String: UInt64].self, from: data) { priorities = kept }
+        // main-actor-ok: read once at launch; one session id and machine id per chat brought back from Cloud.
         if let data = defaults.data(forKey: key + ".lastMachine"), let kept = try? JSONDecoder().decode([String: String].self, from: data) { lastMachines = kept }
     }
 
@@ -143,6 +146,7 @@ public final class CloudPlaceFlows {
     public func setMode(_ mode: String, of session: String) {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
+        // main-actor-ok: on the person's pick; one session id and one short word per chat the person picked a mode for.
         if let data = try? JSONEncoder().encode(modes) { defaults.set(data, forKey: modesKey) }
     }
 
@@ -156,6 +160,7 @@ public final class CloudPlaceFlows {
         case "normal" where priorities[session] != nil: priorities[session] = nil
         default: return
         }
+        // main-actor-ok: on the person's toggle; one session id and a timestamp per chat with Keep Running on.
         if let data = try? JSONEncoder().encode(priorities) { defaults.set(data, forKey: modesKey + ".priority") }
     }
 
@@ -178,6 +183,7 @@ public final class CloudPlaceFlows {
     }
 
     private func saveLastMachines() {
+        // main-actor-ok: on a committed move; one session id and machine id per chat brought back from Cloud.
         if let data = try? JSONEncoder().encode(lastMachines) { defaults.set(data, forKey: modesKey + ".lastMachine") }
     }
 
@@ -287,6 +293,7 @@ public final class CloudPlaceFlows {
 
     /// The session's view state (`moving`, `live`, `failed`, `cancelled`), nil with no flow.
     public func state(of session: String) -> String? {
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
         guard let data = views[session], let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object["state"] as? String
     }
@@ -299,17 +306,22 @@ public final class CloudPlaceFlows {
 
     private func report(_ session: String, _ event: [String: Any]) -> Next {
         var request: [String: Any] = ["event": event]
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes.
         if let flow = flows[session], let object = try? JSONSerialization.jsonObject(with: flow) { request["flow"] = object }
+        // main-actor-ok: the same one chat's flow plus one event.
         guard let body = try? JSONSerialization.data(withJSONObject: request), let reply = core("cloud_move_place_reduce", body),
+              // main-actor-ok: the reducer's answer, that chat's next flow and one word.
               let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return .go }
         // The reducer answers `"flow": null` for an event with no move to fold into (it ignored it): keep what
         // was there. `data(withJSONObject:)` raises an uncatchable exception on a bare NSNull (review of #51824, F1).
         guard let flow = answer["flow"] as? [String: Any], JSONSerialization.isValidJSONObject(flow),
+              // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes.
               let kept = try? JSONSerialization.data(withJSONObject: flow) else {
             return (answer["next"] as? String).flatMap(Next.init(rawValue:)) ?? .go
         }
         flows[session] = kept
         let nowMs = nowMs
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes and a clock reading.
         if let viewRequest = try? JSONSerialization.data(withJSONObject: ["flow": flow, "nowMs": nowMs] as [String: Any]),
            let view = core("cloud_move_place_view", viewRequest) {
             views[session] = view
@@ -344,8 +356,10 @@ public final class CloudPlaceFlows {
         let revision = startRevision
         if let kept = starts[session], kept.revision == revision { return kept.start }
         var start: Any?
+        // main-actor-ok: once per Show per chat; a folder path and a session id.
         if let startState, let request = try? JSONSerialization.data(withJSONObject: ["stateDir": startState.path, "session": session]),
            let reply = core("cloud_hybrid_start", request),
+           // main-actor-ok: that chat's `{start: {cloud, reason?, sinceMs?}}`.
            let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
            let value = answer["start"] as? [String: Any], JSONSerialization.isValidJSONObject(value) {
             start = value
@@ -364,14 +378,18 @@ public final class CloudPlaceFlows {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
+        // main-actor-ok: one row of eight scalars per open chat, sent only signed in with a plan.
         if let control, let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
+           // main-actor-ok: Rust's `{blocked, holders, keep}` for this chat's control.
            let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
             if let blocked = answer["blocked"] { place["blocked"] = blocked }
             if let holders = answer["holders"] { place["holders"] = holders }
             if let keep = answer["keep"] { place["keep"] = keep }
         }
         if let start = start(of: session) { place["start"] = start }
+        // main-actor-ok: this one chat's header place; the order is read: AgentPaneHeaderState compares placeData bytes.
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
     }
 
