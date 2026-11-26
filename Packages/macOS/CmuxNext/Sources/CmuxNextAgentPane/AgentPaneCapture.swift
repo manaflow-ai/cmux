@@ -163,7 +163,8 @@ enum AgentPaneCapture {
         let result: CaptureResult
         do {
             let outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
-                                                                      errorOutput: .separate))
+                                                                      errorOutput: .separate, onCancel: .stop,
+                                                                      terminationScope: .processGroup))
             let said = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             // With a file, the status decides (0: the image). With none, an Esc says nothing, whatever
             // status the macOS version gives it, and an end that says why is an error (no Screen

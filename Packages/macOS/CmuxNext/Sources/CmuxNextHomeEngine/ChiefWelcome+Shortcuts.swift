@@ -31,8 +31,8 @@ extension ChiefWelcome {
     /// Go to Workspace, normally ⌘P.
     static let goToAction: ActionID = "goToWorkspace"
     /// Start Agent from Any App, normally ⌃⌥⌘Space: the system-wide key, last in the list. Its setting
-    /// (`app.startAgentGlobalHotKey`) is off until the person turns it on, so while it is off its line
-    /// ends with a one-click link that turns it on (agent-shortcut-found).
+    /// (`app.startAgentGlobalHotKey`) is on by default, so the welcome shows its key directly. A
+    /// manually disabled setting can still use the one-click link that turns it on.
     static let anyAppAction: ActionID = "palette.startAgentFromAnyApp"
     /// The link that turns Start Agent from Any App on (``DeepLink/settingsAction(for:linkScheme:)``).
     public nonisolated static let anyAppLink = "cmux://settings" + DeepLink.startAgentFromAnyAppPath

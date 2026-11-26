@@ -97,6 +97,18 @@
       "title" : "Compact Summary for Short Turns",
       "type" : "boolean"
     },
+    "agentPane.display.detail" : {
+      "default" : "normal",
+      "description" : "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.",
+      "enum" : [
+        "messages",
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Chat Detail",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -272,6 +284,16 @@
       },
       "title" : "Model Picker Harness Order",
       "type" : "array"
+    },
+    "agentPane.display.modelPickerStyle" : {
+      "default" : "list",
+      "description" : "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.",
+      "enum" : [
+        "list",
+        "menu"
+      ],
+      "title" : "Model Picker Style",
+      "type" : "string"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -1064,6 +1086,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
+      "type" : "boolean"
+    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Ask before Cmd-Q ends agents or terminals.",
@@ -1163,7 +1191,7 @@
       "type" : "boolean"
     },
     "app.startAgentGlobalHotKey" : {
-      "default" : false,
+      "default" : true,
       "description" : "⌃⌥⌘Space starts an agent while another app is in front.",
       "title" : "Start Agent from Any App",
       "type" : "boolean"
@@ -3821,6 +3849,12 @@
       "title" : "Denied Apps",
       "type" : "array"
     },
+    "computerUse.floatingPreview" : {
+      "default" : false,
+      "description" : "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.",
+      "title" : "Floating Live Preview",
+      "type" : "boolean"
+    },
     "computerUse.livePreview" : {
       "default" : true,
       "description" : "A small live view of the app an agent uses. Click it for Agent Activity.",
@@ -4481,16 +4515,16 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
-    "experiments.appStoreFeatures" : {
-      "default" : false,
-      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
-      "title" : "App Store Features",
-      "type" : "boolean"
-    },
     "experiments.appFontChrome" : {
       "default" : false,
       "description" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
       "title" : "App Font in Native Chrome",
+      "type" : "boolean"
+    },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
       "type" : "boolean"
     },
     "experiments.attachmentTypeIcons" : {
@@ -6195,6 +6229,12 @@
       "title" : "Screen Sharing Quality",
       "type" : "string"
     },
+    "remoteDesktop.sharpLinuxText" : {
+      "default" : false,
+      "description" : "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.",
+      "title" : "Sharper Text from Linux Machines",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -6340,6 +6380,12 @@
       "default" : true,
       "description" : "With the sidebar hidden, point at the window's edge to show it over your work.",
       "title" : "Float Hidden Sidebar on Hover",
+      "type" : "boolean"
+    },
+    "sidebar.folderlessUngrouped" : {
+      "default" : false,
+      "description" : "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.",
+      "title" : "Ungroup Rows With No Folder",
       "type" : "boolean"
     },
     "sidebar.groupBy" : {

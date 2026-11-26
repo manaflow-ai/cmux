@@ -32,6 +32,18 @@ public nonisolated struct ChatUploadFolders: Sendable, Equatable {
             .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
     }
 
+    /// Removes one capture upload folder after a cancelled or failed hand-off. The UUID and root checks
+    /// keep this from deleting an arbitrary path returned by another capture implementation.
+    public func discardUpload(file: URL) {
+        let folder = file.deletingLastPathComponent()
+        let rootPath = root.standardizedFileURL.path
+        guard folder.standardizedFileURL.path.hasPrefix(rootPath + "/"), Self.isUploadName(folder.lastPathComponent) else {
+            try? FileManager.checked.removeItem(at: file)
+            return
+        }
+        try? FileManager.checked.removeItem(at: folder)
+    }
+
     /// Whether acpmux session id `id` names one folder: letters, digits, `-` and `_` only.
     public static func isSessionName(_ id: String) -> Bool {
         !id.isEmpty && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
