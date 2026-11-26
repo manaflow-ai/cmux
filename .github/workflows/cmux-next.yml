@@ -5703,6 +5703,8 @@ jobs:
           case "$word" in
             pass) echo "The tip check compiled and linked the app at $REF in Release (-Onone); not compiled again." ;;
             fail) status=1 ;;
+            # Why: 2026-11-25-fleet-compile-down.md
+            down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app --release \
                  --timeout 1200 --queue-timeout 300 || status=$? ;;
           esac
