@@ -11,6 +11,7 @@ export const TOKEN_SCOPES: readonly TokenScope[] = ["machines", "chats", "usage"
 /** The Expiration choices, in days; null never expires. 90 is the platform's default. */
 export const TOKEN_EXPIRATIONS: ReadonlyArray<number | null> = [30, 90, 365, null];
 export const DEFAULT_EXPIRATION = 90;
+export const MAX_SPEND_CAP_USD = 1_000_000;
 
 /** Where a curl example points when the list named no platform (the CLI's production origin). */
 export const PRODUCTION_PLATFORM = "https://cmux-platform-production.debussy.workers.dev";
@@ -110,5 +111,7 @@ export function branchOf(ref: string | undefined): string | null {
 /** A spend cap typed in the form: a positive amount, or null for none (an unreadable one is null too). */
 export function spendCapOf(text: string): number | null {
   const value = Number(text.trim().replace(/^\$/, ""));
-  return text.trim() && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+  return text.trim() && Number.isFinite(value) && value > 0 && value <= MAX_SPEND_CAP_USD
+    ? Math.round(value * 100) / 100
+    : null;
 }

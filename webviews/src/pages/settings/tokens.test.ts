@@ -50,6 +50,8 @@ test("repository and branch fields", () => {
   expect(refOf("  ")).toBeUndefined();
   expect(branchOf("refs/heads/release/*")).toBe("release/*");
   expect(spendCapOf("$50")).toBe(50);
+  expect(spendCapOf("1000000.00")).toBe(1_000_000);
+  expect(spendCapOf("1000000.01")).toBeNull();
   expect(spendCapOf("0")).toBeNull();
   expect(spendCapOf("")).toBeNull();
 });

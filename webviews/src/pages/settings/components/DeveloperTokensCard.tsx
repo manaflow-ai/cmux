@@ -479,6 +479,9 @@ function TokenGroup({
   now,
   busy,
   platform,
+  created,
+  onCreated,
+  onClearCreated,
   onRun,
 }: {
   owner: "me" | "team";
@@ -486,10 +489,12 @@ function TokenGroup({
   now: number;
   busy: boolean;
   platform: string | null;
+  created: CreatedToken | null;
+  onCreated: (created: CreatedToken) => void;
+  onClearCreated: () => void;
   onRun: Run;
 }) {
   const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState<CreatedToken | null>(null);
   const team = owner === "team";
   return (
     <section className="group" data-tokens-group={owner}>
@@ -497,7 +502,6 @@ function TokenGroup({
       <div className="row-help tokens-lead">
         {team ? t("settingsWindow.tokens.teamHelp") : t("settingsWindow.tokens.personalHelp")}
       </div>
-      {created && <CreatedPanel created={created} platform={platform} onDone={() => setCreated(null)} />}
       {creating && (
         <CreateForm
           owner={owner}
@@ -505,7 +509,7 @@ function TokenGroup({
           onRun={onRun}
           onCreated={(made) => {
             setCreating(false);
-            setCreated(made);
+            onCreated(made);
           }}
           onCancel={() => setCreating(false)}
         />
@@ -529,7 +533,7 @@ function TokenGroup({
             data-tokens-action={team ? "newTeam" : "new"}
             disabled={busy}
             onClick={() => {
-              setCreated(null);
+              onClearCreated();
               setCreating(true);
             }}
           >
@@ -597,6 +601,7 @@ export function DeveloperTokensCard() {
   const store = useStore();
   const [state, setState] = useState<DeveloperTokensState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<CreatedToken | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const refresh = useCallback(async () => {
     const { state: next } = await store.runTokens({ action: "refresh" });
@@ -651,11 +656,32 @@ export function DeveloperTokensCard() {
           </div>
         )}
       </section>
+      {created && <CreatedPanel created={created} platform={state?.platform ?? null} onDone={() => setCreated(null)} />}
       {listed && (
         <>
-          <TokenGroup owner="me" tokens={personal} now={now} busy={busy} platform={listed.platform} onRun={run} />
+          <TokenGroup
+            owner="me"
+            tokens={personal}
+            now={now}
+            busy={busy}
+            platform={listed.platform}
+            created={created}
+            onCreated={setCreated}
+            onClearCreated={() => setCreated(null)}
+            onRun={run}
+          />
           {listed.canManageTeamTokens && (
-            <TokenGroup owner="team" tokens={team} now={now} busy={busy} platform={listed.platform} onRun={run} />
+            <TokenGroup
+              owner="team"
+              tokens={team}
+              now={now}
+              busy={busy}
+              platform={listed.platform}
+              created={created}
+              onCreated={setCreated}
+              onClearCreated={() => setCreated(null)}
+              onRun={run}
+            />
           )}
           {listed.canManageTeamTokens && listed.githubRules && (
             <GithubGroup
