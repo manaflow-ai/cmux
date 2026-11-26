@@ -3763,8 +3763,14 @@ Above `[[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {` in `.github/workfl
 
 The dispatcher (main's cmux-next-dev-daily-dispatch.yml) asks for
 the feat-cmux-next tip it saw. A merge that lands before this run
-starts moves github.sha: fail without building, and the next tick
-asks for the new tip. No snapshot ref: creating a ref at a
+starts moves github.sha: the run is superseded, not broken. Path
+routing prints a notice, sets `superseded=true` and every tier false,
+and exits 0, so no job builds and the run ends green; a failed exit
+paged the incident desk as a feat-cmux-next base red (run
+45753471212). The dispatcher counts a run only at the SHA it asked
+for and publish needs an app-producer job to succeed, so a green
+superseded run neither blocks nor stands in for the new tip, and the
+next tick asks for it. No snapshot ref: creating a ref at a
 feat-cmux-next commit needs the workflows permission (HTTP 403).
 
 ## note-392
@@ -5141,6 +5147,34 @@ An ideal input-based routing would save about 7% of minutes and almost no wall; 
 affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
 PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
 
+## note-stall-step-bounds
+
+Above the bounded checkout, setup and cache steps: `web-bundles` and `fast-tier-cargo` in
+`.github/workflows/cmux-next.yml`, `agent-pane-real-acpmux` in `ci-web.yml`, the Bun cache restore in
+`cmux-next-web-lint.yml`, `workflow-guard-history` in `ci-guards.yml` and backend.yml's `test` job.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." On 2026-11-23, pull request jobs
+cancelled after they started cost 148,161 runner-min (130 per merged PR, 1,139 merged). The check-run annotations of
+80 of them, sampled by minutes, read: 70 "The job has exceeded the maximum execution time", 8 "Canceling since a higher
+priority waiting request ... exists" (a newer push), 2 cancelled by a person or bot. Of 30 timed-out jobs read step by
+step, 13 had stalled in a checkout, toolchain setup or cache step (actions/checkout up to 29 min, Set up pinned Rust
+10 to 13 min, setup-node 34 min, a Bun cache restore 7 to 11 min), on the self-hosted Linux pools (`fsr-*`,
+`cmux-runner-pool-*`); healthy, they take seconds to about a minute. The job then held its runner for its whole limit
+(15 to 55 min) before going red.
+
+Healthy durations (26 successful runs, 2026-11-23): every checkout step 261 samples, p50 1 s, p99 123 s, max
+193 s (the full-tree checkouts in these jobs p50 about 70 s, max 81 s); Set up pinned Rust max 2 s on a warm runner;
+a Bun cache restore max 46 s. The bounds are a few times those: checkout 6 min, Set up pinned Rust 8 min (room for a
+fresh runner's rustup install), setup-node and setup-python 5 min, Bun and web-bundle cache restores 4 min. A
+stalled checkout or setup now fails its job in minutes instead of its full limit; it is still a red job to re-run,
+as before, only sooner. A cache step that passes its bound continues (`continue-on-error`): the job runs on as on a
+cache miss, so the bound never fails a job that would have passed. No step that runs code is bounded here, and no
+job limit changes.
+
+Stalls these bounds cannot reach: a job that hangs in the runner's own `Set up runner` or `Complete runner` (5 of the
+30), before or after every workflow step. Those are the runner pools' to fix (goal-linux-pool for cmux-runner-pool,
+freestyle-ci-first-class for fsr), or a shorter job `timeout-minutes` on the light jobs they hit.
+
 ## note-558
 
 Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
@@ -5224,7 +5258,7 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
 - Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
-  (2026-11-25-fleet-fallback.md). DEV Release (`dev_daily`) compiles are unchanged.
+  (2026-11-25-fleet-fallback.md); unset is null and null != '0' is false, so the `if` reads `(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'`. DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 
