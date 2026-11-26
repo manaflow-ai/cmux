@@ -114,6 +114,13 @@ def cpu_of(pids):
     return total
 
 
+def own_cpu(pid, include_reaped_children=False):
+    stat = stat_of(pid)
+    if not stat:
+        return None
+    return stat[1] + (stat[2] if include_reaped_children else 0.0)
+
+
 class Fleet:
     """The fake fleet: sshd, the far daemon, the ssh config and the logging wrapper."""
 
@@ -300,9 +307,9 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
             mine = fleet.ours(kids)
             seen_procs |= mine
             for pid in {near.pid} | mine:
-                stat = stat_of(pid)
-                if stat:
-                    cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), stat[1] + stat[2])
+                cpu = own_cpu(pid, include_reaped_children=pid == near.pid)
+                if cpu is not None:
+                    cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), cpu)
             ssh = [d for d in mine if (stat_of(d) or NOSTAT)[3] == "ssh"]
             tun = masters = 0
             for d in ssh:
@@ -317,7 +324,7 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
             peak_procs = max(peak_procs, len(mine))
             peak_daemon_rss = max(peak_daemon_rss, rss_kb(near.pid) or 0)
             if mark is None and now >= secs * 2 / 3:
-                mark = (now, cpu_of({near.pid} | mine))
+                mark = (now, sum(cpu_seen.values()))
             # RPC row serialization is itself work.  Only sample connection state until all links are
             # up (and at the end); the last third is a genuinely quiescent idle-cost window.
             if now - last_rpc >= 1 and (all_up_at is None or now < secs * 2 / 3):
@@ -331,9 +338,9 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
         end = time.time() - t0
         final_mine = fleet.ours(children_map())
         for pid in {near.pid} | final_mine:
-            stat = stat_of(pid)
-            if stat:
-                cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), stat[1] + stat[2])
+            cpu = own_cpu(pid, include_reaped_children=pid == near.pid)
+            if cpu is not None:
+                cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), cpu)
         if near.poll() is not None:
             raise RuntimeError(f"cold-start near daemon exited with status {near.returncode}")
         total = sum(cpu_seen.values())
@@ -379,6 +386,29 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
     t = time.monotonic()
     pr = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     rss = None
+    waited = None
+
+    def reap_until(deadline):
+        while True:
+            try:
+                waited_pid, status, ru = os.wait4(pr.pid, os.WNOHANG)
+            except ChildProcessError:
+                return None
+            if waited_pid:
+                return status, ru
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                try:
+                    os.kill(pr.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    _, status, ru = os.wait4(pr.pid, 0)
+                except ChildProcessError:
+                    return None
+                return status, ru
+            time.sleep(min(0.05, remaining))
+
     try:
         if payload:
             pr.stdin.write(payload)
@@ -394,21 +424,7 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
                 os.kill(pr.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            deadline = time.monotonic() + 2
-            waited = None
-            while time.monotonic() < deadline:
-                waited_pid, status, ru = os.wait4(pr.pid, os.WNOHANG)
-                if waited_pid:
-                    waited = (status, ru)
-                    break
-                time.sleep(0.05)
-            if waited is None:
-                try:
-                    os.kill(pr.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                _, status, ru = os.wait4(pr.pid, 0)
-                waited = (status, ru)
+            waited = reap_until(time.monotonic() + 2)
         else:
             selector = selectors.DefaultSelector()
             selector.register(pr.stdout, selectors.EVENT_READ)
@@ -434,6 +450,7 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
             if payload and first_at is None:
                 raise RuntimeError(f"ssh probe returned no response: {' '.join(argv)}")
             wall = (first_at or time.monotonic()) - t if payload else time.monotonic() - t
+            waited = reap_until(t + timeout)
     except BaseException:
         try:
             os.kill(pr.pid, signal.SIGKILL)
@@ -444,10 +461,9 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
         except ChildProcessError:
             pass
         raise
-    if hold and waited is not None:
-        status, ru = waited
-    else:
-        _, status, ru = os.wait4(pr.pid, 0)
+    if waited is None:
+        raise RuntimeError(f"ssh probe could not reap child: {' '.join(argv)}")
+    status, ru = waited
     exit_code = os.waitstatus_to_exitcode(status)
     if not hold and exit_code != 0:
         raise RuntimeError(f"ssh probe exited {exit_code}: {' '.join(argv)}")
