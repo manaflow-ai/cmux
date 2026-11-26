@@ -8,7 +8,11 @@ import {
   verifiedAppPricingNativeReturnTo,
 } from "../../lib/billing";
 import type { Locale } from "../../../i18n/routing";
-import { locales, routing } from "../../../i18n/routing";
+import { localeDirection } from "../../../i18n/routing";
+import { preferredLocale } from "../../lib/preferred-locale";
+import { resolveConnectedApp } from "../../connected/apps";
+import { escapeHtml, renderConnectedPage } from "../../connected/page-html";
+import { resolveConnectedPageVariant } from "../../connected/variants";
 import {
   clearNativeHandoffCookie,
   NATIVE_HANDOFF_COOKIE_NAME,
@@ -165,31 +169,6 @@ function verifiedNativeHandoff(
   return cookieStore.get(NATIVE_HANDOFF_COOKIE_NAME)?.value === handoffNonce;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function preferredLocale(request: NextRequest): Locale {
-  const accepted = request.headers.get("accept-language") ?? "";
-  const requested = accepted
-    .split(",")
-    .map((part) => part.split(";")[0]?.trim())
-    .filter(Boolean);
-  for (const language of requested) {
-    const exact = locales.find((locale) => locale.toLowerCase() === language.toLowerCase());
-    if (exact) return exact;
-    const base = language.split("-")[0]?.toLowerCase();
-    const baseMatch = locales.find((locale) => locale.toLowerCase().split("-")[0] === base);
-    if (baseMatch) return baseMatch;
-  }
-  return routing.defaultLocale;
-}
-
 async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfterSignInMessages> {
   const locale = preferredLocale(request);
   const messages = (await import(`../../../messages/${locale}.json`)).default as {
@@ -210,92 +189,35 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 }
 
 function nativeReturnResponse(
+  request: NextRequest,
   href: string,
   localized: LocalizedAfterSignInMessages,
   switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
-  const escapedHref = escapeHtml(href);
-  const switchAccountAction = switchAccountHref
-    ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
-    : "";
-  const escapedTitle = escapeHtml(messages.title);
-  const escapedBody = escapeHtml(messages.body);
-  const escapedButton = escapeHtml(messages.button);
-  const response = new NextResponse(
-    `<!doctype html>
-<html lang="${escapeHtml(locale)}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapedTitle}</title>
-  <style>
-    body {
-      align-items: center;
-      background: #fff;
-      color: #111;
-      display: flex;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      justify-content: center;
-      margin: 0;
-      min-height: 100vh;
-      padding: 24px;
-    }
-    main {
-      max-width: 440px;
-      text-align: center;
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 600;
-      margin: 0 0 12px;
-    }
-    p {
-      color: #555;
-      line-height: 1.5;
-      margin: 0 0 24px;
-    }
-    .actions {
-      align-items: center;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    a {
-      border-radius: 8px;
-      display: inline-block;
-      font-size: 14px;
-      font-weight: 500;
-      padding: 10px 18px;
-      text-decoration: none;
-    }
-    a.primary {
-      background: #111;
-      color: #fff;
-    }
-    a.secondary {
-      color: #555;
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>${escapedTitle}</h1>
-    <p>${escapedBody}</p>
-    <div class="actions">
-      <a class="primary" href="${escapedHref}">${escapedButton}</a>
-${switchAccountAction}    </div>
-  </main>
-</body>
-</html>`,
-    {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    }
-  );
-  return response;
+  // The one "signed in, back to cmux" page (app/connected), in cmux's own look. It never
+  // opens `href` by itself: that link carries the session and waits for the person's click.
+  const html = renderConnectedPage({
+    locale,
+    dir: localeDirection(locale),
+    title: messages.title,
+    body: messages.body,
+    button: messages.button,
+    href,
+    secondary: switchAccountHref
+      ? { href: switchAccountHref, label: messages.switchAccountButton }
+      : undefined,
+    app: resolveConnectedApp("cmux"),
+    status: "ok",
+    variant: resolveConnectedPageVariant(request.nextUrl.searchParams.get("variant")),
+    autoOpen: false,
+  });
+  return new NextResponse(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
@@ -525,7 +447,7 @@ function nativeReturnFlow(
       if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
         return nativeRedirectResponse(request, href);
       }
-      return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
+      return nativeReturnResponse(request, href, localizedMessages, switchAccountHref(request));
     }
   }
   return NextResponse.redirect(new URL("/", requestOrigin(request)));
@@ -570,7 +492,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
+      if (fallback) return nativeReturnResponse(request, fallback, localizedMessages, switchAccountHref(request));
     }
 
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
