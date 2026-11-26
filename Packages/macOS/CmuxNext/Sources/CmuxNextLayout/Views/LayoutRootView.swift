@@ -154,6 +154,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         get { context.dividerMenu }
         set { context.dividerMenu = newValue }
     }
+    /// Times each divider drag's first frame (``TransitionFrameLog``); nil times nothing.
+    public var frameTiming: TransitionFrameLog? {
+        get { context.frameTiming }
+        set { context.frameTiming = newValue }
+    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
