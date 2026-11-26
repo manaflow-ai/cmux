@@ -2395,8 +2395,7 @@ function shapeTurn(
       compactOnly ||
       (previous === undefined &&
         messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
-          (durationMs === undefined && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
     // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
     // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
     // the end would pull the reply up into its place. The closed line holds no rows.
