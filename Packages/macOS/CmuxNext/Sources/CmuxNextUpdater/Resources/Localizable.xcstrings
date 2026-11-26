@@ -37245,127 +37245,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@) and going back to build %3$@ failed (%4$@); reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@); rolling back to %3$@ failed (%4$@). Reinstall %3$@ in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) وفشلت العودة إلى الإصدار %3$@ (%4$@)؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@)؛ وفشلت العودة إلى %3$@ (%4$@). أعد تثبيت %3$@ من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a vraćanje na verziju %3$@ nije uspjelo (%4$@); ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@); vraćanje na %3$@ nije uspjelo (%4$@). Ponovo instalirajte %3$@ u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og det mislykkedes at gå tilbage til build %3$@ (%4$@); geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@); at gå tilbage til %3$@ mislykkedes (%4$@). Geninstaller %3$@ under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die Rückkehr zu Build %3$@ ist fehlgeschlagen (%4$@); installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@); die Rückkehr zu %3$@ ist fehlgeschlagen (%4$@). Installiere %3$@ erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se pudo volver a la compilación %3$@ (%4$@); vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@); no se pudo volver a %3$@ (%4$@). Vuelve a instalar %3$@ en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et le retour au build %3$@ a échoué (%4$@) ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) ; le retour à %3$@ a échoué (%4$@). Réinstallez %3$@ dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e il ritorno alla build %3$@ non è riuscito (%4$@); reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@); il ritorno a %3$@ non è riuscito (%4$@). Reinstalla %3$@ in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、ビルド %3$@ への切り戻しにも失敗しました (%4$@)。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、%3$@ への切り戻しにも失敗しました (%4$@)。設定 > アップデートで %3$@ を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយការត្រឡប់ទៅកំណែ %3$@ បានបរាជ័យ (%4$@); សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@); ការត្រឡប់ទៅ %3$@ បានបរាជ័យ (%4$@)។ សូមដំឡើង %3$@ ឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 빌드 %3$@(으)로 되돌리지 못했습니다(%4$@). 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) %3$@(으)로 되돌리지 못했습니다(%4$@). 설정 > 업데이트에서 %3$@을(를) 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og det mislyktes å gå tilbake til build %3$@ (%4$@); installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Build %1$@ kunne ikke åpne chatter (%2$@); det mislyktes å gå tilbake til %3$@ (%4$@). Installer %3$@ på nytt under Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a powrót do wersji %3$@ się nie udał (%4$@); zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@); powrót do %3$@ się nie udał (%4$@). Zainstaluj ponownie %3$@ w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@) e não foi possível voltar para a build %3$@ (%4$@); reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "A build %1$@ não conseguia abrir chats (%2$@); não foi possível voltar para %3$@ (%4$@). Reinstale %3$@ em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а вернуться к сборке %3$@ не удалось (%4$@); переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не могла открывать чаты (%2$@); вернуться к %3$@ не удалось (%4$@). Переустановите %3$@ в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไปยังบิลด์ %3$@ ไม่สำเร็จ (%4$@) ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไปยัง %3$@ ไม่สำเร็จ (%4$@) ติดตั้ง %3$@ ใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve %3$@ sürümüne geri dönüş başarısız oldu (%4$@); önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ sürümü sohbet açamadı (%2$@); %3$@ sürümüne geri dönüş başarısız oldu (%4$@). %3$@ sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а повернутися до збірки %3$@ не вдалося (%4$@); перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не могла відкривати чати (%2$@); повернутися до %3$@ не вдалося (%4$@). Перевстановіть %3$@ у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không quay lại được bản dựng %3$@ (%4$@); hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@); không quay lại được %3$@ (%4$@). Hãy cài lại %3$@ trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），且回退到版本 %3$@ 失败（%4$@）；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），回退到 %3$@ 失败（%4$@）。请在“设置 > 更新”中重新安装 %3$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），且回復到版本 %3$@ 失敗（%4$@）；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），回復到 %3$@ 失敗（%4$@）。請在「設定 > 更新」中重新安裝 %3$@。"
           }
         }
       }
