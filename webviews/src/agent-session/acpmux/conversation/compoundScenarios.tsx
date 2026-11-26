@@ -14,6 +14,7 @@ import { declareMove } from "../../../layout/motionContract";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "../composer/fieldGrowthEvent";
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { REPLY } from "./streamingTextFixture";
 import {
   CARD_DRAFT,
@@ -128,12 +129,17 @@ function clickLine(target: HTMLElement) {
 }
 
 /// The prompt field grows by `lines` on its own motion and tells the transcript, as
-/// composer/fieldGrowth.ts does when its motion starts.
+/// composer/fieldGrowth.ts does when its motion starts. Out of full motion (Reduce Motion, motion
+/// off) the field takes its height in the frame and tells no one, as fieldGrowth.ts does.
 function growField(root: ParentNode, lines: number) {
   const field = root.querySelector<HTMLElement>(".acpmux-md-field");
   if (!field) return;
   const from = field.getBoundingClientRect().height;
   const to = from + lines * LINE;
+  if (motionMode(field.ownerDocument) !== "full") {
+    field.style.height = `${to}px`;
+    return;
+  }
   const duration = MOTION_MS.standard;
   const animation = field.animate([{ height: `${from}px` }, { height: `${to}px` }], {
     duration,
