@@ -235,53 +235,71 @@ pub async fn apply_egress(slot: &Slot, egress: &Egress) -> Result<()> {
     .await
 }
 
+/// Run `script` (one `ip` command per line) in a single `ip -batch` process, inside `netns`
+/// when given: two processes build a slot instead of one per command. `force` runs every line
+/// past a failing one (cleanup of what may not exist).
+async fn ip_batch(script: &str, netns: Option<&str>, force: bool) -> Result<()> {
+    let mut c = Command::new("ip");
+    if let Some(ns) = netns {
+        c.args(["-n", ns]);
+    }
+    if force {
+        c.arg("-force");
+    }
+    c.args(["-batch", "-"]).stdout(cmux_process::Stdio::null());
+    let out = cmd::output(c, Some(script.as_bytes().to_vec())).await.context("spawn ip -batch")?;
+    if !out.status.success() {
+        bail!("ip -batch failed: {}\n{script}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(())
+}
+
 /// Build `slot`'s namespace, veth pair, tap0 and NAT, then its egress policy.
 pub async fn setup(slot: &Slot, egress: &Egress) -> Result<()> {
     let (ns, hif, nif) = (slot.netns(), slot.host_if(), slot.ns_if());
     let (hip, nip, hip6, nip6) = (slot.host_ip(), slot.ns_ip(), slot.host_ip6(), slot.ns_ip6());
     // A slot left behind by a crash is ours: clear it first.
-    let _ = run(&["ip", "netns", "del", &ns]).await;
-    let _ = run(&["ip", "link", "del", &hif]).await;
-    run(&["ip", "netns", "add", &ns]).await?;
-    let x = |args: &[&str]| -> Vec<String> {
-        ["ip", "netns", "exec", ns.as_str()].iter().chain(args).map(|s| (*s).to_owned()).collect()
-    };
-    let steps: Vec<Vec<String>> = vec![
-        ["ip", "link", "add", &hif, "type", "veth", "peer", "name", &nif]
-            .map(str::to_owned)
-            .to_vec(),
-        ["ip", "link", "set", &nif, "netns", &ns].map(str::to_owned).to_vec(),
-        ["ip", "addr", "add", &format!("{hip}/30"), "dev", &hif].map(str::to_owned).to_vec(),
-        ["ip", "-6", "addr", "add", &format!("{hip6}/64"), "dev", &hif, "nodad"]
-            .map(str::to_owned)
-            .to_vec(),
-        ["ip", "link", "set", &hif, "up"].map(str::to_owned).to_vec(),
-        x(&["ip", "link", "set", "lo", "up"]),
-        x(&["ip", "addr", "add", &format!("{nip}/30"), "dev", &nif]),
-        x(&["ip", "-6", "addr", "add", &format!("{nip6}/64"), "dev", &nif, "nodad"]),
-        x(&["ip", "link", "set", &nif, "up"]),
-        x(&["ip", "route", "add", "default", "via", &hip]),
-        x(&["ip", "-6", "route", "add", "default", "via", &hip6]),
-        x(&["ip", "tuntap", "add", "dev", "tap0", "mode", "tap"]),
-        x(&["ip", "addr", "add", &format!("{GATEWAY_IP}/30"), "dev", "tap0"]),
-        x(&["ip", "-6", "addr", "add", &format!("{GATEWAY_IP6}/64"), "dev", "tap0", "nodad"]),
-        x(&["ip", "link", "set", "tap0", "up"]),
-        x(&["sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv6.conf.all.forwarding=1"]),
-    ];
-    for step in &steps {
-        let args: Vec<&str> = step.iter().map(String::as_str).collect();
-        if let Err(e) = run(&args).await {
-            let _ = teardown(slot).await;
-            return Err(e);
-        }
-    }
+    let _ = ip_batch(&format!("netns del {ns}\nlink del {hif}\n"), None, true).await;
+    let host_side = format!(
+        "netns add {ns}\n\
+         link add {hif} type veth peer name {nif}\n\
+         link set {nif} netns {ns}\n\
+         addr add {hip}/30 dev {hif}\n\
+         addr add {hip6}/64 dev {hif} nodad\n\
+         link set {hif} up\n"
+    );
+    let ns_side = format!(
+        "link set lo up\n\
+         addr add {nip}/30 dev {nif}\n\
+         addr add {nip6}/64 dev {nif} nodad\n\
+         link set {nif} up\n\
+         route add default via {hip}\n\
+         route add default via {hip6}\n\
+         tuntap add dev tap0 mode tap\n\
+         addr add {GATEWAY_IP}/30 dev tap0\n\
+         addr add {GATEWAY_IP6}/64 dev tap0 nodad\n\
+         link set tap0 up\n"
+    );
     let ns_nat = format!(
         "table inet vmdns {{\n  chain post {{\n    type nat hook postrouting priority 100; policy accept;\n    \
          oifname \"{nif}\" ip saddr {GUEST_IP} snat ip to {nip}\n    \
          oifname \"{nif}\" ip6 saddr {GUEST_IP6} snat ip6 to {nip6}\n  }}\n}}\n"
     );
     let result = async {
-        nft(&ns_nat, Some(&ns)).await?;
+        ip_batch(&host_side, None, false).await?;
+        ip_batch(&ns_side, Some(&ns), false).await?;
+        // Forwarding inside the namespace, then its NAT, in the one process `ip netns exec` costs.
+        let mut c = Command::new("ip");
+        c.args(["netns", "exec", &ns, "sh", "-c"])
+            .arg("sysctl -qw net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1 && nft -f -")
+            .stdout(cmux_process::Stdio::null());
+        let out = cmd::output(c, Some(ns_nat.into_bytes())).await.context("spawn ns setup")?;
+        if !out.status.success() {
+            bail!(
+                "namespace forwarding/NAT failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
         apply_egress(slot, egress).await
     }
     .await;
@@ -295,10 +313,10 @@ pub async fn setup(slot: &Slot, egress: &Egress) -> Result<()> {
 /// Remove `slot`'s namespace (which takes the veth pair and tap with it) and its policy.
 pub async fn teardown(slot: &Slot) -> Result<()> {
     let (chain, ifname) = (slot.chain(), slot.host_if());
+    // Two scripts: nft rolls a whole script back on its first error.
     let _ = nft(&format!("delete element inet {TABLE} egress {{ \"{ifname}\" }}\n"), None).await;
     let _ = nft(&format!("delete chain inet {TABLE} {chain}\n"), None).await;
-    let _ = run(&["ip", "netns", "del", &slot.netns()]).await;
-    let _ = run(&["ip", "link", "del", &ifname]).await;
+    let _ = ip_batch(&format!("netns del {}\nlink del {ifname}\n", slot.netns()), None, true).await;
     Ok(())
 }
 

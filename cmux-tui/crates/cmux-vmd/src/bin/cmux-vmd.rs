@@ -3,7 +3,7 @@
 //! ```text
 //! cmux-vmd --listen 127.0.0.1:7070 --token-file /etc/cmux-vmd/token \
 //!          [--root /var/lib/cmux-vmd] [--firecracker /usr/local/bin/firecracker] \
-//!          [--image default] [--vcpus 2] [--mem-mib 1024] [--dns 1.1.1.1] [--no-ipv6]
+//!          [--image default] [--vcpus 2] [--mem-mib 1024] [--dns 1.1.1.1] [--warm-slots 8] [--no-ipv6]
 //! ```
 
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         }
         if flag == "-h" || flag == "--help" {
             println!(
-                "usage: cmux-vmd --listen ADDR --token-file PATH [--root DIR] [--firecracker PATH] [--image NAME] [--vcpus N] [--mem-mib N] [--dns IP] [--no-ipv6]"
+                "usage: cmux-vmd --listen ADDR --token-file PATH [--root DIR] [--firecracker PATH] [--image NAME] [--vcpus N] [--mem-mib N] [--dns IP] [--warm-slots N] [--no-ipv6]"
             );
             return Ok(());
         }
@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
             "--image" => cfg.default_image = value,
             "--vcpus" => cfg.default_vcpus = value.parse()?,
             "--mem-mib" => cfg.default_mem_mib = value.parse()?,
+            "--warm-slots" => cfg.warm_slots = value.parse()?,
             "--dns" => cfg.dns = value.parse::<std::net::IpAddr>()?.to_string(),
             other => bail!("unknown flag {other}"),
         }

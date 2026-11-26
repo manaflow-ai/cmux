@@ -76,6 +76,9 @@ pub struct Config {
     pub boot_timeout: Duration,
     pub dns: String,
     pub ipv6: bool,
+    /// Network slots kept built (egress none) ahead of demand, so a create, restore or fork
+    /// only points its egress chain: building one costs a few hundred ms of `ip` and `nft`.
+    pub warm_slots: usize,
 }
 
 impl Default for Config {
@@ -89,6 +92,7 @@ impl Default for Config {
             boot_timeout: Duration::from_secs(30),
             dns: "1.1.1.1".into(),
             ipv6: true,
+            warm_slots: 8,
         }
     }
 }
@@ -180,6 +184,8 @@ struct State {
     locks: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
     /// Firecracker pids this daemon started and has not reaped.
     children: BTreeSet<u32>,
+    /// Built slots no machine holds yet (each also in `slots`).
+    warm: Vec<u16>,
 }
 
 pub struct Host {
@@ -187,6 +193,8 @@ pub struct Host {
     state: Mutex<State>,
     /// Owns the reaper task.
     scope: cmux_scope::Scope,
+    /// Wakes the warm-slot filler after a slot is taken.
+    warm_wanted: Arc<tokio::sync::Notify>,
 }
 
 fn now_ms() -> u64 {
@@ -242,6 +250,7 @@ impl Host {
             cfg,
             state: Mutex::new(State::default()),
             scope: cmux_scope::Scope::new("cmux-vmd host"),
+            warm_wanted: Arc::new(tokio::sync::Notify::new()),
         });
         host.reattach().await?;
         let mut sigchld = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
@@ -252,7 +261,32 @@ impl Host {
                 host.reap_children();
             }
         });
+        let weak = Arc::downgrade(&host);
+        let wanted = Arc::clone(&host.warm_wanted);
+        host.scope.spawn_until_cancelled("warm-slots", async move {
+            loop {
+                let Some(host) = weak.upgrade() else { return };
+                host.fill_warm().await;
+                drop(host);
+                wanted.notified().await;
+            }
+        });
         Ok(host)
+    }
+
+    /// Build slots until `warm_slots` wait ready. A failure stops this round; the next take
+    /// retries.
+    async fn fill_warm(&self) {
+        while self.lock_state().warm.len() < self.cfg.warm_slots {
+            let Ok(n) = self.alloc_slot() else { return };
+            let slot = Slot { n };
+            if let Err(e) = net::setup(&slot, &Egress::None).await {
+                eprintln!("cmux-vmd: building warm slot {n} failed: {e:#}");
+                self.free_slot(n);
+                return;
+            }
+            self.lock_state().warm.push(n);
+        }
     }
 
     pub fn config(&self) -> &Config {
@@ -391,13 +425,37 @@ impl Host {
     async fn prepare(&self, id: &str, egress: &Egress) -> Result<(PathBuf, Slot)> {
         let dir = self.machine_dir(id);
         tokio::fs::create_dir_all(&dir).await?;
-        let slot = Slot { n: self.alloc_slot()? };
-        if let Err(e) = net::setup(&slot, egress).await {
-            self.free_slot(slot.n);
-            let _ = tokio::fs::remove_dir_all(&dir).await;
-            return Err(e.into());
+        let warm = self.lock_state().warm.pop();
+        self.warm_wanted.notify_one();
+        let (slot, built) = match warm {
+            // A warm slot already drops everything; only another policy needs its chain set.
+            Some(n) if matches!(egress, Egress::None) => (Slot { n }, Ok(())),
+            Some(n) => {
+                let slot = Slot { n };
+                let built = net::apply_egress(&slot, egress).await;
+                (slot, built)
+            }
+            None => match self.alloc_slot() {
+                Ok(n) => {
+                    let slot = Slot { n };
+                    let built = net::setup(&slot, egress).await;
+                    (slot, built)
+                }
+                Err(e) => {
+                    let _ = tokio::fs::remove_dir_all(&dir).await;
+                    return Err(e);
+                }
+            },
+        };
+        match built {
+            Ok(()) => Ok((dir, slot)),
+            Err(e) => {
+                let _ = net::teardown(&slot).await;
+                self.free_slot(slot.n);
+                let _ = tokio::fs::remove_dir_all(&dir).await;
+                Err(e.into())
+            }
         }
-        Ok((dir, slot))
     }
 
     async fn abandon(&self, dir: &Path, slot: &Slot, pid: Option<u32>) {
