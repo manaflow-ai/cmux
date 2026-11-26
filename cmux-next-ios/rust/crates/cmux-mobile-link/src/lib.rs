@@ -25,6 +25,7 @@
 
 pub mod api;
 pub mod build_space;
+pub mod bundle_link;
 pub mod class_queue;
 pub mod classes;
 pub mod dial;
