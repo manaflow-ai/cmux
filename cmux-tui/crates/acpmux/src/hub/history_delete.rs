@@ -304,7 +304,7 @@ impl Hub {
     ) -> u64 {
         let req = HistoryDeleteRequest { by: "auto", ..Default::default() };
         match self.history_delete_run(after, req).await {
-            Ok(report) => report["deleted"].as_u64().unwrap_or(0),
+            Ok(report) => report.get("deleted").and_then(Value::as_u64).unwrap_or(0),
             Err(e) => {
                 tracing::warn!("history delete: {}", e.message);
                 0
@@ -391,8 +391,8 @@ impl Hub {
                 "bytes": size,
                 "cold": meta.cold.is_some(),
             });
-            if purge {
-                row["purge"] = json!(true);
+            if purge && let Some(row) = row.as_object_mut() {
+                row.insert("purge".into(), json!(true));
             }
             if req.dry_run {
                 if purge {
@@ -433,7 +433,9 @@ impl Hub {
                     }
                     bytes += size;
                     if chats.len() < LISTED {
-                        row["deleted"] = json!(true);
+                        if let Some(row) = row.as_object_mut() {
+                            row.insert("deleted".into(), json!(true));
+                        }
                         chats.push(row);
                     }
                 }
@@ -458,10 +460,12 @@ impl Hub {
             "skipped": skipped,
             "undoDays": UNDO_DAYS,
         });
-        report[if req.dry_run { "wouldDelete" } else { "deleted" }] = json!(count);
-        report[if req.dry_run { "wouldPurge" } else { "purged" }] = json!(purged);
-        if let Some(to) = &req.export {
-            report["export"] = json!(to);
+        if let Some(fields) = report.as_object_mut() {
+            fields.insert(if req.dry_run { "wouldDelete" } else { "deleted" }.into(), json!(count));
+            fields.insert(if req.dry_run { "wouldPurge" } else { "purged" }.into(), json!(purged));
+            if let Some(to) = &req.export {
+                fields.insert("export".into(), json!(to));
+            }
         }
         Ok(report)
     }

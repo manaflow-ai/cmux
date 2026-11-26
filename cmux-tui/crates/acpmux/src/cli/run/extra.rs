@@ -163,8 +163,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v);
             } else if args.restore.is_some() {
-                let id = v["sessionId"].as_str().unwrap_or("?");
-                if v["restored"].as_bool().unwrap_or(false) {
+                let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("?");
+                if v.get("restored").and_then(Value::as_bool).unwrap_or(false) {
                     println!("{id} restored");
                 } else {
                     println!("{id} was not deleted: nothing to restore");
@@ -2243,16 +2243,17 @@ mod tests {
 
 /// The text form of Recently deleted (`_acpmux/history_delete` `{deleted: true}`).
 fn print_recently_deleted(v: &Value) {
-    let chats = v["chats"].as_array().map(Vec::as_slice).unwrap_or_default();
-    println!("{} deleted chats can be restored for {} days:", chats.len(), v["undoDays"]);
+    let chats = v.get("chats").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let days = v.get("undoDays").and_then(Value::as_u64).unwrap_or(0);
+    println!("{} deleted chats can be restored for {days} days:", chats.len());
     let now = crate::store::now_ms();
     for chat in chats {
-        let purges = chat["purgesAt"].as_u64().unwrap_or(0);
+        let purges = chat.get("purgesAt").and_then(Value::as_u64).unwrap_or(0);
         println!(
             "  {}  purged in {}d  {}",
-            chat["sessionId"].as_str().unwrap_or("?"),
+            chat.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
             purges.saturating_sub(now).div_ceil(86_400_000),
-            chat["name"].as_str().unwrap_or(""),
+            chat.get("name").and_then(Value::as_str).unwrap_or(""),
         );
     }
 }
