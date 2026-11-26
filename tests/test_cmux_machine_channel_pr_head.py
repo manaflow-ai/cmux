@@ -148,6 +148,18 @@ class FindTest(unittest.TestCase):
             urllib.request.urlopen = real
 
 
+class LandTierTest(unittest.TestCase):
+    """pr-router's machine channel PR head build runs only at a head handed to land (Leo, 2026-11-23: "de facto, im
+    asking for 99% fewer minutes of ci time, period."): tests/test_head_tier.py land_tier_condition."""
+
+    def test_the_job_carries_the_land_tier_condition(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_head_tier import _job_ifs, land_tier_condition
+
+        jobs = _job_ifs((ROOT / ".github/workflows/pr-router.yml").read_text())
+        self.assertIn(land_tier_condition("pull_request"), jobs["machine-channel-pr-head"])
+
+
 class TreeKeyCliTest(unittest.TestCase):
     """The real tree key CLI, not a fake key: a `key` subcommand it never took made every key empty, so every
     land-tier head built both thin targets and no merge ever took one (h94 sweep, 2026-11-26)."""

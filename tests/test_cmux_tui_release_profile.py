@@ -153,7 +153,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     w = step.get("with") or {}
                     names = [str(w.get(k, "")) for k in ("name", "pattern")] if "download-artifact" in str(step.get("uses", "")) else []
                     names += re.findall(r"(?:--pattern|--name|-n)[ =]+[\"']?([^\s\"']+)", str(step.get("run", "")))
-                    if any(n.startswith(MACHINE_PREFIX) for n in names):
+                    # cloud-machine-channel-journey.yml's machine-channel-journey-* artifacts are its own
+                    # journey results (cmux#57007), not thin builds.
+                    if any(n.startswith(MACHINE_PREFIX) and not n.startswith("machine-channel-journey-")
+                           for n in names):
                         readers.append((path.name, name))
         self.assertEqual(readers, [("cmux-machine-channel.yml", "point-x86_64"),
                                    ("cmux-machine-channel.yml", "point-linux")])
