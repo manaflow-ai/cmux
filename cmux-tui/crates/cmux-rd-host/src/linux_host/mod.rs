@@ -1407,9 +1407,7 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "join_consent_tests.rs"]
 mod join_consent_tests;

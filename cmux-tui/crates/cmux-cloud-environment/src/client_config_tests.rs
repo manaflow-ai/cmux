@@ -87,6 +87,62 @@ fn a_mac_applied_field_reads_the_backends_create_block() {
     assert!(refused.contains("backend capability refused: create.bootstrap"));
 }
 
+#[test]
+fn a_named_size_sent_as_its_size_object_needs_no_capability_of_its_own() {
+    // 2026-11-25 on air-blue: `cmux vm new --size small` (vm --help's Quick Start) refused
+    // "backend capability refused: machine_create.size_name". The Mac sends the size as the `size`
+    // object the op always takes, so the name alone is no reason to refuse it.
+    let home = Home::new();
+    let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+    let mut selection = resolver.resolve(Some("dev")).unwrap();
+    let sized = serde_json::json!({
+        "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 16384}, "size_name": "small",
+    });
+    let configs = [
+        // A cache from before the backend's create block.
+        serde_json::json!({"machine_create": {"size_name": false, "name": true}}),
+        // The known-origin fallback.
+        serde_json::json!({"machine_create": {"size": true, "name": true}}),
+        // No capabilities at all.
+        serde_json::json!({}),
+        // Production today.
+        serde_json::json!({
+            "machine_create": {"size_name": false, "idle_seconds": false, "name": true},
+            "create": {"size": true, "idlePause": true, "name": true, "bootstrap": true}
+        }),
+    ];
+    for capabilities in configs {
+        selection.capabilities = capabilities.clone();
+        check_create_capabilities(&selection, &sized)
+            .unwrap_or_else(|error| panic!("{capabilities}: {error}"));
+        // The name with no size object still needs the backend's word.
+        if capabilities.get("create").is_none() {
+            let named =
+                check_create_capabilities(&selection, &serde_json::json!({"size_name": "small"}))
+                    .unwrap_err();
+            assert!(named.contains("machine_create.size_name"), "{capabilities}: {named}");
+        }
+    }
+    // A size that is not an object is no size sent.
+    selection.capabilities = serde_json::json!({"machine_create": {"size_name": false}});
+    let odd = check_create_capabilities(
+        &selection,
+        &serde_json::json!({"size": "small", "size_name": "small"}),
+    )
+    .unwrap_err();
+    assert!(odd.contains("backend capability refused: machine_create.size_name"), "{odd}");
+    // A backend that says no to a named size still refuses it, size object or not.
+    selection.capabilities = serde_json::json!({"create": {"size": false}});
+    let refused = check_create_capabilities(&selection, &sized).unwrap_err();
+    assert!(refused.contains("backend capability refused: create.size"), "{refused}");
+    // Another advanced field next to the size is still checked.
+    selection.capabilities = serde_json::json!({"machine_create": {"bootstrap": false}});
+    let mut both = sized.clone();
+    both["bootstrap"] = serde_json::json!("x");
+    let refused = check_create_capabilities(&selection, &both).unwrap_err();
+    assert!(refused.contains("machine_create.bootstrap"), "{refused}");
+}
+
 #[tokio::test]
 async fn check_create_reads_the_backend_only_for_a_field_that_needs_a_capability() {
     // The app runs check-create before every Cloud create, on the create's path. A create that names no

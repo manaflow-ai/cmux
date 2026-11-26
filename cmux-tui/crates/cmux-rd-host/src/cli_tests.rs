@@ -25,6 +25,26 @@ fn a_left_out_command_says_it_is_not_in_this_build() {
 }
 
 #[test]
+fn bench_usage_names_every_option() {
+    let src = include_str!("bench.rs");
+    let mut seen = 0;
+    for call in ["opts.get(\"", "opts.num_or(\"", "opts.str_or(\""] {
+        for (i, _) in src.match_indices(call) {
+            let rest = &src[i + call.len()..];
+            let key = &rest[..rest.find('"').unwrap()];
+            seen += 1;
+            assert!(
+                BENCH_USAGE.contains(&format!("[--{key} "))
+                    || BENCH_USAGE.contains(&format!(" --{key} ")),
+                "bench.rs reads --{key}, but `cmux-rd bench --help` (BENCH_USAGE) does not name it"
+            );
+        }
+    }
+    assert!(seen > 20, "found only {seen} option reads in bench.rs");
+    assert!(BENCH_USAGE.contains("[--marker-scale N/D"));
+}
+
+#[test]
 fn every_usage_command_is_known() {
     let list = USAGE.trim_start_matches("usage: cmux-rd ").split(' ').next().unwrap();
     for cmd in list.split('|') {

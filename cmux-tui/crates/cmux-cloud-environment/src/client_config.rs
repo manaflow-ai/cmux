@@ -75,6 +75,17 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
             .iter()
             .find(|(name, _)| name == field)
             .and_then(|(_, key)| read("create", key));
+        // A named size goes out as the `size` object the op always takes (`memory_mb`; the server's ladder
+        // picks the vCPUs), so the name needs no capability of its own when that object rides along. Only
+        // a backend whose create block says no to it (`create.size: false`) refuses it. A cache or
+        // fallback configuration from before the create block (2026-11-25: `cmux vm new --size small`,
+        // vm --help's own example, refused "machine_create.size_name") still takes it.
+        if *field == "size_name"
+            && object.get("size").is_some_and(Value::is_object)
+            && !matches!(mac_applied, Some((_, Value::Bool(false))))
+        {
+            continue;
+        }
         let advertised = mac_applied.or_else(|| read("machine_create", field));
         match advertised {
             Some((_, Value::Bool(true))) => {}

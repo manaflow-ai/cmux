@@ -101,13 +101,13 @@ async fn a_hub_turn_end_matches_and_counts() {
     .unwrap();
     hub.store.save(&meta).unwrap();
     let session = hub.make_session(meta);
-    *TEST_RULES.lock().unwrap() = Some((
+    TEST_RULES.lock().unwrap().insert(
         "tr-hub".into(),
         rules(json!([
             {"id": "s", "at": "start", "say": "S", "cooldown": 0},
             {"id": "e", "at": "end", "say": "E", "if": {"draft_any": ["fixed"], "tools_any": ["cargo"]}},
         ])),
-    ));
+    );
     let said = hub.turn_rules_start(&session, "go").unwrap();
     assert_eq!(said, "[turn rule s] S");
     hub.turn_rules_tool(
@@ -123,6 +123,6 @@ async fn a_hub_turn_end_matches_and_counts() {
         hub.turn_rules_start(&session, "next").as_deref(),
         Some("[turn rule e] E\n[turn rule s] S")
     );
-    *TEST_RULES.lock().unwrap() = None;
+    TEST_RULES.lock().unwrap().remove("tr-hub");
     hub.shutdown_all().await;
 }

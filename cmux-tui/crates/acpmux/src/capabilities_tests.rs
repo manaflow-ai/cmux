@@ -1,7 +1,7 @@
 use super::*;
 use crate::client::Client;
 use crate::config::{Config, StoreMode};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 #[test]
@@ -104,7 +104,7 @@ fn every_covered_name_is_in_the_protocol_registry() {
         crate::protocol::registry().iter().map(|decl| decl.name).collect();
     for capability in CAPABILITIES {
         // Machine onboarding is CLI-only and has no daemon wire method.
-        if capability.id == "machine.join.stdin.v1" {
+        if capability.id == "machine.join.stdin.v1" || capability.id == DAEMON_SERVICE_APP {
             assert!(capability.wire.is_empty());
             continue;
         }
