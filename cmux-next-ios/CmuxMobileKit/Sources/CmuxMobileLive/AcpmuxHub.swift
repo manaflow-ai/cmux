@@ -1682,7 +1682,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
+    /// A video is first shrunk to HEVC 1080p when the setting asks for it (``VideoRecompressor``).
     static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+        let (payload, name) = try await VideoRecompressor.prepared(payload, name: name)
         do {
             return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {

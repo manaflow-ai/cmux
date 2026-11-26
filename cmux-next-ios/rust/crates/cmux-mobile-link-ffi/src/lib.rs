@@ -47,6 +47,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod video_recompress;
 mod window_layout;
 mod workspace_groups;
 
@@ -94,6 +95,9 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use video_recompress::{
+    VideoRecompressPlan, VideoRecompressReason, VideoSource, video_recompress_keep, video_recompress_plan,
+};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,

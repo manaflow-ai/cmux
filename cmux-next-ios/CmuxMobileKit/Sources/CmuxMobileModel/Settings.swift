@@ -203,6 +203,9 @@ public final class SettingsStore {
     public var dismissKeyboardAfterSend: Bool { didSet { save(dismissKeyboardAfterSend, "dismissKeyboardAfterSend") } }
     /// Read by every composer's text view (`CmuxMobilePreferences.swipeDownCollapsesComposer`) through the same key.
     public var swipeDownCollapsesComposer: Bool { didSet { save(swipeDownCollapsesComposer, "swipeDownCollapsesComposer") } }
+    /// Shrink a picked video to HEVC 1080p before it goes to the Mac. Off by default; read by
+    /// `CmuxMobileLive.VideoRecompressor` through the same key.
+    public var recompressVideos: Bool { didSet { save(recompressVideos, "recompressVideos") } }
     /// Read by the agent composer: Steer sends a message typed while the
     /// agent works as acpmux `steer`, Queue sends it after the turn.
     public var followUp: FollowUpBehavior { didSet { save(followUp.rawValue, "followUp") } }
@@ -306,6 +309,7 @@ public final class SettingsStore {
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
         swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
+        recompressVideos = bool("recompressVideos", false)
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", false)

@@ -470,6 +470,10 @@ struct ComposerPage: View {
                 Toggle(isOn: $settings.swipeDownCollapsesComposer) {
                     SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
+                Toggle(isOn: $settings.recompressVideos) {
+                    SettingsLabel("Shrink videos before sending", symbol: "film")
+                }
+                .accessibilityIdentifier("settings.recompressVideos")
                 // RFD 0130: the session's facts in the composer, off by default ("default MAY need a call").
                 Picker(selection: $footerFacts) {
                     Text("Off").tag("off")
