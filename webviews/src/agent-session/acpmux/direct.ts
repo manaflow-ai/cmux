@@ -2122,11 +2122,9 @@ export class AcpmuxDirectClient {
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
-  /// The kept tail `drawTailWhileConnecting` drew ends inside a turn (`keptMidTurn`): published as the
-  /// snapshot's `tailMidTurn` until acpmux's list or attach of that chat says whether the turn runs.
+  /// The kept tail drawn (`drawKeptTail`) ends inside a turn no listed entry said runs (`keptMidTurn`):
+  /// published as the snapshot's `tailMidTurn` until acpmux's list or attach of that chat says whether it runs.
   private tailMidTurn?: { sessionId: string; generation: number };
-  /// Set by `drawKeptTail`: its records ended inside a turn no listed entry said runs.
-  private keptTailMidTurn = false;
   /// What the shown chat's running turn held when it was first drawn and when its attach landed
   /// (`noteReadWork`), while that turn runs.
   private readWork: { session: string; generation: number; attached: boolean; items: Map<string, number> } | undefined;
@@ -3792,7 +3790,6 @@ export class AcpmuxDirectClient {
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
     this.keepQueueAuthors(held.queue);
     this.earlyTail = { sessionId, generation, through };
-    this.tailMidTurn = this.keptTailMidTurn ? { sessionId, generation } : undefined;
     this.drewKeptTail = true;
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
     // own draw point would end it, rather than keeping the chat off screen until acpmux answers
@@ -3845,6 +3842,8 @@ export class AcpmuxDirectClient {
       this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } }) === 0
     )
       return false;
+    // Its machine is not here: nothing will say soon whether its turn runs, so it draws as kept, ended.
+    this.tailMidTurn = undefined;
     this.copyLive = undefined;
     this.turnOpen = false;
     this.turnEndSeen = false;
@@ -3855,7 +3854,6 @@ export class AcpmuxDirectClient {
   }
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
-    this.keptTailMidTurn = false;
     // One source wins: a copy older than what this page already showed of the chat (another tab's
     // tail, the Mac's copy, a map entry from before a reconnect) is never drawn over it; the open
     // waits for its attach instead (tailCache.ts `olderThanShown`).
@@ -3886,8 +3884,10 @@ export class AcpmuxDirectClient {
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnEndSeen = false;
     this.turnOpen = this.summaryRuns(listed);
-    // No list says yet whether that turn still runs: the transcript may draw it as running (`tailMidTurn`).
-    this.keptTailMidTurn = keptMidTurn && listed === undefined;
+    // No list says yet whether that turn still runs: the transcript draws it as running (`tailMidTurn`)
+    // until acpmux's list or attach says, as the last launch's copy drew it.
+    this.tailMidTurn =
+      keptMidTurn && listed === undefined ? { sessionId, generation: this.selectionGeneration } : undefined;
     // Not a paused queue's failed turn, whose end acpmux draws as a failure, nor a turn the tail
     // cannot name: its result's summary row would have another id.
     if (keptMidTurn && listed && !this.turnOpen && listed.queuePaused !== true && this.runningTurnId)
@@ -8670,12 +8670,15 @@ export class AcpmuxDirectClient {
 
   /// Whether the drawn kept tail's open turn still waits for acpmux to say if it runs (`tailMidTurn`):
   /// the chat is selected in the generation that drew it, its attach has not answered, and no listed
-  /// entry of it is in (a list names its status, which `turnOpen` then follows).
+  /// entry of it says it is not running.
   private tailMidTurnShown(): boolean {
     const mid = this.tailMidTurn;
     if (!mid || mid.sessionId !== this.selectedSessionId || mid.generation !== this.selectionGeneration) return false;
     if (this.attachedGeneration === this.selectionGeneration) return false;
-    return !this.sessions.some((session) => session.sessionId === mid.sessionId);
+    // A listed entry names the chat's status: one that is not running ends the guess (one running keeps
+    // it until the turn's own state draws it, so the rows never flip between the two).
+    const listed = this.sessions.find((session) => session.sessionId === mid.sessionId);
+    return listed === undefined || listed.status === "running";
   }
 
   /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
