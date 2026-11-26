@@ -171,8 +171,10 @@ public final class SettingsDeveloperTokens: PageProvider {
     /// Reads the list again (and the GitHub rules for a team admin); only the newest read writes it.
     public func refresh() async {
         guard let cli = await cli() else {
+            generation += 1
             list = .null
             githubRules = .null
+            loading = false
             problem = "unavailable"
             return
         }
