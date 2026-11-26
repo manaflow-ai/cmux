@@ -8,7 +8,7 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 here=$(git rev-parse HEAD)
 summary=""
 for c in "$@"; do
-  git fetch -q --no-tags origin "$c" 2>/dev/null || git fetch -q --no-tags --depth=200 origin feat-cmux-next
+  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch -q --no-tags --depth=1 origin "$c" 2>/dev/null || git fetch -q --no-tags --shallow-since=2026-11-20 origin feat-cmux-next
   if ! git checkout -q "$c" -- cmux-tui 2>/dev/null; then summary+="$c fetch-failed"$'\n'; continue; fi
   ( cd cmux-tui
     channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
