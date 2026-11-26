@@ -1,5 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Signing in enrolls this Mac on the hub (the rule of the sign-in, in the code since 2026-11-14). acpmux decides
@@ -9,7 +10,11 @@ import Foundation
 /// The access token goes only in that request on the local acpmux socket, never in argv, the
 /// environment or a log. Signing in publishes the person before its token can be read (its team
 /// refresh): the person is reported once that sign-in has finished (``signedInPerson``), and acpmux
-/// keeps an enroll with no token pending until a report brings one.
+/// keeps an enroll with no token pending until a report brings one. A report acpmux did not take
+/// (its line not yet the person's, as in a launch whose acpmux outlived the one before, or acpmux not up
+/// yet), or a signed-in one that went with no token (its mint failed), goes again on a short backoff
+/// until one is taken whole (cloud-carrier-ssh-failover, 2026-11-26: the app stayed signed in and acpmux
+/// had no join, because the one report of that launch was lost and nothing sent it again).
 @MainActor
 public final class CloudSignInEnroll {
     /// One change to the app's acpmux; true when it took it.
@@ -19,6 +24,9 @@ public final class CloudSignInEnroll {
     typealias RecordLeave = @MainActor (_ userId: String, _ signedOutAt: Int64) async -> Bool
 
     public static let capability = "machine-signed-in-v1"
+    /// About seven minutes of tries, then none until the next change or acpmux's return.
+    static let retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15),
+                                          .seconds(30), .seconds(60), .seconds(60), .seconds(120), .seconds(120)]
     static let method = "_acpmux/machine_signed_in"
 
     /// Who is signed in now; `.none` while the session is still being read.
@@ -29,12 +37,22 @@ public final class CloudSignInEnroll {
     private let extra: [String: String]
     /// The change sent last.
     private var last: (userId: String?, previous: String?)?
+    /// One more for each change and each return of acpmux: a retry of an older one stops.
+    private var generation = 0
+    /// The waits between tries of one change acpmux did not take whole.
+    private let retryDelays: [Duration]
     private var work: Task<Void, Never>?
+    /// The wait before the next try of a change acpmux did not take whole.
+    private let retryTimer = DemandTimer(owner: "cloud.sign-in-enroll.retry")
+    /// A try is waiting on ``retryTimer`` (tests: ``settled()`` waits for it too).
+    private var retrying = false
     private var following: Task<Void, Never>?
 
     init(person: @escaping @MainActor @Sendable () -> String??, accessToken: @escaping @MainActor () async -> String?,
-         hub: String?, buildTag: String?, recordLeave: @escaping RecordLeave, send: @escaping Send) {
+         hub: String?, buildTag: String?, recordLeave: @escaping RecordLeave,
+         retryDelays: [Duration] = CloudSignInEnroll.retryDelays, send: @escaping Send) {
         self.person = person
+        self.retryDelays = retryDelays
         self.accessToken = accessToken
         self.recordLeave = recordLeave
         self.send = send
@@ -65,7 +83,14 @@ public final class CloudSignInEnroll {
     }
 
     /// Waits for every change so far (tests).
-    func settled() async { await work?.value }
+    func settled() async {
+        let sending = work
+        await sending?.value
+        guard retrying || work != sending else { return }
+        // A retry still waiting: its timer fires (tests wait zero), then the try it sends.
+        if retrying { await Task.yield() }
+        await settled()
+    }
 
     func changed(to userId: String?) {
         if let last, last.userId == userId { return }
@@ -81,18 +106,44 @@ public final class CloudSignInEnroll {
         submit(userId, previous: previous)
     }
 
-    private func submit(_ userId: String?, previous: String?) {
+    /// Sends a change after the one before. `attempt` 0 is a new change (or acpmux's return), which ends
+    /// any retry still waiting; a send acpmux did not take whole tries again after `retryDelays[attempt]`.
+    private func submit(_ userId: String?, previous: String?, attempt: Int = 0) {
+        if attempt == 0 {
+            generation += 1
+            retryTimer.cancel()
+            retrying = false
+        }
+        let mine = generation
         let before = work
         // task-owner: one change's request, after the one before; ends with it.
         work = Task { [weak self] in
             await before?.value
-            guard let self else { return }
-            var params: [String: Any] = extra
-            params["userId"] = userId.map { $0 as Any } ?? NSNull()
-            params["previous"] = previous.map { $0 as Any } ?? NSNull()
-            if userId != nil, let access = await accessToken(), !access.isEmpty { params["accessToken"] = access }
-            _ = await send(params)
+            guard let self, self.generation == mine else { return }
+            let whole = await self.sendWhole(userId, previous: previous)
+            guard !whole, self.generation == mine, attempt < self.retryDelays.count else { return }
+            // One wait before the next try; a newer change cancels it (bounded by `retryDelays`).
+            self.retrying = true
+            self.retryTimer.schedule(after: self.retryDelays[attempt], reason: "sign-in report not taken") { @MainActor [weak self] in
+                guard let self, self.generation == mine else { return }
+                self.retrying = false
+                self.submit(userId, previous: previous, attempt: attempt + 1)
+            }
         }
+    }
+
+    /// One send of the change; true when acpmux took it, with a token when someone is signed in.
+    private func sendWhole(_ userId: String?, previous: String?) async -> Bool {
+        var params: [String: Any] = extra
+        params["userId"] = userId.map { $0 as Any } ?? NSNull()
+        params["previous"] = previous.map { $0 as Any } ?? NSNull()
+        var withToken = false
+        if userId != nil, let access = await accessToken(), !access.isEmpty {
+            params["accessToken"] = access
+            withToken = true
+        }
+        let taken = await send(params)
+        return taken && (userId == nil || withToken)
     }
 
     /// Who is signed in, for ``follow()``: `.none` while the session is still being read, at launch
@@ -137,8 +188,10 @@ extension CloudSignInEnroll {
             return await command.run(["--json", "machine", "leave-intent", "--user-id", userId,
                                       "--signed-out-at", String(signedOutAt)]).status == 0
         }) { params in
+            // `connectEnrolling`: an acpmux this launch never keyed (it outlived the app before, as across a
+            // sign-out and relaunch) gets this launch's key, the way the consent line does, so the report proves.
             guard let environment = environment(),
-                  let line = await AcpmuxPersonLine.open(environment, deadline: .seconds(30)) else { return false }
+                  case .success(let line) = await AcpmuxPersonLine.connectEnrolling(environment) else { return false }
             defer { line.close() }
             // Only a line that proved the person may enroll or leave; the daemon refuses any other.
             guard line.isPerson, line.capabilities.contains(capability) else { return false }
