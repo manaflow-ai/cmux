@@ -333,6 +333,12 @@ export function generate(): Record<string, string> {
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // A pane's open arguments and result (cmux.pane/1, cmux-tui-core apps/pane_flow.rs): only the caller's own
+    // app's pane, so no grant. The tab itself opens through action.run app.open, which needs a gesture.
+    "app.pane.open": { scope: "none", class: "runtime" },
+    "app.pane.close": { scope: "none", class: "runtime" },
+    // A view's kept state (ctx.keep, cmux-tui-core apps/view_state.rs): only the caller's own mounts, in memory.
+    "app.view.state": { scope: "none", class: "runtime" },
     // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
     // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
     // `<app namespace>:read` scope).
@@ -427,7 +433,12 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 // App action ids are not enumerated here: the registry changes daily. List them at runtime with cmux.actions.list().
 type CmuxActionId = string
 
-interface CmuxAppContext { readonly [key: string]: unknown }
+/** A view's mount context (a section, a pane, a widget). \`keep(name, initial)\` is a signal ([read, write]) whose value cmux keeps with the mount: a hot reload (\`cmux ext dev\`), a host restart or a Reload renders it again; closing the view forgets it. \`state\` is every kept value this mount got back (at most 64 KiB as JSON; values must be JSON). */
+interface CmuxAppContext { readonly [key: string]: unknown; readonly state: Readonly<Record<string, unknown>>; keep<T>(name: string, initial: T): [() => T, (next: T | ((prev: T) => T)) => void] }
+/** What \`cmux.app.openPane\` resolves with: the pane's \`ctx.close(result)\` value, or \`dismissed\` when the person closed the pane first or a newer open replaced this one. */
+interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
+/** A \`cmux.pane/1\` mount's context: \`args\` are the open's arguments (\`cmux.app.openPane\`), null when the person opened the pane themselves. \`close(result)\` answers the opener (the tab stays open: closing it is the person's); \`onOpen(fn)\` runs after the render with the arguments of an open; \`onClose(fn)\` runs when this mount ends (the tab closed, a newer open, a reload). */
+interface CmuxPaneContext extends CmuxAppContext { readonly args: Record<string, unknown> | null; close(result?: unknown): Promise<{ closed: boolean }>; onOpen(fn: (args: Record<string, unknown>) => void): void; onClose(fn: () => void): void }
 
 /** One block of a page's main text (\`page.read\`): a heading has \`level\` (1-6), an image \`src\` and its alt text. */
 interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
@@ -461,7 +472,7 @@ ${render(root, "  ")}
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
@@ -613,8 +624,8 @@ interface CmuxView {
   trim(v: Bindable<CmuxTrim | null>): this
   /** A host-run effect that repeats forever with no JS; \`null\` stops it. Stops under Reduce Motion. */
   loop(v: Bindable<CmuxLoop | null>): this
-  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
-  transition(v: Bindable<CmuxTransition | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size); \`{kind, motion}\` times it with a motion token, spring or timed curve. */
+  transition(v: Bindable<CmuxTransition | CmuxTimedTransition | null>): this
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
@@ -635,6 +646,8 @@ type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounc
 /** \`period\` in seconds; \`amount\` scales the effect's default amplitude. */
 type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
 type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: \`motion\` times the move and the fade, in and out (the bare kind keeps the renderer's springs). */
+type CmuxTimedTransition = { kind: CmuxTransition; motion?: CmuxMotion | null }
 type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. */
 /** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's \`ease\` shapes the segment that ends at it. */

@@ -122,12 +122,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
+import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -1986,8 +1987,9 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
- * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use) and the
- * activity the platform keeps (open sessions, the workload block), whichever the record carries.
+ * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use), the
+ * activity the platform keeps (open sessions, the workload block), whichever the record carries, and `idle_kept`: the
+ * platform's own reason with the names of what holds it.
  */
 export async function idleHeldBy(api: Api, machine: string, now = Date.now()): Promise<string> {
   const m = await Promise.resolve().then(() => api.read("cloud.machine.get", { machine })).catch((error) => error as Error);
@@ -1997,6 +1999,13 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
+  // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
+  // process, port and timer names, so a walk that never paused names what held it.
+  const kept = m?.idle_kept;
+  if (kept && typeof kept === "object") {
+    const { running_s: _r, report_age_s: _a, daemon: _d, ...facts } = kept as Record<string, unknown>;
+    bits.push(`kept by ${short(facts)}`);
+  }
   return bits.join("; ");
 }
 
@@ -2009,10 +2018,12 @@ export async function machineIdleSeconds(api: Api, machine: string): Promise<num
 
 /**
  * How long the journey waits for an idle pause: the idle policy or the post-chat hold, whichever is longer, plus
- * 300 s for the alarm's re-check. A policy the record does not name gets the 24 h backstop's worth (86400 s).
+ * 300 s for the alarm's re-check. A record that names no policy is a failure now, not a 24 h wait: sizing the wait
+ * from the 24 h backstop hung the walk until the CI job's own timeout killed it, so idleHeldBy never said why.
  */
 export function idlePauseDeadlineMs(policyS: number | null, holdS: number): number {
-  return (Math.max(policyS ?? 86400, holdS) + 300) * 1000;
+  if (policyS === null) throw new Error("cloud.machine.get names no idle policy for this machine (idle_seconds and idle_policy.idle_seconds both unset), so there is no pause to wait for");
+  return (Math.max(policyS, holdS) + 300) * 1000;
 }
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
@@ -2453,6 +2464,43 @@ export function dialPhases(log: string): string[] {
 export function dialDetail(d: { connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }): string {
   return `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}`
     + `${d.phases.length ? `; phases: ${d.phases.join("; ")}` : ""}: ${d.reply.slice(0, 160)}`;
+}
+
+/** cmux-autocloud's plain transcript (RFD 0139): null when readiness reached 100 and an agent line (not the
+ * `> ` prompt, a `  · ` tool, a `  ! ` note or a `[` status line) names `word` (any agent line when `word` is null:
+ * the model stub's reply); else what is missing. */
+export function autocloudTuiVerdict(out: string, word: string | null): string | null {
+  const ready = /readiness 100\b/.test(out);
+  const agent = out.split("\n").filter((l) => l.trim() && !/^(> |  [·!] |\[)/.test(l));
+  const said = word === null ? agent.length > 0 : agent.some((l) => new RegExp(`\\b${word}\\b`, "i").test(l));
+  if (ready && said) return null;
+  return [ready ? "" : "readiness never reached 100", said ? "" : word === null ? "no agent line" : `no agent line says ${word}`].filter(Boolean).join("; ");
+}
+
+/** `cmux-autocloud --machine` (RFD 0139's terminal client) on this machine: a new chat over the carrier's acpmux
+ * service, one prompt, until the agent's turn ends. `cmux` is put on PATH as the cmux-tui this run built. */
+export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, agent: string, word: string | null): string {
+  const bin = mkdtempSync(path.join(tmpdir(), "cmux-autocloud-bin-"));
+  symlinkSync(path.resolve(cmux), path.join(bin, "cmux"));
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}), CMUX_AUTOCLOUD_TRACE: "1" };
+  const started = Date.now();
+  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });
+  rmSync(bin, { recursive: true, force: true });
+  const out = r.stdout ?? "";
+  const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);
+  // The first dial's trace says why a link that never comes up dropped; later redials repeat it.
+  // The last lines say where a link that did come up stopped (a session/new with no answer); each line is
+  // clipped so one long initialize reply cannot push them out.
+  const head = (s: string) => {
+    // The step's detail is cut at 1000 characters, so keep only the last lines, short: where the link stopped.
+    const lines = s.trim().split("\n").map((line) => (line.length > 160 ? `${line.slice(0, 160)}…` : line));
+    return lines.slice(-7).join(" | ");
+  };
+  if (r.error) throw new Error(`cmux-autocloud: ${r.error.code ?? r.error.message}; stderr tail: ${head(r.stderr ?? "")}; stdout: ${tail(out).slice(0, 150)}`);
+  const problem = autocloudTuiVerdict(out, word);
+  if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
+  return `${Date.now() - started} ms: ${tail(out)}`;
 }
 
 export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }> {
@@ -4534,6 +4582,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const preclaimLoginCmux = argValue("--preclaim-login", argv);
   // --desktop-link: the desktop's UDP link readback instead of the chat (needs --cmux for the dial).
   const desktopLink = argv.includes("--desktop-link");
+  // --autocloud-tui PATH: after the carrier dial, a chat through cmux-autocloud --machine (RFD 0139), needs --cmux.
+  const autocloudTui = argValue("--autocloud-tui", argv);
+  if (autocloudTui && !cmux) throw new Error("--autocloud-tui needs --cmux PATH: cmux-autocloud dials with that cmux");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
   const seed = argValue("--seed", argv) ?? "auto";
@@ -5191,6 +5242,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
+      // A chat opened with a folder: how long git_seed takes to ready the repository on this machine, cloned from
+      // GitHub and borrowed from a warm mirror (cloud-journey-repo-seed.ts). Opt-in: each run pulls the repo once.
+      const seedRuns = repoSeedRuns(process.env.CMUX_JOURNEY_REPO_SEED_RUNS);
+      for (let run = 1; run <= seedRuns; run++) {
+        await J.step(seedRuns > 1 ? `${REPO_SEED_STEP} ${run}/${seedRuns}` : REPO_SEED_STEP, async () => {
+          // Clone and borrow as two execs, each with the exec route's whole 300 s (cloud-journey-repo-seed.ts).
+          const s = repoSeedScripts(`/tmp/cmux-seed-probe-${process.pid}-${run}`);
+          const c = await exec(s.clone, 300_000);
+          let r = c;
+          let out = c.stdout;
+          try {
+            if (parseRepoSeed(c.stdout).clone?.code === "0") {
+              r = await exec(s.borrow, 300_000);
+              out += `\n${r.stdout}`;
+            }
+          } finally {
+            await exec(s.cleanup, 60_000).catch(() => undefined);
+          }
+          console.log(out.split("\n").filter((l) => l.startsWith("@@seed")).join("\n"));
+          const { ok, detail } = repoSeedDetail(parseRepoSeed(out));
+          if (!ok) throw new Error(`exit ${r.code} ${detail} ${r.stderr.slice(-200)}`);
+          return { value: null, detail };
+        });
+      }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
       // so without this cell no run shows that a cold create boots at the size it asked for (cmux-platform#1513: every
       // image create asks the VM API for the size it was admitted at). One machine at COLD_CREATE_SIZE, its size read on
@@ -5280,7 +5355,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
             if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
             return { value: null, detail: e2eLines(r.stdout) };
-          });
+            // Its FAIL stays on the record, as the live cell's does, but no longer ends the machine's later steps
+            // (connect, the carrier dial, the cmux-autocloud chat).
+          }).catch(() => undefined);
         }
         // The live cells need only the script on the machine: an image with no github-mcp fails the mcp_call cell alone.
         if (!sandbox) J.skip("GitHub on the machine (live)", process.env.CMUX_JOURNEY_GITHUB_REPO?.trim() ? "CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO" : "CMUX_JOURNEY_GITHUB_REPO is not set");
@@ -6047,6 +6124,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
+      if (autocloudTui) {
+        await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
+      }
     } else {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
       // ticket, grant and daemon key it asks for, checked by the dial's own rules.

@@ -23,9 +23,6 @@ pub enum Item {
         status: String,
         detail: String,
     },
-    Plan {
-        entries: Vec<(String, String)>,
-    },
     Permission {
         id: String,
         title: String,
@@ -298,11 +295,6 @@ impl Transcript {
                     .rposition(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
                     .unwrap_or(self.items.len())
             }
-            "plan" => self
-                .items
-                .iter()
-                .rposition(|i| matches!(i, Item::Plan { .. }))
-                .unwrap_or(self.items.len()),
             _ => self.items.len(),
         };
         self.invalidate_layout(from);
@@ -418,36 +410,6 @@ impl Transcript {
                 }
                 self.refresh_activity();
             }
-            "plan" => {
-                let entries = update
-                    .get("entries")
-                    .and_then(Value::as_array)
-                    .map(|e| {
-                        e.iter()
-                            .map(|x| {
-                                (
-                                    x.get("status")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_owned(),
-                                    x.get("content")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_owned(),
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if let Some(Item::Plan { entries: e }) =
-                    self.items.iter_mut().rev().find(|i| matches!(i, Item::Plan { .. }))
-                {
-                    *e = entries;
-                } else {
-                    self.items.push(Item::Plan { entries });
-                }
-                self.refresh_activity();
-            }
             "usage_update" => {
                 let used = update.get("used").and_then(Value::as_u64).unwrap_or(0);
                 let size = update.get("size").and_then(Value::as_u64).unwrap_or(0);
@@ -507,14 +469,6 @@ impl Transcript {
             _ => None,
         }) {
             self.activity = Some(title.chars().take(120).collect());
-        } else if let Some(step) = self.items.iter().rev().find_map(|item| match item {
-            Item::Plan { entries } => entries
-                .iter()
-                .find(|(status, _)| status == "in_progress")
-                .map(|(_, content)| content.as_str()),
-            _ => None,
-        }) {
-            self.activity = Some(step.chars().take(120).collect());
         } else if self.status == "running" && self.activity.is_none() {
             self.activity = Some("Thinking".into());
         }
@@ -965,9 +919,6 @@ pub fn item_text(item: &Item) -> String {
             } else {
                 format!("{title}\n{detail}")
             }
-        }
-        Item::Plan { entries } => {
-            entries.iter().map(|(s, c)| format!("[{s}] {c}")).collect::<Vec<_>>().join("\n")
         }
         Item::Permission { title, .. } => title.clone(),
         Item::TurnEnd { stop } => stop.clone(),
