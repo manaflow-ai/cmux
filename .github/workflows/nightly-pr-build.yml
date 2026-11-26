@@ -52,8 +52,9 @@ jobs:
   swift-fleet:
     name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
-    if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    # The literal fallback never schedules: the job's if: skips when the variable is unset.
+    if: ${{ needs.route.outputs.swift == 'true' }}
+    # Use the gateway when configured, then the overflow pool, then the owned
+    # Linux pool. The job remains a thin cmux-ci client on every route.
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 140  # the client waits up to 3600 s queued plus 3600 s running
     permissions: {}
