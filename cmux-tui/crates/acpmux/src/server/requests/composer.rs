@@ -84,7 +84,7 @@ pub(super) async fn handle(
         // The draft's attachments, asked for (`hub/draft_attachments.rs`): an older page never
         // asks, and an older daemon never answers them, so the page knows to keep its own.
         if params.get("attachments").and_then(Value::as_bool) == Some(true) {
-            let attachments = Value::Array(hub.draft_attachments(&s).await);
+            let attachments = Value::Array(hub.draft_attachments(&s).await?);
             if let Some(object) = answer.as_object_mut() {
                 object.insert("attachments".to_owned(), attachments);
             }

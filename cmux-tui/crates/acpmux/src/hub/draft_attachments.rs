@@ -61,9 +61,14 @@ fn file_name(id: &str, field: &str) -> String {
     format!("{hex}.{field}")
 }
 
-fn saved(folder: &Path) -> Option<Saved> {
-    let text = std::fs::read_to_string(folder.join(LIST)).ok()?;
-    serde_json::from_str(&text).ok()
+fn saved(folder: &Path) -> std::io::Result<Option<Saved>> {
+    let path = folder.join(LIST);
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    serde_json::from_str(&text).map(Some).map_err(std::io::Error::other)
 }
 
 /// The chips as the page sent them: a list of objects, each with a non-empty string `id`, no id
@@ -85,23 +90,22 @@ pub(crate) fn checked(list: &Value) -> Result<Vec<Value>, RpcError> {
     Ok(chips.clone())
 }
 
-/// The chips kept in `folder`, in order, each with the contents it has a file for. A chip whose
-/// file went missing comes back without those contents rather than not at all.
-pub(crate) fn read(folder: &Path) -> Vec<Value> {
-    let Some(saved) = saved(folder) else { return Vec::new() };
+/// The chips kept in `folder`, in order, with every declared contents file restored. A missing
+/// declared file is an error so a transfer cannot commit a partial draft.
+pub(crate) fn read(folder: &Path) -> std::io::Result<Vec<Value>> {
+    let Some(saved) = saved(folder)? else { return Ok(Vec::new()) };
     let mut chips = saved.attachments;
     for chip in &mut chips {
         let Some(id) = chip.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
         let Some(fields) = saved.held.get(&id) else { continue };
         for field in fields.iter().filter(|f| CONTENTS.contains(&f.as_str())) {
-            if let Ok(contents) = std::fs::read_to_string(folder.join(file_name(&id, field))) {
-                if let Some(object) = chip.as_object_mut() {
-                    object.insert(field.to_owned(), Value::String(contents));
-                }
+            let contents = std::fs::read_to_string(folder.join(file_name(&id, field)))?;
+            if let Some(object) = chip.as_object_mut() {
+                object.insert(field.to_owned(), Value::String(contents));
             }
         }
     }
-    chips
+    Ok(chips)
 }
 
 /// Keeps `chips` (already [`checked`]) in `folder`, and answers the ids whose contents it holds.
@@ -116,7 +120,7 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
         };
     }
     crate::home_fs::create_dirs(folder)?;
-    let before = saved(folder).unwrap_or_default();
+    let before = saved(folder)?.unwrap_or_default();
     let mut saved = Saved::default();
     for chip in chips {
         let mut chip = chip.clone();
@@ -170,18 +174,19 @@ impl Hub {
     }
 
     /// `_acpmux/draft_get {attachments: true}`: the chat's unsent chips, in order, contents and all.
-    pub async fn draft_attachments(&self, session: &Session) -> Vec<Value> {
+    pub async fn draft_attachments(&self, session: &Session) -> Result<Vec<Value>, RpcError> {
         let Some(folder) = self.draft_attachments_folder(session) else {
             let kept = IN_MEMORY.lock().unwrap_or_else(|e| e.into_inner());
-            return kept.get(&session.id).cloned().unwrap_or_default();
+            return Ok(kept.get(&session.id).cloned().unwrap_or_default());
         };
-        tokio::task::spawn_blocking(move || {
+        let read = tokio::task::spawn_blocking(move || {
             let turn = turn(&folder);
             let _turn = turn.lock().unwrap_or_else(|e| e.into_inner());
             read(&folder)
         })
         .await
-        .unwrap_or_default()
+        .map_err(|e| RpcError::internal(format!("draft attachments read task: {e}")))?;
+        read.map_err(|e| RpcError::internal(format!("draft attachments could not be read: {e}")))
     }
 
     /// `_acpmux/draft_set {attachments}`: keeps `chips` as the chat's unsent chips, and answers
@@ -241,7 +246,11 @@ impl Hub {
     /// A move's bundle carries the chat's chips (`transfer.rs` export).
     pub(super) fn export_draft_attachments(&self, session: &Session, dir: &Path) -> Result<()> {
         let chips = match self.draft_attachments_folder(session) {
-            Some(folder) => read(&folder),
+            Some(folder) => {
+                let lock = turn(&folder);
+                let _lock = lock.lock().unwrap_or_else(|e| e.into_inner());
+                read(&folder)?
+            }
             None => IN_MEMORY
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -256,34 +265,40 @@ impl Hub {
     }
 
     /// The bundle's chips become the imported chat's (`transfer.rs` import), checked as a write
-    /// of the page's is.
-    pub(super) fn import_draft_attachments(&self, bundle: &Path, id: &str) {
-        let chips = read(&bundle.join(DIR));
-        if chips.is_empty() || checked(&Value::Array(chips.clone())).is_err() {
-            return;
+    /// of the page's is. Errors abort the import before the source can commit.
+    pub(super) fn import_draft_attachments(&self, bundle: &Path, id: &str) -> Result<()> {
+        let chips = read(&bundle.join(DIR))?;
+        if chips.is_empty() {
+            return Ok(());
         }
+        checked(&Value::Array(chips.clone())).map_err(|e| anyhow::anyhow!(e.message))?;
         match self.store.session_path(id) {
             Some(dir) => {
-                if let Err(e) = write(&dir.join(DIR), &chips) {
-                    tracing::warn!(session = %id, "draft attachments not imported: {e}");
-                }
+                let folder = dir.join(DIR);
+                let lock = turn(&folder);
+                let _lock = lock.lock().unwrap_or_else(|e| e.into_inner());
+                write(&folder, &chips)?;
             }
             None => {
                 IN_MEMORY.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), chips);
             }
         }
+        Ok(())
     }
 
     /// A committed move: the chips live on the target now, as the draft's text does.
-    pub(super) fn forget_draft_attachments(&self, session: &Session) {
+    pub(super) fn forget_draft_attachments(&self, session: &Session) -> Result<()> {
         match self.draft_attachments_folder(session) {
             Some(folder) => {
-                let _ = write(&folder, &[]);
+                let lock = turn(&folder);
+                let _lock = lock.lock().unwrap_or_else(|e| e.into_inner());
+                write(&folder, &[])?;
             }
             None => {
                 IN_MEMORY.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
             }
         }
+        Ok(())
     }
 }
 

@@ -373,7 +373,10 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         // The draft's attachments, with the draft's text in `session.json`.
-        self.import_draft_attachments(bundle, &meta.id);
+        if let Err(e) = self.import_draft_attachments(bundle, &meta.id) {
+            self.drop_failed_import(&meta);
+            return Err(RpcError::invalid_params(format!("import draft attachments: {e:#}")));
+        }
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.

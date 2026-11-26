@@ -81,9 +81,35 @@ async fn draft_attachments_survive_a_restart() {
     keep(&hub, &s).await;
     let folder = hub.store.session_path("restart").unwrap().join(DIR);
     assert!(folder.join(LIST).is_file(), "kept on disk");
-    let kept = read(&folder);
+    let kept = read(&folder).unwrap();
     assert_in_place(&hub, &s, &kept);
-    assert_eq!(hub.draft_attachments(&s).await, kept, "the daemon reads the folder");
+    assert_eq!(hub.draft_attachments(&s).await.unwrap(), kept, "the daemon reads the folder");
+}
+
+/// A bundle with a declared contents file missing is rejected instead of silently importing a
+/// chip with no bytes. The source can therefore retry the move without losing the attachment.
+#[tokio::test]
+async fn a_missing_declared_attachment_file_fails_the_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = disk_hub(dir.path());
+    let s = chat(&hub, "missing-file");
+    keep(&hub, &s).await;
+    let folder = hub.store.session_path("missing-file").unwrap().join(DIR);
+    std::fs::remove_file(folder.join(file_name("img-1", "data"))).unwrap();
+    let error = read(&folder).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    let bundle = tempfile::tempdir().unwrap();
+    assert!(hub.export_draft_attachments(&s, bundle.path()).is_err());
+
+    let imported_bundle = tempfile::tempdir().unwrap();
+    write(&imported_bundle.path().join(DIR), &chips()).unwrap();
+    std::fs::remove_file(imported_bundle.path().join(DIR).join(file_name("img-1", "data")))
+        .unwrap();
+    let target_dir = tempfile::tempdir().unwrap();
+    let target = disk_hub(target_dir.path());
+    let target_session = chat(&target, "target");
+    assert!(target.import_draft_attachments(imported_bundle.path(), &target_session.id).is_err());
+    assert!(target.draft_attachments(&target_session).await.unwrap().is_empty());
 }
 
 /// Session switch (A, then B, then A again) and a pane move or second client: each chat reads
@@ -99,9 +125,9 @@ async fn draft_attachments_survive_a_session_switch() {
         .await
         .unwrap();
     hub.set_draft_attachments(&b, vec![]).await.unwrap();
-    let kept = hub.draft_attachments(&a).await;
+    let kept = hub.draft_attachments(&a).await.unwrap();
     assert_in_place(&hub, &a, &kept);
-    assert!(hub.draft_attachments(&b).await.is_empty(), "B forgot its own");
+    assert!(hub.draft_attachments(&b).await.unwrap().is_empty(), "B forgot its own");
 }
 
 /// Reconnect: the page's next write names its chips without their contents (they travelled
@@ -123,7 +149,7 @@ async fn draft_attachments_survive_a_reconnect_write_without_contents() {
         .collect();
     let held = hub.set_draft_attachments(&s, named).await.unwrap();
     assert_eq!(held, ["img-1", "paste-3", "pdf-2"]);
-    let kept = hub.draft_attachments(&s).await;
+    let kept = hub.draft_attachments(&s).await.unwrap();
     assert_in_place(&hub, &s, &kept);
 }
 
@@ -141,12 +167,12 @@ async fn draft_attachments_move_with_the_chat() {
     let mut m = s.meta();
     m.updated_at += 1;
     target.store.save(&m).unwrap();
-    target.import_draft_attachments(bundle.path(), "moved");
+    target.import_draft_attachments(bundle.path(), "moved").unwrap();
     let landed = chat(&target, "moved");
-    let kept = target.draft_attachments(&landed).await;
+    let kept = target.draft_attachments(&landed).await.unwrap();
     assert_in_place(&target, &landed, &kept);
-    source.forget_draft_attachments(&s);
-    assert!(source.draft_attachments(&s).await.is_empty(), "the source forgot them");
+    source.forget_draft_attachments(&s).unwrap();
+    assert!(source.draft_attachments(&s).await.unwrap().is_empty(), "the source forgot them");
 }
 
 /// A failed write (a bad list) and a write while the chat is moving are refused whole: what was
@@ -164,7 +190,7 @@ async fn a_refused_draft_attachments_write_keeps_what_was_kept() {
     *s.moving.lock().unwrap() = Some("t1".into());
     assert!(hub.set_draft_attachments(&s, vec![]).await.is_err(), "frozen while moving");
     *s.moving.lock().unwrap() = None;
-    let kept = hub.draft_attachments(&s).await;
+    let kept = hub.draft_attachments(&s).await.unwrap();
     assert_in_place(&hub, &s, &kept);
 }
 
@@ -177,7 +203,7 @@ async fn removing_one_draft_attachment_keeps_the_others_in_order() {
     keep(&hub, &s).await;
     let rest: Vec<Value> = chips().into_iter().filter(|c| c["id"] != "img-1").collect();
     hub.set_draft_attachments(&s, rest.clone()).await.unwrap();
-    let kept = hub.draft_attachments(&s).await;
+    let kept = hub.draft_attachments(&s).await.unwrap();
     assert_eq!(kept, rest);
     assert_eq!(ids(&kept), ["pdf-2", "paste-3"]);
     let folder = hub.store.session_path("edited").unwrap().join(DIR);
@@ -192,8 +218,8 @@ async fn a_memory_store_keeps_draft_attachments_too() {
     let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
     let s = hub.insert_test_session(meta("memory-chat"));
     keep(&hub, &s).await;
-    let kept = hub.draft_attachments(&s).await;
+    let kept = hub.draft_attachments(&s).await.unwrap();
     assert_in_place(&hub, &s, &kept);
     hub.set_draft_attachments(&s, vec![]).await.unwrap();
-    assert!(hub.draft_attachments(&s).await.is_empty());
+    assert!(hub.draft_attachments(&s).await.unwrap().is_empty());
 }
