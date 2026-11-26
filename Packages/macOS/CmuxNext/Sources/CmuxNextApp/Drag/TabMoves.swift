@@ -90,9 +90,10 @@ enum TabMoves {
     static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
         if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
         guard let controller = services.paneController(for: pane) else { return completion(false) }
-        // One commit puts a page right or below; for a drop there the page opens on that side and the panes swap.
-        let near = edge == .right || edge == .bottom
-        completion(NewTabPage.split(controller, edge: near ? edge : edge.opposite, focusesPage: false, swapsBack: near))
+        // One commit puts a page right or below; for a drop there the page opens on that side and the panes
+        // swap (Rust's `tab_moves_split_behind`; no split when the reducer does not answer).
+        guard let behind = TabMoveRules().splitBehind(edge) else { return completion(false) }
+        completion(NewTabPage.split(controller, edge: behind.edge, focusesPage: false, swapsBack: behind.swapsBack))
     }
 
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
@@ -177,9 +178,6 @@ enum TabMoves {
         })
     }
 
-    /// A new left dock's share of the window width (cx-ihyx2).
-    static let leftDockWidth = 0.5
-
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
     /// in one daemon commit (move-tab-to-column with `dock`: dock-columns-v1,
     /// and edge-docks-v1 for top and bottom; an older daemon would ignore
@@ -205,11 +203,11 @@ enum TabMoves {
         // A band's size is a share of the screen height. A left dock (the agent chat dock) takes
         // half the window (cx-ihyx2, Lawrence 2026-10-14: "docked left columns needs to be 50% by
         // default"); a resize is the column's own width and stays. A right dock takes the width a
-        // new column next to the anchor would take.
-        let half = edge == .left && width == nil ? Self.leftDockWidth : nil
-        let beside = edge.isBand || width != nil || half != nil ? nil
-            : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let width = width ?? half ?? beside ?? 0.3
+        // new column next to the anchor would take. The shares are Rust's (`tab_moves_dock_width`); no
+        // dock when the reducer does not answer.
+        guard let width = TabMoveRules().dockWidth(edge: edge.rawValue, width: width, beside: {
+            services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
+        }) else { return completion(false) }
         let completion = depart(tab, services: services)(false, completion)
         // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
         let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
@@ -406,15 +404,15 @@ enum TabMoves {
     /// it (its last tab), the new pane already sits in its place and a swap
     /// would fail with "unknown pane/target".
     private static func fallbackSplit(_ surface: SurfaceID, target: PaneID, edge: PaneEdge, connection: DaemonConnection) async throws {
-        let direction: SplitDirection = edge == .left || edge == .right ? .right : .down
-        let created = try await connection.split(target, direction: direction, movingTab: surface)
+        guard let split = TabMoveRules().fallbackSplit(edge) else { throw DaemonError.command(cmd: "split", message: "no split rule", code: nil) }
+        let created = try await connection.split(target, direction: split.direction, movingTab: surface)
         let newPane: PaneID
         if created.surface == surface {
             newPane = try await pane(holding: surface, connection: connection)
         } else {
             newPane = try await adopt(surface, into: created, connection: connection)
         }
-        guard edge == .left || edge == .top, newPane != target else { return }
+        guard split.swapsBack, newPane != target else { return }
         let panes = try await connection.listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
         guard panes.contains(where: { $0.id == target }) else { return }
         try await connection.swapPane(newPane, with: .pane(target))

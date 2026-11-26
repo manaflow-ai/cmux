@@ -7,7 +7,7 @@ extension TabDragPayload {
     /// Where a drop on the body of a pane whose strip shows `tabs` (display
     /// order) leaves the dragged tabs when they are in it: their own slot
     /// and, for a single tab, its own tab group, so the drop changes nothing
-    /// (`TabDragContext.isOwnPlace`), as in bonsplit. Nil when they are not there.
+    /// (Rust's own-place rule, `tab_drag_rule_verdict`), as in bonsplit. Nil when they are not there.
     public func ownPlace(in tabs: [CmuxNextTabs.TabItem]) -> (index: Int, group: String?)? {
         let first: String? = switch self {
         case .tab(let id, _): id

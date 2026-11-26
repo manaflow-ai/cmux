@@ -46,7 +46,7 @@ public final class HomeDock {
     /// Moves a tab into a new left dock with the agent chat role on its anchor pane's screen,
     /// leaving `respawn` in the pane it left (none: the pane closes), pinned in the same commit when
     /// the flag is true: the app's `TabMoves.toNewDockColumn`, which owns the dock width
-    /// (`TabMoves.leftDockWidth`). Calls its completion once with the result.
+    /// (Rust's `tab_moves_dock_width`). Calls its completion once with the result.
     public typealias Dock = @MainActor (TabModel, PaneModel, SplitRespawn?, Bool, @escaping @MainActor (Bool) -> Void) -> Void
 
     /// One pending creation key, shared by overlapping connects; a closed page tab gets a new one.

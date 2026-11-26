@@ -959,6 +959,7 @@ pub mod auto_archive;
 pub mod automatic;
 pub mod closing_panes;
 pub mod divider_insert;
+pub mod drop_overlay_geometry;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
@@ -983,4 +984,5 @@ pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
+pub mod tab_drag_rules;
 pub mod workspace_port_links;

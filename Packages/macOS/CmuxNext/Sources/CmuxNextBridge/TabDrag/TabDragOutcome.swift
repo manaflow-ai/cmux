@@ -80,93 +80,24 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
         self.sourceGroupID = sourceGroupID
     }
 
-    /// Whether a strip drop at final `index` (clamped to the strip without
-    /// the dragged tabs) joining `groupID` leaves the tabs where they are.
-    func isOwnPlace(strip: UUID, index: Int, groupID: String?) -> Bool {
-        guard strip == sourceStripID, let sourceIndex else { return false }
-        let final = min(max(index, 0), max(0, sourcePaneTabCount - draggedTabCount))
-        return final == sourceIndex && groupID == sourceGroupID
-    }
-
     /// A split onto `pane` with every tab it holds: the tabs stay and the
     /// New Tab page opens on the far side (`TabMoves.splitBehind`), where
     /// classic cmux fills bonsplit's placeholder (#22287). Never refused.
+    /// The rule is Rust's (`tab_drag_rule_context`); false when it does not answer.
     public func splitsBehind(pane: String) -> Bool {
-        pane == sourcePaneID && emptiesSourcePane
+        TabDragResolver.Wire.context(self, pane: pane)?.splitsBehind ?? false
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
-    public var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
+    public var emptiesSourcePane: Bool { TabDragResolver.Wire.context(self)?.emptiesSourcePane ?? false }
     /// The drag carries every tab of its workspace (the last tab of the last
     /// pane): the workspace moves with it, or closes once they land in
     /// another workspace (coordinator decision 2026-09-30).
-    public var emptiesSourceWorkspace: Bool { draggedTabCount >= sourceWorkspaceTabCount }
+    public var emptiesSourceWorkspace: Bool { TabDragResolver.Wire.context(self)?.emptiesSourceWorkspace ?? false }
 }
 
-/// Pure outcome resolution from drop-target proposals. The session asks
-/// surfaces in priority order (sidebar, strips, layout) and takes the first
-/// proposal `accepts` allows; the others get `dropExited`.
-public nonisolated enum TabDragResolver {
-    /// False for proposals that would be a no-op or break the layout:
-    /// - the tabs' own place (no drop target: no highlight, no slot; a
-    ///   release there springs back),
-    /// - moving into the workspace the tabs already live in,
-    /// - a column before the first one (no daemon command expresses it).
-    /// - a tab group on a dock edge (groups have no dock move yet).
-    /// `verdict` says which of these applies (tab-dnd).
-    public static func accepts(_ kind: TabDropKind, context: TabDragContext) -> Bool {
-        verdict(kind, context: context) == .accept
-    }
-
-    /// Whether a rejected `kind` ends the search: the tab's own strip place
-    /// is no drop target, and the surfaces behind it (the own pane, whose
-    /// top edge band holds the strip) must not take the drop either.
-    public static func blocks(_ kind: TabDropKind, context: TabDragContext) -> Bool {
-        guard case .strip(let strip, let index, let group) = kind else { return false }
-        return context.isOwnPlace(strip: strip, index: index, groupID: group)
-    }
-
-    /// Index of the winning proposal: the first non-nil accepted one, unless
-    /// a proposal before it `blocks`.
-    public static func winner(_ proposals: [TabDropProposal?], context: TabDragContext) -> Int? {
-        for (index, proposal) in proposals.enumerated() {
-            guard let proposal else { continue }
-            if accepts(proposal.kind, context: context) { return index }
-            if blocks(proposal.kind, context: context) { return nil }
-        }
-        return nil
-    }
-
-    /// The outcome for the winning proposal. `insideWindow` is false when
-    /// the pointer is outside every app window (tear-off).
-    public static func outcome(for proposal: TabDropProposal?, insideWindow: Bool, screenPoint: CGPoint,
-                               context: TabDragContext) -> TabDragOutcome {
-        guard insideWindow else {
-            // Home's tabs never leave for a new window, nor Home with them.
-            if context.sourceStaysPut { return .cancel }
-            guard context.emptiesSourceWorkspace else { return .tearOff(screenPoint: screenPoint) }
-            return context.sourceWindowWorkspaceCount <= 1 ? .moveWindow(screenPoint: screenPoint)
-                : .moveWorkspaceToNewWindow(screenPoint: screenPoint)
-        }
-        guard let proposal, accepts(proposal.kind, context: context) else { return .cancel }
-        switch proposal.kind {
-        case .strip(let stripID, let index, let groupID):
-            // The tab's own place (its pane's center when it is the last or
-            // only tab, or its own slot): no operation, it springs back.
-            if context.isOwnPlace(strip: stripID, index: index, groupID: groupID) { return .cancel }
-            return .strip(stripID: stripID, index: index, groupID: groupID)
-        case .newSplit(let pane, let edge):
-            return .newSplit(paneID: pane, edge: edge)
-        case .newColumn(let screen, let after):
-            guard let after else { return .cancel }
-            return .newColumn(screenID: screen, afterColumnID: after)
-        case .newDock(let screen, let edge):
-            return .newDock(screenID: screen, edge: edge)
-        case .newWorkspace(let group, let index):
-            let slot = index < 0 ? nil : index
-            return context.emptiesSourceWorkspace ? .moveWorkspace(groupID: group, index: slot) : .newWorkspace(groupID: group, index: slot)
-        case .workspace(let id):
-            return .workspace(id: id)
-        }
-    }
-}
+/// Outcome resolution from drop-target proposals. The session asks
+/// surfaces in priority order (sidebar, strips, layout) and resolves the
+/// first that answers (`resolve`); the rules are Rust's
+/// (cmux-layout-reducer `tab_drag_rules`, `tab_drag_rule_*`).
+public nonisolated enum TabDragResolver {}
