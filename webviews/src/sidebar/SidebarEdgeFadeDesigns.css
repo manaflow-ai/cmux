@@ -31,7 +31,7 @@
   display: grid;
   place-items: center;
   min-height: 100vh;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   box-sizing: border-box;
   background: var(--sef-backdrop);
   font-family: var(--font-ui);
@@ -62,7 +62,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--sef-scroll-pad-top) 0 8px;
+  padding: var(--sef-scroll-pad-top) 0 var(--ds-space-fixed-2);
   scrollbar-width: none;
 }
 
@@ -74,14 +74,14 @@
 .sef-sidebar[data-under-footer] .sef-scroll {
   position: absolute;
   inset: 0;
-  padding-bottom: calc(var(--sef-footer) + 8px);
+  padding-bottom: calc(var(--sef-footer) + var(--ds-space-fixed-2));
 }
 
 .sef-header {
   height: var(--sef-row);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 var(--ds-space-fixed-4);
   color: var(--sef-ink-3);
   font-weight: 600;
 }
@@ -89,7 +89,7 @@
 .sef-row {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
-  column-gap: 8px;
+  column-gap: var(--ds-space-fixed-2);
   align-items: center;
   height: var(--sef-row);
   margin: 0 var(--sef-row-inset);
@@ -130,8 +130,8 @@
   height: var(--sef-footer);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: 0 var(--ds-space-fixed-3);
 }
 
 .sef-sidebar[data-under-footer] .sef-footer {

@@ -17,11 +17,9 @@ export function gridTokenCss(): string {
  *  sheet (New Tab's screen.css, say) on a bare page: without it the tokenised gaps and insets resolve
  *  to nothing (#33751). */
 export function designTokenCss(): string {
-  const sheets = ["desktop.css", "fixed-spacing.css"].map((name) =>
-    readFileSync(path.resolve(import.meta.dir, `../../src/pages/shared/${name}`), "utf8"),
-  );
-  const blocks = sheets.flatMap((css) => css.match(/^:root \{[\s\S]*?^\}/gm) ?? []);
-  if (blocks.length === 0) throw new Error("pages/shared token sheets have no :root token blocks");
+  const css = readFileSync(path.resolve(import.meta.dir, "../../src/pages/shared/desktop.css"), "utf8");
+  const blocks = css.match(/^:root \{[\s\S]*?^\}/gm) ?? [];
+  if (blocks.length === 0) throw new Error("pages/shared/desktop.css has no :root token blocks");
   return blocks.join("\n");
 }
 

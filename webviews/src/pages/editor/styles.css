@@ -53,7 +53,7 @@ body {
 .ed-page-message {
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   color: var(--page-text-2);
 }
 

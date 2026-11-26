@@ -18,8 +18,8 @@
   --abg-beam-period: 2400ms;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--ds-space-fixed-3);
+  padding: var(--ds-space-fixed-3);
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -29,10 +29,10 @@
 /* The tab strip: equal tabs; the count slot is always there, so a tab is as wide at 0 as at 99+. */
 .abg-strip {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   align-items: center;
   height: 32px;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   box-sizing: border-box;
   border-radius: calc(var(--ds-radius-control) + 4px);
   background: color-mix(in srgb, var(--abg-ink) 4%, transparent);
@@ -44,7 +44,7 @@
   flex: none;
   width: 168px;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   box-sizing: border-box;
   border-radius: var(--ds-radius-control);
   color: var(--abg-ink-2);
@@ -80,7 +80,7 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--abg-box) minmax(0, 1fr) auto;
-  column-gap: 8px;
+  column-gap: var(--ds-space-fixed-2);
   align-items: center;
   height: var(--abg-row);
   margin-inline: var(--grid-gap);
@@ -175,7 +175,7 @@
 .abg-countdot .abg-face,
 .abg-countdot .abg-sizer {
   min-width: var(--abg-badge);
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   font-size: var(--text-caption);
   font-weight: var(--weight-strong);
   text-align: center;
@@ -267,7 +267,7 @@
 .abg-frame {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   margin: 0;
 }
 .abg-caption {

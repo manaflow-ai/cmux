@@ -8,12 +8,12 @@
 }
 
 .dialog-gallery-title {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   font-size: var(--text-title);
   font-weight: 600;
 }
 
 .dialog-gallery-description {
-  margin: 0 0 12px;
+  margin: 0 0 var(--ds-space-fixed-3);
   color: var(--cmux-text-secondary, GrayText);
 }
