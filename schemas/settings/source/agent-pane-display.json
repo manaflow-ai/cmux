@@ -1821,6 +1821,48 @@
           "page_hidden": "tab keys, set by dragging a harness in the model picker"
         },
         {
+          "key": "agentPane.display.modelPickerStyle",
+          "note": "What a click on the composer's model chip opens (webviews ModelPicker.tsx, QuickModelColumns.tsx; customize-app-profiles, the Claude Code app's model menu). list, the default: on a New Tab or a chat that can switch harness, the harness rail and its model columns with search. menu: the compact menu a started chat already opens (QuickModelMenu.tsx): the harness's numbered models, an Effort submenu and Fast mode where the harness has one, and More models for the full picker. A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerStyle",
+            "text": "Model Picker Style"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerStyle.help",
+            "text": "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "list",
+              "title": {
+                "key": "settings.choice.list",
+                "text": "List"
+              }
+            },
+            {
+              "value": "menu",
+              "title": {
+                "key": "settings.choice.menu",
+                "text": "Menu"
+              }
+            }
+          ],
+          "default": "list",
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "list",
+            "effort",
+            "fast",
+            "compact",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.queueing",
           "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
           "title": {
