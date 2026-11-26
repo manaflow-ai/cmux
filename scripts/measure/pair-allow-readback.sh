@@ -6,7 +6,7 @@
 #   a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket    (--mac: a probe phone dials over a link)
 # Each runs `cmux mobile pair-requests list` and `allow ID --fingerprint FP` and asserts hostd's PairAnswer (allow).
 # Leo's ask c-45c37458ea ("surely we dont need to be bottled this hard by a click").
-#   cmux-ci run --label measure --script scripts/measure/pair-allow-readback.sh --ref <sha> [--arg=dmg=URL]
+#   cmux-ci run --class isolated --label measure --os macos --script scripts/measure/pair-allow-readback.sh --ref <sha> [--arg=dmg=URL]
 set -uo pipefail
 dmg=""
 for arg in "$@"; do
@@ -18,7 +18,7 @@ done
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
 cmux_next_require_fleet pair-allow-readback.sh "cargo test" "none (a measurement)" \
-  "cmux-ci run --label measure --script scripts/measure/pair-allow-readback.sh --ref SHA"
+  "cmux-ci run --class isolated --label measure --os macos --script scripts/measure/pair-allow-readback.sh --ref SHA"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$HOME/.cargo/bin:$PATH"
 if [[ -z "$dmg" ]]; then
