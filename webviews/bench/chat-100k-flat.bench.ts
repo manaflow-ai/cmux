@@ -429,7 +429,11 @@ try {
 
     const server = await chromium.launchServer({
       headless: true,
-      args: ["--process-per-site", "--js-flags=--expose-gc"],
+      args: [
+        "--process-per-site",
+        "--js-flags=--expose-gc",
+        ...(process.env.EXTRA_ARGS ? process.env.EXTRA_ARGS.split(" ") : []),
+      ],
     });
     const root = server.process().pid!;
     const browser = await chromium.connect(server.wsEndpoint());
@@ -1161,7 +1165,8 @@ try {
         if (tracing) {
           shownCdp.on("Tracing.dataCollected", onData);
           await shownCdp.send("Tracing.start", {
-            categories: "devtools.timeline,disabled-by-default-devtools.timeline,blink,cc,v8,gpu,toplevel",
+            categories:
+              "devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.invalidationTracking,blink,cc,v8,gpu,toplevel",
             transferMode: "ReportEvents",
           });
         }
@@ -1255,6 +1260,20 @@ try {
             .slice(0, 18)
             .map(([k, v]) => `${k} ${(v / 1000).toFixed(0)}`);
           console.log(`  ${name} round 1 trace self ms: ${top.join(", ")}`);
+          const inv = new Map<string, number>();
+          for (const e of traceEvents as unknown as { name: string; args?: { data?: Record<string, unknown> } }[]) {
+            if (!/Invalidat/.test(e.name)) continue;
+            const d = e.args?.data ?? {};
+            const key = `${e.name} ${String(d.reason ?? "")} ${String(d.nodeName ?? "").slice(0, 60)}`;
+            inv.set(key, (inv.get(key) ?? 0) + 1);
+          }
+          console.log(
+            `  ${name} round 1 invalidations: ${[...inv]
+              .sort((x, y) => y[1] - x[1])
+              .slice(0, 25)
+              .map(([k, v]) => `${k} x${v}`)
+              .join(" | ")}`,
+          );
         }
         const m1 = await metric();
         const d = (k: string) => m1[k] - m0[k];
