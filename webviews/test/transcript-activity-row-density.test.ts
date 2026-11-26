@@ -57,6 +57,7 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
     rows: Row[];
     /** The words of each one-line row's line: their computed size, by the element's class. */
     words: { cls: string; size: number }[];
+    toolLineHeights: number[];
     chips: number[];
     glyphs: number[];
     worked: number[];
@@ -114,6 +115,13 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
         return {
           rows,
           words,
+          toolLineHeights: Array.from(
+            document.querySelectorAll<HTMLElement>(
+              ".acpmux-row :is(.cv-tool__summary, .cv-worked__label, .cv-thought__preview)",
+            ),
+          )
+            .filter((element) => element.getBoundingClientRect().height > 0)
+            .map((element) => parseFloat(getComputedStyle(element).lineHeight)),
           chips: heightOf(".acpmux-row button.cv-agent-tag.is-open"),
           glyphs: heightOf(".acpmux-row .cv-tool__icon > svg"),
           worked: heightOf(".acpmux-row .cv-worked.is-toggle"),
@@ -169,9 +177,10 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
       }
     });
     test(`each row's words are ${ROW_METRIC.font}px, its chips ${ROW_METRIC.chip}px, its glyphs ${ROW_METRIC.glyph}px (${variant})`, async () => {
-      const { words, chips, glyphs } = await of(variant);
+      const { words, toolLineHeights, chips, glyphs } = await of(variant);
       expect(words.length).toBeGreaterThan(0);
       for (const word of words) expect(word).toEqual({ cls: word.cls, size: ROW_METRIC.font });
+      expect(new Set(toolLineHeights)).toEqual(new Set([20]));
       for (const chip of chips) expect(chip).toBeCloseTo(ROW_METRIC.chip, 1);
       for (const glyph of glyphs) expect(glyph).toBeCloseTo(ROW_METRIC.glyph, 1);
     });
