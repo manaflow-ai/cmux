@@ -15,12 +15,20 @@ name = "cas-replay"
 path = "src/bin/cas-replay.rs"
 
 [[bin]]
+name = "cas-lazy-bench"
+path = "src/bin/cas-lazy-bench.rs"
+
+[[bin]]
 name = "cas-publish-public"
 path = "src/bin/cas-publish-public.rs"
 
 [[bin]]
 name = "cas-dedup"
 path = "src/bin/cas-dedup.rs"
+
+[[bin]]
+name = "cas-seed"
+path = "src/bin/cas-seed.rs"
 
 [dependencies]
 blake3 = "1"
