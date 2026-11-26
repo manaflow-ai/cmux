@@ -2713,12 +2713,21 @@ fn chat_size_sweep() {
         println!("{}", page_cost_line(label, &result));
         // Its own line: the result above is cut short in a CI log, and these say which fold
         // of the adoption checkpoint grows with the chat.
+        // One field a line, largest first: a CI log cuts a long line short.
         println!(
-            "CHAT-SIZE-CHECKPOINT {label} {} {} {}",
-            result["adoptionCheckpointBytes"],
-            result["adoptionCheckpointFields"],
-            result["restartStartup"]
+            "CHAT-SIZE-CHECKPOINT {label} {} {}",
+            result["adoptionCheckpointBytes"], result["restartStartup"]
         );
+        let mut fields: Vec<(&String, u64)> = result["adoptionCheckpointFields"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+            .collect();
+        fields.sort_by(|a, b| b.1.cmp(&a.1));
+        for (field, bytes) in fields.into_iter().take(16) {
+            println!("CHAT-SIZE-FIELD {label} {field} {bytes}");
+        }
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
