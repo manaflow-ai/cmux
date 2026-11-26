@@ -1508,8 +1508,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             Err(e) => notes.push(format!("bigchat: fixtures failed: {e}")),
         }
     }
-    let host150_high = host150::host150_memory_high();
-    let memory_high = if stress.bigchat || stress.host150 {
+    let memory_high = if cfg!(target_os = "macos") {
+        if stress.bigchat || stress.host150 {
+            notes.push("memory pressure skipped on macOS".into());
+        }
+        None
+    } else if stress.bigchat || stress.host150 {
+        let host150_high = host150::host150_memory_high();
         let high = if stress.host150 { host150_high.as_str() } else { MEMORY_HIGH };
         match memory_ceiling_works() {
             Ok(()) => {
