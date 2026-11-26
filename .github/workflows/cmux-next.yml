@@ -3696,9 +3696,20 @@ jobs:
           CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
+      # Why: owned_spm_scratch.py SEED_KEPT_MARKER (a kept build of this prefix skips the seed download)
+      - name: Build on the seed root's kept seed
+        id: seed-kept
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (steps.spm-root.outputs.seed == '1' && steps.fast-cache-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true') }}
+        continue-on-error: true
+        env:
+          CMUX_FAST_TIER_SEED_KEEP_MINUTES: ${{ vars.CI_FAST_TIER_SEED_KEEP_MINUTES }}
+          PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
+        run: python3 scripts/ci/owned_spm_scratch.py seed-kept "$ROOT" "$PREFIX"
+
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.seed-kept.outputs.kept != '1' && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -3718,9 +3729,10 @@ jobs:
           MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
           SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
         run: |
           echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
-          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded "$ROOT" "$MATCHED"; fi
 
       - name: Restore the CmuxHomeRender build of that seed
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
@@ -3751,7 +3763,7 @@ jobs:
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
-          CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+          CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key || steps.seed-kept.outputs.key }}
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           selected=()
@@ -5289,8 +5301,10 @@ jobs:
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        with: &generated-files-linux-checkout
           persist-credentials: false
           submodules: false
           fetch-depth: 2
@@ -5307,6 +5321,14 @@ jobs:
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
             /.gitmodules
+      # Why: 2026-11-26-checkout-blob-retry.md
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *generated-files-linux-checkout
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
@@ -5550,9 +5572,20 @@ jobs:
           CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
+      # Why: owned_spm_scratch.py SEED_KEPT_MARKER (a kept build of this prefix skips the seed download)
+      - name: Build on the seed root's kept seed
+        id: seed-kept
+        if: ${{ steps.spm-root.outputs.seed == '1' && steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          CMUX_FAST_TIER_SEED_KEEP_MINUTES: ${{ vars.CI_FAST_TIER_SEED_KEEP_MINUTES }}
+          PREFIX: ${{ steps.seed-key.outputs.swift-prefix }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
+        run: python3 scripts/ci/owned_spm_scratch.py seed-kept "$ROOT" "$PREFIX"
+
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
-        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.seed-kept.outputs.kept != '1' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -5571,10 +5604,11 @@ jobs:
         env:
           ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
           SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+          MATCHED: ${{ steps.seed-restore.outputs.cache-matched-key }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py drop-bundles "$ROOT/Packages/macOS/CmuxNext/.build"
           python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
-          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded "$ROOT" "$MATCHED"; fi
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
