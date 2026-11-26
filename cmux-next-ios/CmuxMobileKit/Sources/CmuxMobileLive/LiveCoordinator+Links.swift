@@ -344,6 +344,9 @@ extension LiveCoordinator {
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
         session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+        // A failed bind on a link that stays up is tried again by itself, bounded (before, only
+        // the Feed's Retry or a new link bound the chats again).
+        if !session.acpmux.isReady { rebindChats(session, link) }
         phaseChanged(session)
         if session === focused { await startChief(link) }
     }
@@ -361,6 +364,33 @@ extension LiveCoordinator {
             if session.acpmux.isReady { feedStore.syncState = .live }
         } catch {
             log.error("acpmux channel: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Binds the chats again on `link` after a failed bind: 1 s, 2 s, 4 s, 8 s, 15 s apart
+    /// (`RetryBounds.chatsRebindDelay`), while `link` stays this Mac's served link and the chats
+    /// are not ready. After the last the failure stays (`chatsError`) and the Feed's Retry binds.
+    private func rebindChats(_ session: MacSession, _ link: any MacLink) {
+        session.chatsRebind?.cancel()
+        let macID = session.macID
+        // task-owner: stored in `session.chatsRebind`; a newer failed bind replaces it
+        session.chatsRebind = Task { [weak self, weak session, clock] in
+            var attempt = 0
+            while let delay = RetryBounds.chatsRebindDelay(attempt: attempt) {
+                attempt += 1
+                do { try await clock.sleep(for: delay) } catch { return }
+                guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                      session.servedLink === link, !session.acpmux.isReady else { return }
+                // Another bind under way (the Feed's Retry, a stall's recovery) is left alone.
+                guard session.acpmux.lastError != nil || session.acpmux.connection == nil else { continue }
+                log.info("acpmux: binding the chats again (attempt \(attempt, privacy: .public))")
+                await self.bindChats(session, link, passed: Task { true })
+                guard session.currentLink === link else { return }
+                session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+                self.phaseChanged(session)
+                if session.acpmux.isReady { return }
+            }
+            log.error("acpmux: chats didn't bind after \(attempt, privacy: .public) tries: waiting for Retry")
         }
     }
 
