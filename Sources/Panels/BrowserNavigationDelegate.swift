@@ -59,11 +59,6 @@ import WebKit
     private var trustedInternalNavigationURL: URL?
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
-    // WebKit voids a main-frame navigation still awaiting its decision when the
-    // web view starts another, and reports nothing. A decision made later
-    // compares this count to know. A redirect of a load already under way
-    // counts too, as it does for the local-file encoding probe.
-    private var mainFrameNavigationActionCount = 0
 
     init(
         externalNavigationHandler: BrowserExternalNavigationHandler
@@ -76,13 +71,14 @@ import WebKit
         webView.configuration.websiteDataStore.singleSignOnNavigationGate
     }
 
-    /// The web view stopped loading. WebKit reports nothing else when an SSO
-    /// extension aborts the navigation it took, so this is that outcome too.
-    func webViewDidStopLoading(_ webView: WKWebView) {
+    /// The web view is no longer loading anything. WebKit reports nothing
+    /// else when an SSO extension aborts the navigation it took, so this is
+    /// that navigation's outcome too.
+    func webViewIsNoLongerLoading(_ webView: WKWebView) {
         singleSignOnGate(for: webView).resolve(webView)
     }
 
-    /// The web view is going away without being stopped, which voids a
+    /// The web view is going away without being stopped, which drops a
     /// navigation of its own that is still waiting for a decision.
     func webViewWillAbandonNavigation(_ webView: WKWebView) {
         singleSignOnGate(for: webView).abandon(webView)
@@ -367,9 +363,14 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
-        if navigationAction.targetFrame?.isMainFrame == true {
-            mainFrameNavigationActionCount &+= 1
-        }
+        // The gate hears of every main-frame action, before any branch below
+        // decides it: WebKit has dropped the navigation this web view was
+        // asked about before, whatever becomes of this one. A redirect of a
+        // load already under way counts too, as it does for the local-file
+        // encoding probe.
+        let mainFrameNavigation = navigationAction.targetFrame?.isMainFrame == true
+            ? singleSignOnGate(for: webView).begin(owner: webView)
+            : nil
 
         // Who makes each opaque document (data:, about:, an opaque blob:):
         // a browser REPL session's domain policy judges it by its maker.
@@ -853,15 +854,13 @@ import WebKit
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame == true,
+        if let mainFrameNavigation,
            let url = navigationAction.request.url,
            let owner {
             // WebKit decodes the response after this decision. Defer only the
             // accepted main-frame action while the bounded file probe runs so
             // other navigation policy branches remain synchronous.
             let encodingPolicy = owner.localFileEncodingPolicy
-            let actionCount = mainFrameNavigationActionCount
-            let stopCount = (webView as? CmuxWebView)?.stopLoadingCount
             Task { @MainActor [weak owner, weak webView, weak self, encodingPolicy] in
                 guard let owner, let webView, let self,
                       owner.webView === webView else {
@@ -882,13 +881,11 @@ import WebKit
                 }
                 // WebKit drops the navigation an SSO extension is still
                 // answering when a second one reaches it (#53548).
-                self.singleSignOnGate(for: webView).admit(url: url, owner: webView) { [weak self, weak owner, weak webView] admitted in
-                    // Since this navigation was asked about, its web view may
-                    // have started another or been stopped. Allowing it then
+                self.singleSignOnGate(for: webView).admit(mainFrameNavigation, url: url) { [weak self, weak owner, weak webView] admitted in
+                    // Not admitted: since WebKit asked about this navigation,
+                    // its web view started another or was stopped. Allowing it
                     // would start an authorization for a navigation that is gone.
-                    guard admitted, let self, let owner, let webView, owner.webView === webView,
-                          self.mainFrameNavigationActionCount == actionCount,
-                          (webView as? CmuxWebView)?.stopLoadingCount == stopCount else {
+                    guard admitted, let self, let owner, let webView, owner.webView === webView else {
                         decisionHandler(.cancel)
                         return false
                     }

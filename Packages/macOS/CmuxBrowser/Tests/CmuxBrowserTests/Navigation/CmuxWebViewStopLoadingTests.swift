@@ -3,26 +3,12 @@ import CmuxBrowser
 import Testing
 import WebKit
 
-// A navigation delegate that decides a navigation late has to know the web
-// view was stopped in the meantime: WebKit voids the navigation and reports
-// nothing (#53548).
+// Stopping a web view drops a navigation that still awaits its policy
+// decision, and WebKit reports that to no delegate. The gate that will be asked
+// to admit it has to hear of the stop from the web view (#53548).
 @MainActor
 @Suite
 struct CmuxWebViewStopLoadingTests {
-    @Test func everyStopIsCounted() {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let webView = CmuxWebView(frame: .zero, configuration: configuration, host: Host())
-        #expect(webView.stopLoadingCount == 0)
-
-        webView.stopLoading()
-        #expect(webView.stopLoadingCount == 1)
-
-        // The menu action is its own entry into WebKit, not a call to the first.
-        webView.stopLoading(nil)
-        #expect(webView.stopLoadingCount > 1)
-    }
-
     @Test func eitherStopCancelsTheNavigationStillAwaitingItsDecision() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

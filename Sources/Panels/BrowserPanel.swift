@@ -5646,7 +5646,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if !webView.isLoading {
-            navigationDelegate?.webViewDidStopLoading(webView)
+            navigationDelegate?.webViewIsNoLongerLoading(webView)
         }
 
         let genAtEnd = loadingGeneration

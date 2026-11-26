@@ -24,17 +24,31 @@ public import Foundation
 ///
 /// ```swift
 /// let gate = webView.configuration.websiteDataStore.singleSignOnNavigationGate
-/// gate.admit(url: request.url, owner: webView) { admitted in
+/// // As soon as WebKit asks about a main-frame navigation:
+/// let navigation = gate.begin(owner: webView)
+/// // When the delegate is ready to decide it, which may be later:
+/// gate.admit(navigation, url: request.url) { admitted in
 ///     decisionHandler(admitted ? .allow : .cancel)
 ///     return admitted && webView.isLoading && webView.window != nil
 /// }
 /// // Later, from didStartProvisionalNavigation and the other outcomes:
 /// gate.resolve(webView)
+/// // When loading is stopped or the web view is closing:
+/// gate.abandon(webView)
 /// ```
 ///
-/// ``admit(url:owner:admission:)`` takes a callback, not `async`: the
-/// decision has to be applied in the same main-actor turn in which the gate
-/// hands it out, or the web view could be stopped or closed in between.
+/// WebKit drops a navigation that still awaits its decision when its web view
+/// starts another or is stopped, and reports nothing. The gate is told of
+/// both, so it is the one place that knows whether a navigation may still be
+/// allowed: an admission gets `false` for one that is gone.
+///
+/// ``admit(_:url:admission:)`` takes a callback, not `async`. Taking the gate
+/// and telling WebKit to allow the navigation have to be one main-actor step.
+/// A continuation would resume its caller in a later job, and until then the
+/// web view would hold the gate for a navigation WebKit has not been told to
+/// allow. If the web view reported an outcome in that gap, say an earlier
+/// load of its committing, the gate would go to the next web view and both
+/// navigations would then be allowed.
 ///
 /// A test passes its own check instead of asking macOS:
 ///
@@ -46,11 +60,28 @@ public final class BrowserSingleSignOnNavigationGate {
     /// Decides one navigation once the gate reaches it.
     ///
     /// - Parameter admitted: `false` when the navigation was given up or
-    ///   replaced while it waited, so it must be cancelled.
+    ///   replaced since WebKit asked about it, so it must be cancelled.
     /// - Returns: Whether the owner will report this navigation's outcome
     ///   through ``resolve(_:)``. The gate stays with the owner only if it
     ///   will; otherwise the next owner is admitted at once.
     public typealias Admission = @MainActor (_ admitted: Bool) -> Bool
+
+    /// A main-frame navigation WebKit has asked about and that is not decided yet.
+    ///
+    /// Only its identity matters: ``begin(owner:)`` hands one out and
+    /// ``admit(_:url:admission:)`` takes it back.
+    @MainActor
+    public final class UndecidedNavigation {
+        fileprivate weak var owner: AnyObject?
+
+        fileprivate init(owner: AnyObject) {
+            self.owner = owner
+        }
+    }
+
+    private struct WeakNavigation {
+        weak var navigation: UndecidedNavigation?
+    }
 
     private struct Waiter {
         weak var owner: AnyObject?
@@ -64,9 +95,12 @@ public final class BrowserSingleSignOnNavigationGate {
     private var isHeld = false
     // Tells one hold from a later one by the same owner.
     private var holdCount = 0
-    // `admit` cancels an owner's earlier entry first, so this holds at most one
-    // entry per web view on the store (an admission that calls `admit` itself
-    // can add more). Scanning it and removing from its front stay cheap.
+    // The navigations asked about that have not reached `admit`. Weak, so one
+    // the delegate decided without the gate drops out by itself.
+    private var undecided: [WeakNavigation] = []
+    // `begin` drops an owner's earlier entry from both lists, so each holds at
+    // most one entry per web view with a navigation awaiting its decision.
+    // Scanning them and removing from the front of this one stay cheap.
     private var waiters: [Waiter] = []
 
     /// Creates a gate that asks macOS which URLs an Extensible SSO extension
@@ -84,21 +118,48 @@ public final class BrowserSingleSignOnNavigationGate {
         self.isSingleSignOnURL = isSingleSignOnURL
     }
 
+    /// Records that WebKit asked about a main-frame navigation of the owner.
+    ///
+    /// Call it for every such navigation, whether or not it goes on to
+    /// ``admit(_:url:admission:)``: the navigation the owner was asked about
+    /// before is gone. If that one was waiting its turn it is cancelled now;
+    /// if it has not reached the gate yet it is cancelled when it does.
+    ///
+    /// - Parameter owner: The web view the navigation belongs to. Held weakly.
+    /// - Returns: The navigation, to pass to ``admit(_:url:admission:)``.
+    public func begin(owner: AnyObject) -> UndecidedNavigation {
+        cancelWaiters(of: owner)
+        undecided.removeAll { entry in
+            guard let entryOwner = entry.navigation?.owner else { return true }
+            return entryOwner === owner
+        }
+        let navigation = UndecidedNavigation(owner: owner)
+        undecided.append(WeakNavigation(navigation: navigation))
+        return navigation
+    }
+
     /// Runs `admission` now, or once every earlier owner's navigation has an outcome.
     ///
-    /// A URL no extension takes is admitted at once and never holds the gate.
-    /// So is a navigation of the owner that already holds it: an extension
-    /// that handled a navigation answers by loading its result into the same
-    /// web view. A newer navigation from an owner that is still waiting,
-    /// whatever its URL, cancels the older: the web view has moved on.
+    /// A navigation that is gone is cancelled: its owner was asked about a
+    /// newer one or was abandoned since ``begin(owner:)``, or it was already
+    /// decided. A URL no extension takes is admitted at once and never holds
+    /// the gate. So is a navigation of the owner that already holds it: an
+    /// extension that handled a navigation answers by loading its result into
+    /// the same web view.
     ///
     /// - Parameters:
-    ///   - url: The destination of the main-frame navigation.
-    ///   - owner: The web view the navigation belongs to. Held weakly.
+    ///   - navigation: The navigation ``begin(owner:)`` returned.
+    ///   - url: The destination of the navigation.
     ///   - admission: Called at most once with the decision to apply, and
     ///     not at all while the owner keeps waiting.
-    public func admit(url: URL?, owner: AnyObject, admission: @escaping Admission) {
-        cancelWaiters(of: owner)
+    public func admit(_ navigation: UndecidedNavigation, url: URL?, admission: @escaping Admission) {
+        guard let owner = navigation.owner,
+              let index = undecided.firstIndex(where: { $0.navigation === navigation }) else {
+            _ = admission(false)
+            return
+        }
+        // From here the navigation is in the queue, or decided.
+        undecided.remove(at: index)
         guard let url,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               isSingleSignOnURL(url) else {
@@ -115,41 +176,6 @@ public final class BrowserSingleSignOnNavigationGate {
         admitWaitersWhileFree()
     }
 
-    /// A main-frame navigation WebKit has asked about and that is not decided yet.
-    ///
-    /// Only its identity matters: ``begin(owner:)`` hands one out and
-    /// ``admit(_:url:admission:)`` takes it back.
-    @MainActor
-    public final class UndecidedNavigation {
-        fileprivate weak var owner: AnyObject?
-
-        fileprivate init(owner: AnyObject) {
-            self.owner = owner
-        }
-    }
-
-    /// Records that WebKit asked about a main-frame navigation of the owner.
-    ///
-    /// - Parameter owner: The web view the navigation belongs to. Held weakly.
-    /// - Returns: The navigation, to pass to ``admit(_:url:admission:)``.
-    public func begin(owner: AnyObject) -> UndecidedNavigation {
-        UndecidedNavigation(owner: owner)
-    }
-
-    /// Runs `admission` now, or once every earlier owner's navigation has an outcome.
-    ///
-    /// - Parameters:
-    ///   - navigation: The navigation ``begin(owner:)`` returned.
-    ///   - url: Its destination.
-    ///   - admission: Called at most once with the decision to apply.
-    public func admit(_ navigation: UndecidedNavigation, url: URL?, admission: @escaping Admission) {
-        guard let owner = navigation.owner else {
-            _ = admission(false)
-            return
-        }
-        admit(url: url, owner: owner, admission: admission)
-    }
-
     /// Records that the owner's navigation has an outcome: it started
     /// loading, committed, failed or stopped.
     ///
@@ -161,11 +187,12 @@ public final class BrowserSingleSignOnNavigationGate {
         admitWaitersWhileFree()
     }
 
-    /// Cancels the owner's waiting navigation and frees the gate if it holds it.
+    /// Cancels the owner's undecided navigation and frees the gate if it holds it.
     ///
     /// - Parameter owner: A web view whose navigation was given up: it was
     ///   stopped, lost its content process, or is being closed or replaced.
     public func abandon(_ owner: AnyObject) {
+        undecided.removeAll { $0.navigation?.owner === owner }
         cancelWaiters(of: owner)
         resolve(owner)
     }
