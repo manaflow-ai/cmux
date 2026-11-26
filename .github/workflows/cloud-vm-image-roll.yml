@@ -52,6 +52,11 @@ on:
         required: false
         default: false
         type: boolean
+      pools:
+        description: plan takes the shared pools on attempt 1, not the owned GCP build lane (plan-watch sets it)
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [feat-cmux-next]
     paths:
@@ -140,12 +145,14 @@ jobs:
     # use): plan holds no secret, no environment and a read-only token, and Blacksmith's vCPU cap with saturated
     # hosted runners left roll 44351236121's plan queued 6 h 51 min. A re-run takes the pools. platform-readiness
     # and promote (the production App key), the bake (Freestyle key) and report (a contents: write token) stay
-    # off the shared lane VMs.
+    # off the shared lane VMs. GitHub never re-routes a queued job, so a busy lane held roll 44506003283's plan
+    # 8.5 h (2026-11-19, every lane runner on long nightly-tree jobs) while each newer request was cancelled
+    # behind it; plan-watch bounds that wait. A dispatch with pools: true (plan-watch's) skips the lane.
     if: >-
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && !inputs.pools && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -253,6 +260,87 @@ jobs:
             echo
             jq -r '.fixes[] | "- `\(.sha[0:12])` \(.mergedAt) \(.subject)"' "$RUNNER_TEMP/plan.json"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  plan-watch:
+    # Bounds plan's wait for the owned GCP build lane (attempt 1). Plan is a minute of work; when it still has no
+    # runner PLAN_WAIT_MIN after the run was created, this dispatches the same request with pools: true (plan skips
+    # the lane) and cancels this run, so the group's waiting slot goes to a plan that starts.
+    # - A newer *dispatch* already waiting covers this request (a build dispatch rolls a build at least as new, on
+    #   the tip's image inputs), so then it only cancels; dispatching would replace that newer one. A newer push
+    #   does not cover a build dispatch (a push keeps the pin), so then it re-dispatches, replacing the push: the
+    #   re-dispatched run bakes the tip's image inputs, which include the push's.
+    # - A push run is re-dispatched with an empty commit: "rebake the tip's image inputs with the pinned cmux-tui",
+    #   the same image a push plans, without the push's fix list in the record. Under auto-roll.json "off" a push
+    #   plans nothing, so it only cancels.
+    # - A newer request landing between the check and the dispatch is replaced by it (seconds wide; the next
+    #   cmux-tui build dispatches again).
+    # - A read that fails leaves the run alone and exits 0: the watch never turns a roll red.
+    # Runner: the pool router's 2-vCPU pool (vars.RUNNER_POOLS.linux_2), with no hosted label of its own; never the
+    # lane it watches. Holds no secret, only the run's own token with actions: write.
+    if: >-
+      github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
+      github.run_attempt == 1 && !inputs.pools &&
+      !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
+      startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: the pool router's 2-vCPU pool, never the lane it watches
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Re-route a plan the lane never started
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+          COMMIT: ${{ inputs.commit || '' }}
+          DRY_RUN: ${{ inputs.dry_run || 'auto' }}
+          PLATFORM_READINESS: ${{ inputs.platform_readiness && 'true' || 'false' }}
+          PLAN_WAIT_MIN: "15"
+        run: |
+          set -uo pipefail
+          # Three tries; fails when all three fail.
+          retry() { local i; for i in 1 2 3; do "$@" && return 0; sleep $((i * 10)); done; return 1; }
+          leave() { echo "::warning::$1; leaving the run alone"; exit 0; }
+          CREATED="$(retry gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)" || leave "could not read the run"
+          export CREATED
+          deadline=$(( $(date -d "$CREATED" +%s) + PLAN_WAIT_MIN * 60 ))
+          while :; do
+            state="$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/1/jobs?per_page=50" \
+              --jq '[.jobs[] | select(.name == "plan")][0].status // ""' || true)"
+            case "$state" in in_progress | completed) echo "plan has a runner ($state)"; exit 0 ;; esac
+            [ "$(date +%s)" -lt "$deadline" ] || break
+            sleep 60
+          done
+          echo "::warning::plan had no runner on cmux-gcp-lane-build-x64 ${PLAN_WAIT_MIN} min after $CREATED"
+          # Newer dispatches waiting in this run's group: not this run, created later, not done.
+          newer="$(retry gh api "repos/$REPO/actions/workflows/cloud-vm-image-roll.yml/runs?branch=feat-cmux-next&event=workflow_dispatch&per_page=30" \
+            --jq '[.workflow_runs[] | select(.id != (env.RUN_ID | tonumber) and .created_at > env.CREATED
+              and .status != "completed")] | length')" || leave "could not list newer requests"
+          mode=live
+          if [ "$EVENT" = push ]; then
+            mode="$(retry gh api "repos/$REPO/contents/images/cmux-vm/auto-roll.json?ref=$SHA" \
+              -H 'Accept: application/vnd.github.raw' | jq -r .mode)" || leave "could not read auto-roll.json"
+          fi
+          if [ "$newer" != 0 ]; then
+            echo "a newer dispatch ($newer) waits in the group and covers this request; cancelling only"
+          elif [ "$EVENT" = push ] && [ "$mode" = off ]; then
+            echo "auto-roll.json is off: this push plans nothing; cancelling only"
+          else
+            retry gh workflow run cloud-vm-image-roll.yml -R "$REPO" --ref feat-cmux-next \
+              -f commit="$COMMIT" -f dry_run="$DRY_RUN" -f platform_readiness="$PLATFORM_READINESS" -f pools=true \
+              || leave "could not dispatch the pools run"
+            echo "dispatched commit='${COMMIT}' dry_run=$DRY_RUN platform_readiness=$PLATFORM_READINESS pools=true"
+          fi
+          # The dispatched run waits behind this one until it ends, so the cancel has to land.
+          for i in 1 2 3 4 5; do
+            gh run cancel "$RUN_ID" -R "$REPO" && exit 0
+            sleep $((i * 15))
+          done
+          echo "::error::run $RUN_ID could not be cancelled; cancel it by hand so the pools run can start"
+          exit 1
 
   bake:
     needs: plan
