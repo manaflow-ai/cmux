@@ -433,6 +433,21 @@ class GuardTest(unittest.TestCase):
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
 
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
 
 class PushTest(unittest.TestCase):
     """GitHub's workflow-scope check timing out is retried; any other refusal is not."""

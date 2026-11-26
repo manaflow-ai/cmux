@@ -78,6 +78,26 @@ TEAMMATE_HOLD = ("HOLD: {login}'s merge. This revert is ready for {login} to lan
                  "(a teammate's PR is never merged, labelled or closed by an agent).")
 
 
+# next-autoland's hand-off label (cmuxterm-hq tools/fleet-reconcilers/next_autoland.py LABEL): on it, the PR is
+# ready, is reviewed and lands like any agent PR once its checks pass, and it starts the full CI tier
+# (scripts/ci/head_tier.py LAND_LABEL). Goal base-batch-reverts-culprit: a confirmed culprit's revert lands
+# with no person. A teammate's held revert never gets it (TEAMMATE_HOLD): it waits for them.
+LAND_LABEL = "ready-to-land"
+
+
+def hand_off(repo: str, number: int, author: str, api=None) -> str:
+    """Labels the revert or swap-out pull request `number` LAND_LABEL unless `author` (a teammate) holds it. Returns
+    the line for the run summary. A refused label leaves the pull request open for normal landing: it is the record."""
+    if author:
+        return f"Held for {author}: not labelled {LAND_LABEL}."
+    try:
+        (api or gh_api)(f"repos/{repo}/issues/{number}/labels", method="POST", fields={"labels": [LAND_LABEL]})
+    except RuntimeError as err:
+        print(f"label {LAND_LABEL} on #{number}: {err}", file=sys.stderr)
+        return f"Could not label it {LAND_LABEL} ({str(err)[-160:]}); it waits for normal landing."
+    return f"Labelled {LAND_LABEL}: next-autoland lands it once it is reviewed and green."
+
+
 # ---------------------------------------------------------------------------- GitHub and git
 
 
@@ -891,7 +911,7 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
     publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
             f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
     created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
-    summary(args.summary, f"Swap-out pull request: {created['html_url']}")
+    summary(args.summary, f"Swap-out pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     if pr:
         mark = SWAPOUT_MARK.format(culprit=culprit, job=args.job)
@@ -942,7 +962,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     land = (
         f"This revert is {author}'s to land or close; no agent lands it."
         if author
-        else "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix."
+        else f"The base-break rule restores the base first: this carries `{LAND_LABEL}`, so it lands with no person once reviewed "
+        "and green; then reland the change with its fix."
     )
     body = "\n\n".join(
         ([TEAMMATE_HOLD.format(login=author)] if author else [])
@@ -950,7 +971,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
             f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
-            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert itself.",
         ]
     )
     title = revert_title(subject, args.job, args.branch)
@@ -962,7 +983,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         method="POST",
         fields={"head": branch, "base": args.branch, "title": title, "body": body},
     )
-    summary(args.summary, f"Revert pull request: {created['html_url']}")
+    summary(args.summary, f"Revert pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     return 0
 
