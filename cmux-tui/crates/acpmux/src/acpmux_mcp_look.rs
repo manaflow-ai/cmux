@@ -15,7 +15,7 @@ pub(super) const NAME: &str = "look";
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "See the page you are building, now: a picture (at most 512 px) of this chat's agent-driven browser page (a dev server or file you opened beside the chat with the browser or open tools), plus how far it moved since the turn's first frame. The person already sees frames of it live in the chat as you edit, at no cost to you; call this only when you need to check the result yourself. To click or type in it, use the browser or computer-use tools on the same tab.",
+        "description": "See the page you are building, now: a picture (at most 512 px) of this chat's agent-driven browser page (a dev server or file you opened beside the chat with the browser or open tools), plus how far it moved since the turn's first frame and which page elements came or went. The person already sees frames of it live in the chat as you edit, at no cost to you; call this only when you need to check the result yourself. To click or type in it, use the browser or computer-use tools on the same tab.",
         "inputSchema": {"type": "object", "properties": {}}
     })
 }
@@ -34,10 +34,15 @@ pub(super) fn answer(reply: &Value) -> Value {
         Some(i) => format!("kept as frame {i} in the chat's strip"),
         None => "same picture as the last frame".to_owned(),
     };
-    let line = format!(
+    let mut line = format!(
         "tab {tab}, {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
         reply["width"], reply["height"]
     );
+    // The page's tree since the turn's first frame (RFD 0151's structural diff): what changed, in
+    // words, so a label the picture is too small to show still reads.
+    if let Some(structure) = reply.get("structure").and_then(Value::as_str) {
+        line.push_str(&format!(" Since the turn's first frame: {structure}."));
+    }
     json!({
         "content": [
             {"type": "image", "data": image["data"], "mimeType": image["mimeType"]},
@@ -70,6 +75,13 @@ mod tests {
         assert_eq!(out["content"][0]["data"], "AAAA");
         let line = out["content"][1]["text"].as_str().unwrap();
         assert!(line.contains("12/64") && line.contains("frame 3"), "{line}");
+    }
+
+    #[test]
+    fn a_look_names_what_changed_in_the_tree() {
+        let reply = json!({"image": {"mimeType": "image/png", "data": "AAAA"}, "width": 512, "height": 320, "tab": "t1", "movedBits": 0, "kept": null, "structure": "+1 -1 elements: + text \"Saved\"; - text \"Draft\""});
+        let line = answer(&reply)["content"][1]["text"].as_str().unwrap().to_owned();
+        assert!(line.contains("Since the turn's first frame: +1 -1 elements"), "{line}");
     }
 
     #[test]

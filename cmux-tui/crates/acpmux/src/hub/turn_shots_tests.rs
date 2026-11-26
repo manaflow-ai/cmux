@@ -248,6 +248,58 @@ console.log("GOT " + JSON.stringify(got));
     assert!(moved.contains("GOT []") && !moved.contains("TURN_SHOT"), "{moved}");
 }
 
+/// A frame's cell (`capture_cell` with `tree`), run by node against stand-ins: it writes the
+/// picture, then the on-screen tree beside it, and gives the page back the agent's own snapshot
+/// baseline. A tree read that throws still leaves the picture and its marker. Skipped (and said)
+/// where no node is on PATH.
+#[test]
+fn a_frames_cell_writes_the_tree_and_keeps_the_agents_baseline() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("f.capture.png");
+    let ws = "1A2B3C4D-0000-4000-8000-00000000ABCD";
+    let run_cell = |throws: bool| {
+        let cell = capture_cell("ws_1a2b3c4d00004000800000000000abcd", &out, None, true);
+        let script = format!(
+            r#"const written = {{}};
+const fs = {{ writeFileSync(p, s) {{ written[p] = String(s); }} }};
+const sleep = (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 50)));
+const pageObj = {{ id: "preview", _snapshotBaselines: new Map([["page|false|false|false|false|true", ["agent's"]]]) }};
+const tabs = {{
+  async list() {{ return [{{ id: "preview", url: "http://127.0.0.1:5173/", active: true, state: "live", workspace: "{ws}", agentDriven: true }}]; }},
+  async get() {{ return pageObj; }},
+}};
+async function screenshot(page, opts) {{ written[opts.path] = "png"; }}
+async function snapshot(page, opts) {{
+  if ({throws}) throw new Error("page agent gone");
+  page._snapshotBaselines.set("page|false|false|false|false|true", ["ours"]);
+  page._snapshotBaselines.set("page|false|false|false|false|true|full", ["ours full"]);
+  return {{ tree: "- button \"Save\" [ref=e1]" + (opts.viewport ? " viewport" : "") }};
+}}
+(async () => {{
+{cell}
+console.log("WROTE " + JSON.stringify(written));
+console.log("BASE " + JSON.stringify([...pageObj._snapshotBaselines.entries()]));
+}})();"#
+        );
+        let run = std::process::Command::new("node").arg("-e").arg(&script).output().ok()?;
+        let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+        assert!(run.status.success(), "{stdout}{}", String::from_utf8_lossy(&run.stderr));
+        Some(stdout)
+    };
+    let Some(ran) = run_cell(false) else {
+        eprintln!("skipped: no node on PATH");
+        return;
+    };
+    let tree = tree_path(&out).display().to_string();
+    assert!(ran.contains(&format!(r#""{tree}":"- button \"Save\" [ref=e1] viewport""#)), "{ran}");
+    assert!(ran.contains(r#"BASE [["page|false|false|false|false|true",["agent's"]]]"#), "{ran}");
+    assert!(ran.contains("TURN_SHOT "), "{ran}");
+    let threw = run_cell(true).unwrap();
+    assert!(threw.contains("TURN_SHOT ") && !threw.contains(&tree), "{threw}");
+    // Turn shots' own cell reads no tree.
+    assert!(!capture_code("ws_ab", &out, None).contains("snapshot("));
+}
+
 #[test]
 fn a_deleted_chat_ends_its_pending_pairs() {
     let key = ("turn-shots-test-purged".to_owned(), "t1".to_owned());
