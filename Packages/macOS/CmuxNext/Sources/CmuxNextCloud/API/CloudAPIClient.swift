@@ -197,7 +197,7 @@ public struct CloudAPIClient: Sendable {
     struct Ignored: Decodable {}
 
     /// One request whose JSON body the caller reads itself.
-    func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
+    public func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
                   timeout: Duration = .seconds(20)) async throws -> Data {
         try await send(method, path, body: body, idempotencyKey: idempotencyKey, timeout: timeout, as: RawBody.self).data
     }
