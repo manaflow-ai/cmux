@@ -81,7 +81,7 @@ jobs:
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
-            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+            test_filter: RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
           # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
@@ -372,6 +372,48 @@ jobs:
           merge-multiple: true
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored; Linux strips it
+      # (CMUX_SWIFTPM_TARGET_LINUX), the Mac manifest needs it, so without it the rerun stopped at "does not contain
+      # a binary artifact" (run 45819272661). It comes from cmux-next-ios-kit.yml's caches (same keys), else is built.
+      - name: CmuxMobileLinkFFI.xcframework key
+        id: xcf-key
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          awk -F'\t' '$2 == "cmux-next-ios/CmuxMobileKit" { f = 1 } END { exit !f }' handed/*.tsv 2>/dev/null ||
+            { echo "CmuxMobileKit not handed over"; exit 0; }
+          # Set first: a key that cannot be read (no tomllib) still builds it.
+          echo "needed=1" >> "$GITHUB_OUTPUT"
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+          echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: xcf-restore
+        if: ${{ steps.xcf-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      - name: Set up pinned Rust
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
 
       - name: Rerun the Linux failures on the Mac
         run: |
