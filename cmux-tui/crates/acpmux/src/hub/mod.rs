@@ -128,6 +128,8 @@ pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
+// RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
+mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
 mod github_owner;
@@ -286,7 +288,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
-mod prefetch;
+pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
 mod profile_respawn;
@@ -404,6 +406,8 @@ pub mod subsessions;
 mod successors;
 mod surge_triage;
 mod urgent_steer;
+// A task's spend burn-rate warnings during its turn.
+mod spend_burn;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 mod surgery_codex;
@@ -1241,6 +1245,8 @@ pub struct Hub {
     /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
     /// swaps the configured rules for the defaults (`usage_warnings.rs`).
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
+    /// Names in the active page rule. Inbox admission can read them while config is being written.
+    page_rule_sessions: StdMutex<HashSet<String>>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// Agent byte channels: listeners and open channels (`server/channels.rs`).
@@ -1618,6 +1624,10 @@ pub struct Hub {
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// The running relay's heartbeat on demand, so a chat moved here is in the hub's address
+    /// book before its move answers (`transfer_pull.rs` `list_on_mesh_now`); dangling
+    /// once the relay's loops end.
+    pub(crate) mesh_beat: StdMutex<std::sync::Weak<crate::server::mesh_relay::Beat>>,
     /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
     /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
     /// reads the join's state on disk once it holds it, so none acts on what another changed.
@@ -1743,6 +1753,8 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let page_rule_sessions =
+            StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let peer_wake = Arc::new(StdMutex::new(config.peer_wake.as_ref().map(|w| w.argv.clone())));
         #[cfg(feature = "hub-carrier")]
@@ -1752,6 +1764,7 @@ impl Hub {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
+            page_rule_sessions,
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
@@ -2018,6 +2031,7 @@ impl Hub {
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
+            mesh_beat: Default::default(),
             join_transition: Default::default(),
             join_start: Default::default(),
             watches: Default::default(),
