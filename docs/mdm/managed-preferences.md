@@ -153,6 +153,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
 | `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.focusFollowsMouse` | boolean | `false` |  | Focus Follows Mouse. Pointing at or scrolling over a pane focuses it. |
+| `layout.fadeInactivePanes` | boolean | `false` |  | Fade Inactive Panes. Panes without the focus fade, and come back when you focus them. |
 | `layout.scrollAreas` | boolean | `false` |  | Scroll Areas. Panes that do not fit scroll sideways instead of shrinking. |
 | `layout.scrollModifier` | string | `"command"` | `command`, `none` | Scroll Columns and Rows With. What moves columns and rows: Command + Scroll, or a plain sideways scroll. |
 | `layout.pagesHandleCommandScroll` | boolean | `true` |  | Web Pages Get Command + Scroll First. Pages like Figma keep Command + Scroll. Off, it always moves columns. |
@@ -383,10 +384,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.headerBreadcrumb` | boolean | `false` |  | Header Path. Show the chat's repository and branch before its title in the header, as a path. |
 | `agentPane.display.chatListStatusPills` | boolean | `false` |  | Status Pills in All Chats. Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats. |
 | `agentPane.display.subagentOf` | boolean | `false` |  | Subagent Of in Header. In a subagent's own pane, show which chat it belongs to beside its name in the header. |
-| `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
 | `agentPane.display.environmentCard` | boolean | `false` |  | Environment Card. A card at the chat's top right with its changes, branch, commit and pull request. |
 | `agentPane.display.changesPill` | boolean | `false` |  | Changes Pill. A pill over the composer with how many files the chat changed. |
 | `agentPane.display.finishSound` | boolean | `false` |  | Play Sound When Work Finishes. A soft sound when a long turn ends, its checks pass or its pull request merges. |
+| `agentPane.display.compactShortTurns` | boolean | `false` |  | Compact Summary for Short Turns. A short turn shows a one-line summary of what it did, instead of folding under Worked for. |
 | `agentPane.display.sendPop` | boolean | `false` |  | Pop In Sent Prompts. A prompt you send pops in and settles where it lands, instead of appearing at once. |
 | `agentPane.display.trayTucked` | boolean | `false` |  | Tuck Away Running Tray. Hides the running work bar. Hover the top of the composer to bring it back. |
 | `agentPane.display.trayHandle` | string | `"middle"` | `left`, `middle`, `right` | Running Tray Handle. Where the running tray's handle sits on top of the composer. |
@@ -421,6 +422,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.thinking.glyphSize` | real | `0` | 0 to 16 | Jump Button Glyph Size. The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.modelChipIcon` | boolean | `true` |  | Model Logo in Composer. Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on. |
+| `agentPane.display.modelPickerOrder` | array | `[]` |  | Model Picker Harness Order. The order of the harnesses in the model picker. Drag a harness in the picker to move it. |
 | `agentPane.display.queueing` | boolean | `true` |  | Queue Prompts During a Turn. On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits. |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
@@ -801,6 +803,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.appFontChrome` | boolean | `false` |  | App Font in Native Chrome. The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `experiments.composerButtonsVisible` | boolean | `false` |  | Always Show Composer Buttons. Keep Send, attachment removal, and queued message actions visible in agent chats. |
+| `experiments.startedTaskTitleChip` | boolean | `false` |  | Started Tasks: Title Opens Chat. In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row. |
 | `experiments.composerV2` | boolean | `false` |  | Composer Refresh. A glass composer with mode chips, mention chips and a round send button. Still being shaped. |
 | `experiments.paletteV2` | string | `"off"` | `off`, `flat`, `rail`, `scoped` | Command Palette v2. Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected. |
 | `experiments.palettePreview` | boolean | `false` |  | Command Palette Preview. Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom. |
@@ -809,15 +812,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.composerCustomizer` | boolean | `false` |  | Customize Button Under the Composer. Point at the chat box for a Customize button that lists every experiment and Labs switch. |
 | `experiments.agentBadges` | boolean | `false` |  | Agent Badges. Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done. |
 | `experiments.agentBadgesBeam` | boolean | `false` |  | Agent Badges: Running Beam. With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs. |
+| `experiments.transcriptWorkLog` | boolean | `false` |  | Transcript Work Log. Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context. |
 | `experiments.terminalAgentMark` | boolean | `false` |  | Terminal Agent Marks. An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat. |
 | `experiments.menuStyleV2` | boolean | `false` |  | Menu Style v2. Restyled menus. |
 | `experiments.menuRowStates` | boolean | `false` |  | Menu Row States. Menu rows that are unavailable say why, and rows that start work show their progress. |
 | `experiments.composerHatGroups` | boolean | `true` |  | Composer Hat: Two Groups. Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph. |
+| `experiments.forumCallCard` | boolean | `false` |  | Forum Tool Calls. Agent forum searches, reads and posts show as forum rows with links to their threads. |
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
 | `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
 | `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
+| `experiments.expandedEditsEstimate` | boolean | `false` |  | Expanded Edits Estimate. Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it. |
 | `experiments.introWalk` | boolean | `false` |  | Intro Walk. Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background. |
 | `experiments.threadMinimapRestReveal` | boolean | `false` |  | Prompt Rail Waits for a Resting Pointer. In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text. |
 | `experiments.terminalHistory` | boolean | `false` |  | Terminal Agent History. Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat. |
@@ -866,7 +872,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diagnostics.shareInstallCounts` | boolean | `false` |  | Share Package Installs to Improve cmux. Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list. |
 | `app.sendAnonymousTelemetry` | boolean | `false` |  | Send Crash Reports and Analytics. Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch. |
 | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |
-| `developerTools.overloadNotice` | boolean | `false` |  | Overload Warning in Chats. Shows a banner above the composer when this Mac's load or swap is too high. |
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
