@@ -11,7 +11,7 @@ export CMUX_BASE_EXPORTS_REGENERATE_ACTIONS="${CMUX_BASE_EXPORTS_REGENERATE_ACTI
 export CMUX_BASE_EXPORTS_REGENERATE_SETTINGS="${CMUX_BASE_EXPORTS_REGENERATE_SETTINGS:-$linux/regenerate-settings-exports-linux.sh}"
 
 case "$step" in
-  # The Mac job's first step: why the fleet job gave no verdict, as a warning.
+  # The Mac job's step right after its checkout: why the fleet job gave no verdict, as a warning.
   fallback)
     why="the fleet job ended $LINUX_RESULT with no verdict"
     [[ "$LINUX_RESULT" != skipped ]] || why="the fleet job is off (vars.CI_GENERATED_FILES_LINUX) or skipped"

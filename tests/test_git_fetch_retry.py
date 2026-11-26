@@ -478,13 +478,21 @@ class Workflow(unittest.TestCase):
         self.assertLess(script.index('git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py"'),
                         script.index("git -c protocol.version=2 fetch"))
         self.assertIn('python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"', script)
-        for command in ('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"',
-                        "git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force"
-                        " --depth=1 --recursive"):
-            with self.subTest(command=command):
-                self.assertIn("retry " + command, script)
-                # Never also run bare.
-                self.assertEqual(script.count(command), 1)
+        # #57686: the commit comes from the host's git mirror first. Only when the mirror lacks it does the step
+        # fetch that one commit from GitHub, one bounded try per round of a backoff that reads the mirror again
+        # before each try (`once`), so a mirror pass that lands meanwhile wins over a second GitHub fetch.
+        fetch = 'git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"'
+        self.assertIn('python3 "$fetch_retry" --tries 1 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"', script)
+        self.assertIn("once " + fetch, script)
+        self.assertEqual(script.count(fetch), 1)
+        self.assertIn("for delay in ${CHECKOUT_FETCH_BACKOFF_SECONDS:-0 30 60 120 240}; do", script)
+        self.assertLess(script.index('if in_mirror "$BUILD_SHA" && from_mirror; then break; fi'),
+                        script.index("once " + fetch))
+        command = ("git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force"
+                   " --depth=1 --recursive")
+        self.assertIn("retry " + command, script)
+        # Never also run bare.
+        self.assertEqual(script.count(command), 1)
 
     def test_the_retry_wrapper_runs_from_a_fresh_workspace(self) -> None:
         # Extract the helper-fetch lines and the retry function and run them where the workspace has no
@@ -493,7 +501,9 @@ class Workflow(unittest.TestCase):
         step = next(s for s in doc["jobs"]["build-nightly-app"]["steps"] if s.get("name") == WARM_STEP)
         script = step["run"]
         start = script.index('fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"')
-        end = script.index("started=$SECONDS")
+        # The helper fetch and the retry/once wrappers end where the GitHub fetch loop starts (#57686 put
+        # the mirror wait, and its own started=$SECONDS, before them).
+        end = script.index('if [ -z "$source" ]; then', start)
         with tempfile.TemporaryDirectory() as temp:
             workspace, runner_temp = Path(temp) / "ws", Path(temp) / "tmp"
             workspace.mkdir()
@@ -503,6 +513,8 @@ class Workflow(unittest.TestCase):
                     + 'retry git status --short\necho done\n')
             env = {**os.environ, "RUNNER_TEMP": str(runner_temp), "GITHUB_WORKSPACE": str(workspace),
                    "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40,
+                   # #57686: the build commit's copy of the helper is the second source.
+                   "BUILD_SHA": "1" * 40,
                    # The step's env always sets it (#57931: every read goes out with the job's token).
                    "FETCH_TOKEN": "test-token"}
             result = subprocess.run(["bash", "-c", body], cwd=workspace, env=env, capture_output=True, text=True)
