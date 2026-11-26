@@ -312,6 +312,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `browser-auth-webkit.sh` | Login flows in a NIGHTLY side instance's browser tab (`engine=webkit` or `chromium`): popup with opener and postMessage, window.close, cross-host redirect, SameSite and Secure cookies, third-party iframe cookie and storage (runs scripts/cmux-next/browser-auth-flows-live.py). | - | 2026-11-25 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `cloud-partial-hydrate.sh` | A Cloud checkout's time to first read with the rest downloading in the background (hot files, wants, kill and resume) against the whole checkout. | - | 2026-11-24 | active |
+| `tick-precheck-reads.sh` | The nightly-next tick's compile-results reads and seconds over a walk of N commits (request-nightly-next.sh's precheck, one GH_TICK_CACHE), any copy of the script (`BENCH_SCRIPT=`) for before and after; no network. | goal nightly-30min | 2026-11-26 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |
 | `import-set-xcode.sh` | Import-set check stub cost with Xcode incremental builds. | - | 2026-10-18 | active |
 
