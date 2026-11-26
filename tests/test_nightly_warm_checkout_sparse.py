@@ -175,6 +175,7 @@ class WarmCheckoutTest(unittest.TestCase):
         script.write_text(warm["run"])
         env = {**self.env, "BUILD_SHA": self.new, "WORKFLOW_SHA": self.new, "REPO_URL": str(self.origin),
                "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"), "GITHUB_REPOSITORY": "o/r",
+               "GITHUB_SERVER_URL": "https://github.com",
                # No mirror here: the step fetches from origin, which it does only with the release App's token.
                "FETCH_TOKEN": "test-token"}
         # The runner's default for a `run:` step with no `shell:` is `bash -e {0}`.
