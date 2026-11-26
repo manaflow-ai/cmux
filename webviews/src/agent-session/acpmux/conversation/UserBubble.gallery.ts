@@ -259,7 +259,7 @@ export default agentPaneEntry({
       })(),
     },
     "answer-hover": {
-      note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud; no age (Codex parity).",
+      note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud, then its age (cmux#55888).",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: /uploader\.retry\.test\.ts/ }),
     },
@@ -269,18 +269,19 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its buttons show and no age does (Codex parity, 2026-11-11 standup: a time on hover at the row's end read as noise). A prompt keeps its age and tooltip.",
+      note: "Play: point at an answer's turn; its row shows with its age after the buttons (cmux#55888, which put the reply's age back), and hovering the age shows its exact date and time above it, as a prompt's does.",
       snapshot: yesterday(),
       play: async (ctx) => {
         const footer = ".acpmux-turnSummary .cv-turn-actions";
+        const age = `${footer} time.cv-turn-time`;
         await ctx.waitFor(() => ctx.document.querySelector(footer));
         await ctx.hover({ selector: footer });
         await ctx.waitFor(() => {
           const row = ctx.document.querySelector<HTMLElement>(footer);
           return row !== null && ctx.document.defaultView!.getComputedStyle(row).opacity === "1";
         });
-        if (ctx.document.querySelector(`${footer} time.cv-turn-time`))
-          throw new Error("the answer's footer draws an age");
+        if (!ctx.document.querySelector(age)) throw new Error("the answer's footer draws no age");
+        await hoverTime(age)(ctx);
       },
     },
     other: {
