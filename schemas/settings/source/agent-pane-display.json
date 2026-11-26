@@ -202,36 +202,6 @@
           ]
         },
         {
-          "key": "agentPane.display.pinnedPlan",
-          "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
-          "title": {
-            "key": "settings.agentPane.display.pinnedPlan",
-            "text": "Pin Task List in Chat"
-          },
-          "help": {
-            "key": "settings.agentPane.display.pinnedPlan.help",
-            "text": "Keeps the agent's task list under the latest message, not over the composer."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "agent",
-            "chat",
-            "acp",
-            "display",
-            "reading",
-            "plan",
-            "task",
-            "tasks",
-            "todo",
-            "checklist",
-            "pin",
-            "pinned",
-            "list",
-            "progress"
-          ]
-        },
-        {
           "key": "agentPane.display.environmentCard",
           "note": "A floating card at the chat's top right (webviews session-info/EnvironmentCard.tsx), after the Codex app's Environment panel: the chat folder's changes (Session Info's Changes row, changeCounts.ts), its branch or worktree, Commit or push (the diff tab's Commit form and Push, as the palette's Commit opens it) and Create PR (git.pullRequest). Off by default: today's chat draws no card. A look turns it on (chameleon-codex).",
           "title": {
@@ -1824,6 +1794,31 @@
             "provider",
             "picker"
           ]
+        },
+        {
+          "key": "agentPane.display.modelPickerOrder",
+          "note": "The order of the model picker's harness tabs, as tab keys, first to last (webviews modelPickerOrder.ts). A drag of a tab on the picker's rail writes it; Starred always stays first, and a tab it does not name keeps its default place after the named ones. Empty: the default order. The agent pages' storage ends with the launch, so the order lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerOrder",
+            "text": "Model Picker Harness Order"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerOrder.help",
+            "text": "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "harness",
+            "order",
+            "rearrange",
+            "drag"
+          ],
+          "page_hidden": "tab keys, set by dragging a harness in the model picker"
         },
         {
           "key": "agentPane.display.queueing",
