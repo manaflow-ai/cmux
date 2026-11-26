@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "startFolder.root" : {
+      "comment" : "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يمكن بدء المحادثات في {folder}. اختر مجلدًا آخر بدلًا من ذلك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Razgovori ne mogu početi u {folder}. Umjesto toga odaberite drugi folder."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chats kan ikke starte i {folder}. Vælg en anden mappe i stedet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chats können nicht in {folder} starten. Wähle stattdessen einen anderen Ordner."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats can’t start in {folder}. Choose another folder instead."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los chats no pueden empezar en {folder}. Elige otra carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les discussions ne peuvent pas démarrer dans {folder}. Choisissez plutôt un autre dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le chat non possono iniziare in {folder}. Scegli invece un'altra cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{folder} ではチャットを開始できません。別のフォルダを選択してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកមិនអាចចាប់ផ្ដើមក្នុង {folder} បានទេ។ សូមជ្រើសថតផ្សេងជំនួសវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{folder}에서는 채팅을 시작할 수 없습니다. 대신 다른 폴더를 선택하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chatter kan ikke starte i {folder}. Velg en annen mappe i stedet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czaty nie mogą zaczynać się w {folder}. Wybierz zamiast tego inny folder."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os chats não podem começar em {folder}. Escolha outra pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чаты не могут начинаться в {folder}. Выберите другую папку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เริ่มแชตใน {folder} ไม่ได้ เลือกโฟลเดอร์อื่นแทน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbetler {folder} içinde başlayamaz. Bunun yerine başka bir klasör seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чати не можуть починатися в {folder}. Натомість виберіть іншу папку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể bắt đầu cuộc trò chuyện trong {folder}. Hãy chọn một thư mục khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天不能在 {folder} 中开始。请改为选择其他文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天不能在 {folder} 中開始。請改為選擇其他資料夾。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
