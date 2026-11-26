@@ -22,6 +22,9 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.number(480), .number(1200), .number(4000), .string("narrow"), .string("medium"), .string("wide")],
             refused: [.number(100), .number(5000), .string("wider")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        // The model picker's harness tabs, first to last (webviews modelPickerOrder.ts): empty is the default order.
+        Row(key: "agentPane.display.modelPickerOrder", fallback: .array([]),
+            accepted: [.array([.string("gemini"), .string("claude")])], refused: [.string("gemini")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
