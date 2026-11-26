@@ -842,6 +842,13 @@
                 "key": "settings.choice.sidebarLookStudio",
                 "text": "Studio"
               }
+            },
+            {
+              "value": "rex",
+              "title": {
+                "key": "settings.choice.sidebarLookRex",
+                "text": "Rex"
+              }
             }
           ],
           "default": "cmux",
@@ -853,6 +860,9 @@
             "claude",
             "codex",
             "studio",
+            "rex",
+            "minimal",
+            "sessions",
             "like",
             "app"
           ],

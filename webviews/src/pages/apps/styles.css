@@ -272,7 +272,7 @@
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   min-width: 0;
 }
 
@@ -346,7 +346,7 @@
   min-height: 150px;
   padding: 14px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   background: color-mix(in srgb, var(--page-elevated) 24%, transparent);
 }
 
@@ -359,7 +359,7 @@
 .apps-skeleton-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-skeleton-line {
@@ -485,7 +485,7 @@
   width: auto;
   max-width: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   border: 1px solid var(--page-separator);
 }
 
@@ -659,7 +659,7 @@ code {
   padding: 8px;
   max-height: 220px;
   overflow: auto;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   font:
     11px ui-monospace,
@@ -719,7 +719,7 @@ code {
   min-height: 220px;
   margin-top: 8px;
   border: 1px dashed var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-state-error {
@@ -742,7 +742,7 @@ code {
   margin-top: 12px;
   padding: 14px 16px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-cloud-feature-text {
@@ -931,7 +931,7 @@ code {
   gap: 24px;
   padding: 24px;
   border: 1px solid var(--page-separator);
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
   background: linear-gradient(
     120deg,
     color-mix(in srgb, var(--page-selection) 55%, transparent),
@@ -1011,7 +1011,7 @@ code {
   max-height: 260px;
   object-fit: cover;
   object-position: top left;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   border: 1px solid var(--page-separator);
   box-shadow: var(--elevation-2);
 }
@@ -1268,7 +1268,7 @@ code {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: contain;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
 }
@@ -1284,7 +1284,7 @@ code {
   width: 96px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: transparent;
   opacity: 0.65;
 }
@@ -1299,7 +1299,7 @@ code {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 /* Facts: a label column and a value column (Shows up in, Information). */
@@ -1372,7 +1372,7 @@ code {
 .apps-perm .apps-badge {
   margin-inline-start: 8px;
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--page-hover);
 }
 
@@ -1411,7 +1411,7 @@ code {
   margin-top: 12px;
   padding: 12px 16px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-customize-feature-head {
