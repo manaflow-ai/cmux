@@ -496,7 +496,6 @@ impl LineOrigin {
     }
 
     /// Whether the line is harness-injected work the transcript folds like a tool call.
-    #[cfg(test)]
     pub(crate) fn is_tool_like(self) -> bool {
         matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
     }

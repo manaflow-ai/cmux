@@ -83,7 +83,7 @@ const ids = (rows: AcpmuxRow[]) => rows.map((r) => r.id);
 /// late steer draws under it and over the answer, `lateSteersLast`).
 const opened = (rows: AcpmuxRow[]) => {
   const closed = view(rows);
-  const fold = closed.findLast((r) => r.kind === WORKED && closed.indexOf(r) < ids(closed).indexOf("a-1"));
+  const fold = [...closed].reverse().find((r) => r.kind === WORKED && closed.indexOf(r) < ids(closed).indexOf("a-1"));
   expect(fold).toBeDefined();
   return { closed, fold: fold!, open: view(rows, new Set([fold!.id])) };
 };

@@ -420,6 +420,10 @@ pub use shadow::{
 mod pressure_digest;
 pub use pressure_digest::{canonical_pressure, host_short, pressure_digest};
 
+// Auto on reserve (RFD 0072): what Auto would move while agents use more than the
+// person left them; stage 1 only records it.
+pub mod reserve;
+
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
 pub mod ffi;
 pub mod json;

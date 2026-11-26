@@ -165,6 +165,19 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// A name the app's list lacks (a machine joined since the list was read, 2026-11-26 probe: "No device is named
+    /// probe-desktop-…-hub" for 180 s) reads the hub's list again; a listed name or an id does not.
+    @Test func aNameTheListLacksReadsTheHubListAgain() {
+        let devices = [HubDevice(id: device, name: "Mac Mini")]
+        let ask = { (text: String) in ActionInvocation(arguments: ["device": .string(text)], origin: .cli) }
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: devices))
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: []))
+        #expect(!MacScreenActions.missesList(ask("mac-mini"), among: devices))
+        #expect(!MacScreenActions.missesList(ask(other), among: devices))
+        #expect(!MacScreenActions.missesList(ask("  "), among: devices))
+        #expect(!MacScreenActions.missesList(ActionInvocation(arguments: [:], origin: .cli), among: devices))
+    }
+
     @Test func anAmbiguousNameFailsListingTheDevicesItCouldMean() {
         let devices = [HubDevice(id: device, name: "Studio"), HubDevice(id: other, name: "studio"), HubDevice(id: third, name: "Mac Mini")]
         let message = failure { _ = try MacScreenActions.deviceID(named: "STUDIO", among: devices) }
@@ -248,12 +261,18 @@ struct MacScreenActionRoutingTests {
         #expect(record.isHome)
     }
 
-    private func screenTree() -> DaemonTree {
+    /// `parked`: a second workspace, "parked-ws", with one terminal tab, for a window that shows the first.
+    private func screenTree(parked: Bool = false) -> DaemonTree {
         var tab = TabSnapshot(surface: 1, kind: .conversation, title: "Screen")
         tab.conversation = ConversationTabRef(page: InternalPageID.macScreen.rawValue, route: "device:" + device)
         let pane = PaneSnapshot(id: 1, tabs: [tab])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
-        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: "screen-route", name: "Screen", screens: [screen])])
+        var workspaces = [WorkspaceSnapshot(id: 1, key: "screen-route", name: "Screen", screens: [screen])]
+        if parked {
+            let other = PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "~")])
+            workspaces.append(WorkspaceSnapshot(id: 2, key: "parked-ws", name: "Parked", screens: [ScreenSnapshot(id: 2, layout: .leaf(2), panes: [other])]))
+        }
+        return DaemonTree(workspaces: workspaces)
     }
 
     @Test func aDuplicateTabOnAnotherMachineCannotStopTheOwnedViewer() throws {
@@ -294,6 +313,42 @@ struct MacScreenActionRoutingTests {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: appTab), origin: .cli)
         #expect(services.registry.perform("macScreen.open", invocation: invocation))
         #expect(services.pages.tabIDs(in: pane.paneKey).count == before.count + 1)
+    }
+
+    /// `cmux action run macScreen.open --target pane:… --device X --autoconnect --wait` on a pane whose workspace its
+    /// window does not show (an agent's probe while the person works elsewhere): the tab opens in that pane and asks
+    /// the hub at once, and the window still shows the person's workspace and tab, nothing selected or focused. Before,
+    /// the open refused with "pane:… is not shown in any window" and made no tab.
+    @Test func autoconnectIntoAPaneNoWindowShowsOpensThereUnseen() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: screenTree(parked: true))
+        _ = services.windows.registry.apply { $0.openWindow(id: "screen-route-window", workspaceIDs: ["screen-route", "parked-ws"]) }
+        let window = services.windows.makeController(for: try #require(services.windows.registry.value.window("screen-route-window")))
+        defer { window.teardown(); window.window?.close() }
+        window.state.showWorkspace("screen-route")
+        window.showWorkspace(requested: "screen-route")
+        let shown = try #require(window.content?.panes.values.first)
+        let parked = try #require(services.daemon.store.workspaces.first { $0.key == WorkspaceKey(rawValue: "parked-ws") }?.screens.first?.panes.first)
+        try #require(services.paneController(for: parked) == nil, "a window shows the parked workspace")
+        AgentHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+        let shownWorkspace = window.state.workspaceID, shownTab = shown.stripModel.selectedID
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: parked.id),
+                                          arguments: ["device": .string(device), "autoconnect": .bool(true)], origin: .cli)
+        invocation.viaControlSocket = true
+        let refusal = services.registry.capturingRefusal { #expect(services.registry.perform("macScreen.open", invocation: invocation)) }
+        #expect(refusal == nil, "\(refusal ?? "")")
+        let opened = services.pages.tabIDs(in: parked.id).filter { LocalPageTab.page(of: $0) == .macScreen }
+        #expect(opened.count == 1, "one Screen Sharing tab in the parked pane: \(opened)")
+        defer { opened.forEach { services.pages.close($0) } }
+        let key = try #require(opened.first)
+        #expect(services.pages.tabIDs(in: shown.paneKey).allSatisfy { LocalPageTab.page(of: $0) != .macScreen }, "nothing opened in the shown pane")
+        let hub = try #require(services.macScreenPages.tab(key)?.pane?.model.hub, "the screen is made without being shown")
+        #expect(hub.phase != .idle, "the hub was asked (refused here: this test has no signed-in hub)")
+        #expect(services.paneController(for: parked) == nil, "the parked workspace is still not shown")
+        #expect(window.state.workspaceID == shownWorkspace, "the window still shows the person's workspace")
+        #expect(shown.stripModel.selectedID == shownTab, "the person's tab is still selected")
     }
 
     @Test func stopTargetsOneUnfocusedViewerAndNeverAnUnknownTab() throws {
