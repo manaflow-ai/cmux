@@ -165,8 +165,8 @@ describe("the fold keeps a subagent's retry", () => {
   test("the summary card's started-chat rows and counts read it, as Running with no retry words", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
-    // acpmux's own retry is quiet in a list row (Leo, 2026-11-14): Running with the ring.
-    expect(sessionStateText(translate, chat)).toEqual({ text: "Running", working: true });
+    // acpmux's own retry is quiet in a list row (Leo, 2026-11-14): the running ring, no retry words.
+    expect(sessionStateText(translate, chat)).toMatchObject({ text: "", working: true });
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 
