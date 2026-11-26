@@ -210,9 +210,16 @@
 
 .ui-glass {
   background: var(--glass-tint);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+}
+
+/* Opt-in Settings knobs use the same backdrop painter. The native range thumb is a pseudo-element
+   and cannot wear a class; its sheet supplies the knob's lens and keeps the track untouched. */
+.ui-glass,
+:root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch .ui-switch-thumb,
+:root[data-settings-look="refined"] .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
 }
 /* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
    content layer gets a near-solid surface). A card that sits in the content layer (a permission ask

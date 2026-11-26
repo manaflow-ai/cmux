@@ -278,6 +278,7 @@ export function SourcePicker({
       flip={false}
       className="acpmux-add-project-palette ui-glass-material"
       hostGlass={false}
+      data-page-glass="web fallback when the native project palette is unavailable"
       initialFocus={false}
       finalFocus={finalFocus}
     >
