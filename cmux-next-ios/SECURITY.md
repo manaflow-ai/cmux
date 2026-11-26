@@ -1393,6 +1393,19 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## A delivered session in simulator builds (`CMUX_MOBILE_STACK_REFRESH_TOKEN`)
+
+A fleet step's own session (hq build-fleet `sign_in`, `scripts/lib/fleet-signin-session.sh`) reaches
+the app as `CMUX_MOBILE_STACK_REFRESH_TOKEN` in one `simctl launch` environment.
+`CmuxMobileAuthModel.launchTokenStore` adopts it, while the app's own store holds no session, in DEBUG
+builds and in a simulator build of any configuration, so a probe can sign in a Production simulator
+build. The gate is compile time (`#if DEBUG || targetEnvironment(simulator)`): no device binary
+(TestFlight, App Store, a signed development install) contains the read. The build's Stack project
+is unchanged, so a Production build takes only a production session. The token goes only to the
+app's keychain store, is never logged and never in argv, and becomes the app's own session, which
+a sign-out revokes. Whoever can set a simulator app's launch environment already owns its container
+and keychain, so this gives them nothing new.
+
 ## Dev auto-approve (DEBUG tagged dev builds)
 
 A tagged dev Mac pairs its own tag's iPhone app without the person-only "Allow “<phone>” to

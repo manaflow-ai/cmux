@@ -1465,9 +1465,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
   the host process and the daemon run its tab ids came from: it is new at each hostd start
   and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
-  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
-  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
-  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  every row, order and held picture of the old, so a phone gets a manifest. Remote Control
+  is one app-wide switch (`mobile.allowIPhoneConnections`, which runs or stops hostd), so no
+  chat's tab is hidden for exposure; the filter keeps the rule that a tab naming an agent
+  session the exposure blocks is hidden, and every tab is while it is unavailable. Browser favicons and thumbnails come from the Mac app on its
   stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
   "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
   (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
@@ -2387,10 +2388,12 @@ Mac keeps the reply mailbox above as it is.
   `full`). An outcome stays readable 10 minutes past its item's expiry.
 - Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
   sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
-  frame, each once per socket; after each `mailbox_ack` it sends the next
-  page. An item posted while the socket is open goes at once unless 32 sent
-  items still wait for their ack on it. Items not acked are sent again on the
-  next socket.
+  frame, each once per socket, frame after frame until each phone has 32
+  sent items waiting for their ack on it (a phone whose items the Mac holds
+  never keeps another phone's items back); after each `mailbox_ack` it sends
+  what then fits. An item posted while the socket is open goes at once
+  unless its phone has 32 sent items still waiting for their ack on it.
+  Items not acked are sent again on the next socket.
 - `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
   that has them; `expired` is reported once `expiresAt` passed unsettled.
 
@@ -2438,8 +2441,10 @@ required for both):
   index?}` (`text` for `update`, `index` from 0 for `move`), applied as
   `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
   bytes, not blank) is read only for `update` and `index` only for `move`. A
-  queued prompt that is gone (`_acpmux/info` fails, or the answer is
-  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  queued prompt that is gone (`_acpmux/info` answers an error, or the answer
+  is `{ok:false}` or `{removed:false}`) is `not_pending`; an acpmux that does
+  not answer (no socket, closed, timed out) is `unavailable`, so the item is
+  kept and tried again. A `send` whose `steer`
   is not a bool is refused; absent or null is true.
 - Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
   `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps

@@ -8,7 +8,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -85,7 +85,7 @@ import {
   folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
+import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
 import { AutoIcon } from "./AutoWhere";
 import { AUTO_LOOK } from "./autoWhereModel";
@@ -109,7 +109,7 @@ type Session = AcpmuxSnapshot["sessions"][number];
 const NO_SESSIONS: readonly Session[] = [];
 const NO_LOCATIONS: Location[] = [];
 /// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
-const placeFields = (session: Session): readonly unknown[] => [
+export const placeFields = (session: Session): readonly unknown[] => [
   session.cwd,
   session.peer,
   session.hostKind,
@@ -1634,7 +1634,7 @@ export function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={12} loading className="acpmux-env-live-spinner" />
+          <WaitSpinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}
