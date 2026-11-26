@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45743286480",
+  "recorded_at": "2026-11-26T02:56:41Z",
+  "reason": "cmux-tui 6fde033d9d34 changes the image's cmux-tui (pinned 368c5b2390bc)",
+  "dry_run": false,
+  "cmux_tui": "6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7",
+  "fixes": [
+    {
+      "sha": "4472c70b7b8ff528e885177c8b1d46b5731dc23c",
+      "mergedAt": "2026-11-26T01:51:16Z",
+      "subject": "Settings: reads through the Rust ops; delete the Swift copies (carries #52095) (#57013)"
+    },
+    {
+      "sha": "ee6e27b42504002d8a1dfea6447ad52d5b63aa8c",
+      "mergedAt": "2026-11-26T01:46:28Z",
+      "subject": "tailnet join: mint a single-use key per VM on the Mac; the OAuth secret never reaches the VM (#57197)"
+    },
+    {
+      "sha": "6b985f08a9d9959187f9aa0197e652e42ad982a2",
+      "mergedAt": "2026-11-26T01:40:09Z",
+      "subject": "cmux-git-cache: cap the disk floor at 16 GiB on big disks (#57204)"
+    },
+    {
+      "sha": "7e524715b4ea0bc12247e591738c98cdfef31c00",
+      "mergedAt": "2026-11-26T01:36:32Z",
+      "subject": "carrier: an idle session sends nothing to a paused machine (#53399)"
+    },
+    {
+      "sha": "34e4c82d88e2c46fc80b5393579e1831cbd42c3d",
+      "mergedAt": "2026-11-26T01:22:25Z",
+      "subject": "gallery test: the thinking-dots glyph reads inlined, as setup read puts it (#56426)"
+    },
+    {
+      "sha": "068b8a7bcd57f33b3eb440f2dea7e54abeef0a8f",
+      "mergedAt": "2026-11-25T17:09:29-08:00",
+      "subject": "fix(newtab): / grants no folder trust, lists the folder's skills at once (#55979)"
+    },
+    {
+      "sha": "aeb691d00d8385f7716429f4e36df797a50ba48e",
+      "mergedAt": "2026-11-26T00:40:08Z",
+      "subject": "cmux-cloud-config: consent session handoff rules and cloud_handoff_* FFI (step A) (#46921)"
+    },
+    {
+      "sha": "51310a9a62b48a646b97aff0a7fc01d6882462e8",
+      "mergedAt": "2026-11-26T00:35:48Z",
+      "subject": "persisted formats: every stored format ships its migration, not only cmux-tui's (#56056)"
+    },
+    {
+      "sha": "c7c12e297988ec8a410e14f04c4ae3ade63357f2",
+      "mergedAt": "2026-11-26T00:34:25Z",
+      "subject": "link agent move: wait out a restarting source daemon (kill-mid-move drill) (#54614)"
+    },
+    {
+      "sha": "ea14481ff6eb306e891b5b3b9b851cffa5d99452",
+      "mergedAt": "2026-11-26T00:33:07Z",
+      "subject": "Add leased person and agent presence for RFD 0141 (#55239)"
+    },
+    {
+      "sha": "9dcf9abee65e69ad539af99fe43608df4f070a1c",
+      "mergedAt": "2026-11-26T00:23:37Z",
+      "subject": "ghostty-vt: validate non-ASCII runs with SIMD UTF-8 in vt_write's neutral scan (cut 3) (#54466)"
+    },
+    {
+      "sha": "c9f89e3b3cffd337653aae6c8c792160b5f3baa6",
+      "mergedAt": "2026-11-26T00:19:35Z",
+      "subject": "acpmux: meter codex-review-box reviewers from their own Codex home (#57009)"
+    },
+    {
+      "sha": "8a0968cb2b386c3c18b7ea0116821a83d97b0d3e",
+      "mergedAt": "2026-11-26T00:19:17Z",
+      "subject": "acpmux: a paused machine serves the file tree and search from its replica and journal (RFD 0144 piece 2, off by default) (#56785)"
+    },
+    {
+      "sha": "662dd8c61712c6e7ce96acc66021b2a448901532",
+      "mergedAt": "2026-11-25T16:16:52-08:00",
+      "subject": "egress: seed-test cmux_autocloud::login and cloud_start_chat::direct (base red) (#57325)"
+    },
+    {
+      "sha": "5ae99e2ed95a5fc28bc07abc6c41d3f5e9f026e7",
+      "mergedAt": "2026-11-25T15:54:44-08:00",
+      "subject": "Rip CodeRouter's CLI, app, page and service out of cmux-next (#56767)"
+    },
+    {
+      "sha": "95c2de43015ba990d364f07c155ffd394525850b",
+      "mergedAt": "2026-11-25T23:52:53Z",
+      "subject": "cmux link: write why the Cloud tunnel's sign-in ask is refused (#57309)"
+    },
+    {
+      "sha": "d80b259617d0acb183ddbe6940e6dda388497d4e",
+      "mergedAt": "2026-11-25T23:50:17Z",
+      "subject": "cmux-host team-ssh: let the platform's own key through session-open (#57294)"
+    },
+    {
+      "sha": "621da38c64797394acbb3df60bb64b0ed181bcf5",
+      "mergedAt": "2026-11-25T23:46:12Z",
+      "subject": "RFD 0135 gates 2-4 as numbers: lid-close drill, gate runner, nightly (#56937)"
+    },
+    {
+      "sha": "c6030f40f3cc0febd6ba457f181c783cf996c3c5",
+      "mergedAt": "2026-11-25T23:42:53Z",
+      "subject": "acpmux evict: stop the reaper spinning, let idle chats leave, and keep an evicted chat to its keys and packed rows (#54785)"
+    },
+    {
+      "sha": "1b1baf11ea858d884a34b3c6089240b2eeaeab04",
+      "mergedAt": "2026-11-25T23:28:46Z",
+      "subject": "Priority by interactivity: cmux-interactivity policy, daemon drag note, app FFI (#53142)"
+    },
+    {
+      "sha": "df24d43eaabb3312434317313bd15d05572eba52",
+      "mergedAt": "2026-11-25T23:28:27Z",
+      "subject": "acpmux: a brief-only remote new uses its scratch folder instead of being refused (#57034)"
+    },
+    {
+      "sha": "b67ac2d8f2715a0f97ed2d4a404fede22b1544f6",
+      "mergedAt": "2026-11-25T23:19:56Z",
+      "subject": "Cloud proofs add a Claude connection so the start gate passes (#56995)"
+    },
+    {
+      "sha": "72b5eb4b380eff8b0ebbf99e56fd42f590c545a5",
+      "mergedAt": "2026-11-25T23:16:43Z",
+      "subject": "acpmux: a chat's place pin is its own; every older chat is pinned to its machine, once (#53476)"
+    },
+    {
+      "sha": "19023f7c46ddcdbaffcc83918bebaceb45c0d2a7",
+      "mergedAt": "2026-11-25T23:16:02Z",
+      "subject": "Cloud journey: chat through cmux-autocloud --machine (RFD 0139 E2E) (#55350)"
+    },
+    {
+      "sha": "df8301896221a6f5736482df60dca28579478aa0",
+      "mergedAt": "2026-11-25T23:09:52Z",
+      "subject": "acpmux: stop the peer-snapshot read-ahead re-reading what the bound evicts (#56863)"
+    },
+    {
+      "sha": "e3999d3f5fb61c699b59ceb49616186d2f15486e",
+      "mergedAt": "2026-11-25T23:02:59Z",
+      "subject": "acpmux: a peer read waits while its link brings the reply, not a fixed 30 s (#57111)"
+    },
+    {
+      "sha": "53302ada7cea3dcb2ffe3ed39beac7d636bc0500",
+      "mergedAt": "2026-11-25T22:46:34Z",
+      "subject": "v2 gate home: a gate with no measure fails its row, not the home's exit (#57067)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T02:56:41Z",
+    "snapshot_id": "sh-706ee4a9239d46b3b1d237486f280c94",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45743286480): 32 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "",
+    "revision": "ci-45743286480-1",
+    "at": null
+  },
+  "rolled_back": false
+}
