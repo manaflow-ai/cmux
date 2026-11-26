@@ -164,8 +164,8 @@ final class AttachmentPrestager {
     nonisolated static func signature(_ attachment: AgentAttachment) -> Signature {
         let data = attachment.data
         return Signature(kind: attachment.kind, name: attachment.name, byteCount: attachment.byteCount, dataCount: data?.count,
-                         fileURL: attachment.fileURL, head: Data(data?.prefix(32) ?? []),
-                         tail: Data(data?.suffix(32) ?? []))
+                         fileURL: attachment.fileURL, head: data?.prefix(32) ?? Data(),
+                         tail: data?.suffix(32) ?? Data())
     }
 
     /// The daemon's inline image cap is 3.75 MiB decoded. Larger images use a file reference on
