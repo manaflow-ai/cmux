@@ -1,0 +1,33 @@
+{
+  "numStartups": 42,
+  "someFutureClaudeState": {
+    "keep": "me"
+  },
+  "mcpServers": {
+    "fixture-stdio": {
+      "type": "stdio",
+      "command": "fixture-mcp",
+      "args": [
+        "--port",
+        "7000"
+      ],
+      "env": {
+        "FIXTURE_TOKEN": "not-a-real-secret"
+      }
+    },
+    "fixture-http": {
+      "type": "http",
+      "url": "https://mcp.example.invalid/mcp"
+    }
+  },
+  "projects": {
+    "__PROJECT__": {
+      "allowedTools": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "disabledMcpServers": [],
+      "hasTrustDialogAccepted": true
+    }
+  }
+}
