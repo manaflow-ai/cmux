@@ -20,6 +20,20 @@ struct CloudNewWorkspaceSettingTests {
         #expect(setting.folder(in: bad) == .inherit)
     }
 
+    @Test func personalGitHubLoginRequiresExplicitOptIn() throws {
+        let setting = CloudNewWorkspaceSetting()
+        let key = "useMyGitHubLogin"
+        #expect(!setting.useMyGitHubLogin(in: .object([:])))
+        for value in [JSONValue.bool(false), .string("true"), .null] {
+            #expect(!setting.useMyGitHubLogin(in: .object(["cloud": .object([key: value])])))
+        }
+        #expect(setting.useMyGitHubLogin(in: .object(["cloud": .object([key: .bool(true)])])))
+        let row = try #require(SettingsSchema.all.first { $0.id == "cloud.useMyGitHubLogin" })
+        #expect(row.defaultValue == .bool(false))
+        #expect(row.isShownOnSettingsPage)
+        #expect(SettingsSchema.agentRefusedKeys[row.id] == .userOnly)
+    }
+
     /// `cloud.defaultImage` (Settings > Cloud > Default Image): Auto unless an environment id is set,
     /// and the chat page follows it, so a new Cloud chat starts from it.
     @Test func defaultImageIsAutoUnlessSetAndTheChatFollowsIt() throws {

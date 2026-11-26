@@ -45,7 +45,7 @@ extension CloudDaemon {
         on ? await carryGitHubLogin(id, deadline: deadline) : nil
     }
 
-    public func carryGitHubLogin(_ id: String, deadline: Duration = .seconds(25)) async -> GitHubLoginCarry {
+    private func carryGitHubLogin(_ id: String, deadline: Duration) async -> GitHubLoginCarry {
         let answer: [String: Any]
         do { answer = try await sealedLine(id, ["op": "use-github-login"], deadline: deadline) } catch {
             return .failed(code: "transport")

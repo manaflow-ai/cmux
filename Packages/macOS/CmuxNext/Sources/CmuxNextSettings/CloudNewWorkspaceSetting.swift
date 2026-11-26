@@ -23,8 +23,7 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
-    /// Whether a Cloud start carries this Mac's own gh login to the person's machine (`cloud.useMyGitHubLogin`;
-    /// Leo, 2026-11-25: "Convienient beats all."); a missing or non-boolean value is on.
+    /// Only an explicit opt-in shares this Mac's personal GitHub CLI login with a Cloud machine.
     public func useMyGitHubLogin(in root: JSONValue) -> Bool {
         root.value(at: Self.useMyGitHubLoginPath)?.boolValue ?? Self.useMyGitHubLoginDefault
     }

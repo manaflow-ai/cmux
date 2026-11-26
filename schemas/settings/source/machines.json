@@ -627,17 +627,17 @@
         {
           "key": "cloud.useMyGitHubLogin",
           "name": "useMyGitHubLogin",
-          "note": "Leo, 2026-11-25: \"Convienient beats all. Just make good ui for it so people flow.\" A Cloud start carries this Mac's own gh login to the person's machine, sealed to its daemon (git-host-tokens-v1); git and gh there use it first and fall back to the cmux GitHub App.",
+          "note": "Cloud starts use the cmux GitHub App by default. Only an explicit opt-in carries this Mac's personal GitHub CLI login.",
           "title": {
             "key": "settings.cloud.useMyGitHubLogin",
             "text": "Use My GitHub Login on Cloud Machines"
           },
           "help": {
             "key": "settings.cloud.useMyGitHubLogin.help",
-            "text": "Your Cloud machines clone and push with the GitHub account you signed in to with gh on this Mac. It's sealed to each machine, never in its environment or logs. Off: only repositories the cmux GitHub App can reach."
+            "text": "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "cloud",
             "github",
