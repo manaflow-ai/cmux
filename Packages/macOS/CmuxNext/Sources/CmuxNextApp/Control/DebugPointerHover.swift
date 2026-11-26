@@ -28,15 +28,7 @@ enum DebugPointerHover {
         let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue), row = rowID.flatMap { sidebar?.debugRowCenterInWindow(workspace: $0) }
         if let rowID, row == nil { return JSONValue(foundation: ["error": "the row is not drawn", "why": sidebar?.debugRowMiss(workspace: rowID) ?? ["controller": "none"]] as [String: Any]) ?? .null }
         let given = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? row ?? params["identifier"]?.stringValue.flatMap(window.debugCenter(ofAccessibilityIdentifier:)) ?? railPoint(params, in: window, services: services)
-        guard given == nil, let badge = usageWarningPoint(params, in: window, services: services) else {
-            return move(to: given, in: window, sidebar: sidebar)
-        }
-        // Hover the badge, let the row lay out, then aim again if the badge moved (it gives way to the hover
-        // controls in place now, so the first point usually holds).
-        let first = move(to: badge, in: window, sidebar: nil)
-        window.contentView?.layoutSubtreeIfNeeded()
-        guard let settled = usageWarningPoint(params, in: window, services: services), settled != badge else { return first }
-        return move(to: settled, in: window, sidebar: nil)
+        return move(to: given, in: window, sidebar: sidebar)
     }
 
     /// Moves the synthetic pointer to `point` (nil: out of every area) and delivers the events.
