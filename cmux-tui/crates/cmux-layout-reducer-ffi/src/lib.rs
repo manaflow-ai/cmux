@@ -64,7 +64,7 @@
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), the focus UI decisions (`focus_ui_*`:
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), the focus UI decisions (`focus_ui_*`:
 //! the no-activate keyboard guard, the shortcut hint hold, the pane hint
 //! chips, the keyboard guards), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -609,6 +609,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_focus_core::wire::ChildWindowKeyRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_input_world" => {
