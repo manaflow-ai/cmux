@@ -16,8 +16,12 @@
 
 /* CRISP (the default arm): a frostier glass that reads as one surface, a crisp hairline ring with a
    lit top edge, and a soft two-layer shadow that lifts it off the page without a smudge. */
-:root[data-hover-look][data-hover-look="crisp"],
-:root[data-hover-look][data-hover-look="ink"] {
+/* Every arm (not only Crisp and Ink) defines these: the shared rule below builds the ring and shadow
+   from them, and an arm that left one unset made the whole box-shadow invalid at computed time, so
+   its hover card drew no ring and no shadow at all (One did, the arm #51187 ships: white glass on a
+   light wallpaper vanished, fs-agent-lane-17's readback on #59205). An arm with its own edge (Soft)
+   still overrides the ring and shadow below. */
+:root[data-hover-look] {
   --hover-look-ring: light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 12%, transparent));
   --hover-look-lit: light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 70%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 10%, transparent));
   --hover-look-tooltip-shadow:
@@ -90,6 +94,15 @@
   :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
   --glass-tint: var(--tooltip-tint);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* One keeps desktop.css's shadows ("A card keeps elevation 2, a label its tight tooltip shadow"),
+   on the shared hairline ring and lit top edge. */
+:root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass {
+  --glass-elevation: var(--elevation-2);
+}
+:root[data-hover-look][data-hover-look="one"]
+  :is(.ui-tooltip:not(.ui-card), .ui-title-tooltip, .ui-hint, .cu-tooltip).ui-glass {
+  --glass-elevation: var(--tooltip-shadow);
 }
 :root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass {
   border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: every hover surface takes the one hover material's corner, the tooltip's */
