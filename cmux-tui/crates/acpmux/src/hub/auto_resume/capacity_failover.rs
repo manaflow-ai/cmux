@@ -21,7 +21,9 @@
 //!   model someone changed meanwhile keeps theirs.
 //! - A chat left on its fallback when switching is off (turned off since, or a chat the gateway's
 //!   own 503s cut on every turn, so none ended well: cmux#57784) gets its own model back before
-//!   its next capacity attempt fires, instead of staying on the fallback for good.
+//!   its next capacity attempt fires, instead of staying on the fallback for good, and before
+//!   any other prompt goes in ([`Hub::restore_capacity_fallback_if_off`], called from
+//!   `turns.rs` `prompt_with`): nobody runs a turn on a model they did not pick.
 //! - One line says each switch, in the daemon's log and as a notice row in the transcript:
 //!   `capacity_failover` `{from, to, attempt, promptId, text}` and `capacity_restored`
 //!   `{from, to, text}`.
@@ -142,6 +144,30 @@ impl Hub {
         let msg =
             json!({"from": from, "to": to, "attempt": attempt, "promptId": root, "text": text});
         self.append_retry(session, FAILOVER_RECORD, msg);
+    }
+
+    /// Before a prompt of `session` goes in: with switching off (the default), a chat a past
+    /// switch left on its fallback gets its own model back first, so the prompt runs on the
+    /// model its person picked (Leo, 2026-11-26: "austin noticed his models getting switched to
+    /// sonnet. we shouldnt do that"). Without this a chat that sat idle on Sonnet ran its next
+    /// prompt there, and showed Sonnet in the picker, until a turn ended well or a capacity
+    /// attempt fired.
+    pub(in crate::hub) async fn restore_capacity_fallback_if_off(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) {
+        if session.read_meta(|m| m.capacity_fallback.is_none()) {
+            return;
+        }
+        let configured = self.config.read().await.capacity_fallback_after;
+        if super::settings::capacity_fallback_after(configured) != 0 {
+            return;
+        }
+        let fallback =
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback.take();
+        if let Some(fallback) = fallback {
+            self.put_back(session, fallback).await;
+        }
     }
 
     /// `HOST/NAME` of `session`, for a log line.
