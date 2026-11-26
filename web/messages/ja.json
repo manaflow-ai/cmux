@@ -7272,7 +7272,9 @@
     "errorInvalidTotp": "この 2 要素認証コードは無効です。",
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
-    "errorGeneric": "問題が発生しました。もう一度お試しください。"
+    "errorGeneric": "問題が発生しました。もう一度お試しください。",
+    "errorRedirectNotAllowed": "このビルドのサインインアドレスは {backend} で許可されていません。",
+    "backendDevelopment": "開発用バックエンド"
   },
   "opsCloudVmHealth": {
     "eyebrow": "スタッフ · 運用",
