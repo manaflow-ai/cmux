@@ -21308,31 +21308,6 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceGroupSlot: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeFeedStackRow: FfiConverterRustBuffer {
-    typealias SwiftType = [FeedStackRow]
-
-    public static func write(_ value: [FeedStackRow], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeFeedStackRow.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackRow] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [FeedStackRow]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeFeedStackRow.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeWorkspaceRowFacts: FfiConverterRustBuffer {
     typealias SwiftType = [WorkspaceRowFacts]
 
@@ -21350,6 +21325,31 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceRowFacts: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeWorkspaceRowFacts.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedStackRow: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedStackRow]
+
+    public static func write(_ value: [FeedStackRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedStackRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedStackRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedStackRow.read(from: &buf))
         }
         return seq
     }
