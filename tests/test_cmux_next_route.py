@@ -668,17 +668,11 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift"], "false")
 
-    def test_a_web_nit_runs_no_mac_tier(self):
-        """A webviews change and its regenerated agent-pane bundle (#18296, one CSS line) need no Mac.
-
-        ci-web type-checks, lints and tests the sources and proves with build-agent-pane-web.sh --check
-        that the committed bundle matches them; the bundle is a `.copy` resource, so the app takes any
-        file set without a compile.
-        """
+    def test_web_sources_skip_app_tiers_but_packaged_resources_keep_them(self):
+        """Hot web sources need no app rebuild; a changed SwiftPM resource still needs one."""
         for changed in (
             ["webviews/src/agent-session/pane.tsx"],
-            ["webviews/src/agent-session/acpmux/composerAttachments.css",
-             f"{PACKAGE}/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"],
+            ["webviews/src/agent-session/acpmux/composerAttachments.css"],
             ["Resources/markdown-viewer/webviews-app/index.js", "docs/cmux-next.md"],
         ):
             with self.subTest(changed=changed):
@@ -689,6 +683,13 @@ class PullRequestTiers(unittest.TestCase):
                 daemon = "true" if any(path.startswith("webviews/") for path in changed) else "false"
                 self.assertEqual(result["daemon"], daemon)
                 self.assertEqual(result["macos"], daemon)
+
+        # live_apply classifies this package resource as a rebuild, not a web-live source.
+        result = tiers(["webviews/src/agent-session/acpmux/composerAttachments.css",
+                        f"{PACKAGE}/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"])
+        self.assertEqual(result["hot_only"], "false")
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["scheme"], "true")
 
     def test_a_web_change_beside_native_code_keeps_the_mac_tiers(self):
         result = tiers(["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextAgentPane/AgentPaneView.swift"])
