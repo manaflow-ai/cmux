@@ -16,6 +16,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+mod end_on_drop;
+pub(crate) use end_on_drop::EndOnDrop;
 pub(crate) mod foreign_login;
 pub(crate) mod leader_exit;
 #[cfg(unix)]

@@ -334,6 +334,10 @@ impl Hub {
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        // The hub's 60 s bound drops this future, maybe before the kill below: the agent's
+        // reader keeps it alive, so only this guard ends it then (cursor-agent probes ran on
+        // past 120 s in the image bake, `agent/end_on_drop.rs`).
+        let end = crate::agent::EndOnDrop::new(child.clone());
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -389,7 +393,7 @@ impl Hub {
                 Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
             }
         };
-        child.kill().await;
+        end.end().await;
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
