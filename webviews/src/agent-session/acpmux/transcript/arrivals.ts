@@ -54,14 +54,14 @@ export class TokenRows {
   }
 }
 
-/// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
+/// The newest prompt's row index (a user row that is no line), or -1: the turn the room the reader
 /// came back to is kept for (`heldRoom.reader`). Reads back from the end to that prompt only.
-export function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
+export function newestPromptIndex(rows: readonly AcpmuxRow[]): number {
   for (let index = rows.length - 1; index >= 0; index--) {
     const row = rows[index]!;
-    if (row.kind === "user" && !isLineRow(row)) return row.id;
+    if (row.kind === "user" && !isLineRow(row)) return index;
   }
-  return undefined;
+  return -1;
 }
 
 /// The rows that came at the tail bring none of the reply's text: a send's or a steer's own rows (the

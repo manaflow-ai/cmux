@@ -95,6 +95,8 @@ import { producedLinks, type ProducedLink } from "./producedLinks";
 import { openOnGitHub } from "./pullRequestDiff";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
+import { AgentSideRows } from "./AgentSideRows";
+import type { AgentSideRow } from "./agentSide";
 import { ProgressSection } from "./ProgressSection";
 import { planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
@@ -341,6 +343,8 @@ export const MemoSessionInfoSections = memo(function MemoSessionInfoSections(pro
   return <SessionInfo {...props} />;
 });
 
+const NO_AGENT_SIDE: readonly AgentSideRow[] = [];
+
 /// The sections for one chat.
 export function SessionInfo({
   summary,
@@ -365,6 +369,7 @@ export function SessionInfo({
   processes = [],
   listed = false,
   transcriptTasks = [],
+  agentSide = NO_AGENT_SIDE,
   sessions = [],
   workflows = [],
   onStopWorkflow,
@@ -453,6 +458,8 @@ export function SessionInfo({
   /// The background commands the transcript knows (sessionSummary `backgroundTasks`): Claude's
   /// background Bash, Ctrl-B's included, which the registry may not list.
   transcriptTasks?: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side, not the person's (agentSide.ts): plain rows at the section's foot.
+  agentSide?: readonly AgentSideRow[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
@@ -912,7 +919,7 @@ export function SessionInfo({
       <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
     </SessionInfoSection>
   );
-  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length + agentSide.length > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
@@ -942,6 +949,7 @@ export function SessionInfo({
           onShowCall={onShowCall}
         />
       )}
+      {agentSide.length > 0 && <AgentSideRows rows={agentSide} />}
     </SessionInfoSection>
   );
   // Usage shows once acpmux reports what this chat or any listed chat spends.

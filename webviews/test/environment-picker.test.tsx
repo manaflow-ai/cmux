@@ -1744,12 +1744,7 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
     [...strip.querySelectorAll(".acpmux-location-button")]
       .filter((button) => !button.closest("[inert]"))
       .map((button) => button.getAttribute("aria-label")),
-  ).toEqual([
-    t("composer.folder"),
-    `${t("composer.environment")}: ${t("composer.cloud")}`,
-    // The Environment chip (on by default, CLOUD_ENVIRONMENTS_ENABLED), on Auto: never a machine.
-    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
-  ]);
+  ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.cloud")}`]);
   expect(machineButton()).toBeUndefined();
   expect(host.textContent ?? "").not.toContain(t("composer.newMachine"));
   // Where, opened again: Cloud checked, one line, and still no New machine or setup row.

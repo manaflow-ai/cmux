@@ -2,6 +2,7 @@
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
 // tree (no component boundary of its own); every hook stays in AcpmuxPane, and this holds no state.
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type React from "react";
 import type { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import type { sideChatRow } from "../header/sideChatRow";
@@ -197,6 +198,8 @@ export type PaneBodyDeps = NewTabShown &
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
     trayHandle: TrayHandleSide;
+    /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
+    hatPill: HatPillPlace | undefined;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
     setPaneMain: (element: HTMLDivElement | null) => void;
@@ -342,10 +345,10 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header says: the chat's title, or a subagent's own pane's
+    /// title and "Subagent of <chat>" (subagents/subagentPanes.ts `paneHeading`).
+    heading: { title: string; of?: string; renamable: boolean };
     titleTrail: readonly string[] | undefined;
-    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
-    /// subagent, never its chat's title and summary.
-    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -513,6 +516,7 @@ export function drawPaneBody({
   previewBeside,
   jumpPlaceArm,
   trayHandle,
+  hatPill,
   chatMinimapBeside,
   hasBottomAsk,
   setPaneMain,
@@ -828,6 +832,8 @@ export function drawPaneBody({
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
           data-jump-place={jumpPlaceArm}
           data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
+          // The tucked hat's pill and how it shares the center line with the disc (jumpPlace.css).
+          data-hat-pill={hatPill}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
@@ -1071,6 +1077,7 @@ export function drawPaneBody({
                   lastAgent={newTab.lastAgent}
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+                  {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1316,6 +1323,15 @@ export function drawPaneBody({
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
+                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
+                              A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
+                              somehow denote the \"subagent of\"... at the top i feel like"). */}
+                        {heading.of && (
+                          <span className="acpmux-subagent-of" data-subagent-of="">
+                            {heading.of}
+                          </span>
+                        )}
                       </span>
                     )}
                   </ChatHeaderStatus>

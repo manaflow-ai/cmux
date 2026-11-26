@@ -188,6 +188,14 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: DepsCmd,
     },
+    /// Run VMs for the hub on this host (RFD 0100's host agent): `serve` makes, pauses,
+    /// resumes and destroys `cmux-*` VMs through libvirt and enforces each VM's lease here,
+    /// with no hosted reaper. Commands come from a local spool (`apply`) until the hub's
+    /// command lease is served.
+    Hypervisor {
+        #[command(subcommand)]
+        cmd: HypervisorCmd,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
     /// the newest feat-cmux-next build (`machine self-update`).
@@ -420,6 +428,60 @@ pub enum VaultCmd {
     /// harness login or this machine's own identity is reachable (exit 2: the
     /// audit could not see everything). A Cloud chat's VM runs it after a move.
     Audit,
+}
+
+/// Where `machine hypervisor` keeps its state and talks to libvirt.
+#[derive(clap::Args, Clone, Debug)]
+pub struct HypervisorOpts {
+    /// State folder: leases.json, status.json, the command spool and the VM disks
+    /// (default: ~/.acpmux/hypervisor).
+    #[arg(long, value_name = "DIR")]
+    pub state_dir: Option<PathBuf>,
+    /// libvirt connection URI (`virsh -c`), such as qemu:///system.
+    #[arg(long, value_name = "URI")]
+    pub connect: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum HypervisorCmd {
+    /// Apply queued commands and enforce leases, every --interval-secs: a VM past its
+    /// delete-after is destroyed; one past its max run or idle time, or whose lease the hub
+    /// stopped renewing, or with no lease at all, is paused to disk, never deleted.
+    Serve {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+        /// The qcow2 base image each VM's overlay disk is backed by.
+        #[arg(long, value_name = "FILE")]
+        base_image: Option<PathBuf>,
+        /// libvirt network the VMs attach to.
+        #[arg(long, default_value = "default")]
+        network: String,
+        /// Domain XML template ({{name}}, {{vcpus}}, {{memory_mib}}, {{disk}},
+        /// {{network}}, {{seed_disk}}); a KVM default when omitted.
+        #[arg(long, value_name = "FILE")]
+        template: Option<PathBuf>,
+        /// Seconds between passes.
+        #[arg(long, default_value_t = 5)]
+        interval_secs: u64,
+        /// One pass, then exit.
+        #[arg(long)]
+        once: bool,
+    },
+    /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
+    /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are
+    /// create, pause, resume, destroy, renew, touch and end.
+    Apply {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+        /// The command's id (default: the time and the slot).
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// List this host's cmux VMs, their state and lease.
+    Ls {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+    },
 }
 
 #[derive(Subcommand)]

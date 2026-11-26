@@ -69,6 +69,7 @@ pub mod op_names {
     pub const CLOUD_USAGE_CURRENT: &str = "cloud.usage.current";
     pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
+    pub const CLOUD_VM_MACHINE_REQUEST: &str = "cloud.vm.machine.request";
     pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
     pub const CLOUD_VM_RECEIVER_LIFECYCLE: &str = "cloud.vm.receiver.lifecycle";
     pub const CLOUD_VM_SELF_GET: &str = "cloud.vm.self.get";
@@ -321,6 +322,7 @@ pub mod op_names {
         CLOUD_USAGE_CURRENT,
         CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
+        CLOUD_VM_MACHINE_REQUEST,
         CLOUD_VM_NETWORK_POLICY,
         CLOUD_VM_RECEIVER_LIFECYCLE,
         CLOUD_VM_SELF_GET,
@@ -576,6 +578,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.usage.current" => visitor.visit::<CloudUsageCurrentOp>(),
         "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
+        "cloud.vm.machine.request" => visitor.visit::<CloudVmMachineRequestOp>(),
         "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),
         "cloud.vm.receiver.lifecycle" => visitor.visit::<CloudVmReceiverLifecycleOp>(),
         "cloud.vm.self.get" => visitor.visit::<CloudVmSelfGetOp>(),

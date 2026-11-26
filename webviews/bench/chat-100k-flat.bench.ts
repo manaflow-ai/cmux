@@ -282,7 +282,9 @@ try {
       const extra = streamed.get(id);
       return extra?.length ? [...chat.events, ...extra] : chat.events;
     };
-    const lastSeqOf = (id: string) => recordsOf(id).at(-1)?.seq ?? 0;
+    // Read from the newest record, never from a copy of the chat: emit calls it once a record, and a copy a call made
+    // growing a chat by n records cost O(n^2) (200k records a grown chat, about 2 min of the bench's own CPU each).
+    const lastSeqOf = (id: string) => (streamed.get(id)?.at(-1) ?? chat.events.at(-1))?.seq ?? 0;
     const summaryOf = (id: string) => {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };

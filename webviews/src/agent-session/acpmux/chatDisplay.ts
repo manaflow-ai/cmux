@@ -149,6 +149,11 @@ export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills
 /// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
 /// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
 export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
+/// Settings > Agent Chat > Subagent Of in Header, off by default: a subagent's own pane says whose it is,
+/// "Subagent of <chat>" muted beside its name in the header (subagents/subagentPanes.ts `paneHeading`; Leo,
+/// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
+/// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
+export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
 /// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
 /// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
@@ -556,6 +561,7 @@ let raw: Values = {};
 let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
+let subagentOfOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
@@ -634,6 +640,7 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
+  const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // The pop's gate: written only when the setting changes, so a page that set its own
@@ -689,6 +696,7 @@ export function setChatDisplay(value: unknown): void {
     minimap === minimapOn &&
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
+    subagentOf === subagentOfOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -714,6 +722,7 @@ export function setChatDisplay(value: unknown): void {
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
+  subagentOfOn = subagentOf;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -920,6 +929,9 @@ const headerBreadcrumbSnapshot = () => headerBreadcrumbOn;
 /// Whether the header draws its title as a slash path (HEADER_BREADCRUMB_KEY).
 export const useHeaderBreadcrumb = (): boolean =>
   useSyncExternalStore(subscribe, headerBreadcrumbSnapshot, headerBreadcrumbSnapshot);
+const subagentOfSnapshot = () => subagentOfOn;
+/// Whether a subagent's own pane says "Subagent of <chat>" in its header (SUBAGENT_OF_KEY).
+export const useSubagentOf = (): boolean => useSyncExternalStore(subscribe, subagentOfSnapshot, subagentOfSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);

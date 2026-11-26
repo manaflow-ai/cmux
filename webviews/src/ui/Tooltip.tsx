@@ -27,6 +27,8 @@ import { HOVER_INTENT } from "./hoverIntent";
 import { UI_TOOLTIP_EDGE, UI_TOOLTIP_GAP, UI_TOOLTIP_MAX_WIDTH, tooltipGap, tooltipScale } from "./tooltipTokens";
 import { usePopupPadding } from "./popupInset";
 import { fitTooltipWidth } from "./tooltipFit";
+import { announceHoverSurface } from "./hoverSurface";
+import { oneHoverSurface } from "./hoverLook";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -114,8 +116,14 @@ export function Tooltip({
   // Chromium's see-through page draws no underlay under it. Before, a Tooltip card kept that
   // underlay and read solid (Leo, 2026-11-14: "this has no transparency at all + is not
   // scrollable"). The popup mounts only while it shows.
+  // Under the One hover look (experiments.hoverLook = one, ui/hoverLook.css) a label blurs what it
+  // covers too, as a card does, and says it opened so a title tooltip beside it goes
+  // (ui/hoverSurface.ts). Off, a label is as before.
   useLayoutEffect(() => {
-    if (!popup || !wraps) return;
+    if (!popup) return;
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    if (!wraps && !one) return;
     return attachSeeThroughBlur(popup, hoverCardUnder, hoverCardGlass);
   }, [popup, wraps]);
   // A card taller than the window scrolls (desktop.css .ui-tooltip.ui-card); from the keyboard, its
@@ -248,8 +256,15 @@ export function AnchoredCard({
   );
   const shown = open ?? anchor !== null;
   useLayoutEffect(() => {
-    if (!popup || !under || !shown) return;
-    return attachSeeThroughBlur(popup, under, underOptions);
+    if (!popup || !shown) return;
+    // Under the One hover look every card blurs what it covers (the chat and Session Info by
+    // default, glass/hoverCardGlass.ts) and says it opened (ui/hoverSurface.ts); off, only a card
+    // given `under` blurs, as before.
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    const covered = under ?? (one ? hoverCardUnder : undefined);
+    if (!covered) return;
+    return attachSeeThroughBlur(popup, covered, under ? underOptions : hoverCardGlass);
   }, [popup, under, underOptions, shown]);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>

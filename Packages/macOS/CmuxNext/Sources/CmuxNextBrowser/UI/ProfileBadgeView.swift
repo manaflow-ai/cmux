@@ -18,14 +18,16 @@ public struct BrowserProfileBadge: Hashable, Sendable {
 
 extension BrowserProfileBadge {
     /// The avatar as an image of side `side` (the profile menu's header row): the disc in the profile's
-    /// color, its letter or symbol on it, drawn for the appearance it is shown in.
+    /// color, its letter or symbol on it, drawn for the appearance it is shown in. Drawn at the size it is shown,
+    /// so the profile menu's card draws it larger with its letter in proportion (`letterSize`).
     @MainActor public func avatarImage(side: CGFloat) -> NSImage {
-        let size = TypeScale.caption
         let fill = color?.fill ?? Palette.hoverFill, ink = Palette.textSecondary
-        let symbol = ProfileBadgeView.symbolImage(monogram)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold).applying(.init(paletteColors: [ink])))
-        let text = NSAttributedString(string: monogram, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: ink])
+        let monogram = monogram, glyph = ProfileBadgeView.symbolImage(monogram), caption = TypeScale.caption
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let size = Self.letterSize(side: rect.height, least: caption)
+            let symbol = glyph?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold).applying(.init(paletteColors: [ink])))
+            let text = NSAttributedString(string: monogram, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: ink])
             fill.setFill()
             NSBezierPath(ovalIn: rect).fill()
             let box = symbol?.size ?? text.size()
@@ -34,9 +36,24 @@ extension BrowserProfileBadge {
             return true
         }
     }
+
+    /// The letter's size on a disc of side `side`: `least` (the toolbar's caption) on the button's and the menu
+    /// row's small discs, about 2/5 of a larger one (the profile menu's card).
+    nonisolated static func letterSize(side: CGFloat, least: CGFloat) -> CGFloat { max(least, (side * 0.42).rounded()) }
 }
 
 extension BrowserProfileBadge {
+    /// The avatar of `record`, as the toolbar button draws it.
+    public init(_ record: BrowserProfileRecord) {
+        self.init(monogram: record.monogram, color: record.color.flatMap(GroupColor.init(rawValue:)), name: record.name)
+    }
+
+    /// Each profile's small avatar by its id: the profile menu's rows draw them, as Chrome's and Helium's other-profile
+    /// rows do.
+    @MainActor public static func menuImages(_ records: [BrowserProfileRecord]) -> [String: NSImage] {
+        Dictionary(records.map { ($0.id, BrowserProfileBadge($0).avatarImage(side: 16)) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// The profile menu's first row for a tab with this profile: its name, why the tab has it (`source`; the
     /// built-in default says nothing) and its avatar.
     @MainActor public func menuHeader(_ source: BrowserProfileCascade.Source) -> (title: String, subtitle: String?, image: NSImage?) {

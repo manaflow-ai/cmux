@@ -434,7 +434,13 @@ if [[ "$suite" == cueval ]]; then
   runner="CU_EVAL_RUNNER=scripts/measure/cu-driver-eval/cueval-guest.sh "
   cueval_paths=(evals/computer-use cmux-tui/crates/cmux-computer-use/src/policy.rs)
 fi
-git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/measure/cu-bench scripts/build-cmux-cua.sh skills/cmux-cua ${cueval_paths[@]+"${cueval_paths[@]}"} |
+# The legacy cmux-cua arm's sources (build-cmux-cua.sh, skills/cmux-cua) left the tree with #37003, and
+# git archive refuses a pathspec the rev lacks: send each optional path only where the rev has it.
+archive_paths=(scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/measure/cu-bench)
+for p in scripts/build-cmux-cua.sh skills/cmux-cua ${cueval_paths[@]+"${cueval_paths[@]}"}; do
+  git cat-file -e "$rev:$p" 2>/dev/null && archive_paths+=("$p")
+done
+git archive "$rev" "${archive_paths[@]}" |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
 if [[ ( "$suite" == arena || "$suite" == latency ) && -d "$engines_out" ]]; then
   tar -c -C "$engines_out" . | guest 'mkdir -p ~/cu-eval/engines && tar -x -C ~/cu-eval/engines' || { finish "could not copy the engines into the guest"; exit 4; }

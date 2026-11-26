@@ -285,7 +285,7 @@ test("Add harness keeps the typed draft through setup", async () => {
   expect(asks[0]?.[1]).toBe("keep my draft");
 });
 
-test("New Tab suggestions keep the composer's page glass", async () => {
+test("New Tab's box and its suggestions are the App's one popover glass", async () => {
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -303,8 +303,11 @@ test("New Tab suggestions keep the composer's page glass", async () => {
   await typePrompt("fix the flaky test");
   const popover = document.querySelector(".nt-popover");
   expect(popover).toBeTruthy();
-  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
-  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+  const box = document.querySelector(".nt-box");
+  expect(box!.getAttribute("data-host-glass")).toBe("popover");
+  expect(box!.classList.contains("ui-glass")).toBe(true);
 });
 
 test("other popovers keep native popup glass", async () => {
@@ -2982,6 +2985,78 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
 
 // cmux#53226 (Austin): with This Mac picked, picking a GitHub repository in the folder menu cloned it at once.
 // The pick is the chip's choice only; Return checks it out here (cloned first when there is none), then asks there.
+// cmux#53226: a GitHub repository checked out here, then taken to Cloud, went as its checkout's folder ("Copying
+// your project"); Cloud clones the repository, as the chip names it.
+test("a GitHub repository checked out on this Mac and then taken to Cloud starts as the repository, never a copy", async () => {
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: false });
+  setNativeHost(async (method) => {
+    if (method === "github.status") return { state: "ready", repos_scope: "all" };
+    if (method === "github.repos.list")
+      return { repos: [{ full_name: "acme/api", private: false, default_branch: "main" }], truncated: false };
+    return undefined;
+  });
+  const clouded: unknown[][] = [];
+  let land: (folder: string | undefined) => void = () => {};
+  function Page() {
+    const [mode, setMode] = useState<RunMode>("persistent");
+    return (
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([])}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        runMode={{ mode, onMode: setMode }}
+        onAsk={() => {}}
+        onCloud={(...args) => (clouded.push(args), false)}
+        onNewWorktree={() => new Promise((resolve) => (land = resolve))}
+      />
+    );
+  }
+  await act(async () => root!.render(<Page />));
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const repo = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("acme/api"),
+  );
+  await act(async () => repo!.click());
+  await settle();
+  await typePrompt("fix the login bug");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  await act(async () => land("/Users/you/.cmux/worktrees/api/lane"));
+  await settle();
+  await settle();
+  // The checkout is the chip's pick now; the person takes the chat to Cloud in the Where menu.
+  const where = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (name: string) => {
+    await act(async () => where().click());
+    await settle();
+    const row = [...document.querySelectorAll<HTMLElement>('.acpmux-env-popover [role="option"]')].find((option) =>
+      option.textContent?.startsWith(name),
+    )!;
+    await act(async () => row.click());
+    await settle();
+  };
+  await choose("Cloud");
+  expect(folder().textContent).toContain("acme/api");
+  await typePrompt("fix the login bug");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[2]).toBe("github:acme/api");
+  // Back on This Mac the checkout is the chip's folder again, never No folder.
+  await choose("This Mac");
+  expect(folder().textContent).toContain("acme/api");
+  expect(folder().textContent).not.toContain("No folder");
+  forgetAddedRepos();
+});
+
 test("with This Mac picked a GitHub repository's pick checks nothing out; Return checks it out, then asks there", async () => {
   // acme/api was added as a project: the folder menu lists only repositories added so (cmux#53226).
   forgetAddedRepos();
@@ -3043,4 +3118,94 @@ test("with This Mac picked a GitHub repository's pick checks nothing out; Return
   expect(asks[0]![1]).toBe("fix the login bug");
   expect(asks[0]![2]).toBe("/Users/you/.cmux/worktrees/api/lane");
   forgetAddedRepos();
+});
+
+// cmux#53226: with Cloud picked, the New Tab folder menu said "No recent folders" while this Mac's projects
+// and the added repositories were there to pick; Cloud lists the same recent list as This Mac.
+test("with Cloud picked the New Tab folder menu lists this Mac's recent folders and the added repositories", async () => {
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: false });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([])}
+        cwd="/Users/you/src/cmux"
+        projects={[
+          { cwd: "/Users/you/src/cmux", label: "cmux" },
+          { cwd: "/Users/you/notes", label: "notes" },
+        ]}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={() => true}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const rows = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(rows).toEqual(expect.arrayContaining(["cmux", "notes", "acme/api"]));
+  // The screenshot's state: a repository picked, the menu opened again. The list stays the same.
+  const repo = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("acme/api"),
+  );
+  await act(async () => repo!.click());
+  await settle();
+  expect(folder().textContent).toContain("acme/api");
+  await act(async () => folder().click());
+  await settle();
+  const again = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(again).toEqual(expect.arrayContaining(["cmux", "notes", "acme/api"]));
+  forgetAddedRepos();
+});
+
+test("with Cloud picked on a New Tab that starts on the last chat's Cloud machine, the folder menu still lists this Mac's folders and a pick moves the chat to this Mac (cmux#53226)", async () => {
+  forgetAddedRepos();
+  const asked: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { peers: ["cloud-box"], peerKinds: { "cloud-box": "cloud" } })}
+        cwd="/Users/you/src/cmux"
+        projects={[
+          { cwd: "/Users/you/src/cmux", label: "cmux" },
+          { cwd: "/Users/you/notes", label: "notes" },
+        ]}
+        startMachine="cloud-box"
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={() => true}
+        onProjectPicked={(cwd: string) => void asked.push([cwd])}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await settle();
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const rows = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  // Before: "No recent folders", the machine's own (none) listed instead of this Mac's.
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(rows).toEqual(expect.arrayContaining(["cmux", "notes"]));
+  const notes = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("notes"),
+  );
+  await act(async () => notes!.click());
+  await settle();
+  expect(folder().textContent).toContain("notes");
+  // The pick is this Mac's: the host grants it for the Cloud start's copy, and the chip no longer names the machine.
+  expect(asked).toEqual([["/Users/you/notes"]]);
+  expect(container.querySelector(".acpmux-composer-context")?.textContent).not.toContain("cloud-box");
 });

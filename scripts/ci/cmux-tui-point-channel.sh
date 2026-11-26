@@ -116,7 +116,9 @@ compare_status() { # <commit>
     [[ "$try" == 3 ]] || sleep "${POINT_COMPARE_RETRY_SLEEP:-10}"
   done
   echo "GitHub's compare of $1...$GITHUB_SHA did not answer; asking git." >&2
-  if timeout 120 git -C "$git_dir" fetch -q --no-tags --filter=tree:0 --depth=5000 origin "$GITHUB_SHA" >/dev/null 2>&1 &&
+  depth=()
+  [[ "$(git -C "$git_dir" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=5000)
+  if timeout 120 git -C "$git_dir" fetch -q --no-tags --filter=tree:0 ${depth[@]+"${depth[@]}"} origin "$GITHUB_SHA" >/dev/null 2>&1 &&
     git -C "$git_dir" merge-base --is-ancestor "$1" "$GITHUB_SHA" 2>/dev/null; then
     echo ahead
   fi

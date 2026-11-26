@@ -51,6 +51,13 @@ Left to right in the toolbar row:
    Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
    is pinned by default and draws the tab's profile as its avatar (its letter or icon on its
    color); a press opens the profile menu. The profile is never inside the address bar.
+   The profile menu is a flat list (`BrowserProfileMenuStyle.list`). Behind the default-off
+   experiment Browser Profile Card it opens as Helium's and Chrome's (`.card`): a card with
+   the profile's large avatar, its name and why the tab has it; one quiet "Signed in as …" row
+   (Accounts) while signed in to cmux; the other profiles, each with its avatar; New Browser
+   Profile, New Incognito Window, Manage Browser Profiles; Customize Profile (the profile's own
+   rows); Import from Browser and the Web Store. The cmux account itself stays in the sidebar's
+   profile control.
 5. **Progress line**, 2 pt, at the row's bottom edge, the focus ring gray at 80%.
 
 The suggestion card hangs from the bar. Page Info is a popup anchored at the chip.
@@ -193,10 +200,10 @@ not a banner).
   line before it cuts a word. The answers follow at the trailing edge as one group. In a narrow
   pane, or with longer labels, the group wraps under the line, still at the trailing edge.
 - **Answers.** These use the toast's grammar (toasts.css): clear text with the hover fill only
-  under the pointer. Don't Show Again is in the secondary ink, Import… is bold in the ink, and the
-  close button (×, labelled and titled Not Now) is last. No key hints: the card never takes focus,
+  under the pointer. Never for Chrome is in the secondary ink, Import… is bold in the ink, and
+  one Not now button dismisses it for 30 days. No key hints: the card never takes focus,
   so Return and Escape stay the page's.
-- **Copy.** The title is the only line. The detail ("Stay signed in to your sites. Nothing leaves
+- **Copy.** The title is the only line: "Import sign-ins from Google Chrome" for Chrome. The detail ("Stay signed in to your sites. Nothing leaves
   this Mac.") and the Keep in sync checkbox are gone. Keep in sync is
   Settings > Browser > Import (`browser.import.cookieSync`, on by default), and Import uses
   that setting.
@@ -257,7 +264,7 @@ The strip under the toolbar that shows the Bookmarks Bar folder's items. It is n
 | Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
 | On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
 | Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
-| Import Cookies card | toast (one row: the line, Don't Show Again and Import as text, the close button as Not Now), buttons (one row of ghost, subtle and accent buttons), stacked (the line, then a row of buttons) | **toast** |
+| Import Cookies card | toast (one row: the line, Never for Chrome and Import as text, one Not now button), buttons (one row of ghost, subtle and accent buttons), stacked (the line, then a row of buttons) | **toast** |
 
 - **Flat** keeps the bar a field you can find at a glance on any wallpaper or theme, and its fill
   is what the joined card continues. Outlined reads lighter but loses the bar on busy pages and
@@ -277,6 +284,6 @@ The strip under the toolbar that shows the Bookmarks Bar folder's items. It is n
   General summary under a long scroll.
 - **Split** reads in order: what this is, then the quiet way out on the left and the two real
   answers together on the right, so the eye lands on Import last. Trailing puts three
-  same-height targets side by side, which makes Don't Show Again look like a third button of
+  same-height targets side by side, which makes Never for Chrome look like a third button of
   equal weight. Inline saves a row in wide panes but squeezes the text in the narrow ones the
   browser pane often is.

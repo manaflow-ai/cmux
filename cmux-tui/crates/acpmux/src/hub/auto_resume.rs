@@ -48,7 +48,7 @@
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 0: never), its attempts run on a
 //!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
@@ -130,6 +130,11 @@ mod model_reroute;
 
 /// A sustained overload goes on on a smaller model, and back once a turn there ends well.
 mod capacity_failover;
+
+/// A host's background capacity waiters go back one probe at a time during an outage, then in
+/// a doubling stream once the model answers (`capacity_gate.rs`).
+mod capacity_gate;
+pub(crate) use capacity_gate::CapacityGate;
 
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
@@ -835,6 +840,8 @@ impl Hub {
             Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
         pending.replace(mark);
         drop(pending);
+        // A background chat cut on capacity tells the host's gate the pool is out.
+        self.capacity_gate_cut(session, Some(reason));
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
@@ -946,6 +953,21 @@ impl Hub {
                 // takes the new deadline.
                 hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
+                // Its wait over, a background capacity continuation waits its turn at the
+                // host's gate; the permit lives as long as its attempt.
+                let _permit = hub.capacity_gate_admit(&session, &turn_id, reason, &wake).await;
+                let cut = CutTurn {
+                    from: from.as_deref(),
+                    prompt_id: &root,
+                    turn_id: &turn_id,
+                    control,
+                    trust_gate,
+                    error: &error,
+                    not_before: None,
+                    slash: slash.as_deref(),
+                };
+                hub.resume_or_compact(&session, cut, attempt).await;
+                return;
             }
             let cut = CutTurn {
                 from: from.as_deref(),
@@ -1576,8 +1598,14 @@ impl Hub {
         // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
         // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
+        // The person waits on their own turn until its first token (`hub/cpu_pressure.rs`).
+        let waited = turn.persons && !turn.trigger;
         self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
+            session.awaiting_reply.store(waited, std::sync::atomic::Ordering::SeqCst);
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+            if waited {
+                super::cpu_pressure::wake();
+            }
         })
     }
 

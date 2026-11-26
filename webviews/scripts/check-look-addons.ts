@@ -154,6 +154,8 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
 /** Words a color made from the theme's own may hold besides `var(--name)`: the color-mix grammar. */
 const MIX_WORDS = new Set([
   "color-mix",
+  // light-dark(A, B): the page's color-scheme (theme.ts) picks A or B, so it follows the appearance.
+  "light-dark",
   "in",
   "srgb",
   "srgb-linear",

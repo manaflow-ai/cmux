@@ -17,7 +17,7 @@ import { FailedCount } from "./FailedCount";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
+import { Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
@@ -33,11 +33,12 @@ import {
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
-import { ToolLabel } from "./ToolVerb";
+import { Tick } from "../subagents/trayMotion";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
 import { firstStepCount, stepProbe } from "./toolGroupRowModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -432,7 +433,9 @@ export function ToolGroupRow({
   const running = tools.some(isRunning);
   const failures = tools.filter(countsFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
-  const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
+  const single = tools.length === 1 ? tools[0] : undefined;
+  const description = single?.description?.trim() || undefined;
+  const write = kind === "edits" && single && !description ? writeCall(single) : undefined;
   // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.
   const failure = useMemo(() => (tools.length === 1 ? toolFailure(tools[0]!) : undefined), [tools]);
   return (
@@ -472,14 +475,19 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              <ToolLabel
-                whole
-                text={toolGroupLabel(
-                  t,
-                  kind,
-                  items,
-                  files.map((file) => file.path),
-                )}
+              {/* A count that grows rolls on its own and new words roll in, on the one text roll
+                  every live label shares (ui/motion/TextRoll.tsx). */}
+              <Tick
+                steadyCounts
+                text={
+                  description ??
+                  toolGroupLabel(
+                    t,
+                    kind,
+                    items,
+                    files.map((file) => file.path),
+                  )
+                }
               />
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
@@ -493,7 +501,7 @@ export function ToolGroupRow({
             <InlineFailureCause failure={failure} />
           </span>
         )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
