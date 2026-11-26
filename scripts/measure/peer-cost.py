@@ -291,7 +291,7 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
         near = fleet.start_near()
         t0 = time.time()
         peak_ssh = peak_tunnels = peak_procs = masters_peak = peak_daemon_rss = 0
-        seen_procs, tunnel_rss, master_rss = set(), {}, {}
+        seen_procs, cpu_seen, tunnel_rss, master_rss = set(), {}, {}, {}
         series, all_up_at, sample_row = [], None, None
         last_rpc, mark = 0, None  # `mark`: CPU at two thirds of the window; the rest of it is the idle, steady cost
         while time.time() - t0 < secs:
@@ -299,6 +299,10 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
             kids = children_map()
             mine = fleet.ours(kids)
             seen_procs |= mine
+            for pid in {near.pid} | mine:
+                stat = stat_of(pid)
+                if stat:
+                    cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), stat[1] + stat[2])
             ssh = [d for d in mine if (stat_of(d) or NOSTAT)[3] == "ssh"]
             tun = masters = 0
             for d in ssh:
@@ -325,10 +329,19 @@ def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
                     all_up_at = round(now, 1)
             time.sleep(0.1)
         end = time.time() - t0
-        total = cpu_of({near.pid} | fleet.ours(children_map()))
+        final_mine = fleet.ours(children_map())
+        for pid in {near.pid} | final_mine:
+            stat = stat_of(pid)
+            if stat:
+                cpu_seen[pid] = max(cpu_seen.get(pid, 0.0), stat[1] + stat[2])
+        if near.poll() is not None:
+            raise RuntimeError(f"cold-start near daemon exited with status {near.returncode}")
+        total = sum(cpu_seen.values())
         own = stat_of(near.pid)
         far_cpu = cpu_of(fleet.far_pids(children_map())) - far0
         n_up, _ = peers_up(fleet)
+        if n_up is None:
+            raise RuntimeError("cold-start near daemon did not answer its final peer-status RPC")
         log = [l.split(" ", 2) for l in open(fleet.p("ssh.log")).read().splitlines()]
         tunnels = sum(1 for l in log if len(l) > 2 and " -W " in " " + l[2] + " ")
         rss, mrss = sorted(tunnel_rss.values()), sorted(master_rss.values())
@@ -374,16 +387,28 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
         if hold:
             # Keep a successful tunnel alive long enough to sample its RSS, then end our own probe.
             deadline = time.monotonic() + 1.5
-            while pr.poll() is None and time.monotonic() < deadline:
+            while time.monotonic() < deadline:
                 time.sleep(0.05)
             rss = rss_kb(pr.pid)
-            if pr.poll() is None:
-                pr.terminate()
+            try:
+                os.kill(pr.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             deadline = time.monotonic() + 2
-            while pr.poll() is None and time.monotonic() < deadline:
+            waited = None
+            while time.monotonic() < deadline:
+                waited_pid, status, ru = os.wait4(pr.pid, os.WNOHANG)
+                if waited_pid:
+                    waited = (status, ru)
+                    break
                 time.sleep(0.05)
-            if pr.poll() is None:
-                pr.kill()
+            if waited is None:
+                try:
+                    os.kill(pr.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                _, status, ru = os.wait4(pr.pid, 0)
+                waited = (status, ru)
         else:
             selector = selectors.DefaultSelector()
             selector.register(pr.stdout, selectors.EVENT_READ)
@@ -395,8 +420,6 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
                     raise TimeoutError(f"ssh probe exceeded {timeout}s: {' '.join(argv)}")
                 events = selector.select(min(remaining, 0.25))
                 if not events:
-                    if pr.poll() is not None:
-                        break
                     continue
                 for key, _ in events:
                     chunk = os.read(key.fileobj.fileno(), 1 << 16)
@@ -412,11 +435,19 @@ def timed_ssh(argv, hold=False, payload=b"", timeout=30):
                 raise RuntimeError(f"ssh probe returned no response: {' '.join(argv)}")
             wall = (first_at or time.monotonic()) - t if payload else time.monotonic() - t
     except BaseException:
-        if pr.poll() is None:
-            pr.kill()
-        os.wait4(pr.pid, 0)
+        try:
+            os.kill(pr.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.wait4(pr.pid, 0)
+        except ChildProcessError:
+            pass
         raise
-    _, status, ru = os.wait4(pr.pid, 0)
+    if hold and waited is not None:
+        status, ru = waited
+    else:
+        _, status, ru = os.wait4(pr.pid, 0)
     exit_code = os.waitstatus_to_exitcode(status)
     if not hold and exit_code != 0:
         raise RuntimeError(f"ssh probe exited {exit_code}: {' '.join(argv)}")
@@ -437,19 +468,36 @@ def phases(argv):
     pr.stdin.write(b"x")
     pr.stdin.flush()
     end = time.monotonic() + 8
-    for line in pr.stderr:
-        now = time.monotonic() - t0
-        for name, pat in want:
-            if name not in marks and re.search(pat, line):
-                marks[name] = round(now * 1000, 1)
-        m = re.search(rb"kex: algorithm: (\S+)", line)
-        if m and not kex:
-            kex = m.group(1).decode()
-        if "channel_open" in marks or time.monotonic() > end:
-            break
-    time.sleep(0.2)
-    pr.kill()
-    pr.wait()
+    selector = selectors.DefaultSelector()
+    selector.register(pr.stderr, selectors.EVENT_READ)
+    buf = b""
+    try:
+        while time.monotonic() < end and "channel_open" not in marks:
+            for key, _ in selector.select(min(0.25, max(0, end - time.monotonic()))):
+                chunk = os.read(key.fileobj.fileno(), 1 << 16)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                buf += chunk
+                *lines, buf = buf.splitlines(keepends=True)
+                for line in lines:
+                    now = time.monotonic() - t0
+                    for name, pat in want:
+                        if name not in marks and re.search(pat, line):
+                            marks[name] = round(now * 1000, 1)
+                    m = re.search(rb"kex: algorithm: (\S+)", line)
+                    if m and not kex:
+                        kex = m.group(1).decode()
+    finally:
+        selector.close()
+        try:
+            os.kill(pr.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.wait4(pr.pid, 0)
+        except ChildProcessError:
+            pass
     return {"ms_since_spawn": marks, "kex": kex}
 
 
@@ -577,7 +625,10 @@ def main():
                 rows.append({"name": f"acpmux.peer_cost.{st}.{k}", "value": cs[k], "peers": cs["peers"]})
         hs = result.get(f"handshake_{st}")
         if hs and "error" not in hs:
-            rows.append({"name": f"acpmux.peer_cost.{st}.login_cpu_ms", "value": hs["tunnel_login"]["client_cpu_ms_median"]})
+            if "tunnel_login" in hs:
+                rows.append({"name": f"acpmux.peer_cost.{st}.login_cpu_ms", "value": hs["tunnel_login"]["client_cpu_ms_median"]})
+            elif "real_host" in hs:
+                rows.append({"name": f"acpmux.peer_cost.{st}.real_host_login_cpu_ms", "value": hs["real_host"]["client_cpu_ms_median"]})
     for k, v in result.items():
         print(f"PEERCOST {k} {json.dumps(v, sort_keys=True)}")
     result["rows"] = rows
