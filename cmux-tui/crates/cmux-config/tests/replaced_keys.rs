@@ -149,7 +149,7 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
         &file,
         &managed,
         &TeamPolicyLayer::default(),
-        &schema,
+        schema,
     );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
     assert!(merged.managed_keys.contains_key("updates.automatic"), "{:?}", merged.managed_keys);
@@ -160,7 +160,7 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
         &json!({}),
         &ManagedPreferences::default(),
         &team,
-        &schema,
+        schema,
     );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("notify")));
     assert!(merged.managed_keys.contains_key("updates.automatic"));
@@ -173,7 +173,7 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
         &file,
         &ManagedPreferences::default(),
         &team,
-        &schema,
+        schema,
     );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
 }
