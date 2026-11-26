@@ -153,7 +153,10 @@ jobs:
     # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build.
     name: machine channel PR head build
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') }}
+    # The land tier (tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next builds the thin
+    # machine channel only once it is handed to land (`ready-to-land` or `full-ci`), not on every push or base merge.
+    # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
     uses: ./.github/workflows/cmux-machine-channel.yml
     permissions:
       contents: read
