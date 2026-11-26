@@ -423,6 +423,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
                 "CmuxNextHostPressure",
+                "CmuxNextHostPressureTunables",
                 "CmuxNextHostedChief",
                 "CmuxNextIcons",
                 "CmuxNextImportCards",
@@ -1496,12 +1497,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The memory pressure dispatch source, plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
-            dependencies: ["CmuxNextDesignTokens"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHostPressureTests",
             dependencies: ["CmuxNextHostPressure"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Host pressure's Debug Settings tunables (forced level, indicator style, thresholds). They
+        // read the design tokens, so they stay out of CmuxNextHostPressure, which builds on Linux.
+        .target(
+            name: "CmuxNextHostPressureTunables",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextDesignTokens",
+                "CmuxNextHostPressure",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
@@ -2925,6 +2935,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
+                "CmuxNextHostPressureTunables",
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
