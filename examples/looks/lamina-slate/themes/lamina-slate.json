@@ -6,7 +6,7 @@
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#537aaa", "accent": "#7aa2d6"},
+  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#547bab", "accent": "#7aa2d6"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2f4560",
@@ -30,7 +30,7 @@
 
   // Layers: sidebar and docks lowest, title and tabs next, content on top.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#1e1f22",
+  "appearance.surfaces.sidebar.color": "#25262a",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#25262a",
   "appearance.surfaces.tabBar.opacity": 1,

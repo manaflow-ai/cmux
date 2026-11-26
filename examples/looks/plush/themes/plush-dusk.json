@@ -36,7 +36,7 @@
     "palette = 9=#a24844",
     "palette = 10=#237236",
     "palette = 11=#7f5f04",
-    "palette = 12=#2b5d9a",
+    "palette = 12=#23599b",
     "palette = 13=#8e4c89",
     "palette = 14=#086f74",
     "palette = 15=#857f8c"
@@ -66,7 +66,7 @@
   "appearance.metrics.columnGap": 10,
   "appearance.metrics.dividerThickness": 0,
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#e6e1ed",
+  "appearance.surfaces.sidebar.color": "#dfdae6",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,

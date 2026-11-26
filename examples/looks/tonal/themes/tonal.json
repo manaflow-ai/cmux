@@ -76,7 +76,7 @@
 
   // The sidebar: its own tonal step (surface-container), no edge line, groups in the theme's colors.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f3faf7",
+  "appearance.surfaces.sidebar.color": "#e9efed",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
