@@ -1533,6 +1533,9 @@ jobs:
             python3 tests/test_nightly_fallback_covers.py
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
+            # Why: cmux#56291 moved agent-policy.json to agent-policy/ and nothing ran the Linux settings exporter's test, so every
+            # settings exports (Linux) job exited 2 and fell back to a Mac (cmux#56505).
+            bash scripts/cmux-next/tests/export-settings-linux.test.sh
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
