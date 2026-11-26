@@ -294,6 +294,20 @@ class DecideTests(unittest.TestCase):
                          ["build", "fresh", "chat-anim", "sidebar", "motion"],
                          "only a part with no row anywhere goes before the goal's part")
 
+    def test_a_goal_part_whose_newest_store_was_incomplete_is_due_sooner(self):
+        state = cron.empty_state(T0)
+        t = at(cron.GOAL_INCOMPLETE_STALE_HOURS + 1)
+        state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0), "incomplete": "transcript-replay-god: timed out"},
+                                "web-ui-scale": {"at": cron.iso(at(-cron.PART_STALE_HOURS - 1))}}
+        self.assertEqual(cron.part_order(state, ["build", "web-ui-scale", "web-ui-god"], t),
+                         ["build", "web-ui-god", "web-ui-scale"])
+        state["part_stored"]["web-ui-god"].pop("incomplete")
+        self.assertEqual(cron.part_order(state, ["build", "web-ui-scale", "web-ui-god"], t),
+                         ["build", "web-ui-scale", "web-ui-god"], "a complete store keeps the 20 h clock")
+        state["part_stored"]["motion"] = {"at": cron.iso(T0), "incomplete": "x"}
+        self.assertEqual(cron.part_order(state, ["build", "web-ui-scale", "motion"], t),
+                         ["build", "web-ui-scale", "motion"], "a part with no goal keeps the 20 h clock")
+
     def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
         state = cron.empty_state(T0)
         t = at(1)

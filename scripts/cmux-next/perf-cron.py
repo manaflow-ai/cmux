@@ -1591,6 +1591,20 @@ def supersede_for_unread(state, t, newest, supported_parts):
     return why
 
 
+# A goal's part (PARTS "goal") whose newest store was incomplete is due again after this many hours, not
+# PART_STALE_HOURS: an incomplete store still moves its date (store_part_rows), so on 2026-11-26 web-ui-god's 11-25
+# 22:36Z store, which lacked transcript-replay-god (the goal's rows), kept it off every tick until 18:36Z while
+# god-chat-ratios read a 4-day-old number. Not at once, so a part that keeps failing one bench still yields turns.
+GOAL_INCOMPLETE_STALE_HOURS = 4
+
+
+def part_stale_hours(name, stored):
+    """How old a part's newest store may be before the part is due (part_order)."""
+    if PART_BY_NAME.get(name, {}).get("goal") and isinstance(stored, dict) and stored.get("incomplete"):
+        return GOAL_INCOMPLETE_STALE_HOURS
+    return PART_STALE_HOURS
+
+
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
@@ -1608,7 +1622,7 @@ def part_order(state, todo, t):
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
         if not at:
             never.append(name)
-        elif hours_between(at, t) > PART_STALE_HOURS:
+        elif hours_between(at, t) > part_stale_hours(name, e):
             stale.append((at, i, name))
     # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
     # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
