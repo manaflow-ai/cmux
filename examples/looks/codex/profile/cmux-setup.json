@@ -77,7 +77,7 @@
     // App Store) goes; sections draw no header, so the Chats section has no "Chats" title over New chat; and a
     // chat with no folder sits at the end of the list with no "No Folder" header. The priority view is not
     // turned on: the Chats section's Active work lists the chats that are working or waiting on you.
-    "sidebar.sections.hidden": ["sec_top"],
+    "sidebar.sections.hidden": [],
     "sidebar.sectionLook": "lines",
     "sidebar.folderlessUngrouped": true,
 
