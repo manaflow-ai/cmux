@@ -158,12 +158,13 @@ pub fn parse_date(text: &str) -> Option<f64> {
         }
         Some(slice.iter().fold(0i64, |n, d| n * 10 + i64::from(d - b'0')))
     };
+    let at = |i: usize| b.get(i).copied();
     if b.len() < 20
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
+        || at(4) != Some(b'-')
+        || at(7) != Some(b'-')
+        || at(10) != Some(b'T')
+        || at(13) != Some(b':')
+        || at(16) != Some(b':')
     {
         return None;
     }
@@ -175,20 +176,19 @@ pub fn parse_date(text: &str) -> Option<f64> {
     if hour > 23 || minute > 59 || second > 60 {
         return None;
     }
-    if b[19] != b'.' {
+    if at(19) != Some(b'.') {
         return None;
     }
-    let mut end = 20;
-    while end < b.len() && b[end].is_ascii_digit() {
-        end += 1;
-    }
-    if end == 20 {
+    let tail = b.get(20..)?;
+    let count = tail.iter().take_while(|d| d.is_ascii_digit()).count();
+    if count == 0 {
         return None;
     }
-    let fraction = &b[20..end];
+    let end = 20 + count;
+    let fraction = tail.get(..count)?;
     let millis =
         (0..3).fold(0i64, |n, i| n * 10 + fraction.get(i).map_or(0, |d| i64::from(d - b'0')));
-    let offset = match &b[end..] {
+    let offset = match b.get(end..)? {
         [b'Z'] => 0,
         [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
             let hours = digits(end + 1..end + 3)?;

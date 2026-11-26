@@ -26,7 +26,7 @@ pub fn cloud_id(stack_user_id: &str) -> String {
 /// `CloudIdentity.workerUserID` (backend `userIdFor`).
 pub fn worker_user_id(stack_project_id: &str, stack_user_id: &str) -> String {
     let hex = sha256::hex(format!("stack:{stack_project_id}:{stack_user_id}").as_bytes());
-    format!("user_{}", &hex[..20])
+    format!("user_{}", hex.get(..20).unwrap_or(&hex))
 }
 
 /// `CloudIdentity.workerTeamID` (the API's `stackTeamIdFor`).
@@ -34,7 +34,7 @@ pub fn worker_team_id(stack_project_id: &str, stack_team_id: &str) -> String {
     let hex = sha256::hex(
         format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()).as_bytes(),
     );
-    format!("team_{}", &hex[..20])
+    format!("team_{}", hex.get(..20).unwrap_or(&hex))
 }
 
 /// `CloudIdentity.init`.
@@ -189,10 +189,10 @@ pub fn apply(entry: &InboxEntry, summary: &mut Value) {
     head.insert("muted".into(), entry.muted.into());
     head.insert("mentionCount".into(), entry.mentions.min(i64::MAX as u64).into());
     // A teammate's entry for someone else's shared Chief conversation says group; the head's chief stays.
-    if let Some(kind) = kind(Some(&entry.kind)) {
-        if head.get("declaredKind").and_then(Value::as_str) != Some("chief") {
-            head.insert("declaredKind".into(), kind.into());
-        }
+    if let Some(kind) = kind(Some(&entry.kind))
+        && head.get("declaredKind").and_then(Value::as_str) != Some("chief")
+    {
+        head.insert("declaredKind".into(), kind.into());
     }
     if entry.last_seq > last_seq(head) {
         head.insert("lastSeq".into(), entry.last_seq.into());
