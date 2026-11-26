@@ -196,7 +196,6 @@
         "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
-        "fast-check-route": "75 runs on 36 merged pull requests (11-25 timing feed), 13 red and 1 cancelled, 0 of them read by a job: it feeds only react-doctor, skipped on a pull request into feat-cmux-next without full-ci, so it skips with it; 1,360 runs in 5.1 h of 11-25 (timing feed 19:00Z..00:08Z, about 2,399 runner-min; react-doctor ran 178 times), each a runner start that decided nothing a job read",
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"
       },
       ".github/workflows/rust-workspaces.yml": {

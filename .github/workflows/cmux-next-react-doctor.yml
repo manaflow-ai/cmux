@@ -52,11 +52,12 @@ jobs:
   # and the gate's own files). A pull request that touches none skips the gate job before it takes a Blacksmith
   # runner; the skipped job reports skipped, which the required check reads as passed. The feat-cmux-next push scans
   # every project, so a miss is a fix-forward on base. A push or a dispatch skips this job, and the gate runs.
-  # The gate skips a pull request into feat-cmux-next without full-ci (affected-jobs.json pull_request_skip), so this
-  # route skips there too: 1,360 runner starts in 5.1 h of 11-25 (react-doctor ran 178 times) answered no job.
+  # The route runs only where the gate below can: into feat-cmux-next the gate needs full-ci (its push run scans every
+  # project), so the route skips there too. 2026-11-25 13Z..23Z it ran 2,563 times (2,944 runner-min) and its gate
+  # job ran 246 times, base pushes included; 30 days to 11-25 it was never red (cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
   fast-check-route:
     name: fast check route
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name == 'pull_request' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name == 'pull_request' && (!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:

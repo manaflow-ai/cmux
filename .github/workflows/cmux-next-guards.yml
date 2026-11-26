@@ -1710,8 +1710,8 @@ jobs:
       # A Swift test target no pull request check runs (hq#11644): cmux#43937 added seven tests that
       # the fast tier built and listed, and no check ran. The tree check fails on a package test
       # target with no runner and no scripts/ci/swift-test-targets.json entry. On a pull request the
-      # diff check (HEAD^1 is the base) also fails on a new CmuxNext test target that no fast-tier.json
-      # entry covers, unless the pull request carries full-ci, whose `cmux-next swift test` runs it.
+      # diff check (HEAD^1 is the base) warns on a new CmuxNext test target that no fast-tier.json
+      # entry covers: `cmux-next swift test` first runs it after merge (the tip suite dispatch).
       - name: Every Swift test target runs in a pull request check (swift_test_coverage.py)
         id: tt-swift-test-coverage
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage ')) }}
