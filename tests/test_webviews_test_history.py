@@ -1134,8 +1134,14 @@ class Workflow(unittest.TestCase):
             self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
-        self.assertIn("actions/cache/save@", upkeep)
-        self.assertNotIn("actions/cache/save@", scope)
+        self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
+        self.assertNotIn("cache-save", scope)
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
+        # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
+        for text in (upkeep, scope):
+            self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]

@@ -850,7 +850,8 @@ class PipelineTest(unittest.TestCase):
         import pr_router
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
-        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser", "mac", "ios"])
+        # mac and ios run after merge (pr_router.json table_why, cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
+        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser"])
         self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "a fast-track (full-tier) head still runs it")
 
         def started(files, **pr):
@@ -912,12 +913,14 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(routed(callees, ["scripts/ci/notify-indexnow.py"]), ["linux"])
         self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
-        # Unknown changes or an unreadable table run every job.
-        self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac", "ios"])
-        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac", "ios"])
+        # Unknown changes or an unreadable table run every routed job. mac and ios are not routed on a pull
+        # request since 2026-11-26: their steps run after merge (cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
+        self.assertEqual(routed(callees, None), ["linux", "web-browser"])
+        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser"])
         # Every job runs only on a full-tier head: a cheap head's change routes none of them.
         swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
-        self.assertIn("mac", routed(callees, swift))
+        self.assertNotIn("mac", routed(callees, swift))
+        self.assertIn("linux", routed(callees, swift))
         self.assertEqual(routed(callees, swift, full=False), [])
         self.assertEqual(routed(callees, None, full=False), [])
         self.assertEqual(pr_router.FULL_TIER_JOBS, ("linux", "web-browser", "mac", "ios"))
