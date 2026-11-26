@@ -10,10 +10,11 @@ use std::sync::Arc;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
+use super::super::super::session_journal::{query_journal_head, query_session_journal_after};
 use super::super::stage::{
     BEFORE_LIVE_COUNT, PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry,
 };
-use super::super::{DONE_META_KEY, V1_DONE_META_KEY, previous_path, staging_path};
+use super::super::{DONE_META_KEY, V1_DONE_META_KEY, previous_path, staging_path, swap_at_open};
 use super::*;
 
 /// Flaps the first session only before the seal, so its latest put is in a
@@ -504,6 +505,15 @@ fn an_all_output_journal_swaps_to_an_empty_rebuilt_journal() {
     let page = query_session_journal_after(&db, 0, 16).unwrap();
     assert_eq!(page.head_sequence, 1);
     assert!(page.records.is_empty());
+    drop(db);
+
+    // Removing every record must not let the next write reuse a pruned sequence.
+    seed_output(&db_path);
+    let db = Connection::open(&db_path).unwrap();
+    let page = query_session_journal_after(&db, 1, 16).unwrap();
+    assert_eq!(page.head_sequence, 2);
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records[0].sequence, 2);
     drop(db);
     let _ = std::fs::remove_dir_all(&root);
 }
