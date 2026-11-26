@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -59,8 +60,14 @@ def github_api(repo: str, token: str) -> Api:
 
 
 def tree_key(rev: str) -> str:
+    # --depth=1 only in a checkout that is already shallow (CI): in a full clone it would write .git/shallow
+    # for every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
+    shallow = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-shallow-repository"],
+        check=False, capture_output=True, text=True, timeout=30,
+    ).stdout.strip() == "true"
     subprocess.run(
-        ["git", "-C", str(ROOT), "fetch", "--no-tags", "--depth=1", "origin", rev],
+        ["git", "-C", str(ROOT), "fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", rev],
         check=False, capture_output=True, timeout=120,
     )
     out = subprocess.run(
@@ -92,8 +99,24 @@ def train_tip(api: Api, tree: str) -> str:
     return ""
 
 
-def merged_head(api: Api, repo: str, sha: str) -> str:
-    for pr in api(f"commits/{sha}/pulls") or []:
+def commit_subject(rev: str) -> str:
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "log", "-1", "--format=%s", rev],
+        check=False, capture_output=True, text=True, timeout=60,
+    )
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+SQUASH_NUMBER = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def merged_head(api: Api, repo: str, sha: str, subject: str = "") -> str:
+    """The head of the same-repository PR squash-merged into BASE as SHA, or ''. The squash subject's own
+    "(#N)" is read first (pulls/N, one call); commits/SHA/pulls is the fallback. That list is every PR
+    whose branch holds SHA, 30 to a page: 2026-11-26 18:19Z (run 45874893836) #54329's own merge was not on
+    its first page, which held 30 older PRs, so the merge rebuilt both legs (about 32 runner-min) its PR
+    head had built."""
+    def own(pr: dict) -> str:
         head = pr.get("head") or {}
         if (
             pr.get("merge_commit_sha") == sha
@@ -101,6 +124,17 @@ def merged_head(api: Api, repo: str, sha: str) -> str:
             and ((head.get("repo") or {}).get("full_name") == repo)
         ):
             return head.get("sha") or ""
+        return ""
+
+    m = SQUASH_NUMBER.search(subject)
+    if m:
+        found = own(api(f"pulls/{m.group(1)}") or {})
+        if found:
+            return found
+    for pr in api(f"commits/{sha}/pulls?per_page=100") or []:
+        found = own(pr)
+        if found:
+            return found
     return ""
 
 
@@ -126,8 +160,9 @@ def still_building(api: Api, run: dict) -> bool:
 
 def find(api: Api, repo: str, sha: str, prefix: str, wait_s: float,
          key: Callable[[str], str] = tree_key, sleep: Callable[[float], None] = time.sleep,
-         now: Callable[[], float] = time.monotonic, tree: Callable[[str], str] = git_tree) -> int | None:
-    head = merged_head(api, repo, sha)
+         now: Callable[[], float] = time.monotonic, tree: Callable[[str], str] = git_tree,
+         subject: Callable[[str], str] = commit_subject) -> int | None:
+    head = merged_head(api, repo, sha, subject(sha))
     if not head:
         log(f"{sha} is not a same-repository squash merge into {BASE}")
         return None

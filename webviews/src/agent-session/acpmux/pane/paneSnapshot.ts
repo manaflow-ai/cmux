@@ -1,3 +1,4 @@
+import { registerViewBridge } from "./viewBridges";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -238,6 +239,8 @@ const sameListInput = (a: ListInput | undefined, b: ListInput): boolean =>
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
+  /// The pane view this chat is in a shared document (paneViewStore.ts); null or absent: its own page.
+  paneView?: string | null;
   scrollToBottomOnSendRef: React.RefObject<boolean>;
   sandbox: SandboxTab;
   setWorkflowLabsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
@@ -425,6 +428,7 @@ export type PaneSnapshotArgs = {
 
 /** The body of AcpmuxPane's snapshot effect (RFD 0046 step 2), run by that effect in App.tsx; returns its cleanup. */
 export function paneSnapshotEffect({
+  paneView = null,
   scrollToBottomOnSendRef,
   sandbox,
   setWorkflowLabsEnabled,
@@ -846,9 +850,13 @@ export function paneSnapshotEffect({
       for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
     },
   };
+  // In a shared pane document this chat's own host events (a command, a turn to reveal, dictation)
+  // reach its bridge by view (viewBridges.ts); window.cmuxAcpmuxBridge stays the document's.
+  const unregisterViewBridge =
+    paneView !== null && window.cmuxAcpmuxBridge ? registerViewBridge(paneView, window.cmuxAcpmuxBridge) : undefined;
   // On the shared page host the host pushes arrive as events once the bridge exists.
   const pageHost = pageHostClient();
-  if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
+  if (pageHost) void startHostEvents(pageHost, paneView).catch(() => undefined);
   window.cmuxAcpmuxDebug = createAcpmuxDebug({
     replaceRows(rows, fields) {
       rowsRef.current = rows;
@@ -3097,6 +3105,7 @@ export function paneSnapshotEffect({
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
