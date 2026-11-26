@@ -100,6 +100,7 @@
   ],
   "click_window_ms": 1500,
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
+  "act_as_me_managed_covers": ["cloud.environment.update", "cloud.environment.create"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
@@ -245,7 +246,7 @@
   },
   "reply_shapes": {
     "_acpmux/info": {"object": {"liveTree": {"object": {"available": "bool", "updated": "number", "seq": "number", "stale": "bool", "lanes": {"list": {"object": {"name": "string", "verdict": "string"}}}}}}},
-    "_acpmux/status": {"object": {"device": "string", "peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "device": "string", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}}}}}}}},
+    "_acpmux/status": {"object": {"device": "string", "peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "device": "string", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}, "autoCloud": {"object": {"enrolled": "bool", "accepting": "bool", "ownerIdle": "bool", "caps": {"list": "string"}}}}}}}}}},
     "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}},
     "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}},
     "_acpmux/move_targets": {"object": {"targets": {"list": {"object": {"id": "string", "label": "string", "kind": "string", "status": "string", "reason": "string", "room": "number"}}}, "pick": "string"}},
