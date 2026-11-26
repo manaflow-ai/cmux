@@ -19,6 +19,9 @@
 # relay=NAME measures a Cloud machine as the peer: that link profile is a second shaped hop behind
 # the phone's link (the relay between the signed-in Mac and the machine), and rows read
 # `lte@1+relay-80@1`. Without it the peer is the Mac.
+#   R1 (time to readable, the chat surface in mode=links and mode=duress):
+#     cmux-tui/crates/cmux-mobile-core/tests/read_first_r1.rs (the Agent Chats first page read and
+#     decoded from the phone's own read-first store with the link cut; profile no-link@1).
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -134,6 +137,7 @@ echo "NETCOND-MACHINE host=$(hostname) os=$(uname -sr) cores=$(getconf _NPROCESS
 
 # The harness files a before= tree gets when it predates them.
 harness_files=(
+  cmux-tui/crates/cmux-mobile-core/tests/read_first_r1.rs
   cmux-tui/crates/cmux-fault/src/shaper.rs
   cmux-tui/crates/cmux-fault/src/shaper/udp.rs
   cmux-tui/crates/cmux-fault/src/lib.rs
@@ -163,6 +167,23 @@ text = text.replace(marker, marker + "cmux-fault.workspace = true\n", 1)
 open(path, "w").write(text)
 PY
   done
+}
+
+# r1 LABEL TREE: R1 time to readable, the chat list from the phone's own store with the link cut
+# (cmux-mobile-core tests/read_first_r1.rs); its NETCOND lines labelled into lines.txt.
+r1() {
+  local label="$1" tree="$2" log="$work/$1-r1.log" code=0 locked=(--locked)
+  [[ -f "$tree/cmux-tui/crates/cmux-mobile-core/tests/read_first_r1.rs" ]] || {
+    echo "NETCOND-SKIP $label r1: no read_first_r1 bench at this ref"; return 0; }
+  [[ "$tree" != "$root" && "$overlaid" == *" $label "* ]] && locked=()
+  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="${IOS_NETCOND_TARGET_DIR:-$work/target}" \
+    NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
+    cargo test --release ${locked[@]+"${locked[@]}"} -p cmux-mobile-core --test read_first_r1 -- \
+      --ignored --nocapture --test-threads 1 >"$log" 2>&1) || code=$?
+  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
+  echo "NETCOND-STATUS $label r1 exit=$code log=$log"
+  (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label r1 /"; return 1; }
 }
 
 # bench LABEL TREE SURFACE: one surface's bench in TREE; its NETCOND lines labelled into lines.txt.
@@ -195,6 +216,7 @@ bench() {
   sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-(ERROR|FIXTURE)' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label $surface exit=$code log=$log"
+  [[ "$surface" == chat && ( "$mode" == links || "$mode" == duress ) ]] && { r1 "$label" "$tree" || code=1; }
   if (( code != 0 )); then
     tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label $surface /"
     return 1
