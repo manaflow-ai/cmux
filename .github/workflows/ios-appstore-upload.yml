@@ -168,6 +168,7 @@ jobs:
           sparse-checkout: |
             ios/scripts/fetch-testflight-notes-history.sh
             scripts/ci/ios_upload_batch_decision.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Batch official uploads by commit count and age
