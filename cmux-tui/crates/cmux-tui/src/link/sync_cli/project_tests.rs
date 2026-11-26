@@ -102,7 +102,7 @@ fn git_in(dir: &Path, args: &[&str]) {
 }
 
 #[test]
-fn carry_keeps_worktrees_submodules_and_subfolders_on_projection() {
+fn carry_lists_worktrees_and_submodules_without_packing_subfolders() {
     let folder = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(folder.path()).unwrap();
     let repo = root.join("repo");
@@ -124,19 +124,20 @@ fn carry_keeps_worktrees_submodules_and_subfolders_on_projection() {
         &repo,
         &["-c", "protocol.file.allow=always", "submodule", "add", repo.to_str().unwrap(), "module"],
     );
-    for at in [worktree, repo.join("module"), repo.join("src")] {
-        let carry = projection_carry(&at);
-        assert!(carry.is_none(), "{} must retain projection", at.display());
-        let listed = list_with_carry(&at, carry.as_ref()).unwrap();
-        assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_none());
-        assert!(listed.manifest.resolve(".git/cmux-carry.base").is_none());
-        if at.join(".git").is_file() {
-            let git = listed.manifest.resolve(".git").unwrap();
-            assert_eq!(listed.manifest.entry(git).unwrap().kind, Kind::File);
-        } else {
-            assert!(listed.manifest.resolve(".git").is_none());
-        }
+    for at in [worktree, repo.join("module")] {
+        assert!(at.join(".git").is_file());
+        let carry = projection_carry(&at).expect("linked repositories carry by default");
+        let listed = list_with_carry(&at, Some(&carry)).unwrap();
+        assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+        assert!(listed.manifest.resolve(".git/cmux-carry.base").is_some());
+        // The listing expands the gitfile into a standalone repository before carry
+        // adds its entries, so those entries never appear beneath a manifest file.
+        let git = listed.manifest.resolve(".git").unwrap();
+        assert_eq!(listed.manifest.entry(git).unwrap().kind, Kind::Dir);
     }
+    let subfolder = repo.join("src");
+    assert!(projection_carry(&subfolder).is_none());
+    assert!(list(&subfolder).is_err(), "preserve the listing's existing root-only contract");
 }
 
 /// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a

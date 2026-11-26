@@ -1058,12 +1058,7 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
 /// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
 /// keeps its projected `.git` and continues normally.
 fn projection_carry(folder: &Path) -> Option<CarryFiles> {
-    // Carry entries live below the root's real .git directory. A linked worktree or
-    // submodule has a .git file; a repository subfolder has no .git of its own.
-    // Those layouts keep projection rather than constructing an invalid manifest.
-    if !cmux_projection::git_swap::enabled()
-        || !std::fs::symlink_metadata(folder.join(".git")).ok()?.is_dir()
-    {
+    if !cmux_projection::git_swap::enabled() {
         return None;
     }
     let output = |args: &[&str]| {
@@ -1076,6 +1071,8 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
             .ok()
             .filter(|output| output.status.success())
     };
+    // The listing accepts repository roots (including worktrees and submodules),
+    // but refuses a subfolder. Do not pack the parent's history before that refusal.
     if output(&["rev-parse", "--show-prefix"])?.stdout != b"\n" {
         return None;
     }
