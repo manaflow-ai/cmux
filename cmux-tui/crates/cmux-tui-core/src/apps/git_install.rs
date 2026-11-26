@@ -67,6 +67,9 @@ pub(crate) struct GitState {
     fetching: Mutex<()>,
     /// One `sources.json` read-modify-write at a time.
     index: Mutex<()>,
+    /// The newer commits the background check found, by app id
+    /// (`update_offers.rs`); `apps.updates.list` lists them.
+    pub(super) offers: Mutex<std::collections::BTreeMap<String, super::community::UpdateRow>>,
 }
 
 fn staged_key(reference: &str, commit: &str) -> String {
@@ -101,7 +104,7 @@ impl Supervisor {
         let _ = self.git.transport.set(transport);
     }
 
-    fn git_transport(&self) -> Arc<dyn GitTransport> {
+    pub(super) fn git_transport(&self) -> Arc<dyn GitTransport> {
         self.git.transport.get_or_init(|| Arc::new(HttpTransport)).clone()
     }
 
