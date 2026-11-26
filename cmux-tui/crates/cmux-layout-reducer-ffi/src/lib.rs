@@ -99,6 +99,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod pane_focus;
+mod rd_devices;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -625,6 +626,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if rd_devices::handles(operation) => rd_devices::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
