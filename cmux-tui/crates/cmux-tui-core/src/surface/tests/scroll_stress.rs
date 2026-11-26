@@ -156,7 +156,8 @@ fn local_pty_scrollback_stays_put_during_a_200k_line_flood() {
         },
         LocalLaunch {
             master: Box::new(FdMasterPty { file: master, size: Mutex::new(geometry.pty_size()) }),
-            reader: Box::new(reader),
+            // A UnixStream is a plain `Read`: the local reader takes it as the PTY path does, boxed (spawn.rs).
+            reader: Box::new(Box::new(reader) as Box<dyn std::io::Read + Send>),
             writer: Box::new(std::io::sink()),
             killer: Box::new(TestChildKiller),
             wait: Box::new(move || {
