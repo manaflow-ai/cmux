@@ -16,6 +16,7 @@
     "cloud-journey-pr.yml:seed": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-resume-matrix.yml:build": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-next-fast-tier-batch.yml:swift": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
+    "nightly-pr-build.yml:swift-fleet": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse", "actions-cache"]},
     "cmux-next.yml:fast-tier-fleet-mac": {"class": "mac-test", "warm": ["deriveddata-reuse"]},
     "fleet-test-compile.yml:mac-fallback": {"class": "linux-swift", "warm": [], "exempt": "cold: the hosted-Mac fallback when no fleet Mac answers; it has no kept workspace, so the test compile runs from an empty build directory"},
     "ios-sim-linux-build.yml:build": {"class": "ios", "warm": ["actions-cache"]},
