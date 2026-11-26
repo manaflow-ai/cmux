@@ -79,6 +79,9 @@ public enum LinkState: Equatable, Sendable {
 /// (Rust cmux-mobile-link over WebRTC or WireGuard) and `MockMacLink`.
 public protocol MacLink: AnyObject, Sendable {
     var transport: TransportKind { get }
+    /// The Rust core's `LinkHandle` under this link (as AnyObject: this file
+    /// builds without the FFI), nil for any other link.
+    var ffiLinkHandle: AnyObject? { get }
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
@@ -149,6 +152,9 @@ public struct TunnelKeys: Sendable, Equatable {
 }
 
 extension MacLink {
+    /// The Rust link under this one, for engines that take it whole (the
+    /// attachment uploads); nil for a link that is not the Rust core's.
+    public var ffiLinkHandle: AnyObject? { nil }
     public func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
         let object = try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))
         guard let args = object as? [String: String] else {

@@ -1156,6 +1156,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+
+  Since 2026-11-24, a resumable upload may add `upload_id` and `offset`.
+  `upload_id` is exactly 36 lowercase hexadecimal or `-` characters, and
+  `offset` is a byte offset represented as a number or decimal string, default
+  zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
+  in place of the link session so the same phone can resume after redial.
+  The host keeps the partial file at `.parts/.<upload_id>.part`, a `.parts`
+  folder beside the upload folders (`<cwd>/.cmux/attachments/.parts`, or
+  `<uploads>/.parts`), keyed by the random `upload_id` alone, so a new link
+  with a new device or session finds it. The finished file is published into
+  the upload folder,
+  truncates it to `offset`, and first answers `{"have":offset}\n`. If the
+  requested offset is past the partial file, it answers
+  `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
+  within the part but beyond the declared size closes `bad_request`.
+  Data is acknowledged with `{"ack":bytes}\n` after each MiB and when the
+  stream stops. An ack is durable: the host syncs the partial file to disk
+  before it sends one, so a Mac crash never loses acknowledged bytes. An overlapping attempt that still finds the part busy after
+  two seconds closes `busy`. Once `size` bytes are present, the host flushes
+  and syncs the last unsynced bytes (at most one MiB), publishes it under the safe name, and answers
+  `{"path","size"}\n` before closing `eof`. A link close or a 120-second
+  period without data keeps the partial file. The latter answers its last ack
+  and closes `stalled`. Receiving more than `size` bytes deletes the partial
+  file and closes `bad_request`. Resumable replies are one JSON object per
+  newline-terminated line. The host removes resumable parts older than 24 hours
+  when it next opens the `.parts` folder. Uploads without `upload_id` retain the
+  legacy reply framing and interruption behavior.
 - `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
   upload or a file open as sealed, content-defined chunks (cmux-tui
   `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
