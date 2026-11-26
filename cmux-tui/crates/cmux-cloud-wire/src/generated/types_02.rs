@@ -4,6 +4,22 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CodeRef {
+    pub commit: CommitSha,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<String>,
+}
+
+pub type CommitSha = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Concurrency {
+    pub max: i64,
+    pub on_limit: ConcurrencyOnLimit,
+}
+
 wire_enum! {
     ConcurrencyOnLimit {
         Queue = "queue",
@@ -888,11 +904,3 @@ wire_enum! {
 pub struct HomeReactionKindVariant1 {
     pub tapback: HomeReactionKindVariant1Tapback,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeReactionKindVariant2 {
-    pub emoji: String,
-}
-
-/// SHA-256 of the bytes, lowercase hex.
-pub type HomeSha256 = String;
