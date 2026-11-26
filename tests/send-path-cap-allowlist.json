@@ -259,7 +259,7 @@
     "cmux-tui/crates/acpmux/src/server/browser_workspaces.rs": {"count": 1, "reason": "safe: the app daemon workspace-list reply read bound (8 MiB); not a message"},
     "cmux-tui/crates/acpmux/src/server/mesh_relay.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/server/mod.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "cmux-tui/crates/acpmux/src/server/requests.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/server/requests/attach.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/server/requests/events.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/server/requests/info/live_tree.rs": {"count": 1, "reason": "safe: the live-tree status file read bound (64 KiB); not a message"},
     "cmux-tui/crates/acpmux/src/server/stream.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
