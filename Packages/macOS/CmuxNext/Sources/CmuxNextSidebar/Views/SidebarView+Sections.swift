@@ -76,6 +76,7 @@ extension SidebarViewComponents {
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
         region.workspacePin = { [weak self] in self?.model.workspacePin }
+        region.onCloseWorkspace = { [weak self] id in self?.model.send(.close([id])) }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
