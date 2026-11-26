@@ -497,6 +497,11 @@ pub mod method {
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
+    /// The rooms (chats, workspaces) a client shows now; replaces its set (`hub/presence.rs`,
+    /// RFD 0141 phase 2).
+    pub const MUX_ROOMS: &str = "_acpmux/rooms";
+    /// One watched room's snapshot or change, as `cmux-presence` records and deltas.
+    pub const MUX_ROOM: &str = "_acpmux/room";
     /// A client's heartbeat for its person on one device (`hub/here.rs`).
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
@@ -857,6 +862,9 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    /// Forgets a folder harness profile's confirmations (`cmux harness
+    /// disable`): the undo of `_acpmux/harness_enable`, from the same callers.
+    pub const MUX_HARNESS_DISABLE: &str = "_acpmux/harness_disable";
     // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
     // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
     // restore and registry: also the local app. Never Web or peer.
