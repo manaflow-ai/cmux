@@ -124,6 +124,15 @@ class MacRowTests(unittest.TestCase):
         self.assertNotIn("Old Mac", text)
         self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0; no Screen Sharing page (0 nodes)")
 
+    def test_a_missing_page_names_the_screen_it_is_on(self):
+        nodes = [{"type": "Heading", "AXLabel": "Workspaces"},
+                 {"AXIdentifier": "workspace.row.0123456789abcdef0123"},
+                 {"AXIdentifier": "tab.settings"}]
+        text = screen_sharing_page_state(nodes)
+        self.assertIn("no Screen Sharing page (3 nodes; headings: Workspaces; ids: workspace.row.", text)
+        self.assertNotIn("0123456789abcdef0123", text)
+        self.assertTrue(text.endswith("tab.settings)"))
+
     def test_a_list_without_the_e2e_identifiers_says_so(self):
         nodes = [{"AXIdentifier": "screenSharing.page"}, {"AXIdentifier": "screenSharing.mac.0 e2e rig Mac", "AXLabel": "0 e2e rig Mac"}]
         text = screen_sharing_page_state(nodes, "0 e2e rig Mac", "abc")

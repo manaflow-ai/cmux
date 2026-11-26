@@ -150,10 +150,38 @@ def screen_sharing_page_state(nodes, name=None, device_id=None):
     if by_name:
         text += f"; rows keyed by name: {by_name}"
     if not states and not rows and "screenSharing.page" not in identifiers:
-        text += f"; no Screen Sharing page ({len(nodes)} nodes)"
+        text += f"; no Screen Sharing page ({len(nodes)} nodes{_screen_summary(nodes)})"
     if device_id:
         text += f"; wanted {_digest(device_id)}"
     return text
+
+
+_ID_TAIL = re.compile(r"[0-9a-fA-F-]{16,}$")
+
+
+def _screen_summary(nodes, limit=12):
+    """Which screen the phone is on, from fixed UI text: its headings and accessibility ids (a
+    trailing id is digested). Empty when the tree has neither."""
+    headings = []
+    ids = []
+    for node in nodes:
+        identifier = str(node.get("AXIdentifier") or node.get("AXUniqueId") or "")
+        if identifier:
+            tail = _ID_TAIL.search(identifier)
+            if tail:
+                identifier = identifier[:tail.start()] + _digest(tail.group(0))
+            if identifier not in ids:
+                ids.append(identifier)
+        if str(node.get("type", "")) in ("Heading", "NavigationBar"):
+            label = str(node.get("AXLabel", ""))
+            if label and label not in headings:
+                headings.append(label)
+    parts = []
+    if headings:
+        parts.append("headings: " + ", ".join(headings[:limit]))
+    if ids:
+        parts.append("ids: " + ", ".join(ids[:limit]) + (" …" if len(ids) > limit else ""))
+    return ("; " + "; ".join(parts)) if parts else ""
 
 
 # The viewer's cards and alerts, by title, as fixed words (cmux-next-ios ScreenSharingPage).
@@ -243,6 +271,10 @@ class PairSharePhone(ScreenProofPhone):
             self.ui.run(["axe", "gesture", gesture, "--udid", self.ui.udid], check=False)
             time.sleep(1)
         if row is None:
+            try:
+                self.screenshot("share-row-missing")
+            except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
+                pass
             raise PairShareFailure("the rig Mac row was not visible "
                                    f"({screen_sharing_page_state(nodes, name, device_id)})")
         self.ui.tap(row)
