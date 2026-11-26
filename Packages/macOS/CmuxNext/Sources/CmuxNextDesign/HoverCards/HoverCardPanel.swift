@@ -61,7 +61,7 @@ final class HoverCardPanel: NSPanel {
     static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
-    private(set) weak var body: NSView?
+    weak var body: NSView?
     /// Hears the pointer in the window's clear band (``HoverCardPanel/pointerMovedInBand()``).
     let bandTracker = HoverCardBandTracker()
     /// The body's edges pinned to the card (the card fits its body), and its fitted size, held
@@ -284,14 +284,11 @@ final class HoverCardPanel: NSPanel {
         }
     }
 
-    /// Puts `newBody` in the card, its edges pinned to the card's (no-op when it already is there).
     /// Puts `newBody` in the card in place of the last body: the last fades out at its own size while
-    /// `newBody` fades in when `fades`, else the swap is at once (a first show, ``warm(_:parent:)``).
+    /// `newBody` fades in when `fades`, else the swap is at once (``warm(_:parent:)``); its last window gives it up first.
     private func install(_ newBody: NSView, fades: Bool = false) {
         guard body !== newBody else { return }
         MotionTrace.measure("hoverCard.swap") {
-            // A source reuses its one body view, so the card window the coordinator just retired (still
-            // fading out, maybe mid-morph) can hold the view this card takes now: it gives it up first.
             if let holder = newBody.window as? HoverCardPanel, holder !== self { holder.giveUp(newBody) }
             if newBody === leavingBody { endLeaving() }
             if fades, let body { leave(body) } else { body?.removeFromSuperview() }
@@ -324,28 +321,6 @@ final class HoverCardPanel: NSPanel {
             // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
             if fades { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
         }
-    }
-
-    /// Another card window takes `view` (a source's reused body) out of this one: this card drops every
-    /// claim it has on it. A morph in flight lays the card out at rest now, while the view is still here
-    /// (a fold's held layout ends with it); then the card forgets the view and its constraints. Kept, they
-    /// pinned the view to this card's content view after it moved: the morph's end (this card's fade-out
-    /// finishing) activated them across two windows and AppKit threw "no common ancestor" (NIGHTLY crash
-    /// 2026-11-25, `HoverCardPanel.finishMorph` from `dismiss`). A parked or leaving view is forgotten too,
-    /// so `endLeaving` never takes it out of the card that shows it now.
-    func giveUp(_ view: NSView) {
-        if leavingBody === view || parkedBody === view {
-            if leavingBody === view { leavingBody = nil }
-            if parkedBody === view { parkedBody = nil }
-            view.isHidden = false
-        }
-        guard body === view else { return }
-        finishMorph()
-        NSLayoutConstraint.deactivate(edgeConstraints + sizeConstraints)
-        edgeConstraints = []
-        sizeConstraints = []
-        pendingRefit = nil
-        body = nil
     }
 
     /// The card draws in the theme scope of `themeAnchor` (else `parent`'s), at full strength, and follows its changes.
