@@ -2513,3 +2513,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_tick_request_bound.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publication_guard_release_read.py"
+lane = "linux-guard"
