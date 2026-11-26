@@ -1,5 +1,6 @@
 // l10n-allow-file: DEV gallery Run board design prototype, not shipped UI.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useAutoRetry } from "../autoRetry";
 import { KeyHint } from "../../../ui/KeyHint";
 import { sessionSummary } from "../summary/sessionSummary";
 import {
@@ -11,19 +12,14 @@ import {
   type RunAttempt,
   type RunBoardSnapshot,
 } from "./model";
-import {
-  RunApiHttpError,
-  RunBoardApiSession,
-  type AttachTicketIntent,
-  type RunAttachTicket,
-  type RunApiClient,
-} from "./runApi";
+import { RunBoardApiSession, type AttachTicketIntent, type RunAttachTicket, type RunApiClient } from "./runApi";
 import { attachRunTerminal } from "./runAttach";
-import { type RunBoardAttachState, attachFailureState, attachTicketExpired } from "./runBoardModel";
+import { type RunBoardAttachState, attachFailureState, attachWithFreshTicket } from "./runBoardModel";
 
 export type RunBoardProps = {
   snapshot: RunBoardSnapshot;
-  recovered: RunBoardSnapshot;
+  /** With no `client`, what a replay recovers (a gallery fixture); unset, the board stays disconnected. */
+  recovered?: RunBoardSnapshot;
   disconnected?: boolean;
   /** When supplied, the board loads and replays the durable Run control-plane API. */
   client?: RunApiClient;
@@ -161,21 +157,31 @@ export function RunBoard({
   stateRef.current = state;
   const apiSession = useRef<RunBoardApiSession | undefined>(undefined);
   const apiClient = useRef<RunApiClient | undefined>(undefined);
+  // A disconnected board reconnects and replays on its own (autoRetry.ts), never behind a
+  // "Reconnect and replay" button: replaying the owner's events is a read with no cost (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done"). A failed replay says nothing;
+  // only one that lasts the deadline shows one quiet line.
+  const [replaying, setReplaying] = useState(false);
   const reconnect = useCallback(async () => {
     if (!client) {
-      dispatch({ type: "receive", snapshot: recovered });
+      if (recovered) dispatch({ type: "receive", snapshot: recovered });
       return;
     }
     const session = apiSession.current;
     if (!session) return;
+    setReplaying(true);
     try {
-      setApiError(undefined);
       const next = await session.snapshotAndReplay();
       dispatch({ type: "receive", snapshot: next });
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : String(error));
+    } catch {
+      // Asked again on its own while the board stays disconnected.
+    } finally {
+      setReplaying(false);
     }
   }, [client, recovered]);
+  const { stillTrying } = useAutoRetry(state.connection === "disconnected", () => void reconnect(), {
+    busy: replaying,
+  });
 
   useEffect(() => {
     // A new client or a different run starts a fresh replay session (its cursor is per run).
@@ -231,19 +237,16 @@ export function RunBoard({
       setApiError(undefined);
       setAttachState("idle");
       setActionPending("attach");
-      const ticket = onAttach
-        ? await onAttach(intent)
-        : client?.requestAttachTicket
-          ? await client.requestAttachTicket(intent)
-          : undefined;
-      if (ticket && attachTicketExpired(ticket)) {
-        throw new RunApiHttpError(
-          410,
-          "This attach ticket has expired. Request a fresh ticket and try again.",
-          "run_attach_expired",
-        );
-      }
-      if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
+      // An expired or used ticket is replaced once on this click (runBoardModel.ts `attachWithFreshTicket`).
+      const ticket = await attachWithFreshTicket(
+        async () =>
+          onAttach
+            ? await onAttach(intent)
+            : client?.requestAttachTicket
+              ? await client.requestAttachTicket(intent)
+              : undefined,
+        onAttachTicket ?? attachRunTerminal,
+      );
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
       setAttachState(ticket ? "attached" : "idle");
     } catch (error) {
@@ -299,15 +302,9 @@ export function RunBoard({
           Same starting commit · Separate workspaces · No cross-attempt context
         </span>
       </section>
-      {state.connection === "disconnected" && (
+      {state.connection === "disconnected" && stillTrying && (
         <div className="run-board-reconnect" aria-live="polite">
-          <div>
-            <strong>Your workers are still running.</strong>
-            <span>Showing the last saved events. Reconnect to recover every attempt.</span>
-          </div>
-          <button type="button" onClick={() => void reconnect()}>
-            Reconnect and replay
-          </button>
+          <span>Still trying to reach the run… Showing the last saved events; your workers are still running.</span>
         </div>
       )}
       {apiError && (
@@ -352,29 +349,16 @@ export function RunBoard({
                 ? "Attaching…"
                 : state.attached === attempt.id
                   ? "Attached to agent"
-                  : attachState === "expired"
-                    ? "Attach expired · Retry"
-                    : attachState === "replayed"
-                      ? "Attach used · Retry"
-                      : attachState === "error"
-                        ? "Attach failed · Retry"
-                        : "Attach to agent"}
+                  : // retry-prompt-ok: Attach opens the worker's terminal, only on the person's click.
+                    "Attach to agent"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
-          {attachState === "expired" && (
-            <output className="run-board-attach-status">
-              The one-use attach ticket expired. Requesting a new ticket is safe.
-            </output>
-          )}
-          {attachState === "replayed" && (
-            <output className="run-board-attach-status">
-              That attach ticket was already consumed. Request a fresh ticket to reconnect.
-            </output>
-          )}
-          {attachState === "error" && (
+          {/* An expired or used ticket was already replaced once on the click (runBoardModel.ts
+              `attachWithFreshTicket`): what is left says what failed, with no "Try again". */}
+          {(attachState === "expired" || attachState === "replayed" || attachState === "error") && (
             <p className="run-board-attach-status" role="alert">
-              The agent session could not be attached. Try again while the worker is retained.
+              Couldn’t open this agent’s terminal.
             </p>
           )}
           <div className="run-board-workspace-content">
