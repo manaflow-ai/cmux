@@ -108,7 +108,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.attach_after_bind",
+    # One line per create or start pass (cmux-platform src/server/cloud/CloudCore.ts createTrace): the ms at which each
+    # step ended. Kept as TRACE_STEPS only (trace_fields), so a never_bound create says which step it last reached.
+    "cloud.create.submit",
+    "cloud.create.trace",
     "cloud.create.trace_unsent",
+    "cloud.start.submit",
+    "cloud.start.trace",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
     "cloud.fork_snapshot_delete_failed",
@@ -301,10 +307,95 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
-# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
-PUBLIC_BOOLS = ("lacks", "shared", "host")
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
+# cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+
+# The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
+# ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+TRACE_STEPS = frozenset({
+    "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
+    "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
+    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit",
+})
+
+
+def trace_steps(steps):
+    """A trace's steps as {listed step: ms}; a non-int or unlisted step is dropped."""
+    if not isinstance(steps, dict):
+        return None
+    out = {k: v for k, v in steps.items() if k in TRACE_STEPS and base.typed(INT, v) is not None}
+    return dict(sorted(out.items(), key=lambda kv: kv[1]))
+
+
+# cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
+# bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
+# an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
+BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
+UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
+CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
+HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+
+
+def probe_facts(out):
+    """The typed facts of a bind probe's out text, in NeverBoundProbe.ts's order: dns api then edge, https api then
+    edge. Every value is a fixed word, a band or a small int."""
+    facts = {}
+    dns, https = [], []
+    for raw in out.splitlines():
+        ln = raw.strip()
+        if ln in ("bind_file=present", "bind_file=missing"):
+            facts["bind_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("uptime_s="):
+            try:
+                up = float(ln.split("=", 1)[1])
+            except ValueError:
+                continue
+            if up >= 0:
+                facts["uptime"] = next((band for limit, band in UPTIME_BANDS if up < limit), "ge900s")
+        elif ln.startswith("nameservers="):
+            facts["nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n])
+        elif ln.startswith("route="):
+            facts["route"] = "default" if ln.split("=", 1)[1].strip() else "none"
+        elif ln.startswith("dns ") and "=" in ln:
+            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
+        elif ln.startswith("https "):
+            err = CURL_ERROR.search(ln)
+            code = HTTP_CODE.search(ln)
+            if err:
+                https.append(f"curl_{int(err.group(1))}")
+            elif code and code.group(1) != "000":
+                https.append(int(code.group(1)))
+            else:
+                https.append("no_answer")
+        elif ln == "curl=absent":
+            https = ["curl_absent", "curl_absent"]
+    for name, got in (("dns", dns), ("https", https)):
+        for target, v in zip(("api", "edge"), got):
+            facts[f"{name}_{target}"] = v
+    return facts
+
+
+def bind_probe(p):
+    """bind_probe's typed projection: outcome, ms, exit, truncated, the provider error code and probe_facts."""
+    if not isinstance(p, dict):
+        return None
+    out = {"outcome": p.get("outcome") if p.get("outcome") in BIND_PROBE_OUTCOMES else "other"}
+    for k in ("ms", "exit"):
+        v = base.typed(INT, p.get(k))
+        if v is not None:
+            out[k] = v
+    if isinstance(p.get("truncated"), bool):
+        out["truncated"] = p["truncated"]
+    if "error" in p:
+        out["error"] = base.typed(TOKEN, p["error"]) or True
+    if isinstance(p.get("out"), str):
+        out.update(probe_facts(p["out"]))
+    return out
 
 
 # cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
@@ -367,6 +458,14 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
+    if msg in TRACE_MSGS:
+        steps = trace_steps(j.get("steps"))
+        if steps is not None:
+            out["steps"] = steps
+    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+        probe = bind_probe(j["bind_probe"])
+        if probe is not None:
+            out["bind_probe"] = probe
     if "error" in j:
         out["error"] = True
     return out, None
