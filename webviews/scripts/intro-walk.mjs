@@ -61,7 +61,13 @@ const SHIFT_TOLERANCE_PX = 0.5;
 
 async function buildGallery() {
   if (args.includes("--reuse-build") && fs.existsSync(path.join(root, "dist/gallery"))) return;
-  const build = spawn("bun", ["run", "gallery:build"], { cwd: root, stdio: "inherit" });
+  const build = spawn("bun", ["run", "gallery:build"], {
+    cwd: root,
+    stdio: "inherit",
+    // The walk measures layout, not translations: a key still waiting on its locales must not stop the reading
+    // (gen-strings' gallery-host mode; check-l10n gates the locales).
+    env: { ...process.env, CMUX_STRINGS_BEST_EFFORT: "1" },
+  });
   await new Promise((resolve, reject) => {
     build.once("error", reject);
     build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
