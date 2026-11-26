@@ -225,3 +225,43 @@ fn the_nat_matrix_before_and_after_punching() {
     assert!(direct(sites[4], sites[5], true));
     assert!(!direct(sites[4], sites[5], false));
 }
+
+#[test]
+fn a_far_candidate_that_is_this_machines_own_address_is_never_opened_toward() {
+    // gcp-agent-lane-12, 2026-11-25 22:37:57Z: a far machine offered its docker0 172.17.0.1;
+    // lane-12 has the same address, connected to its own listener on 47791 in under a
+    // millisecond, and the dial then failed its handshake (`daemon key mismatch: ... got` its
+    // own key) and held the machine on the relay.
+    let far: Vec<SocketAddr> = ["172.17.0.1:47791", "10.138.0.105:47791", "[2001:db8::5]:47791"]
+        .iter()
+        .map(|a| a.parse().unwrap())
+        .collect();
+    let own = |ip: IpAddr| ip == "172.17.0.1".parse::<IpAddr>().unwrap();
+    let toward = usable_toward_from(&far, own);
+    assert_eq!(toward, far[1..].to_vec());
+    // Loopback stays (two carriers on one machine in tests).
+    let local: SocketAddr = "127.0.0.1:47791".parse().unwrap();
+    assert_eq!(usable_toward_from(&[local], |_| true), vec![local]);
+}
+
+#[test]
+fn own_address_is_any_address_a_socket_binds_to() {
+    assert!(own_address("127.0.0.1".parse().unwrap()));
+    // TEST-NET-1 is never assigned to a host.
+    assert!(!own_address("192.0.2.77".parse().unwrap()));
+    if let Some((_, ip)) =
+        cmux_netwatch::usable().unwrap_or_default().into_iter().find(|(_, ip)| ip.is_ipv4())
+    {
+        assert!(own_address(ip), "{ip} is on an interface here");
+    }
+}
+
+#[test]
+fn container_and_vm_bridges_are_never_offered() {
+    for name in ["docker0", "br-3f2a9c1b", "veth12ab", "virbr0", "lxdbr0", "podman0", "cni0"] {
+        assert!(host_bridge(name), "{name}");
+    }
+    for name in ["eth0", "ens3", "en0", "wlan0", "wlp2s0", "tailscale0", "bridge0"] {
+        assert!(!host_bridge(name), "{name}");
+    }
+}
