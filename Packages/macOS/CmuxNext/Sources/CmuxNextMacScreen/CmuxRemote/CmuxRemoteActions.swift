@@ -147,14 +147,14 @@ extension CmuxRemoteActionEnvironment {
         let environment = self
         return [
             .mainActor("remote.confirm") { call in
-                let action = call.params["action"]?.stringValue ?? ""
-                let device = call.params["device"]?.stringValue ?? ""
-                let scope = call.params["scope"]?.stringValue.flatMap(DeviceScope.init(rawValue:))
-                let ticket = call.params["agent_ticket"]?.stringValue
-                guard action == "share" || action == "allow_agents" || (action == "unshare" && ticket != nil)
-                    || (action == "access" && !device.isEmpty && scope != nil) else {
-                    throw ControlError.invalidParams("action must be share, allow_agents, unshare with agent_ticket, or access with device and scope (none, ask, view, full)")
+                // Rust checks the request (remote.confirmRequest) and names its refusal.
+                let checked = RdUI.answer("remote.confirmRequest", encoding: call.params)
+                guard let request = checked.ok as? [String: Any], let action = request["action"] as? String else {
+                    throw ControlError.invalidParams(checked.err ?? "remote.confirm: no answer")
                 }
+                let device = request["device"] as? String ?? ""
+                let scope = (request["scope"] as? String).flatMap(DeviceScope.init(rawValue:))
+                let ticket = request["ticket"] as? String
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 if action == "allow_agents" {
                     return Self.allowAgents(call.params["on"]?.boolValue ?? true, hub: hub, window: environment.window())
