@@ -78,7 +78,7 @@ export default componentEntry<Props>({
           return () => setChatDisplay({});
         }, [pickerStyle]);
         return (
-          <div style={{ paddingTop: 440 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
             <ModelPicker {...rest} />
           </div>
         );
