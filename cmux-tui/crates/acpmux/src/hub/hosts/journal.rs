@@ -46,6 +46,46 @@ impl Hub {
         work
     }
 
+    /// Saves `session`'s adoption checkpoint for its live host `child` at a turn's end, off the
+    /// executor, so the next daemon's adoption of that host resumes from it. Before, only an
+    /// adoption saved one: the first restart after a host started read the whole log four times
+    /// (1.48x the 1M chat's restart peak RSS at 1G, against 1.12x for the restart after it).
+    /// Each save resumes from the last, so it reads the records since: one whole read per host,
+    /// in the background. At most one runs per chat; a turn's end while one runs skips it.
+    pub(in crate::hub) fn checkpoint_at_turn_end(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &crate::agent::ChildAgent,
+    ) {
+        static SAVING: std::sync::LazyLock<std::sync::Mutex<HashSet<String>>> =
+            std::sync::LazyLock::new(Default::default);
+        let Some(record) = child.host_record() else { return };
+        if session.meta().fork_seq.is_some()
+            || !SAVING.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone())
+        {
+            return;
+        }
+        let (hub, session) = (self.clone(), session.clone());
+        let save = move || {
+            hub.catch_up(&session);
+            let settled = hub.settled_seq(&session);
+            let (_, checkpoint) = hub.fold_open_work(
+                &session,
+                &record.incarnation,
+                Fold::Resume { settled: Some(settled) },
+            );
+            if let Some(checkpoint) = checkpoint {
+                hub.save_adoption_checkpoint(&session, checkpoint);
+            }
+            SAVING.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+        };
+        match tokio::runtime::Handle::try_current() {
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
+            Ok(rt) => drop(rt.spawn_blocking(save)),
+            Err(_) => save(),
+        }
+    }
+
     pub(super) fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
         let (from, mut fold) = self.resume_fold(session, incarnation, |f| f.env);
         let _ = self.scan_adoption(session, from, &mut |head| {
