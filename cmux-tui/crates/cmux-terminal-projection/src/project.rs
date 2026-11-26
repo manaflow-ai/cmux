@@ -220,7 +220,9 @@ pub fn wrap_line_cells(
             && *offset >= target
         {
             let w = 1.max(if *offset == target { width } else { 1 });
-            out[i] = Some(if col + w > cols { (row + 1, 0) } else { (row, col) });
+            if let Some(slot) = out.get_mut(i) {
+                *slot = Some(if col + w > cols { (row + 1, 0) } else { (row, col) });
+            }
             next += 1;
         }
         if col + width > cols {
@@ -236,7 +238,7 @@ pub fn wrap_line_cells(
     // blank cells past the phone's edge.
     for &(target, i) in targets.get(next..).unwrap_or_default() {
         let blanks = target.saturating_sub(end_offset);
-        out[i] = Some(if cut || (compact && padded && col + blanks >= cols) {
+        let at = if cut || (compact && padded && col + blanks >= cols) {
             (row, col.min(cols - 1))
         } else if col + blanks < cols {
             (row, col + blanks)
@@ -251,7 +253,11 @@ pub fn wrap_line_cells(
                 c += 1;
             }
             at
-        });
+        };
+        // `i` indexes `cells`, and `out` has one slot per cell.
+        if let Some(slot) = out.get_mut(i) {
+            *slot = Some(at);
+        }
     }
     out
 }
