@@ -996,7 +996,7 @@ def main() -> int:
     if args.app:
         app = Path(args.app)
         cli = (app / reload_nightly.hot.BIN / "cmux").resolve()
-        receipt |= {"app": str(app), "app_commit": reload_nightly.hot.app_commit(app)}
+        receipt |= {"app": str(app), **reload_nightly.hot.app_commit_receipt(app)}
         control, daemon = attach_copy(app, cli, Path(args.pid_file), args.control_socket)
     elif args.cli and args.daemon_socket:
         cli, daemon, control = Path(args.cli).resolve(), args.daemon_socket, args.control_socket
