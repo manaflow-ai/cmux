@@ -454,6 +454,8 @@ pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
+// RFD 0158 §2: rules over whole turns that steer with no tokens (`sidecars.rs`).
+mod sidecars;
 pub(crate) mod turn_shots;
 mod turn_usage;
 mod turns;
