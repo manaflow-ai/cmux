@@ -25,7 +25,10 @@ SWITCH = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\b")
 SWITCH_AS_LABEL = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\s*\|\|")
 
 # Runs-on expressions naming a Blacksmith label without the switch, after this change.
-BASELINE = 236
+# 239: localization-fill translate/open, customize-prompts-cold-model and auto-resume-nightly-notarization preflight
+# hold the Claude token or an App key and keep an ephemeral label (tests/test_ci_fork_runner_routing.py);
+# localization-fill gaps holds neither and reads the switch.
+BASELINE = 239
 # Runs-on expressions whose route is our Linux pool ('cmux-linux') with no overflow clause: a job there waits for
 # our pool even while the watchdog has turned Linux overflow on. Shapes the codemod left (a parenthesized input
 # fallback) are counted here; the count only shrinks.
