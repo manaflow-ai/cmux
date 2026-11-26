@@ -2191,11 +2191,15 @@ export function NewTabScreen(props: Props) {
       return;
     }
     const placed = new Set(input.inlineIds());
-    const backspaced = backspacedAttachment(
-      event,
-      input.atStart(),
-      attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-    );
+    // In the inline view only: the strip's attachments go by their × (ComposerBox's Backspace).
+    const backspaced =
+      attachmentView === "strip"
+        ? undefined
+        : backspacedAttachment(
+            event,
+            input.atStart(),
+            attachments.filter((chip) => !placed.has(chip.id)),
+          );
     if (backspaced) {
       event.preventDefault();
       inline.remove(backspaced.id);

@@ -741,28 +741,20 @@ const backspace = (repeat = false) =>
     );
   });
 
-// Austin 2026-10-21: a pasted image could only go by its ×. Backspace at the prompt's start now
-// takes back the last chip, as Claude's composer does; Backspace inside the text still edits it.
-// That is the strip view's: there the chips are in the strip, and the text keeps their places hidden.
-test("Backspace at the prompt's start removes the last chip, one per press; anywhere else it takes none", async () => {
+// Austin 2026-10-21 asked Backspace at the prompt's start to take back the last chip. Lucas,
+// 2026-11-25: in the strip view (the default) a chip goes only by its ×, so Backspace there edits the
+// text and takes no chip, pressed or held; the take-back stays the inline view's (backspacedAttachment).
+test("strip view: Backspace at the prompt's start takes no chip; in the text it edits the text", async () => {
   const composer = await openComposer();
   await showAttachments("strip");
   await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
   await paste("", [new File(["b"], "b.txt", { type: "text/plain" })]);
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   await typeDraft("hi");
-  // The caret is after "hi": the key is the editor's, and no chip goes.
-  await backspace();
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   await act(async () => markdownField().setCaret(0));
   await backspace();
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
-  // Holding Backspace down to clear the prompt stops at its start: a repeat takes no chip.
   await backspace(true);
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
-  await backspace();
-  expect(chips(composer)).toEqual([]);
-  expect(placed()).toEqual([]);
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   expect(words()).toBe("hi");
 });
 

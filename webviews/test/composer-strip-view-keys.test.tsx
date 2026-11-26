@@ -324,23 +324,29 @@ test("strip view: a selection across the image deletes its text and keeps the im
   expect(chips()).toHaveLength(1);
 });
 
-test("strip view: Backspace with only the image before the caret still takes it back", async () => {
+// Lucas, 2026-11-25: in the strip view Backspace never takes an attachment out, also at the start
+// of the prompt (the take-back of backspacedAttachment is the inline view's); only its × does.
+test("strip view: Backspace with only the image before the caret keeps it, pressed or held", async () => {
   await openComposer();
   await view("strip");
   await paste({ files: [screenshot(4)] });
   expect(shown()).toBe("[image]");
   await press("Backspace");
-  expect(chips()).toHaveLength(0);
+  expect(chips()).toHaveLength(1);
+  await press("Backspace", { repeat: true });
+  expect(chips()).toHaveLength(1);
+  expect(shown()).toBe("[image]");
 });
 
-test("strip view: a held Backspace stops at the image at the start of the prompt", async () => {
+test("strip view: Backspace at the start of the prompt takes no image", async () => {
   await openComposer();
   await view("strip");
   await paste({ files: [screenshot(6)] });
-  // A held key that cleared what was typed after the image: its next repeat reaches the image.
-  expect(shown()).toBe("[image]");
-  await press("Backspace", { repeat: true });
+  await typed("hi");
+  await act(async () => markdownField().setCaret(0));
+  await press("Backspace");
   expect(chips()).toHaveLength(1);
+  expect(shown()).toBe("[image]hi");
 });
 
 test("strip view: Delete at the end of the prompt, before the image, does nothing", async () => {

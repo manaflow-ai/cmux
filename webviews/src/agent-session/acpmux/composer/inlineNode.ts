@@ -429,8 +429,7 @@ function deleteKey(view: EditorView, event: KeyboardEvent): { backward: boolean;
 
 /// Backspace and Delete while the nodes are hidden (Settings' strip view, the default): the strip
 /// alone shows the attachments, so the keys pass over their nodes as if they were not in the text,
-/// and only the strip's ×, a whole-draft delete or Backspace at the very start of the prompt takes an
-/// attachment out. Before, the first Backspace after a paste (the caret right after its hidden node)
+/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first Backspace after a paste (the caret right after its hidden node)
 /// took the picture out of the strip and left the letter it was pressed for. True: the key is done
 /// here (sometimes as nothing); false: the editor's as before.
 export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
@@ -478,10 +477,9 @@ export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
     view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
     return false;
   }
-  // Nothing beyond the nodes in this line. At the very start of the prompt, one Backspace takes back
-  // the picture before the caret, as at the start of an empty prompt; a held key's repeat does not
-  // (attachmentIntakeModel.ts backspacedAttachment).
-  if (backward && edge === Selection.atStart(doc).from) return event.repeat || wide;
+  // Nothing beyond the nodes in this line. At the very start of the prompt, Backspace has nothing to
+  // take: the strip's attachments go only by their × (ComposerBox takes none back either).
+  if (backward && edge === Selection.atStart(doc).from) return true;
   // At the very end, Delete has nothing to take.
   if (!backward && edge === Selection.atEnd(doc).to) return true;
   // A join with the line before or after, only from a plain top-level paragraph: elsewhere (a quote,

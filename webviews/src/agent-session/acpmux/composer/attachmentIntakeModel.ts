@@ -1233,7 +1233,8 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 /// Backspace with the caret at the prompt's start (`atStart`: nothing for the key to delete or
 /// lift there) takes back the last staged chip, as a chat composer's Backspace does, so a pasted
 /// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
-/// clear the prompt stops at its start.
+/// clear the prompt stops at its start. The inline view's only: in the strip view (the default) an
+/// attachment goes only by its × (Lucas, 2026-11-25), so the callers take none back there.
 export function backspacedAttachment(
   event: {
     key: string;
