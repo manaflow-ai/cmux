@@ -18,6 +18,9 @@ public final class CloudSendTimeline: Sendable {
     public static let targetMs = 3_000
     /// The last step: its mark ends the timeline.
     public static let firstToken = "first token"
+    /// What each step's own line starts with (``mark(_:)``): one as each step ends, so a start whose first token never
+    /// reaches this Mac (its page released, the chat stuck before the model) still leaves its steps in the log.
+    public static let stepPrefix = "cloud send step: "
 
     private struct State {
         var marks: [(step: String, at: Int)] = []
@@ -28,11 +31,17 @@ public final class CloudSendTimeline: Sendable {
     private let now: @Sendable () -> ContinuousClock.Instant
     private let began: ContinuousClock.Instant
     private let state = Mutex(State())
+    private let log: @Sendable (String) -> Void
 
-    public init(now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) {
+    /// `log` takes each step's line (``stepLine(_:ms:at:)``); nil logs it to the app's log.
+    public init(now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+                log: (@Sendable (String) -> Void)? = nil) {
         self.now = now
+        self.log = log ?? { Self.logger.info("\($0, privacy: .public)") }
         began = now()
     }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
 
     /// Each step's end, in milliseconds since the Send, in the order the steps ended; a step marked twice keeps its first end.
     public var marks: [(step: String, at: Int)] { state.withLock { $0.marks } }
@@ -49,13 +58,21 @@ public final class CloudSendTimeline: Sendable {
     @discardableResult
     public func mark(_ step: String) -> String? {
         let at = Int(CloudStartSteps.milliseconds(began.duration(to: now())))
-        return state.withLock { state in
-            guard !state.finished, !state.marks.contains(where: { $0.step == step }) else { return nil }
+        let (ended, line) = state.withLock { state -> (Int?, String?) in
+            guard !state.finished, !state.marks.contains(where: { $0.step == step }) else { return (nil, nil) }
+            let last = state.marks.map(\.at).max() ?? 0
             state.marks.append((step, at))
-            guard step == Self.firstToken else { return nil }
+            guard step == Self.firstToken else { return (max(0, at - last), nil) }
             state.finished = true
-            return Self.line(state.marks, machine: state.machine)
+            return (nil, Self.line(state.marks, machine: state.machine))
         }
+        if let ended { log(Self.stepLine(step, ms: ended, at: at)) }
+        return line
+    }
+
+    /// `cloud send step: STEP MS ms (AT ms since the Send)`: one step's own time as it ends.
+    public static func stepLine(_ step: String, ms: Int, at: Int) -> String {
+        "\(stepPrefix)\(step) \(ms) ms (\(at) ms since the Send)"
     }
 
     /// Each step's own time: from the step that ended before it (or the Send) to its end.

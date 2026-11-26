@@ -60,6 +60,23 @@ import Testing
         }
     }
 
+    /// Each step logs its own line as it ends (a start whose first token never reaches this Mac still leaves them);
+    /// the first token logs only the one line, and a step marked twice or after the end logs nothing.
+    @Test func eachStepLogsItsOwnLineAsItEnds() {
+        let clock = TestClock(), lines = OSAllocatedUnfairLock(initialState: [String]())
+        let timeline = CloudSendTimeline(now: clock.now) { line in lines.withLock { $0.append(line) } }
+        clock.advance(300)
+        timeline.mark("machine")
+        clock.advance(2_000)
+        timeline.mark("copy")
+        timeline.mark("machine")
+        clock.advance(444_000)
+        #expect(timeline.mark(CloudSendTimeline.firstToken) != nil)
+        timeline.mark("late")
+        #expect(lines.withLock { $0 } == ["cloud send step: machine 300 ms (300 ms since the Send)",
+                                         "cloud send step: copy 2000 ms (2300 ms since the Send)"])
+    }
+
     @Test func aStepMarkedTwiceKeepsItsFirstEnd() {
         let clock = TestClock()
         let timeline = CloudSendTimeline(now: clock.now)
