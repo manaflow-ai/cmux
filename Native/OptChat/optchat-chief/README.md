@@ -1583,8 +1583,8 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `room`, `sizeCheck(tries, room)` measures against the room, and
   `finishLine(cut, line)` adds the prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
-  is built by `claude-sonnet-5` (fewer safeguard categories) instead of
-  being retried forever. On the acpmux route a refusal arrives as acpmux
+  keeps its input, cut to the room, as its line instead of being retried
+  forever; no other model builds it unless `Config::fallback_model` names one. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
   or an overload is not a refusal and is retried. Other failures retry with

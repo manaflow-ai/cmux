@@ -509,7 +509,12 @@ fn build_with(
         oversized: None,
     };
     let result = match fallback {
-        None => main(request).map(|t| built(t, false)),
+        // No fallback model: a refusal repeats on every try, so the input,
+        // cut to the room, is the line, and the node holds no turn.
+        None => match main(request) {
+            Err(declined) if declined.refused => Ok(built(stand_in.clone(), false)),
+            other => other.map(|t| built(t, false)),
+        },
         Some(fallback) => with_fallback(&main, fallback, request, &stand_in, &built),
     };
     match result {
