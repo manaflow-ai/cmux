@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The replay file of a classic terminal's scrollback (`CMUX_RESTORE_SCROLLBACK_FILE`).
 public struct ClassicScrollbackReplay {
