@@ -5038,6 +5038,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.github/actions/setup-cmux-tui-rust/
             /scripts/
             /plans/cmux-next/
             /schemas/
