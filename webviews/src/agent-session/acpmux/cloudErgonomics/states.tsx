@@ -55,6 +55,7 @@ const inPlace =
 function cloudStartHandlers(record: Recorder) {
   return {
     onAnswer: inPlace(record, "answer the start's question"),
+    // retry-prompt-ok: CloudStartView's Retry sends the start prompt again and starts a billed Cloud machine.
     onRetry: inPlace(record, "retry the start"),
     // cloudSignInRetry: the browser sign-in, then the same start goes again by itself.
     onSignIn: inPlace(record, "sign in, then the start goes again"),
@@ -120,7 +121,8 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
     retryable: true,
     from: "copying",
   },
-  // CloudStartChat: any other error (CloudMoveStrings.moveFailed).
+  // CloudStartChat: any other error (CloudMoveStrings.moveFailed). The host's own words; its "Try again" is the
+  // move's Retry (retry-prompt-ok: moving a chat starts a billed Cloud machine and copies the folder again).
   {
     id: "cloud_start_failed.other",
     code: "cloud_start_failed",
@@ -252,6 +254,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
 /// retries turns and signs agents in (`agent_login`), whose agent lists /compact.
 function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
   return {
+    // retry-prompt-ok: both send a paid model request again.
     retry: inPlace(record, "send the prompt again"),
     retryFailed: inPlace(record, "retry the turn"),
     resume: inPlace(record, "continue the turn"),
