@@ -70,6 +70,13 @@ bench() {
     return 0
   fi
   [[ "$workspace" == */cmux-tui || "$workspace" == cmux-tui ]] && (cd "$workspace/.." && git submodule update --init --depth 1 ghostty-next >/dev/null)
+  # A before_ref worktree gets no ghostty-next checkout of its own (job b72ee236: "Ghostty Zig
+  # manifest not found"); when it pins the same commit, it builds from this checkout's.
+  unset CMUX_GHOSTTY_SRC
+  if [[ "$workspace" == */cmux-tui && ! -f "$workspace/../ghostty-next/build.zig.zon" ]] \
+    && [[ "$(git -C "$workspace/.." ls-tree HEAD ghostty-next)" == "$(git -C "$root" ls-tree HEAD ghostty-next)" ]]; then
+    export CMUX_GHOSTTY_SRC="$root/ghostty-next"
+  fi
   # hub-carrier builds libghostty-vt with zig (cmux-remote); a fast-checks runner has none (run 45426933150).
   if [[ "$features" == *hub-carrier* ]] && ! command -v zig >/dev/null && [[ -z "${CMUX_ZIG:-}" ]]; then
     CMUX_ZIG="$(MEDIA_ZIG_CACHE="$root/.build/transport-pair-matrix-zig" scripts/ci/media_pinned_zig.sh "$root")"
