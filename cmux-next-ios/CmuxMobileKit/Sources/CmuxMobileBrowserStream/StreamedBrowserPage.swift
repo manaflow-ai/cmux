@@ -56,6 +56,7 @@ public struct StreamedBrowserPage: View {
                 } else if model.openFailed, !autoRetry.isQuietLineShown {
                     // Opened again on its own (AutoRetry): the loading line stays until the quiet bound.
                     status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
                 } else if model.openFailed {
                     // Still failing past the quiet bound: why, and one quiet line (no Retry).
                     VStack(spacing: 8) {
