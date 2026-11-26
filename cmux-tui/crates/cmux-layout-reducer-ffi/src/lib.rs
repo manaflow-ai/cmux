@@ -103,7 +103,6 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod pane_focus;
-mod pane_focus;
 mod pane_placement;
 mod screen;
 pub mod scroll;
