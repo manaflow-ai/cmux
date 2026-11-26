@@ -145,6 +145,9 @@ jobs:
           # more than once; cmux_machine_channel_head_built.py). The job's token has actions: read for head_tier.py.
           HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           GH_TOKEN: ${{ github.token }}
+          # No PR head build while the base took a commit in the last N minutes (its push run coalesces the merge);
+          # 0 turns that off.
+          MACHINE_CHANNEL_PR_HEAD_QUIET_MIN: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.

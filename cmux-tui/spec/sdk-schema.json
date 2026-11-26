@@ -22500,6 +22500,17 @@
       "since": 12,
       "capability": "notification-mark-unread-v1"
      },
+     "keep_awake": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-keep-awake-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",

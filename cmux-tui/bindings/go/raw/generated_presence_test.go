@@ -38951,6 +38951,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "icon", true, "\"value\"")
 	})
+	t.Run("SetWorkspaceMetadataRequest.KeepAwake", func(t *testing.T) {
+		var missing SetWorkspaceMetadataRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.KeepAwake.IsAbsent() {
+			t.Fatal("KeepAwake did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "keep_awake", false, "")
+		var nullValue SetWorkspaceMetadataRequest
+		if err := json.Unmarshal([]byte("{\"keep_awake\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.KeepAwake.IsNull() {
+			t.Fatal("KeepAwake did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "keep_awake", true, "null")
+		var presentValue SetWorkspaceMetadataRequest
+		if err := json.Unmarshal([]byte("{\"keep_awake\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.KeepAwake.Get(); !ok {
+			t.Fatal("KeepAwake did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "keep_awake", true, "true")
+	})
 	t.Run("SetWorkspaceMetadataRequest.Key", func(t *testing.T) {
 		var missing SetWorkspaceMetadataRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -39236,6 +39262,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Icon did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "icon", true, "\"value\"")
+	})
+	t.Run("SetWorkspaceMetadataOptions.KeepAwake", func(t *testing.T) {
+		var missing SetWorkspaceMetadataOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.KeepAwake.IsAbsent() {
+			t.Fatal("KeepAwake did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "keep_awake", false, "")
+		var nullValue SetWorkspaceMetadataOptions
+		if err := json.Unmarshal([]byte("{\"keep_awake\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.KeepAwake.IsNull() {
+			t.Fatal("KeepAwake did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "keep_awake", true, "null")
+		var presentValue SetWorkspaceMetadataOptions
+		if err := json.Unmarshal([]byte("{\"keep_awake\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.KeepAwake.Get(); !ok {
+			t.Fatal("KeepAwake did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "keep_awake", true, "true")
 	})
 	t.Run("SetWorkspaceMetadataOptions.Key", func(t *testing.T) {
 		var missing SetWorkspaceMetadataOptions
