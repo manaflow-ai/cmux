@@ -30,6 +30,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +69,9 @@ class Ctx:
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
+    # Where `ext new` scaffolds: a folder in no git repository, as a person's new folder is. OUT sits in the
+    # cmux checkout on a fleet Mac, where `ext new` rightly makes no repo inside another (publish.rs `git_init`).
+    fresh: Path = field(default_factory=lambda: Path(tempfile.mkdtemp(prefix="ext-rows-new-")).resolve())
 
     @property
     def globals_(self) -> list[str]:
@@ -207,6 +211,20 @@ def install_customize(ctx: Ctx, manifest: dict, files: dict[str, str]) -> dict:
     return {"version": version, "reload": reload_reply, "installed": installed,
             "record": {k: record.get(k) for k in ("id", "version", "installed", "enabled", "hidden", "grants",
                                                   "web_pages") if k in record} if record else None}
+
+
+def scaffold_folder(ctx: Ctx, name: str) -> Path:
+    """A new folder for `ext new` outside any git repository (`ctx.fresh`)."""
+    folder = ctx.fresh / name
+    shutil.rmtree(folder, ignore_errors=True)
+    return folder
+
+
+def keep_in_work(ctx: Ctx, folder: Path) -> None:
+    """A copy of a scaffold in OUT/work for the report (its `.git` left out)."""
+    if folder.is_dir():
+        shutil.rmtree(ctx.work / folder.name, ignore_errors=True)
+        shutil.copytree(folder, ctx.work / folder.name, ignore=shutil.ignore_patterns(".git", "node_modules"))
 
 
 def views(ctx: Ctx, interface: str | None = None) -> list[dict]:
@@ -387,8 +405,7 @@ def row_ext_new(ctx: Ctx) -> dict:
     `ext shot --json` loads it in the copy's daemon (`ext dev --once` with no install) and prints its scene."""
     kinds, per_kind = new_kinds(ctx), {}
     for kind in kinds:
-        folder = ctx.work / f"new-{kind}"
-        shutil.rmtree(folder, ignore_errors=True)
+        folder = scaffold_folder(ctx, f"new-{kind}")
         made = ctx.ext(["ext", "new", f"rows-{kind}", "--kind", kind, "--dir", str(folder), "--json"], timeout=60)
         shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"new-{kind}.png")])
         answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
@@ -404,6 +421,7 @@ def row_ext_new(ctx: Ctx) -> dict:
             "scene": scene_of(shot)[:20], "shot_exit": shot.get("exit"),
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
             **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
+        keep_in_work(ctx, folder)
     return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
             "kinds": kinds, "per_kind": per_kind}
 
@@ -427,11 +445,32 @@ def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
     """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
     `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
     state (cmux-tui-core apps.rs `session_state_directory`)."""
+    by_socket = socket_session_dirs(ctx.daemon)
+    if by_socket:
+        return by_socket
     marker = (ctx.pid_file.parent / ".side-instance").read_text()
     key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
     root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
     dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
     return dirs or apps_state_dirs(since)
+
+
+def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list[Path]:
+    """The session folder of the daemon listening on `daemon_socket`: `<...>/tui/<session>-<hash>`, its session
+    the socket's name (`cmux-app--da60c572.sock` keeps `tui/cmux-app--da60c572-4c066e34fc5ab100`), under
+    cmux NEXT's support roots (`builds/<key>/tui`, `tags/<tag>/tui`, or a shared `tui`). The daemon's own name
+    for it, whatever key the copy's build identity derived (the side marker's `key=` can differ)."""
+    stem = Path(daemon_socket).name.removesuffix(".sock")
+    if not stem:
+        return []
+    support = support or Path.home() / "Library/Application Support"
+    found: list[Path] = []
+    for top in ("cmux-next", "cmux", "cmux-tui"):
+        base = support / top
+        for pattern in ("tui", "*/*/tui"):
+            for tui in base.glob(pattern):
+                found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
+    return sorted(set(found))
 
 
 def apps_state_dirs(since: float) -> list[Path]:
@@ -776,8 +815,7 @@ def row_git_install(ctx: Ctx) -> dict:
     `catalog.get` (the consent card's fetch) of a `file://` URL, an `http://` URL ("only https repositories
     install") and an https URL on a host that is not a public name; none of them fetches. A pinned https
     install and `apps.update`'s `apps.update.needs_consent` need the network and a fetched app: not here."""
-    folder = ctx.work / "git-src"
-    shutil.rmtree(folder, ignore_errors=True)
+    folder = scaffold_folder(ctx, "git-src")
     made = ctx.ext(["ext", "new", f"rows-git{ctx.token[-4:]}", "--kind", "section", "--dir", str(folder),
                     "--json"], timeout=60)
     added = ctx.ext(["ext", "add", str(folder), "--json", "--no-install"], timeout=120)
@@ -793,6 +831,7 @@ def row_git_install(ctx: Ctx) -> dict:
     def said(reply: dict, text: str) -> bool:
         return reply.get("ok") is not True and text in json.dumps(reply.get("error"))
 
+    keep_in_work(ctx, folder)
     return {"checks": {"scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
                        "folder_added": added.get("exit") == 0 and answer.get("ok") is not False
                        and bool(answer.get("app")),
@@ -906,6 +945,125 @@ def row_fork(ctx: Ctx) -> dict:
             **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
 
 
+def row_layout_swap(ctx: Ctx) -> dict:
+    """Whole-layout swap as a plugin (capability matrix; `cmux.sidebar/1`, draft #43027): an app implementing
+    `cmux.sidebar/1` installs, the window draws it in place of the stock workspace list (`apps.views` holds a
+    cmux.sidebar/1 view with its words, or its render export logged), a saved manifest redraws it with no
+    relaunch, and with the sample gone no extension sidebar is left (the native list is the fallback). Fails
+    while the NIGHTLY has no `cmux.sidebar/1` (the install answers `interface.unknown`)."""
+    def sample(word: str, sidebar: bool = True) -> dict:
+        implements = {"implements": {"cmux.sidebar/1": {"export": "renderSidebar", "title": "Rows sidebar",
+                                                         "symbol": "sidebar.left"}}} if sidebar else {}
+        return install_customize(ctx, {"name": "Rows sidebar", "description": "A whole-sidebar swap.",
+                                       "runtime": {"main": "main.js"}, **implements},
+                                 {"main.js": ("function renderSidebar() {\n"
+                                              f"  console.log({json.dumps(word)} + ' rendered')\n"
+                                              f"  return VStack([Text({json.dumps(word)})])\n}}\n"
+                                              "globalThis.__cmuxAppExports = { renderSidebar }\n")})
+
+    def drawn(word: str) -> dict:
+        shown = wait_for(lambda: [v for v in views(ctx, "cmux.sidebar/1")
+                                  if any(word in t for t in v.get("texts") or [])], wait=20)
+        return {"views": shown or [], "log_lines": logs_with(ctx, f"{word} rendered", wait=5)}
+
+    first_word, second_word = f"{ctx.token} sidebar", f"{ctx.token} resaved"
+    first = sample(first_word)
+    first_drawn = drawn(first_word)
+    second = sample(second_word)
+    second_drawn = drawn(second_word)
+    gone = sample(f"{ctx.token} gone", sidebar=False)
+    left = wait_for(lambda: not views(ctx, "cmux.sidebar/1"), wait=10)
+    return {"checks": {"installed": first["installed"] and second["installed"],
+                       "sidebar_drawn": bool(first_drawn["views"] or first_drawn["log_lines"]),
+                       "save_redraws": bool(second_drawn["views"] or second_drawn["log_lines"]),
+                       "stock_sidebar_back": gone["installed"] and bool(left)},
+            "install": [first, second, gone], "drawn": [first_drawn, second_drawn],
+            "views": views(ctx)}
+
+
+row_layout_swap.needs_app = True
+
+SDK_PACKAGE = "cmux-extension-sdk"
+
+
+def npm_version(package: str) -> dict:
+    """The registry's latest version of `package` (`npm view PACKAGE version`, read over https)."""
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"https://registry.npmjs.org/{package}/latest", timeout=20) as reply:
+            return {"version": json.loads(reply.read()).get("version")}
+    except urllib.error.HTTPError as error:
+        return {"version": None, "error": f"HTTP {error.code}"}
+    except (OSError, ValueError) as error:
+        return {"version": None, "error": f"{type(error).__name__}: {error}"}
+
+
+def typecheck(folder: Path) -> dict:
+    """`tsc --noEmit -p FOLDER` (the scaffold's tsconfig points `cmux-extension-sdk` at its ./sdk), through
+    bunx or npx; `{exit, output}`, exit None when neither is on PATH."""
+    runner = shutil.which("bunx") or shutil.which("npx")
+    if not runner:
+        return {"exit": None, "output": "neither bunx nor npx is on PATH"}
+    argv = [runner, "-p", "typescript@5", "tsc", "--noEmit", "-p", str(folder)]
+    if runner.endswith("npx"):
+        argv.insert(1, "-y")
+    try:
+        run = subprocess.run(argv, capture_output=True, text=True, timeout=240, cwd=folder)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"exit": None, "output": f"{type(error).__name__}: {error}"}
+    return {"exit": run.returncode, "output": (run.stdout + run.stderr)[-1500:]}
+
+
+def row_typed_sdk(ctx: Ctx) -> dict:
+    """Typed SDK (capability matrix, cmux#42797, #52685): `ext new` in a clean folder outside any checkout
+    writes `src/main.ts` on `cmux-extension-sdk` with the SDK this NIGHTLY ships in `./sdk`; the folder
+    typechecks against it and a wrong type is refused (`tsc --noEmit`); an edit to the TypeScript source is
+    rebuilt and drawn by `ext shot --json` with no install (hot reload from the user's own build); and the
+    package is on npm at the shipped version (`npm view cmux-extension-sdk version`). The npm check fails
+    until the SDK is published (an outward step, the matrix's open proof)."""
+    # bun (the rebuild on `ext shot`) and bunx/npx (tsc) where a fleet Mac installs them (rows after this one keep the PATH).
+    extra = [str(Path.home() / ".bun/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    os.environ["PATH"] = os.pathsep.join([d for d in extra if Path(d).is_dir()] + [os.environ.get("PATH", "")])
+    folder = ctx.work / "typed-sdk"
+    shutil.rmtree(folder, ignore_errors=True)
+    made = ctx.ext(["ext", "new", "rows-typed", "--kind", "section", "--dir", str(folder), "--json"], timeout=60)
+    read = lambda rel: (folder / rel).read_text() if (folder / rel).is_file() else ""  # noqa: E731
+    source, package = read("src/main.ts"), json.loads(read("sdk/package.json") or "{}")
+    paths = (json.loads(read("tsconfig.json") or "{}").get("compilerOptions") or {}).get("paths") or {}
+    clean = typecheck(folder) if source else {"exit": None, "output": "no scaffold"}
+    probe = "\nexport const rowsTypeProbe: number = Text(\"not a number\")\n"
+    if source:
+        (folder / "src/main.ts").write_text(source + probe)
+    broken = typecheck(folder) if source else {"exit": None, "output": "no scaffold"}
+    word = f"{ctx.token} typed"
+    edited = source.replace('"All done"', json.dumps(word))
+    if source:
+        (folder / "src/main.ts").write_text(edited)
+    shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / "typed-sdk.png")])
+    answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
+    loaded = answer.get("ok") is True or (answer.get("phase") == "shot" and not answer.get("errors"))
+    scene = scene_of(shot)
+    built = read("dist/main.js")
+    npm = npm_version(SDK_PACKAGE)
+    return {"checks": {"scaffolded": made.get("exit") == 0 and bool(source),
+                       "imports_sdk": f'from "{SDK_PACKAGE}"' in source,
+                       "sdk_ships_in_folder": package.get("name") == SDK_PACKAGE and bool(package.get("version"))
+                       and (paths.get(SDK_PACKAGE) or [""])[0].startswith("./sdk/"),
+                       "typechecks": clean.get("exit") == 0,
+                       "wrong_type_refused": broken.get("exit") not in (0, None),
+                       "edit_rebuilt": edited != source and word in built,
+                       "edit_drawn": loaded and (word in json.dumps(scene) or not ctx.control),
+                       "on_npm_at_shipped_version": bool(npm.get("version"))
+                       and npm.get("version") == package.get("version")},
+            "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "sdk_version": package.get("version"),
+            "tsconfig_paths": paths, "typecheck": clean, "typecheck_wrong_type": broken,
+            "bun": shutil.which("bun"), "npm": npm,
+            "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "shot", "next")},
+            "scene": scene[:20], "shot_exit": shot.get("exit"),
+            **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
+
+
 # Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget relaunches the copy, so it runs last.
@@ -928,6 +1086,8 @@ ROWS = {
     "git_install": (row_git_install, "#42068 #44897"),
     "toolbar": (row_toolbar, "#47325"),
     "overlay": (row_overlay, "#43014"),
+    "layout_swap": (row_layout_swap, "#43027"),
+    "typed_sdk": (row_typed_sdk, "#42797 #52685"),
 }
 
 
@@ -1010,7 +1170,10 @@ def main() -> int:
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
     receipt["token"] = ctx.token
-    receipt["rows"] = run_rows(ctx, names)
+    try:
+        receipt["rows"] = run_rows(ctx, names)
+    finally:
+        shutil.rmtree(ctx.fresh, ignore_errors=True)
     ran = [r for r in receipt["rows"].values() if r["ok"] is not None]
     receipt["ok"] = bool(ran) and all(r["ok"] for r in ran)
     receipt["passed"] = sorted(n for n, r in receipt["rows"].items() if r["ok"])
