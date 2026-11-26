@@ -1082,7 +1082,11 @@ impl Hub {
         // must not let the next ordinary prompt reuse the old environment. Recheck the same
         // quietness and process census used by the reaper before claiming the turn; if work is
         // still present, the mark remains and the prompt may continue on the live child.
-        if running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst) {
+        // Continuations already completed their required handoff before calling this path.
+        // Ordinary prompts still perform the quiet/census check, but a queued continuation never
+        // awaits here and therefore cannot accidentally join the queue after the check.
+        if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
+        {
             let _ = self.end_quiet_stale(session, "prompt-restart", None).await;
         }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
@@ -3067,7 +3071,7 @@ impl Hub {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
             if automatic {
-                self.respawn_when_quiet(session);
+                self.respawn_when_quiet_required(session);
                 self.append(
                     session,
                     "mux",

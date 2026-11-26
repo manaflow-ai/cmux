@@ -2547,6 +2547,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             respawn_when_quiet: AtomicBool::new(false),
+            respawn_required: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound: std::sync::OnceLock::new(),

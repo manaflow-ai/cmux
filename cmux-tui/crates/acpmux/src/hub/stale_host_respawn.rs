@@ -113,7 +113,7 @@ impl Hub {
                 if self.end_quiet_stale(&session, "stale-proxy", None).await {
                     now += 1;
                 } else {
-                    self.respawn_when_quiet(&session);
+                    self.respawn_when_quiet_required(&session);
                     marked += 1;
                 }
             }
@@ -152,7 +152,7 @@ impl Hub {
         }
         let ended = self.end_quiet_stale(session, "stale-proxy-retry", Some(fired_gen)).await;
         if !ended {
-            self.respawn_when_quiet(session);
+            self.respawn_when_quiet_required(session);
         }
         ended
     }

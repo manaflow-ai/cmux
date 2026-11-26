@@ -318,6 +318,10 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
+    /// Whether a retry must wait for the replacement environment before sending. Stale binary
+    /// and profile refreshes are opportunistic; credential, route and proxy changes are required
+    /// so a continuation must not reuse the old child for them.
+    pub(super) respawn_required: AtomicBool,
     /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
     /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
     pub(super) inbound: std::sync::OnceLock<InboundChannel>,

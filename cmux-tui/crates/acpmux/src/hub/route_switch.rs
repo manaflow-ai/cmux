@@ -320,7 +320,7 @@ impl Hub {
             return;
         }
         tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): waiting for quiet to restart it for its sub-session tools");
-        self.respawn_when_quiet(session);
+        self.respawn_when_quiet_required(session);
     }
 }
 
@@ -442,7 +442,7 @@ impl Hub {
                     "route_changed",
                     json!({"from": id, "to": next.id, "when": "when-quiet", "reason": "fallback"}),
                 );
-                self.respawn_when_quiet(session);
+                self.respawn_when_quiet_required(session);
                 out.set_path(&["fallback", "applied"], json!(true));
             }
         }

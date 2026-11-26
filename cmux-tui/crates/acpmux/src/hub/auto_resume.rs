@@ -735,6 +735,7 @@ impl Hub {
         // Stop/new work wakes this task through the continuation's existing release watch.
         // Never expire the continuation just because its background work is long-lived.
         let mut inspect_proxy = true;
+        let mut announced_wait = false;
         loop {
             if !session.auto_resume.current(fired_gen)
                 || !still_cut_by(session, cut_turn, rate_held)
@@ -751,7 +752,10 @@ impl Hub {
                 // Teardown/census awaited: cancellation must be read again before success.
                 continue;
             }
-            if !session.respawn_when_quiet.load(std::sync::atomic::Ordering::SeqCst) {
+            // Stale binaries and profile refreshes are opportunistic: the existing child is
+            // still usable for this continuation. Only a changed route, credential, gateway or
+            // proxy makes the replacement environment required before sending.
+            if !session.respawn_required.load(std::sync::atomic::Ordering::SeqCst) {
                 return true;
             }
             if session.child.lock().await.is_none() {
@@ -759,6 +763,15 @@ impl Hub {
             }
             if self.end_marked_restart_before_retry(session, fired_gen).await {
                 return session.auto_resume.current(fired_gen) && !self.shutting_down();
+            }
+            if !announced_wait && delay >= Duration::from_secs(5) {
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_waiting_restart",
+                    json!({"turnId": cut_turn, "reason": "background-work", "required": true}),
+                );
+                announced_wait = true;
             }
             tokio::select! {
                 _ = released.changed() => {},

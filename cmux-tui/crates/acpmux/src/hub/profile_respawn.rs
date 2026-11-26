@@ -76,8 +76,9 @@ impl Hub {
     /// The session's agent ended or a start runs the profile as it is now: no respawn waits.
     pub(super) fn settle_profile_respawn(&self, session: &Session) {
         // So does a restart that waited for its agent to be quiet (`idle.rs` `quiet_respawn`).
-        session.respawn_when_quiet.store(false, Ordering::SeqCst);
-        if session.profile_respawn.swap(false, Ordering::SeqCst) {
+        let quiet_was = session.respawn_when_quiet.swap(false, Ordering::SeqCst);
+        session.respawn_required.store(false, Ordering::SeqCst);
+        if quiet_was || session.profile_respawn.swap(false, Ordering::SeqCst) {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
             self.events.row_changed(session);
