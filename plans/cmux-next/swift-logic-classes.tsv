@@ -10200,7 +10200,7 @@ CmuxNextMacScreen	class	MacScreenViewerOverlay	0	PLATFORM	0	0	Packages/macOS/Cmu
 CmuxNextMacScreen	class	ReapGate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHelper.swift	state/decision code: 1 branch lines, 2 funcs, 0 of 19 lines framework
 CmuxNextMacScreen	class	RemoteDeviceChannel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/RemoteDeviceChannel.swift	state/decision code: 23 branch lines, 9 funcs, 0 of 130 lines framework
 CmuxNextMacScreen	enum	CmuxRemoteAgentShare	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteAgentShare.swift	state/decision code: 18 branch lines, 5 funcs, 3 of 53 lines framework
-CmuxNextMacScreen	enum	CmuxRemoteAgentStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteAgentShare.swift	state/decision code: 1 branch lines, 4 funcs, 0 of 45 lines framework
+CmuxNextMacScreen	enum	CmuxRemoteAgentStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteAgentShare.swift	localized strings
 CmuxNextMacScreen	enum	CmuxRemoteError	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteError.swift	state/decision code: 9 branch lines, 0 funcs, 0 of 14 lines framework
 CmuxNextMacScreen	enum	CmuxRemoteShareCaller	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteShareNotice.swift	state/decision code: 21 branch lines, 1 funcs, 1 of 44 lines framework
 CmuxNextMacScreen	enum	CmuxRemoteStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteStrings.swift	state/decision code: 10 branch lines, 5 funcs, 0 of 58 lines framework
@@ -10348,6 +10348,7 @@ CmuxNextMacScreen	struct	ShareHostDevice	0	LOGIC	100	0	Packages/macOS/CmuxNext/S
 CmuxNextMacScreen	typealias	MacScreenRdMessage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenRdProcess.swift	the name the Mac Screen gives RemoteRdLineReader.Line (cmux_rd_line_reader_next): the line type is Rust's AppLine
 CmuxNextMacScreen	extension	MacScreenHubHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHubHost+DefaultSharing.swift	extension MacScreenHubHost holds state, decides or maps: 16 branches/collection ops in 53 lines
 CmuxNextMacScreen	enum	MacScreenRules	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenRules.swift	enum MacScreenRules holds state, decides or maps: 4 branches/collection ops in 21 lines
+CmuxNextMacScreen	enum	RdUI	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/RdUI.swift	FFI glue: serializes one op to cmux_rd_ui_call (cmux-rd-ffi ui/) and parses its answer; no rule in Swift
 CmuxNextMobile	actor	MobileHostSupervisor	0	MIXED	54	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostSupervisor.swift	child spawn and pipes 170; restart/backoff policy, toggle and sign-in phases, token handoff 200
 CmuxNextMobile	actor	MobileHostTokenSupply	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostTokenSupply.swift	token lookup join
 CmuxNextMobile	class	LineBuffer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostProcess.swift	from class MobileHostProcess:8: hostd child Process supervision
