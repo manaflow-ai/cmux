@@ -65,6 +65,9 @@ stress_pid=$!
 sleep 10
 # Runnable threads on our CPUs while the replay runs: every 5 s, the threads of this run's process tree in state R,
 # over nproc. /proc/loadavg is the host's, which on a --cores run also counts what the rest of the VM runs.
+# A thread is ours when its CPU list is this run's, read from this shell: a caller may pin the run to any CPUs (the
+# VM sensor pins to the quietest ones, e.g. 3,5,9-14), and a fixed 0-(n-1) then matched nothing and read 0.0.
+allowed="$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/$$/status)"
 (
   while :; do
     r=0
@@ -73,7 +76,7 @@ sleep 10
       rest="${line##*) }"
       [ "${rest:0:1}" = "R" ] || continue
       pid="${task#/proc/}"; pid="${pid%%/*}"
-      grep -qs "^Cpus_allowed_list:[[:space:]]*0-$((n - 1))\$" "/proc/$pid/status" && r=$((r + 1))
+      grep -qsxF "Cpus_allowed_list:	$allowed" "/proc/$pid/status" && r=$((r + 1))
     done
     echo "$r" >>"$work/runnable"
     sleep 5
