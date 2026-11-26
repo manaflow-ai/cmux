@@ -153,6 +153,16 @@ on:
       - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**
       - scripts/ios-ffi-bindings.sh
 
+# At most one run in flight and one waiting per branch, with no GitHub read: a newer push replaces the waiting run,
+# and the run that starts diffs from the last successful one (base-autofix-since.sh), so it covers every replaced
+# push. The window job's 120-minute hold reads the runs list and fails open when every token's hour is spent;
+# 2026-11-26 20:00-23:30Z it failed open on all but a few reads and 37 repairs ran in 3 h, each about 27 min and red
+# on a base red (about 8.7k runner-min/day, plus the Mac exports each one started). This bound holds either way.
+# Its group name differs from the autofix job's own (cmux-next-base-autofix-<ref>[-exports-<run>]).
+concurrency:
+  group: cmux-next-base-autofix-run-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions: {}
 
 env:
@@ -186,6 +196,8 @@ jobs:
         id: window
         env:
           GH_TOKEN: ${{ github.token }}
+          # The CI pool Apps' tokens (each its own installation hour), read after the job token is refused.
+          BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
