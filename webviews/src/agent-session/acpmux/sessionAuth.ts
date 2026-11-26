@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentDisplayName } from "./agents";
 import { translate, type Translate } from "./i18n";
 import { providerName } from "./modelVariants";
+import { afterNextPaint } from "./afterNextPaint";
 /** The session/selected-route auth verdict from acpmux. Unknown is never a refusal. */
 export type SessionAuthState =
   | "ready"
@@ -295,30 +296,38 @@ export function useSessionAuth(
     const selectionChanged = checked.current.selection !== selection;
     const probe =
       selectionChanged || checked.current.refresh !== refresh || checked.current.refreshEpoch !== refreshEpoch;
-    checked.current = { selection, refresh, refreshEpoch };
-    void read(selected, probe).then(
-      (reply) => {
-        if (!live) return;
-        const auth = readSessionAuth(reply);
-        const scopeMismatch =
-          ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
-          ("target" in selected &&
-            ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
-              (auth.host ?? undefined) !== selected.target.host ||
-              (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
-        if (scopeMismatch) {
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-          return;
-        }
-        setResult({ selection, auth });
-      },
-      () => {
-        if (live)
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-      },
-    );
+    // A new selection reads its sign-in after the frame that draws it: a reply that came first (a
+    // local daemon answers at once) would render the pane again before that frame paints. What was
+    // checked is noted when the read goes out, so a run again before that frame (it cancels this
+    // read) still reads after the frame, and still fresh.
+    const ask = () => {
+      checked.current = { selection, refresh, refreshEpoch };
+      void read(selected, probe).then(
+        (reply) => {
+          if (!live) return;
+          const auth = readSessionAuth(reply);
+          const scopeMismatch =
+            ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
+            ("target" in selected &&
+              ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
+                (auth.host ?? undefined) !== selected.target.host ||
+                (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
+          if (scopeMismatch) {
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+            return;
+          }
+          setResult({ selection, auth });
+        },
+        () => {
+          if (live)
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+        },
+      );
+    };
+    const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
     return () => {
       live = false;
+      cancel?.();
     };
   }, [read, selected, selection, refresh, refreshEpoch, version]);
   const recheck = useCallback(() => setRefresh((n) => n + 1), []);

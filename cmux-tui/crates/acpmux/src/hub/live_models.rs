@@ -86,9 +86,10 @@ impl Hub {
         })
     }
 
-    /// The live list for `harness`, when one arrived or was cached.
+    /// The live list for `harness`, when one arrived or was cached, fresh or stale
+    /// (`model_lists`).
     pub(super) fn live_models_for(&self, harness: &str) -> Option<Vec<LiveModel>> {
-        self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
+        self.model_lists.live(harness)
     }
 
     /// A Codex chat of `harness` reported its model choices (`listed`, from the Codex that runs
@@ -169,18 +170,80 @@ impl Hub {
     /// live list `LIVE_MAX_AGE` old again in the background. A model the CLI
     /// learned since (a new release on the account or the gateway) reaches
     /// open pickers through `_acpmux/harnesses_changed`, with no daemon restart.
+    /// And by program, in the same background task, one check at a time: a CLI updated on disk
+    /// since its list was read turns that list stale (`changed_live_binaries`) and is probed
+    /// again. Neither ever holds the read.
     pub(crate) async fn revalidate_live_models(self: &Arc<Self>) {
+        use std::sync::atomic::Ordering;
         let due = self.stale_live_probes(std::time::Instant::now()).await;
-        if due.is_empty() {
+        let check = self
+            .live_binary_check
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+        if due.is_empty() && !check {
             return;
         }
-        tracing::info!(agents = ?due, "live model lists are old; probing again");
+        if !due.is_empty() {
+            tracing::info!(agents = ?due, "live model lists are old; probing again");
+        }
         let hub = self.clone();
-        tokio::spawn(async move { hub.probe_live_models(false, Some(due)).await });
+        tokio::spawn(async move {
+            let mut due = due;
+            if check {
+                let changed = hub.changed_live_binaries().await;
+                hub.live_binary_check.store(false, Ordering::Release);
+                if !changed.is_empty() {
+                    tracing::info!(agents = ?changed, "a CLI changed under its live model list; probing again");
+                }
+                due.extend(changed);
+            }
+            if !due.is_empty() {
+                hub.probe_live_models(false, Some(due)).await;
+            }
+        });
     }
 
-    /// Serves the cached lists whose programs are unchanged. Daemon start,
-    /// before the login environment and the probes.
+    /// The live-list harnesses whose program is not the one their list was read from, each
+    /// list's program tag invalidated; each update is named once (`claim_binary_change`). A
+    /// list whose program had no identity (not a path) is left to the age rule.
+    pub(super) async fn changed_live_binaries(&self) -> std::collections::BTreeSet<String> {
+        let recorded: Vec<(String, crate::live_models::CacheKey, std::path::PathBuf)> = {
+            let cfg = self.config.read().await;
+            targets(&cfg.harnesses)
+                .into_iter()
+                .filter(|target| self.probes(&target.harness))
+                .filter_map(|target| {
+                    let program = std::path::PathBuf::from(target.argv.first()?);
+                    let read_from = self.model_lists.live_binary(&target.harness)??;
+                    Some((target.harness, read_from, program))
+                })
+                .collect()
+        };
+        if recorded.is_empty() {
+            return Default::default();
+        }
+        let now = tokio::task::spawn_blocking(move || {
+            recorded
+                .into_iter()
+                .map(|(harness, read_from, program)| {
+                    let current = CacheKey::of(&program);
+                    (harness, read_from, current)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        let mut changed = std::collections::BTreeSet::new();
+        for (harness, read_from, current) in now {
+            if self.model_lists.claim_binary_change(&harness, &read_from, current) {
+                changed.insert(harness);
+            }
+        }
+        changed
+    }
+
+    /// Serves the cached lists whose programs are unchanged, stale until their probes answer.
+    /// Daemon start, before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
         // A capture fixture's harnesses show no list of this host's (`harness_fixture.rs`).
         if crate::harness_fixture::active().is_some() {
@@ -189,10 +252,9 @@ impl Hub {
         let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
-        let mut live = self.live_models.lock().unwrap_or_else(PoisonError::into_inner);
-        for (harness, models) in cached {
-            live.entry(harness).or_insert(models);
-        }
+        self.model_lists.serve_live_from_disk(
+            cached.into_iter().map(|(harness, (models, key))| (harness, models, Some(key))),
+        );
     }
 
     /// Probes every live-list harness at once; with `wait`, returns when all
@@ -242,6 +304,15 @@ impl Hub {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .started(&target.harness, std::time::Instant::now());
+        // The cache clock and the program's identity before the CLI is asked: a refresh, a
+        // profile change or an update while it runs leaves what it read stale (`model_lists`).
+        let written = self.model_lists.stamp();
+        let binary = match program.clone() {
+            Some(program) => {
+                tokio::task::spawn_blocking(move || CacheKey::of(&program)).await.ok().flatten()
+            }
+            None => None,
+        };
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
@@ -288,19 +359,14 @@ impl Hub {
         };
         tracing::info!(agent = %harness, models = models.len(), ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "live model list");
         self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).remove(&harness);
-        if let Some(key) = program.as_deref().and_then(CacheKey::of) {
+        if let Some(key) = binary.clone() {
             let (name, list) = (harness.clone(), models.clone());
             let _ = tokio::task::spawn_blocking(move || {
                 Cache::new(Cache::default_dir()).store(&name, &key, &list)
             })
             .await;
         }
-        let changed = self
-            .live_models
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(harness, models.clone())
-            .is_none_or(|old| old != models);
+        let changed = self.model_lists.put_live(&harness, models, binary, written);
         if changed {
             self.announce_harnesses().await;
         }

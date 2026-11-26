@@ -1,6 +1,10 @@
 name: cmux-next base linux
 
-# The step table's `linux` job (ci/steps.toml, run by `ci/run`) on the feat-cmux-next tip after landing.
+# The step table's `linux` and `web-browser` jobs (ci/steps.toml, run by `ci/run`) on the feat-cmux-next tip after
+# landing, as 'base linux' and 'base web-browser'. The web-browser leg (2026-11-26): its step chat-flow-shift-budget
+# ran on no base job at all (ci-web.yml runs only agent-pane-real-acpmux and web-instant-navigation there), so its red
+# on cmux#49399 and cmux#51550 ('compaction ends: stray 74.8px > 8px', the same on both) had no base verdict and
+# land refused it as having none (base_red_excuse.py's BASE_CHECK_FOR reads this leg).
 # pr-pipeline.yml runs that job on each pull request merged with its base, and nothing ran it on the base
 # itself: two green pull requests could land a red base and no run said so (2026-11-22: `app-platform`
 # was red on the base for 9 min and a person found it). cmux-next-post-merge.yml runs other suites.
@@ -12,14 +16,14 @@ name: cmux-next base linux
 #
 # Each run routes the steps by the paths changed since the last green run, so a red step runs again on
 # every tip until the base is green, and a run after a green one costs only the steps the new commits
-# reach. A green run records its tip under the git ref refs/cmux-ci/base-linux-tip/BRANCH (the `record` job,
+# reach. A green leg records its tip under the git ref refs/cmux-ci/base-JOB-tip/BRANCH (the `record` job,
 # the only one that may write) and the next run reads it with `git fetch`, so the route does not depend
 # on the API. The ref holds a one-file commit naming the tip, not the tip itself: a push of the tip was
 # refused, since the workflow token may not push a commit that carries workflow files. Why it matters: in the hour after cmux#51869 the read of the last green run answered HTTP 403 on 11 of 17
 # runs, each routed by its own push's diff, and the pushes collapsed before such a run were routed by no
 # run. An Actions cache key was tried first and its entry was evicted within 6 min (the store was at 14.1 GB
 # of its 10). With no recorded tip the run asks the API for the last green run, and when that fails too it
-# routes by the push's own diff. Only a branch with no green run yet runs every linux step.
+# routes by the push's own diff. Only a branch with no green run yet runs every step of the leg's job.
 #
 # A step that fails runs once more by itself before the run is red (a failed setup or tool: the whole job): in that first hour 4 of 13 runs were
 # red and none was a base break (one timing test twice, a slow runner, a runner shut down).
@@ -39,10 +43,20 @@ concurrency:
 
 jobs:
   linux:
-    name: base linux
+    # One leg per step-table job; each routes, retries and records its own tip, so a red leg never widens the other's
+    # route. The check names are what base_red_excuse.py's BASE_CHECK_FOR reads.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: linux
+            name: base linux
+          - job: web-browser
+            name: base web-browser
+    name: ${{ matrix.name }}
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # pr-pipeline.yml's bound for the same job: every linux step can run here.
+    # pr-pipeline.yml's bound for the linux job (the larger of the two): every step of either job can run here.
     timeout-minutes: 85
     permissions:
       actions: read
@@ -62,9 +76,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUSH_BEFORE: ${{ github.event.before }}
+          TABLE_JOB: ${{ matrix.job }}
         run: |
           recorded=""
-          if timeout 60 git fetch --quiet --no-tags --depth=1 origin "refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME" 2>/dev/null; then
+          if timeout 60 git fetch --quiet --no-tags --depth=1 origin "refs/cmux-ci/base-$TABLE_JOB-tip/$GITHUB_REF_NAME" 2>/dev/null; then
             recorded="$(git show FETCH_HEAD:tip 2>/dev/null | head -c 40 || true)"
           fi
           if [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
@@ -106,14 +121,16 @@ jobs:
             git diff --name-only --no-renames -z "$since" HEAD > "$RUNNER_TEMP/changed-paths.txt"
             echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
             echo "SINCE_SHA=$since" >> "$GITHUB_ENV"
-            echo "::notice::linux steps routed by the $(tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c) paths changed since the $from ($since)."
+            echo "::notice::$TABLE_JOB steps routed by the $(tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c) paths changed since the $from ($since)."
           else
-            echo "::notice::No tip to diff from: every linux step runs."
+            echo "::notice::No tip to diff from: every $TABLE_JOB step runs."
           fi
-      - name: Run the routed linux steps (ci/steps.toml)
+      - name: Run the routed ${{ matrix.job }} steps (ci/steps.toml)
+        env:
+          TABLE_JOB: ${{ matrix.job }}
         run: |
           set +e
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"
+          ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"
           first="${PIPESTATUS[0]}"
           set -e
           if [[ "$first" -eq 0 ]]; then
@@ -129,7 +146,7 @@ jobs:
             only=()
           fi
           echo "::notice::Failed once, running once more: $again"
-          if ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${only[@]}"; then
+          if ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${only[@]}"; then
             echo "::warning title=Flaky on the base::Failed once and passed when run again, so the base is not red: $again"
             echo "Failed once and passed when run again (flaky, the base is not red): $again" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -141,6 +158,7 @@ jobs:
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
+          TABLE_JOB: ${{ matrix.job }}
         run: |
           python3 - <<'PY' || echo "::warning::The merges since the last green tip could not be listed."
           import json, os, urllib.request
@@ -158,7 +176,7 @@ jobs:
                   title = commit["commit"]["message"].splitlines()[0]
                   lines.append(f"- {commit['sha'][:12]} {title} ({who})")
           else:
-              lines.append("No tip to count from: every linux step ran on this tip.")
+              lines.append(f"No tip to count from: every {os.environ['TABLE_JOB']} step ran on this tip.")
           text = "\n".join(lines) + "\n"
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(text)
@@ -166,27 +184,46 @@ jobs:
           PY
 
   record:
-    name: record the green tip
-    # The linux job holds no write token while it runs the base's code. This job runs none of it: it writes
-    # one ref outside refs/heads, which starts no workflow. When it fails the run stays green and the next
-    # run routes as it did before this job existed.
+    name: record the green tips
+    # The table legs hold no write token while they run the base's code. This job runs none of it: it writes
+    # one ref per green leg outside refs/heads, which starts no workflow. When it fails the run's legs keep their
+    # verdicts and the next run routes as it did before this job existed. It reads which legs passed from this
+    # run's own job list (a matrix leg has no output of its own).
     needs: linux
+    if: ${{ always() && github.repository_owner == 'manaflow-ai' }}
     continue-on-error: true
-    if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: write
     steps:
-      - name: Write this tip under refs/cmux-ci/base-linux-tip
+      - name: Write each green leg's tip under refs/cmux-ci/base-JOB-tip
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git init --quiet tip
-          cd tip
-          printf '%s\n' "$GITHUB_SHA" > tip
-          git add tip
-          git -c user.name=cmux-ci -c user.email=cmux-ci@users.noreply.github.com commit --quiet -m "last green base linux tip of $GITHUB_REF_NAME: $GITHUB_SHA"
+          green="$(python3 - <<'PY'
+          import json, os, urllib.request
+          url = (f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                 f"{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100")
+          request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                                                         "Accept": "application/vnd.github+json"})
+          with urllib.request.urlopen(request, timeout=30) as answer:
+              jobs = json.load(answer).get("jobs") or []
+          for job in jobs:
+              name = str(job.get("name") or "")
+              if name in ("base linux", "base web-browser") and job.get("conclusion") == "success":
+                  print(name.removeprefix("base "))
+          PY
+          )"
+          [[ -n "$green" ]] || { echo "::notice::No leg passed on this tip; nothing to record."; exit 0; }
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          timeout 120 git -c http.extraheader="$auth" push --quiet --force "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "HEAD:refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME"
-          echo "::notice::Recorded $GITHUB_SHA as the last green tip of $GITHUB_REF_NAME."
+          for job in $green; do
+            rm -rf "tip-$job"
+            git init --quiet "tip-$job"
+            printf '%s\n' "$GITHUB_SHA" > "tip-$job/tip"
+            git -C "tip-$job" add tip
+            git -C "tip-$job" -c user.name=cmux-ci -c user.email=cmux-ci@users.noreply.github.com commit --quiet -m "last green base $job tip of $GITHUB_REF_NAME: $GITHUB_SHA"
+            timeout 120 git -C "tip-$job" -c http.extraheader="$auth" push --quiet --force "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "HEAD:refs/cmux-ci/base-$job-tip/$GITHUB_REF_NAME"
+            echo "::notice::Recorded $GITHUB_SHA as the last green base $job tip of $GITHUB_REF_NAME."
+          done

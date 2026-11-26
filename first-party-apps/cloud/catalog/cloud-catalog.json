@@ -1251,6 +1251,14 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 65535
+          },
+          "scheme": {
+            "enum": [
+              "http",
+              "https"
+            ],
+            "default": "http",
+            "description": "The preview protocol for a new forward. Use https for a self-signed HTTPS service. Repeated calls for the same machine and port reuse the live forward and return its original scheme, even if a different scheme is requested."
           }
         },
         "required": [
@@ -1265,6 +1273,8 @@
           "port",
           "host",
           "localPort",
+          "scheme",
+          "url",
           "generation",
           "state"
         ],
@@ -1283,6 +1293,17 @@
             "minimum": 1,
             "maximum": 65535,
             "description": "Connect here, on 127.0.0.1 only."
+          },
+          "scheme": {
+            "enum": [
+              "http",
+              "https"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The loopback preview URL for the selected scheme."
           },
           "generation": {
             "type": "integer",
@@ -1321,7 +1342,7 @@
           "ja": "クラウドマシンのポートを転送"
         }
       },
-      "docs": "Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger.",
+      "docs": "Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). The optional scheme (http by default, or https for a self-signed HTTPS service) is returned with a loopback url. One forward per machine and port: repeated calls reuse the live forward and return its original localPort and scheme, even if a different scheme is requested. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger.",
       "since": "cloud/1"
     },
     {

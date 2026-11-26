@@ -56,6 +56,7 @@ case "$1 $2 \${3:-}" in
       *'"open-workspace"'*) echo '{"id":"ws-1"}' ;;
       *'"spawn-process"'*) printf '%s' "$REQUEST" >"$F/spawn"; echo '{"process":"proc-1"}' ;;
       *'"snapshot-process-terminal"'*)
+        if [ -n "\${FAKE_SNAPSHOT_TEXT:-}" ]; then printf '{"snapshot":{"through_sequence":1,"text":"%s"}}\\n' "$FAKE_SNAPSHOT_TEXT"; exit 0; fi
         MARKER="$(grep -o 'CMUX_WS_SMOKE_[A-Za-z0-9]*_[0-9]*' "$F/spawn" | head -1)"
         printf '{"snapshot":{"through_sequence":1,"text":"%s:%s"}}\\n' "$MARKER" ${JSON.stringify(`${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}`)} ;;
       *) echo '{}' ;;
@@ -112,6 +113,16 @@ describe("cmux-tui WebSocket smoke", () => {
     expect(result.stderr).toContain("the connector never recorded the daemon in its state dir, not within 1s of the approval");
     expect(result.stderr).toMatch(/timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms gave-up=\+\d+ms/);
     expect(result.stderr).not.toContain("no known daemon matches this route");
+  }, 30_000);
+
+  // Rebake run 45875662667: this step failed with empty stdout and stderr,
+  // because a bare \`jq -e\` check failing under set -e prints nothing.
+  test("a failing check after the RPCs names its command and the response it judged", async () => {
+    const result = await runSmoke({ FAKE_SNAPSHOT_TEXT: "no marker here" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/cmux-tui websocket smoke: line \d+ failed: jq -e --arg marker/);
+    expect(result.stderr).toContain("no marker here");
+    expect(result.stderr).toMatch(/timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms pinned=\+\d+ms/);
   }, 30_000);
 
   test("a connector that exits before its request is pending fails at once with its stderr", async () => {
