@@ -368,7 +368,7 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
 /// as every connection before it.
 fn peer_send_window() -> Option<usize> {
     let kb = std::env::var("ACPMUX_PEER_SEND_WINDOW_KB").ok()?.trim().parse::<usize>().ok()?;
-    (kb > 0).then(|| kb << 10)
+    kb.checked_mul(1024).filter(|&bytes| bytes > 0)
 }
 
 /// What an `initialize` sets on its connection for the requests after it: the client's name,
