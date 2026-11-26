@@ -1,0 +1,27 @@
+{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Losing cmux.json",
+      "subtitle": "You should not see this in prefer-dot-cmux",
+      "command": "echo 'LOSING CMUX.JSON'; echo 'THIS SHOULD NOT WIN'; pwd",
+      "target": "newTabInCurrentPane",
+      "icon": { "type": "emoji", "value": "❌" }
+    },
+    "legacy.loser": {
+      "type": "command",
+      "title": "Losing Action",
+      "command": "echo 'LOSING ACTION'; pwd",
+      "target": "newTabInCurrentPane",
+      "icon": { "type": "emoji", "value": "❌" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "legacy.loser"
+      ]
+    }
+  }
+}

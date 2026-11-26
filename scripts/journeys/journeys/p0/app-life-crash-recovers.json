@@ -1,0 +1,52 @@
+{
+  "id": "app-life-crash-recovers",
+  "priority": "P0",
+  "title": "After a crash, the next launch says so and brings the terminals back, still running",
+  "why": "A crash must never cost the person their terminals: the daemon keeps them, and the next launch must reattach them, show the restart notice (with its cause) and take input. The crash is a real SIGSEGV in the app process (debug.crash.app), so none of the quit path runs.",
+  "source": "app life (holistic-quality.md 1): crash recovery",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-crash", "as": "shell"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "mkdir -p /tmp/jr-${nonce}-crash && cd /tmp/jr-${nonce}-crash && echo crash-${nonce}-$((6*7))", "enter": true, "mark": "seeded"},
+    {"do": "expect", "title": "the shell answers before the crash", "since": "seeded", "timeout": 10,
+     "all": [{"daemon_line": "crash-${nonce}-42"}, {"daemon_cwd": "/tmp/jr-${nonce}-crash"}]},
+    {"do": "type", "text": "sleep 300", "enter": true},
+    {"do": "expect", "title": "a long job runs in the terminal when the app crashes", "timeout": 10,
+     "all": [{"process_present": {"match": "^sleep 300$", "bind": "job", "foreground": true}}]},
+
+    {"do": "relaunch", "how": "crash", "mark": "reopened"},
+
+    {"do": "use", "name": "shell"},
+    {"do": "expect", "title": "the launch knows the last run crashed and says so", "since": "reopened", "timeout": 45,
+     "all": [
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "restarted"}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.previous.signal", "equals": 11}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.notice", "contains": "restarted after a problem"}},
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+       {"frame_text": "cmux restarted after a problem"}
+     ]},
+    {"do": "expect", "title": "the terminal came back attached, in its folder, its job still running", "since": "reopened", "timeout": 45,
+     "all": [
+       {"app_layout": {"workspace": "jr-crash", "panes": 1, "tabs": 1, "selected": true}},
+       {"app_cwd": "/tmp/jr-${nonce}-crash"},
+       {"daemon_cwd": "/tmp/jr-${nonce}-crash"},
+       {"app_pane": {"link": "connected"}},
+       {"process_present": {"match": "^sleep 300$", "bind": "job-after", "foreground": true}},
+       {"daemon_line": "crash-${nonce}-42"},
+       {"app_text_line": "crash-${nonce}-42"},
+       {"frame_text": "crash-${nonce}-42"}
+     ]},
+    {"do": "key", "key": "c", "modifiers": ["control"], "mark": "interrupt"},
+    {"do": "expect", "title": "the job takes Ctrl+C after the crash and the prompt returns", "since": "interrupt", "within": 2, "timeout": 8,
+     "all": [{"process_gone": "job-after"}, {"daemon_prompt": true}, {"app_prompt": true}]},
+    {"do": "type", "text": "echo alive-${nonce}-$(basename $PWD)", "enter": true, "mark": "alive"},
+    {"do": "expect", "title": "the shell takes input after the crash", "since": "alive", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "alive-${nonce}-jr-${nonce}-crash"},
+       {"app_text_line": "alive-${nonce}-jr-${nonce}-crash"},
+       {"frame_text": "alive-${nonce}-jr-${nonce}-crash"}
+     ]}
+  ]
+}

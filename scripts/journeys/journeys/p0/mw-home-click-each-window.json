@@ -1,0 +1,438 @@
+{
+  "id": "mw-home-click-each-window",
+  "priority": "P0",
+  "title": "Three windows: Home clicked in each window's sidebar shows in that window, and no other window changes",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): \"clicking on home/workspaces might bring me to the wrong window\". Home asked for in window N must show in window N (cp/multiwindow-2: the sidebar item names its own window; docked Home moves the home workspace into the window that asked unless its window lists only Home), never bring another window forward or change it. Each window's Home item is clicked with the pointer (`debug.mouse` at the item's frame from `debug.sidebar_rows`; no action.run), then its workspace row, and every check reads every window: the clicked one shows Home (the classic top page, or the docked Home's workspace with the Home item active) and the others keep what they show, their rows, panes, focused pane and frame. Three new windows hold the journey's workspaces; the first window, with the earlier journeys' workspaces (its rows may be scrolled), is a fourth window that must not change either.",
+  "source": "handoff/multiwindow.md item 5 (click Home in each window and assert that window, and only it, changes)",
+  "budget_seconds": 150,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "mw-hm-a-${nonce}",
+      "as": "a",
+      "title": "set-up: workspace mw-hm-a with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-hm-b-${nonce}",
+      "as": "b",
+      "title": "set-up: workspace mw-hm-b with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-hm-c-${nonce}",
+      "as": "c",
+      "title": "set-up: workspace mw-hm-c with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w0",
+      "title": "the first window (it keeps the earlier journeys' workspaces; a bystander here)"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-hm-a-${nonce}",
+      "to": "new",
+      "as": "w1",
+      "title": "set-up: workspace a into its own new window"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-hm-b-${nonce}",
+      "to": "new",
+      "as": "w2",
+      "title": "set-up: workspace b into its own new window"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-hm-c-${nonce}",
+      "to": "new",
+      "as": "w3",
+      "title": "set-up: workspace c into its own new window"
+    },
+    {
+      "do": "expect",
+      "title": "three new windows, each showing its own workspace",
+      "timeout": 15,
+      "all": [
+        {
+          "windows_open": {
+            "baseline_plus": 3
+          }
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-hm-a-${nonce}",
+              "mw-hm-b-${nonce}",
+              "mw-hm-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "h1"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w1",
+      "home": true,
+      "mark": "home-1",
+      "title": "click Home in window 1's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 shows Home; every other window did not change",
+      "since": "home-1",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "home": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "h1",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "r1"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w1",
+      "workspace": "mw-hm-a-${nonce}",
+      "mark": "row-1",
+      "title": "click workspace a's row in window 1's sidebar (back from Home)"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 shows workspace a again; every other window did not change",
+      "since": "row-1",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-hm-a-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "r1",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "a"
+    },
+    {
+      "do": "use_window",
+      "window": "w1",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w1",
+      "title": "a click into a's terminal in w1, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-hm-a-${nonce}",
+      "enter": true,
+      "window": "w1",
+      "mark": "typed-1"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 1 reaches workspace a's terminal",
+      "since": "typed-1",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-hm-a-${nonce}"
+        },
+        {
+          "app_text_line": "mw-hm-a-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-hm-a-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "r1",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "h2"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w2",
+      "home": true,
+      "mark": "home-2",
+      "title": "click Home in window 2's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 shows Home; every other window did not change",
+      "since": "home-2",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "home": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "h2",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "r2"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w2",
+      "workspace": "mw-hm-b-${nonce}",
+      "mark": "row-2",
+      "title": "click workspace b's row in window 2's sidebar (back from Home)"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 shows workspace b again; every other window did not change",
+      "since": "row-2",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-hm-b-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "r2",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "b"
+    },
+    {
+      "do": "use_window",
+      "window": "w2",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w2",
+      "title": "a click into b's terminal in w2, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-hm-b-${nonce}",
+      "enter": true,
+      "window": "w2",
+      "mark": "typed-2"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 2 reaches workspace b's terminal",
+      "since": "typed-2",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-hm-b-${nonce}"
+        },
+        {
+          "app_text_line": "mw-hm-b-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-hm-b-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "r2",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "h3"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w3",
+      "home": true,
+      "mark": "home-3",
+      "title": "click Home in window 3's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 3 shows Home; every other window did not change",
+      "since": "home-3",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "home": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "h3",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "r3"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w3",
+      "workspace": "mw-hm-c-${nonce}",
+      "mark": "row-3",
+      "title": "click workspace c's row in window 3's sidebar (back from Home)"
+    },
+    {
+      "do": "expect",
+      "title": "window 3 shows workspace c again; every other window did not change",
+      "since": "row-3",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "workspace": "mw-hm-c-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "r3",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "c"
+    },
+    {
+      "do": "use_window",
+      "window": "w3",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w3",
+      "title": "a click into c's terminal in w3, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-hm-c-${nonce}",
+      "enter": true,
+      "window": "w3",
+      "mark": "typed-3"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 3 reaches workspace c's terminal",
+      "since": "typed-3",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-hm-c-${nonce}"
+        },
+        {
+          "app_text_line": "mw-hm-c-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-hm-c-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "r3",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close the three new windows"
+    }
+  ]
+}
