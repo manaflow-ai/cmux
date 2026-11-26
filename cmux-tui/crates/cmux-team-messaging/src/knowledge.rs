@@ -247,10 +247,10 @@ impl Corpus {
                 return Err(TemplateError::MissingField { template: t, field });
             }
         }
-        if let Some(kinds) = t.required_ref() {
-            if !draft.refs.iter().any(|r| kinds.contains(&r.key.kind)) {
-                return Err(TemplateError::MissingRef { template: t, kinds });
-            }
+        if let Some(kinds) = t.required_ref()
+            && !draft.refs.iter().any(|r| kinds.contains(&r.key.kind))
+        {
+            return Err(TemplateError::MissingRef { template: t, kinds });
         }
         let ix = Ix::new(self);
         let space = ix
