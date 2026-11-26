@@ -78,6 +78,15 @@ green-head rule does not see. It shares that rule's switch, its labels and its `
 diffs come from the compare API (`contents: read`); a compare of 300 files or more, a file without a patch, or an
 unread answer keeps the head's usual tier.
 
+Ask rule (goal ask-to-nightly-under-2h): a ready pull request whose body names one of Leo's asks (`ask-` and ten hex
+digits, the id leo-asks gives it) is handed off to land from its first head, as if `ready-to-land` were on it: it runs
+the landing tier and `cmux/land-tier` is `success` at once. Agents waited for green before asking to land, so an ask's
+real CI started only at the label: on 11-25..26, cmux#57020 waited 137 min, #57341 121, #57515 55 and #57798 41 with no
+landing-tier CI before `ready-to-land`. Only the head GitHub sends with `opened`, `reopened` or `ready_for_review`
+gets it: a later push (`synchronize`) falls back to the usual rule (cheap until `ready-to-land`), so an ask PR pays one
+landing tier at open, the same minutes as asking to land at open (lane-9's CI-minutes goal: a push after open must not
+pay the tier again). About 12 ask PRs a day. A draft stays cheap. CI_ASK_LANDING=0 turns it off.
+
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
@@ -101,6 +110,10 @@ import time
 FULL_CI = "full-ci"
 LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to land
 LAND_BASE = "feat-cmux-next"
+# A Leo ask's id (leo-asks): a pull request body naming one is handed off to land from its first head (the ask rule).
+ASK_ID = re.compile(r"\bask-[0-9a-f]{10}\b")
+# The pull_request actions whose head the ask rule hands off: the head at open or at ready, never a later push.
+ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
@@ -128,6 +141,20 @@ def idle(facts: dict | None, now: float, hours: float = IDLE_HOURS) -> bool:
         return False
     own_last = facts.get("own_last")
     return isinstance(own_last, (int, float)) and now - own_last > hours * 3600
+
+
+def labels_of(event: dict) -> set[str]:
+    """The pull request's labels for EVENT: its payload's, plus the label a `labeled` event adds. The payload is built
+    when GitHub delivers the event, so a label taken off right after it was added is already gone from it:
+    land-judge's full-ci pulse on a lane VM (add full-ci, then remove it a second later; cmux#52441, router run
+    45831524947) reached the router with no full-ci in its labels, ran the affected tier and skipped pr-pipeline.yml."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
 
 
 def land_rule_applies(event: dict) -> bool:
@@ -245,11 +272,35 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
     return states[0] if states else ""  # the combined status lists each context's newest status once
 
 
+def labels_of(event: dict) -> set[str]:
+    """The PR's labels for EVENT: the payload's list, plus the label a `labeled` event added. GitHub fills the payload's
+    list when it sends the event, not when the label went on, so a label taken off right after (land-judge's full-ci
+    pulse on a lane VM, label_lane_pulse: added and taken off 2 s later) is missing from it. cmux#53671 at c52da39d,
+    2026-11-26 14:13Z: the pulse's `labeled` run read no full-ci, routed the land-affected cheap tier, skipped pr
+    pipeline, and land-judge refused matrix_missing again; every lane VM land of an iOS link PR stopped there."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
+
+
+def for_ask(event: dict, switch: str | None = None) -> bool:
+    """Whether EVENT is the head at open or ready (ASK_ACTIONS) of a pull request whose body names a Leo ask (ASK_ID),
+    with the ask rule on (CI_ASK_LANDING, default 1). A later push (synchronize) is never handed off by the ask rule."""
+    on = os.environ.get("CI_ASK_LANDING", "1") if switch is None else switch
+    if (on or "1").strip() == "0" or event.get("action") not in ASK_ACTIONS:
+        return False
+    body = (event.get("pull_request") or {}).get("body")
+    return isinstance(body, str) and bool(ASK_ID.search(body))
+
+
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
     head into feat-cmux-next (land_rule_applies), without `full-ci`, with both switches on."""
-    pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     return ((carry_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
             and LAND_LABEL in labels and FULL_CI not in labels)
@@ -264,7 +315,7 @@ def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = 
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
     feat-cmux-next (land_rule_applies) with both switches on and neither full-tier label."""
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     base = str((pr.get("base") or {}).get("ref") or "")
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
@@ -285,11 +336,11 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     if FULL_CI in labels:
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
-    landing = LAND_LABEL in labels and pr.get("draft") is not True
+    landing = (LAND_LABEL in labels or for_ask(event)) and pr.get("draft") is not True
     if (idle_switch or "1").strip() != "0" and not landing and event.get("action") == "synchronize" and idle(
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
@@ -328,7 +379,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
                          f"CI_LAND_FULL_PER_PR=1 restores it for every landing head; {LAND_STATUS} is success, so "
                          f"land waits on this tier's checks")
     if landing:
-        return "full", f"{LAND_LABEL} label"
+        return "full", (f"{LAND_LABEL} label" if LAND_LABEL in labels else "names a Leo ask: handed off to land")
     return "full", "ready for review"
 
 
@@ -415,7 +466,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
     land_full_switch = os.environ.get("CI_LAND_FULL_PER_PR", "0")
     carry_switch = os.environ.get("CI_LAND_CARRY", "1")
-    labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+    labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
     carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
