@@ -190,6 +190,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_test_products.py
 
+      # The fleet iOS build client the Linux kit job calls: token, submit, poll, artifact.
+      - name: Test the fleet iOS build client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_ios_build.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -864,6 +869,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_file_size.py
 
+      - name: Check that no workflow gates a step on hashFiles() outside the workspace
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_hashfiles_in_workspace.py
+
       - name: Check that no workflow submits a build-fleet job with a lapsing --pool
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflows_pin_no_fleet_pool.py
@@ -1008,6 +1017,10 @@ jobs:
       - name: Validate the Linux-capable Swift package list
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_packages.py
+
+      - name: Validate the Linux Swift target ratchet (count only goes up)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_targets.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1543,6 +1556,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_git_mirror_bundle.py
 
+      - name: Validate the pinned files mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pinned_files_mirror.py
+
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py
@@ -1643,6 +1660,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
+      - name: Validate github.com egress proxy direct fallback
+        if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
+        run: ./tests/test_ci_github_egress_direct.sh
+
       - name: Validate focused test launcher
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: |
@@ -1709,6 +1730,10 @@ jobs:
       - name: Validate CmuxMobileLinkFFI.xcframework reuse by input key
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_key.py
+
+      - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_link_ffi_sh.py
 
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
@@ -1798,6 +1823,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
 
+      - name: Validate the patched Zig tree restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_install_zig_ci_tree_cache.sh
       - name: Validate the Zig package archives restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_packages_r2.sh
@@ -1805,6 +1833,10 @@ jobs:
       - name: Validate the Node, Bun and Rust restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
+
+      - name: Validate the machine bun store puts the pinned bun back with no download
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_bun_store.sh
 
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -2252,6 +2284,10 @@ jobs:
       - name: Validate the warm nightly-next builder's git fetches are bounded and retried
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_git_fetch_retry.py
+
+      - name: Validate the warm nightly-next checkout reads GitHub only with the release App's token
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_warm_checkout_app_token.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
