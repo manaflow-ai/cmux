@@ -47,6 +47,9 @@ PY
 }
 round() { # $1 label, $2 file, $3 anchor, $4 inserted line
   git checkout -q -- "$A" "$B"
+  # Untimed: rebuild the reverted tree, so a round times only its own edit
+  # (without this, round B also paid for undoing round A's core edit).
+  cargo build --profile dev -p cmux-tui --bin cmux-tui -q > /tmp/dlc-reset.log 2>&1 || { echo "RESET $1 BUILD FAILED"; tail -30 /tmp/dlc-reset.log; exit 1; }
   F="$2" ANCHOR="$3" LINE="$4" python3 - <<'PY'
 import os
 p,a,l=os.environ["F"],os.environ["ANCHOR"],os.environ["LINE"]
