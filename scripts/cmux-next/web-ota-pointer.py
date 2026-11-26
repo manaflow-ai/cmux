@@ -364,6 +364,9 @@ def main(argv):
     n.add_argument("--current")
     n.add_argument("--tree-key", help="the source tree key of NEW's commit (cmux_tui_tree_key.py)")
     n.add_argument("--current-tree-key", help="the source tree key of CURRENT's commit; equal to --tree-key: keep")
+    n.add_argument("--follow", action="store_true",
+                   help="move to any other commit (an older one too); keep the same commit while it has "
+                        "TREE_KEEP_MIN_SECONDS to live. The sequence still only rises")
     q = sub.add_parser("sequence", help="print the sequence of the Linux release file at --pointer, 0 when none "
                                         "verifies (missing, unsigned, another purpose): the next signer's floor - 1")
     q.add_argument("--pointer", required=True)
@@ -419,7 +422,18 @@ def run(args):
         # finish out of order).
         # A Linux release payload has no key: its commit time alone orders it.
         same_key = "key" in new and new["key"] == current.get("key")
-        if same_key or new["committed_at"] <= current["committed_at"]:
+        if args.follow:
+            # A channel that follows another one's build (linux-nightly follows the NEXT NIGHTLY's commit):
+            # it moves to whatever commit that one names, an older one too (a NIGHTLY rollback), and keeps
+            # the same commit until the published file nears expiry. The sequence still only rises.
+            if new["commit"] == current["commit"]:
+                left = current.get("expires_at", float("inf")) - time.time()
+                if left > TREE_KEEP_MIN_SECONDS:
+                    print(f"the published pointer names {current['commit'][:12]} already; keeping it", file=sys.stderr)
+                    return SKIP
+                print(f"the published pointer names this commit but expires in {int(left)} s; re-signing it",
+                      file=sys.stderr)
+        elif same_key or new["committed_at"] <= current["committed_at"]:
             print(f"the published pointer ({current['commit'][:12]}) is current; keeping it", file=sys.stderr)
             return SKIP
         # A Linux release pointer never moves to a lower or equal sequence: an installer refuses a lower one
