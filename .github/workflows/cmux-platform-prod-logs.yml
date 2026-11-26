@@ -57,6 +57,7 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/cmux-platform-prod-logs.py
             scripts/cmux-next/cmux-api-prod-logs.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the private HQ issue store token

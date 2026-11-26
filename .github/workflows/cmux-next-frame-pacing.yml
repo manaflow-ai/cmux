@@ -112,6 +112,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -263,6 +264,7 @@ jobs:
             scripts/cmux-next/tag_teardown.py
             scripts/cmux-next/window_look.py
             scripts/lib/stop-cmux-tui-owners.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

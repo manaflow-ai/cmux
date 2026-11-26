@@ -146,7 +146,9 @@ jobs:
           submodules: false
           ref: ${{ inputs.sha || '' }}
           fetch-depth: 1
-          sparse-checkout: scripts/ci/tip-test-compile.sh
+          sparse-checkout: |
+            scripts/ci/tip-test-compile.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Compile the planned test targets on a fleet Mac

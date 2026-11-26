@@ -76,6 +76,7 @@ jobs:
             scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
             scripts/ci/release-signer/verify_appcast_item.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Resolve the existing canary mode.

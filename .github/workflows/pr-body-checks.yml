@@ -87,6 +87,7 @@ jobs:
             .github/cloud-backend-paths.json
             ci/steps.toml
             scripts/ci/ci_steps.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The paths this pull request changes, from git rather than the files API (a call per 100 files
