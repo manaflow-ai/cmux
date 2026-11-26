@@ -12,6 +12,8 @@
 //! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
 //! what auto-archive reads off the records (`sidebar_archive_marks`), the
 //! session tree's chat history page and heights (`sidebar_chat_history`),
+//! the sidebar's destinations in shown order and what Cmd-1...9 and
+//! Cmd-Ctrl-[ / ] select (`sidebar_item_order`),
 //! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -326,6 +328,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_archive_marks::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_archive_marks::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_item_order" => {
+                use cmux_layout_reducer::sidebar_item_order;
+                let request: sidebar_item_order::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_item_order::respond(request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_chat_history" => {
