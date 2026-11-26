@@ -16,10 +16,11 @@ import CmuxWorkspaces
 @Suite("Workspace group model", .serialized)
 struct WorkspaceGroupTests {
 
-    private func makeTabManager() -> TabManager {
+    private func makeTabManager(groupPlacement: WorkspaceGroupNewPlacement = .afterCurrent) -> TabManager {
         let suiteName = "cmux.workspace-group-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
+        SettingCatalog().workspaceGroups.newWorkspacePlacement.set(groupPlacement, in: defaults)
         let manager = TabManager(
             autoWelcomeIfNeeded: false,
             settings: UserDefaultsSettingsClient(defaults: defaults),
@@ -47,7 +48,10 @@ struct WorkspaceGroupTests {
             return try #require(manager.tabs.first { $0.id.uuidString == id })
         }
 
-        let inherited = try create(["workspace_id": caller.id.uuidString, "focus": false])
+        let callerSurface = try #require(caller.focusedPanelId)
+        let inherited = try create([
+            "workspace_id": caller.id.uuidString, "surface_id": callerSurface.uuidString, "focus": false,
+        ])
         #expect(inherited.groupId == callerGroup)
         #expect(manager.selectedWorkspace?.id == selected.id)
 
@@ -61,6 +65,44 @@ struct WorkspaceGroupTests {
         #expect(windowTarget.groupId == nil)
         let dock = try create(["workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString])
         #expect(dock.groupId == nil)
+    }
+
+    @Test func socketWorkspaceCreateHonorsInheritedGroupPlacementPreference() throws {
+        let manager = makeTabManager(groupPlacement: .end)
+        let anchor = try #require(manager.tabs.first)
+        let caller = try #require(manager.tabs.last)
+        let tail = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let group = try #require(manager.createWorkspaceGroup(
+            name: "Project", childWorkspaceIds: [anchor.id, caller.id, tail.id]
+        ))
+        let originalIDs = manager.tabs.filter { $0.groupId == group }.map(\.id)
+        #expect(originalIDs.last == tail.id)
+        _ = TerminalController.shared.v2WorkspaceCreate(
+            params: ["workspace_id": caller.id.uuidString], tabManager: manager
+        )
+        let members = manager.tabs.filter { $0.groupId == group }.map(\.id)
+        #expect(members.count == originalIDs.count + 1)
+        #expect(Array(members.dropLast()) == originalIDs)
+    }
+
+    @Test func socketWorkspaceCreateRejectsMissingOrMovedCallerSurface() throws {
+        let manager = makeTabManager()
+        let caller = try #require(manager.tabs.first)
+        let other = try #require(manager.tabs.last)
+        let otherSurface = try #require(other.focusedPanelId)
+        let before = manager.tabs.map(\.id)
+        for surfaceId in [UUID(), otherSurface] {
+            let result = TerminalController.shared.v2WorkspaceCreate(
+                params: ["workspace_id": caller.id.uuidString, "surface_id": surfaceId.uuidString],
+                tabManager: manager
+            )
+            guard case .err(let code, _, _) = result else {
+                Issue.record("Expected the missing or moved surface to prevent creation")
+                continue
+            }
+            #expect(code == "not_found")
+        }
+        #expect(manager.tabs.map(\.id) == before)
     }
 
     @Test func mobileWorkspaceCreateRetainsDefaultGroupPlacement() async throws {
