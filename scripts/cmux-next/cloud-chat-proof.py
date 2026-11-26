@@ -930,8 +930,12 @@ if args.paused_capture:
 
 if args.cache_claude_login:
     # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
-    entries = claude_login_cache.names(actual)
-    if not entries:
+    # A shipped build answers no `auth.status` (app.call_debug_only), so it names no user to scope the cache to.
+    # Its start reaches models through the Cloud model route and the connection below, so it caches nothing.
+    entries = [] if SHIPPED_APP else claude_login_cache.names(actual)
+    if SHIPPED_APP:
+        record("cache claude login", 0, "", "skipped: a shipped build names no user; the connection serves Cloud")
+    elif not entries:
         record("cache claude login", 1, "", "auth.status names no user")
         finish("fail: cache claude login")
     for entry in entries:
@@ -940,7 +944,7 @@ if args.cache_claude_login:
         record("cache claude login", code, "", err)
         if code != 0:
             finish("fail: cache claude login")
-    evidence["claude_login"]["cached"] = True
+    evidence["claude_login"]["cached"] = bool(entries)
     # A cached login is not a connection: the start gate runs a Claude chat only when one serves Cloud (or the
     # team's gateway does). Add the token as this account's Claude connection, as Settings > Cloud's Set up Claude.
     code, err, added = claude_login_cache.connect(CLI, ENV, CLAUDE_TOKEN, f"proof {args.tag}")
