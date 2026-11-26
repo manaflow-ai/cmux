@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Spaces off (`sidebar.showSpaces` false, the default since https://github.com/manaflow-ai/cmux/issues/48355):
 // every action that makes, shows, switches, reorders or moves into a space leaves the palette, menus, context menus
 // and shortcuts, and `action.run` (CLI, MCP, socket) refuses it with the reason. Each window keeps the space it
@@ -13,6 +14,7 @@ extension ActionRegistry {
         }
     }
 }
+#endif
 
 /// The actions Spaces off turns off: every `space.*` action but the theme rows, and the actions elsewhere that
 /// create a space or move something into another one.

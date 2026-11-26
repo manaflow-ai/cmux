@@ -714,6 +714,33 @@ mod tests {
         assert!(writable.iter().all(|w| !w.starts_with(&alias)), "{args:?}");
     }
 
+    /// A daemon run as a systemd PrivateTmp service, with its HOME and
+    /// session below that /tmp (the CI runners' tests do): the mountinfo
+    /// shows the root filesystem's systemd-private directory mounted over
+    /// the session's parent. The plan must neither refuse that as an alias
+    /// nor rebuild the HOME at the covered underlying path, which bwrap
+    /// failed on with "Can't mkdir parents ... Read-only file system".
+    #[test]
+    fn regression_plan_under_private_tmp_binds_only_paths_the_process_sees() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        // As under PrivateTmp, the mounted directory lies below the very
+        // directory it is mounted over (here the fixture stands in for /tmp).
+        let private = fixture.0.join("systemd-private-de6d27af-runner.service-KDIqWd/tmp");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} {} rw - ext4 root rw\n",
+            private.display(),
+            fixture.0.display()
+        );
+        let (args, _fds) = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), |path| {
+            Ok(if path.starts_with(&fixture.0) { 2 } else { 1 })
+        })
+        .unwrap();
+        assert!(!args.iter().any(|a| Path::new(a).starts_with(&private)), "{args:?}");
+        let home = p.home.to_str().unwrap();
+        assert!(args.windows(2).any(|w| w == ["--tmpfs", home]), "{args:?}");
+    }
+
     /// Masking covers only an alias of the whole HOME. An alias of a guarded
     /// subtree, or of the HOME at a point inside it, still refuses.
     #[test]

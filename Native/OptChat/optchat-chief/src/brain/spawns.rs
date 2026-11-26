@@ -14,7 +14,7 @@
 use cmux_chief::acp::{AcpmuxEvent, SessionStatus, SessionSummary};
 use serde_json::{Value, json};
 
-use super::children::{ended_replies, report_of};
+use super::children::{NO_REPLY_TEXT, ended_replies, has_task_prompt, report_of};
 use super::{Brain, Queued, Source};
 use crate::daemon::OpError;
 use crate::fold::TurnFold;
@@ -770,6 +770,8 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
+        // Queued before this spawn: its own queued ids come after them.
+        let queued_ahead = self.queued_count();
         let first = free_subagent_run(
             self.state
                 .next_subagent
@@ -896,6 +898,7 @@ impl Brain {
             spawn,
             ids,
             queued,
+            queued_ahead,
             limit: self.live_cap_source(),
             engine: self.spawn_engine(),
             peer: chosen.iter().flatten().next().cloned(),
@@ -1157,6 +1160,12 @@ impl Brain {
             self.save();
             self.flush_outbox();
         }
+        if self.state.sub(&id).is_some_and(|(_, sub)| sub.cancelled) {
+            if !busy(session.status) {
+                self.cancelled_settled(&id);
+            }
+            return true;
+        }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
             if matches!(status, SubStatus::Done | SubStatus::Reported) {
@@ -1275,6 +1284,10 @@ impl Brain {
     /// words count as replies, and while its goal goes on it is held for the
     /// tick (`goal_held`) instead of reported.
     pub(super) fn finish_sub(&mut self, id: &str, session_id: &str) {
+        if self.state.sub(id).is_some_and(|(_, sub)| sub.cancelled) {
+            self.cancelled_settled(id);
+            return;
+        }
         let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
         let events = match self.agents.events(session_id, floor) {
             Ok(events) => events,
@@ -1383,6 +1396,52 @@ impl Brain {
         self.save();
     }
 
+    /// A cancel is already the user-visible outcome. Late idle/close events
+    /// from the harness must not manufacture a second report or an untold
+    /// outcome.
+    fn cancelled_settled(&mut self, id: &str) {
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.status = SubStatus::Reported;
+            sub.report = None;
+            sub.stopped = true;
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+            sub.reported_ms = now;
+            sub.told_ms = now;
+            sub.resume_attempts = 0;
+            sub.reopened = false;
+        }
+        self.save();
+        self.mark_workspace(id, true);
+        self.start_queued();
+    }
+
+    fn settle_without_report(&mut self, id: &str, floor: Option<u64>, reason: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if let Some(floor) = floor {
+                sub.floor = sub.floor.max(floor);
+            }
+            sub.status = if sub.report.is_some() {
+                SubStatus::Done
+            } else {
+                SubStatus::Reported
+            };
+            sub.reopened = false;
+            sub.closed_resumed = false;
+            sub.awaiting_task = false;
+            sub.resume_attempts = 0;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: ignored {reason}"));
+        self.mark_workspace(id, true);
+        self.flush_inbox(id);
+        self.start_queued();
+        self.pause_own_vm(id);
+    }
+
     pub(super) fn sub_done(
         &mut self,
         id: &str,
@@ -1398,11 +1457,6 @@ impl Brain {
         else {
             return;
         };
-        // Every run end starts as no wait; `finish_sub` marks a wait after.
-        if let Some(sub) = self.state.sub_mut(id) {
-            sub.waiting_ms = 0;
-            sub.waiting_checked_ms = 0;
-        }
         // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
         if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
             self.sign_ins.abandoned(id);
@@ -1416,6 +1470,8 @@ impl Brain {
                     sub.floor = floor;
                 }
                 sub.status = SubStatus::Done;
+                sub.waiting_ms = 0;
+                sub.waiting_checked_ms = 0;
             }
             self.save();
             match self.tell(id, &message) {
@@ -1429,6 +1485,39 @@ impl Brain {
                     self.keep_tell(id, message, &e);
                 }
             }
+        }
+        if report.trim().is_empty() || report.trim() == NO_REPLY_TEXT {
+            self.settle_without_report(id, floor, "an empty report");
+            return;
+        }
+        let previously_told = self.state.sub(id).is_some_and(|(_, sub)| {
+            sub.reopened
+                && sub.waiting_ms == 0
+                && sub.reported_ms > 0
+                && sub.told_ms >= sub.reported_ms
+        });
+        let late_retry_error = !held
+            && !stopped
+            && previously_told
+            && !events.is_some_and(has_task_prompt)
+            && crate::auto_resume::error_line(&report).is_some_and(|line| report.trim() == line)
+            && matches!(
+                crate::auto_resume::classify(&report, false),
+                crate::auto_resume::StopKind::Transient(_)
+                    | crate::auto_resume::StopKind::Network(_)
+            );
+        if late_retry_error {
+            self.settle_without_report(
+                id,
+                floor,
+                "a late retryable error after its outcome was told",
+            );
+            return;
+        }
+        // Every run end starts as no wait; `finish_sub` marks a wait after.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
         }
         // A run that stopped on an error: its report becomes "stopped: ..."
         // (quiet while an auto-resume is planned) and the continue is set up.
@@ -1659,6 +1748,32 @@ impl Brain {
                 sub.moving = None;
             }
             return None;
+        }
+        let claude_session = self
+            .state
+            .sub(id)
+            .and_then(|(_, sub)| sub.session_id.as_deref())
+            .and_then(|session| self.session_summary(session))
+            .is_some_and(|session| session.harness.starts_with("claude"));
+        if claude_session
+            && crate::gateway::is_refusal(report)
+            && let Some(gateway) = &self.gateway
+        {
+            let event = gateway.record_refusal(id, report);
+            if matches!(event, crate::gateway::GatewayEvent::EnteredFallback { .. })
+                && let Some(text) = gateway.take_notice()
+            {
+                self.notice("gateway-wide".into(), text);
+            }
+        }
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route_for_subagent(self.settings.families.contains_key("codex")),
+                crate::gateway::GatewayRoute::Harness(_)
+            )
+        }) {
+            return Some(self.plan_move(id, "the Claude gateway is unavailable"));
         }
         // A network stop always waits on the probe (off this thread); it
         // returns at once when the endpoint answers.
@@ -2133,7 +2248,12 @@ impl Brain {
         for (id, text, floor, requires_approval, quiet) in done {
             // A stopped run (the person's own stop) owes no outcome.
             if !quiet {
-                self.note_finished(&id);
+                let (report, policy) = self
+                    .state
+                    .sub(&id)
+                    .map(|(_, sub)| (sub.report.clone().unwrap_or_default(), sub.policy.clone()))
+                    .unwrap_or_default();
+                self.note_finished(&id, &report, policy.as_deref());
             }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
@@ -3093,8 +3213,51 @@ impl Brain {
         match self.state.live_cap {
             Some(0) => None,
             Some(n) => Some(LiveCap::Control(n)),
-            None => self.max_live.map(LiveCap::Env),
+            None => self.max_live.map(LiveCap::Env).or_else(|| {
+                // The machine's own limit (machine_limits.rs): its ceiling,
+                // and while it is over budget no new start past the floor.
+                let m = self.machine_limit.as_ref()?;
+                let over = self.machine_over.is_some();
+                let n = crate::machine_limits::allowed(m.ceiling, self.live_subs(), over);
+                Some(if over {
+                    LiveCap::Busy(n)
+                } else {
+                    LiveCap::Machine(n)
+                })
+            }),
         }
+    }
+
+    /// Reads the machine's load again (each subagent tick); a machine back
+    /// within budget starts its queued helpers.
+    pub(super) fn read_machine_load(&mut self) {
+        let Some(m) = self.machine_limit.as_ref() else {
+            return;
+        };
+        let over = (m.load)();
+        if over != self.machine_over {
+            match &over {
+                Some(why) => (self.log)(&format!(
+                    "machine over budget ({why}): new helpers wait in the queue"
+                )),
+                None => (self.log)("machine within budget again: queued helpers start"),
+            }
+        }
+        let freed = self.machine_over.is_some() && over.is_none();
+        self.machine_over = over;
+        if freed {
+            self.start_queued();
+        }
+    }
+
+    /// Helpers queued now, in the order they will start (`start_queued`'s).
+    pub(super) fn queued_count(&self) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.status == SubStatus::Queued && !s.cancelled && !s.paused)
+            .count()
     }
 
     /// Subagents starting or running now on this machine (cloud ones, on a
@@ -3432,6 +3595,7 @@ impl Brain {
                 );
                 if *status == SubStatus::Queued {
                     s.cancelled = true;
+                    s.told_ms = now_ms();
                 }
             }
         }
@@ -3474,6 +3638,7 @@ impl Brain {
                     // session never ends the turn (#7).
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                 }
                 // Its session is not made yet: cancelled now, so its turn
@@ -3481,6 +3646,7 @@ impl Brain {
                 (_, None) => {
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                     starting.push(id.clone());
                 }

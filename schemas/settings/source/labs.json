@@ -12,14 +12,14 @@
       "rows": [
         {
           "key": "labs.previewFeatures",
-          "note": "Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
+          "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces. The App Store has its own switch, labs.appStore.",
           "title": {
             "key": "settings.labs.previewFeatures",
             "text": "Show Preview Features"
           },
           "help": {
             "key": "settings.labs.previewFeatures.help",
-            "text": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
+            "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
           },
           "kind": "toggle",
           "default": false,
@@ -28,10 +28,29 @@
             "preview",
             "experimental",
             "beta",
-            "prototype",
+            "prototype"
+          ]
+        },
+        {
+          "key": "labs.appStore",
+          "note": "The App Store: its sidebar item, its actions in the palette, menus and context menus, and its page. Off by default until it is ready (David Beyer, Nov 20: \"don't show the app store until it's ready\"; Lawrence, Nov 23: \"get rid of app store from default for now\"). Its own switch, apart from Show Preview Features, so turning previews on for the music player, Click by Hint or Stats does not bring it back.",
+          "title": {
+            "key": "settings.labs.appStore",
+            "text": "Show App Store"
+          },
+          "help": {
+            "key": "settings.labs.appStore.help",
+            "text": "Browse, install and update apps for cmux. Still being shaped."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
             "app store",
             "apps",
-            "extensions"
+            "store",
+            "extensions",
+            "install"
           ]
         },
         {
@@ -156,6 +175,28 @@
           ]
         },
         {
+          "key": "labs.bundledCodexAppServer",
+          "note": "Bundled Codex app-server (plans/next-ux/ux-harness-health.md, optional bundled Codex app-server): on, a Codex chat whose profile runs plain `codex app-server` starts the app-server in the app-owned bundle folder when its manifest's sha256, version and protocol check out (acpmux codex_bundle.rs), and falls back to the installed CLI otherwise, saying why on the harness health row. A profile naming its own program, CODEX_PATH or a non-stdio --listen keeps its own. Off by default; read at each new chat. The person turns it on: agents may not (it chooses which binary runs).",
+          "title": {
+            "key": "settings.labs.bundledCodexAppServer",
+            "text": "Use Bundled Codex App Server"
+          },
+          "help": {
+            "key": "settings.labs.bundledCodexAppServer.help",
+            "text": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "codex",
+            "bundled",
+            "app-server",
+            "harness",
+            "runtime"
+          ]
+        },
+        {
           "key": "labs.pauseAgentMachines",
           "note": "Mac pause/resume experiment (plans/mac-pause-resume/DESIGN.md): new nonpersistent Cloud agent machines opt into the existing 15-minute idle pause and resume when work arrives. Off by default; existing machines and persistent machines are unchanged.",
           "title": {
@@ -233,6 +274,59 @@
           ]
         },
         {
+          "key": "labs.commentThreads",
+          "name": "commentThreads",
+          "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment… on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment… on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",
+          "title": {
+            "key": "settings.labs.commentThreads",
+            "text": "Comment Threads in Browser and Terminal"
+          },
+          "help": {
+            "key": "settings.labs.commentThreads.help",
+            "text": "Send browser and terminal comments to the chat as threads that show the agent's reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "comment",
+            "comments",
+            "thread",
+            "threads",
+            "browser",
+            "terminal",
+            "design",
+            "reply",
+            "agent"
+          ]
+        },
+        {
+          "key": "labs.previousBuild",
+          "name": "previousBuild",
+          "note": "Opt-in \"Go back to previous build\" row on Settings > Updates (UpdaterService+PreviousBuild, `cmux app use previous`): shows the build this Mac kept before the last update and offers to reinstall it. Off by default; off hides the row. Leo 2026-11-21: \"agents being able to just say \\\"actually let's go back to this other version :)\\\" and/or the user should be able to easily access it too\".",
+          "title": {
+            "key": "settings.labs.previousBuild",
+            "text": "Go Back to Previous Build"
+          },
+          "help": {
+            "key": "settings.labs.previousBuild.help",
+            "text": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "update",
+            "updates",
+            "rollback",
+            "previous",
+            "build",
+            "version",
+            "go back",
+            "downgrade"
+          ]
+        },
+        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {
@@ -253,6 +347,29 @@
             "remote",
             "add",
             "terminal"
+          ]
+        },
+        {
+          "key": "labs.connectionsUpcoming",
+          "note": "Settings > Integrations > Connections also lists Slack and the Google servers (Gmail, Calendar, Drive, Docs, Sheets), which say Not set up until cmux's client for each is registered on the platform (cmux-tui cli/mcp_servers.rs `upcoming`). Off by default: the catalog shows only the servers a person can connect today. A connected one always shows.",
+          "title": {
+            "key": "settings.labs.connectionsUpcoming",
+            "text": "Upcoming Connections"
+          },
+          "help": {
+            "key": "settings.labs.connectionsUpcoming.help",
+            "text": "Lists Slack and Google in Connections before they can be connected."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "connections",
+            "integrations",
+            "slack",
+            "google",
+            "gmail",
+            "mcp"
           ]
         }
       ]

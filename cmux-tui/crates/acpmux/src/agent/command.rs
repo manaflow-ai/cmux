@@ -18,7 +18,7 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
-/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// Claude Code's switch for its to-do tools (TaskCreate, TaskUpdate) in a `-p`
 /// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
 const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
@@ -55,6 +55,14 @@ pub(crate) async fn harness_command_ready(
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
     let family = crate::config::derive_family(name, profile);
+    // Labs `labs.bundledCodexAppServer` (off by default): plain `codex app-server` runs the
+    // bundle cmux ships when it is whole (`codex_bundle.rs`); a profile's CODEX_PATH still wins.
+    let command_line = match command_line {
+        None if crate::codex_app_server::is_profile_launch(&profile.argv) => {
+            crate::codex_bundle::launch_for(&profile.argv).await
+        }
+        line => line,
+    };
     let mut plan = crate::login_env::ChildEnv {
         family: &family,
         profile: Some(&profile.env),
@@ -71,6 +79,9 @@ pub(crate) async fn harness_command_ready(
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
+/// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
+pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
         .map(|(k, v)| {
@@ -140,9 +151,16 @@ fn build_harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
+    let mut plugin_hooks = false;
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let (extra, prompt) =
-            crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
+        let (extra, prompt, hooks) = crate::agent_tools::claude_args_and_hooks_for(
+            false,
+            &profile.env,
+            &owned.1,
+            session_id,
+            cwd,
+        );
+        plugin_hooks = hooks;
         let named = claude_name_args(&profile.env, &owned.1, session_name);
         let mut args = owned.1;
         // acpmux's own servers' instructions, which they then leave out: in the system prompt
@@ -183,6 +201,9 @@ fn build_harness_command(
     env.remove(crate::agent_displays::WORKSPACE_KEY);
     // The chat's turned-off servers are for the fold only (agent_tools.rs).
     env.remove(crate::agent_tools::OFF_ENV);
+    // A person's chat asks sr2 for its reserve (`sr2_priority.rs`): the mark is the daemon's,
+    // for the request header below only.
+    let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
@@ -268,6 +289,13 @@ fn build_harness_command(
     // The app the daemon follows is not the agent's: a daemon its commands start must not
     // follow it too (`daemon/owner_exit.rs`).
     cmd.env_remove(crate::owner_exit::OWNER_APP_PID_ENV);
+    // A tool call's bound in the daemon's env (a bounded command started the daemon) is not
+    // the agent's: the fleet's orphan reaper ends a process past its CMUX_DEADLINE, so an agent
+    // that inherited it was SIGTERMed (`subrouter: exit status 143`) mid-turn, also after a
+    // relaunch handed it to the next daemon.
+    for key in CALL_BOUND_ENV {
+        cmd.env_remove(key);
+    }
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -336,6 +364,13 @@ fn build_harness_command(
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
     }
+    // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
+    // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
+    #[cfg(unix)]
+    if session.is_some() && crate::github_session_env::lent() {
+        let current = command_env_with(&cmd, !remote_environment);
+        crate::github_session_env::apply(&mut cmd, &current);
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
@@ -358,6 +393,8 @@ fn build_harness_command(
     crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
+    // And its own chat secrets, never another chat's (`chat_secrets.rs`).
+    crate::chat_secrets::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
     // A Chief turn or compactor (fresh process per turn): one sticky
     // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
@@ -366,13 +403,11 @@ fn build_harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
-        // `-p` session only when asked, and has no TodoWrite there: without
-        // them a chat keeps no list for the agent pane's checklist
-        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
-        if get(TODO_TOOLS_ENV).is_none() {
-            cmd.env(TODO_TOOLS_ENV, "1");
-        }
+        // Claude Code 2.1 offers its to-do tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there. cmux shows
+        // no agent to-do list (`todo_tools.rs`), so the switch is never on,
+        // whatever the profile, the login or the daemon's env set.
+        cmd.env_remove(TODO_TOOLS_ENV);
         // Claude Code's own cross-session messaging (ListAgents, SendMessage to other sessions,
         // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
         // daemon started it, and a message it holds shows nowhere; an agent here messages others
@@ -385,10 +420,27 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
+        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         if let Some(headers) = crate::sr2_cost_labels::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
+        // sr2 person priority (sr2_priority.rs), over the lines set just above. Never a
+        // mark the daemon's own env carries.
+        cmd.env_remove(crate::sr2_priority::PERSON_ENV);
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let launcher = crate::sr2_priority::is_sr2_launcher(program)
+            || crate::sr2_priority::is_sr2_launcher(name)
+            || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
+        if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
@@ -414,9 +466,22 @@ fn build_harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
+    }
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
+    }
+    // The hosted and direct translators take the hook home from this launch. Only the
+    // selected local plugin enables its callbacks, regardless of inherited or profile env.
+    cmd.env_remove(crate::bg_hook::HOME_ENV);
+    if plugin_hooks && !remote_environment {
+        cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
     Ok((cmd, codex))
 }
@@ -625,6 +690,24 @@ mod tests {
     }
 
     use super::*;
+
+    /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
+    /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
+    #[test]
+    fn an_agent_never_inherits_a_tool_calls_deadline() {
+        let profile: HarnessProfile =
+            serde_json::from_value(serde_json::json!({ "argv": ["claude"] })).unwrap();
+        let cmd = harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let removed: Vec<String> = cmd
+            .as_std()
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect();
+        for key in CALL_BOUND_ENV {
+            assert!(removed.iter().any(|k| k == key), "{key} must be removed: {removed:?}");
+        }
+    }
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.

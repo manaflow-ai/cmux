@@ -235,6 +235,30 @@
           ]
         },
         {
+          "key": "agentPane.composerVimKeys",
+          "title": {
+            "key": "settings.agentPane.composerVimKeys",
+            "text": "Vim Keys in the Composer"
+          },
+          "help": {
+            "key": "settings.agentPane.composerVimKeys.help",
+            "text": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "vim",
+            "modal",
+            "normal mode",
+            "insert mode",
+            "keyboard",
+            "hjkl",
+            "composer",
+            "message box",
+            "prompt"
+          ]
+        },
+        {
           "key": "agentPane.attachmentView",
           "note": "How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.",
           "title": {
@@ -272,7 +296,7 @@
               "note": "In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: \"ALSO show the top displayed attachments alongside the inline attachments\")."
             }
           ],
-          "default": "inline",
+          "default": "strip",
           "keywords": [
             "attachment",
             "attachments",
@@ -567,6 +591,32 @@
           "swift_enum": {
             "name": "AgentPaneFollowUpMode"
           }
+        },
+        {
+          "key": "agentPane.savedPrompts",
+          "name": "savedPrompts",
+          "note": "Saved prompts by name (webviews/src/agent-session/acpmux/savedPrompts.ts). acpmux reads them at each list (crates/acpmux/src/prompts.rs) beside the ones Save as Prompt keeps in its own store; a saved one of the same name wins.",
+          "title": {
+            "key": "settings.agentPane.savedPrompts",
+            "text": "Saved Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.savedPrompts.help",
+            "text": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "prompt",
+            "prompts",
+            "saved",
+            "snippet",
+            "template",
+            "library",
+            "slash",
+            "composer",
+            "agent"
+          ]
         }
       ]
     }

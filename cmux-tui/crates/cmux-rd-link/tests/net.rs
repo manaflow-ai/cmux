@@ -19,16 +19,15 @@ fn start(role: Role, local: &KeyPair, remote: [u8; 32]) -> Net {
     .unwrap()
 }
 
-/// Collects events until `done` holds or 5 s pass, waiting on the event fd.
+/// Collects events until `done` holds or 5 s pass, waiting on the driver's wake-up (a pipe on
+/// Unix, a loopback socket on Windows: this test runs on both).
 fn wait(net: &Net, seen: &mut Vec<NetEvent>, done: impl Fn(&[NetEvent]) -> bool) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if done(seen) {
             return true;
         }
-        let mut fd = libc::pollfd { fd: net.event_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd.
-        unsafe { libc::poll(&mut fd, 1, 100) };
+        net.wait(Some(Duration::from_millis(100)));
         seen.extend(net.events());
     }
     done(seen)
@@ -222,9 +221,7 @@ fn a_protected_single_datagram_waits_for_link_establishment() {
     while departures.is_empty() && Instant::now() < deadline {
         host.drain_departures(&mut departures);
         if departures.is_empty() {
-            let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
-            // SAFETY: one valid pollfd.
-            unsafe { libc::poll(&mut fd, 1, 100) };
+            host.wait(Some(Duration::from_millis(100)));
             host.events();
         }
     }
@@ -260,6 +257,34 @@ fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate()
     assert!(wait(&net, &mut seen, |e| e.contains(&late)), "the late STUN server is queried");
 }
 
+#[test]
+fn a_record_sent_just_before_the_close_still_reaches_the_peer() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    viewer.send_control(b"hello".to_vec());
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, established));
+    assert!(wait(&viewer, &mut at_viewer, established));
+
+    // As `cmux-rd serve` ends a session: its `ended` reason, then the link dropped at once.
+    host.send_control(b"ended: failed: no grant".to_vec());
+    drop(host);
+    let closed = NetEvent::Endpoint(EndpointEvent::Link(Event::Closed));
+    assert!(wait(&viewer, &mut at_viewer, |e| e.contains(&closed)));
+    let ended = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(
+        b"ended: failed: no grant".to_vec(),
+    )));
+    let ended_at = at_viewer.iter().position(|e| *e == ended);
+    let closed_at = at_viewer.iter().position(|e| *e == closed);
+    assert!(ended_at.is_some(), "the last record crosses before the close: {at_viewer:?}");
+    assert!(ended_at < closed_at, "the record comes before the close");
+}
+
 /// A send the system refuses (here a broadcast address without SO_BROADCAST; on a Mac, a LAN
 /// address while the app has no Local Network access) used to be dropped without a word, so
 /// the failure read only "heard 0" (cmuxterm-hq CMUX-572). The reason now counts it.
@@ -284,9 +309,7 @@ fn a_link_whose_sends_are_refused_says_so_when_it_fails() {
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut failed = None;
     while failed.is_none() && Instant::now() < deadline {
-        let mut fd = libc::pollfd { fd: viewer.event_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd.
-        unsafe { libc::poll(&mut fd, 1, 100) };
+        viewer.wait(Some(Duration::from_millis(100)));
         failed = viewer.events().into_iter().find_map(|e| match e {
             NetEvent::Failed(reason) => Some(reason),
             _ => None,
@@ -313,11 +336,27 @@ fn receipt_datagram(frame: u32, index: u16, seq: u16) -> Vec<u8> {
     .to_vec()
 }
 
+#[cfg(unix)]
 fn monotonic_us() -> u64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a valid timespec for the same protocol clock as the host ledger.
     assert_eq!(unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) }, 0);
     ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000
+}
+
+/// Windows: the performance counter, the clock the link stamps departures with.
+#[cfg(windows)]
+fn monotonic_us() -> u64 {
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
+    let (mut count, mut freq) = (0i64, 0i64);
+    // SAFETY: both calls write one i64 into a live local.
+    let ok = unsafe {
+        QueryPerformanceCounter(&mut count) != 0 && QueryPerformanceFrequency(&mut freq) != 0
+    };
+    assert!(ok && freq > 0);
+    (count as u128 * 1_000_000 / freq as u128) as u64
 }
 
 #[test]
@@ -343,9 +382,7 @@ fn departure_receipts_follow_successful_sends_not_enqueue_or_replaced_frames() {
     while receipts.len() < 2 && Instant::now() < deadline {
         host.drain_departures(&mut receipts);
         if receipts.len() < 2 {
-            let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
-            // SAFETY: one valid pollfd.
-            unsafe { libc::poll(&mut fd, 1, 100) };
+            host.wait(Some(Duration::from_millis(100)));
             host.events();
         }
     }
@@ -385,9 +422,8 @@ fn departure_receipts_overflow_is_bounded_without_stalling_media_or_control() {
     );
     let deadline = Instant::now() + Duration::from_secs(5);
     while host.departure_overflows() < 2 && Instant::now() < deadline {
-        let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd; wake is coalesced after the driver's send batch.
-        unsafe { libc::poll(&mut fd, 1, 100) };
+        // The wake-up is coalesced after the driver's send batch.
+        host.wait(Some(Duration::from_millis(100)));
         host.events();
     }
     assert_eq!(host.departure_overflows(), 2);

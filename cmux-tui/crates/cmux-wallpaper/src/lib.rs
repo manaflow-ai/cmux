@@ -8,8 +8,11 @@
 //!   and its translation with naga to Metal Shading Language (the Mac) and
 //!   GLSL ES 3.00. build.rs runs the same code on every first-party program,
 //!   so shipped binaries carry Metal source and no shader compiler.
-//! - [`frame`]: the 144-byte `Frame` uniform (`prelude.wgsl`) and the pointer's
+//! - [`frame`]: the 432-byte `Frame` uniform (`prelude.wgsl`) and the pointer's
 //!   smoothing (velocity, presence), so the host does no math.
+//! - [`grade`]: the tritone grade the host's `fs_main` runs over every program
+//!   (`Frame.grade`), in Rust for its tests.
+//! - [`trail`]: the pointer's recent path (`Frame.trail`), a ring of 16 samples.
 //! - [`schedule`]: when a wallpaper draws: hold at zero work, idle, the frame
 //!   cap and the GPU budget.
 //! - [`first_party`]: the wallpapers under `wallpapers/`, embedded in the
@@ -35,17 +38,29 @@
 
 pub mod first_party;
 pub mod frame;
+pub mod grade;
 pub mod manifest;
 #[cfg(feature = "compile")]
 pub mod program;
+pub mod scene;
 pub mod schedule;
+pub mod trail;
 
-pub use first_party::{FirstParty, first_party, first_party_at, first_party_by_id, smoke};
-pub use frame::{FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear};
+pub use first_party::{
+    FirstParty, SCENE_ENGINE_GLSL, SCENE_ENGINE_MSL, SCENE_ENGINE_SOURCE, embedded_by_id,
+    first_party, first_party_at, first_party_by_id, smoke,
+};
+pub use frame::{
+    ActivityState, FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear,
+};
 pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Variant};
 #[cfg(feature = "compile")]
-pub use program::{Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes};
-pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, schedule};
+pub use program::{
+    Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes, compile_scene_engine,
+};
+pub use scene::{Player, SCENE_BYTES, SCENE_FLOATS, Scene};
+pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, idle_after, schedule};
+pub use trail::{TRAIL_LIFE_S, TRAIL_POINTS, TRAIL_STEP_S, TrailPoint, TrailState};
 
 /// The largest program accepted (`program::MAX_SOURCE_BYTES`, also without `compile`).
 pub const MAX_SOURCE_BYTES: usize = 64 * 1024;

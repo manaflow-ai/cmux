@@ -3,7 +3,7 @@
 // category column and a small thumbnail where a change has media.
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate, releaseView, type ReleaseItem } from "./model";
-import { categoryLabel, ChangesFold, Media, RowActions, type PartsContext } from "./ReleaseParts";
+import { categoryLabel, ChangesFold, Media, NotesUnavailable, RowActions, type PartsContext } from "./ReleaseParts";
 import { ChangePullRequest } from "./ChangePullRequest";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry } from "./types";
@@ -64,7 +64,7 @@ function DigestRelease({
         <span className="cld-version">{entry.shortVersion}</span>
       </header>
       {!notes && s.unavailable[entry.build] && (
-        <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>
+        <NotesUnavailable strings={ctx.strings} onRetry={() => void store.retry(entry.build)} />
       )}
       {items.map((item) => (
         <div key={item.id} className="cld-item">

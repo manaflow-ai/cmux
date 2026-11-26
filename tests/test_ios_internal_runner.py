@@ -77,6 +77,28 @@ class Pick(unittest.TestCase):
         dedicated, _, calls = self.pick([[runner(busy=True)], [runner(busy=True)], [runner()]])
         self.assertEqual((dedicated, calls), (LABEL, 3))
 
+    def test_several_minis_take_the_first_idle_in_order(self) -> None:
+        # Leo, 2026-11-25: "Don't we have freed up Mac capacity?" The variable lists every
+        # trusted builder, preferred first; a busy or offline first mini hands on to the next.
+        other = "glaeda-runner-cmux23-ios-internal"
+        both = f"{LABEL}, {other}"
+        self.assertEqual(self.pick([[runner(), runner(label=other)]], label=both)[0], LABEL)
+        dedicated, why, calls = self.pick([[runner(busy=True), runner(label=other)]], label=both)
+        self.assertEqual((dedicated, calls), (other, 1))
+        self.assertIn(f"`{other}` is online and idle", why)
+        self.assertEqual(self.pick([[runner(label=other)]], label=both)[0], other)
+        dedicated, why, _ = self.pick([[runner("offline"), runner("offline", label=other)]], label=both)
+        self.assertEqual(dedicated, "")
+        self.assertIn(f"`{LABEL}` is offline, `{other}` is offline", why)
+        dedicated, why, calls = self.pick([[runner(busy=True)]], label=both)
+        self.assertEqual(dedicated, "")
+        self.assertIn("stayed busy", why)
+        self.assertGreater(calls, 1)
+
+    def test_labels_split_on_commas_and_spaces_and_drop_repeats(self) -> None:
+        self.assertEqual(picker.labels_of("a,b  c,,a\n"), ["a", "b", "c"])
+        self.assertEqual(picker.labels_of(" , "), [])
+
     def test_main_never_fails_and_writes_the_attempt(self) -> None:
         import os
         import tempfile
@@ -94,10 +116,10 @@ class Pick(unittest.TestCase):
             with contextlib.redirect_stdout(printed):
                 self.assertEqual(picker.main(env, read_runners=broken), 0)
             self.assertNotIn("token-like", printed.getvalue())
-            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\n")
+            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\nfallback=\n")
             Path(out).write_text("")
             self.assertEqual(picker.main(env, read_runners=lambda token, repo: [runner()]), 0)
-            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\n")
+            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\nfallback=\n")
 
 
 class SharedFirstLook(unittest.TestCase):
@@ -132,13 +154,67 @@ class SharedFirstLook(unittest.TestCase):
 
     def test_document_preserves_repository_only_scope_and_invalid_state_falls_back(self):
         output, _, pages = self.run_main(self.document(repository=False))
-        self.assertIn("archive runner: Blacksmith", output)
+        self.assertIn("archive runner: cmux-mac + xcode-27.0", output)
         pages.assert_not_called()
         for raw in ("", "invalid-base64"):
             with self.subTest(raw=raw):
                 output, _, pages = self.run_main(raw)
                 self.assertIn(f"archive runner: {LABEL}", output)
                 pages.assert_called_once_with("/repos/manaflow-ai/cmux/actions/runners")
+
+
+def census(rows: list[dict]) -> str:
+    doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+               generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+               runner_groups={"glaeda-minis": [dict(row, id=index + 1, name=f"synthetic-{index}", os="macOS")
+                                               for index, row in enumerate(rows)]}, scale_sets={})
+    return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+
+class NoCarrierReroutes(unittest.TestCase):
+    """Leo, 2026-11-26: "refuse to queue a job for a label no live runner has". Run 45717448413's archive
+    queued 2 h 23 min on cmux-mac + xcode-27.0 while no Mac offered Xcode 27."""
+
+    FALLBACK = "blacksmith-6vcpu-macos-26"
+
+    def fallback(self, raw: str, fallback: str = FALLBACK) -> tuple[str, str]:
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", CI_RUNNER_STATE=raw, FALLBACK_MAC=fallback)
+        return picker.fleet_fallback(env)
+
+    def mac(self, status: str = "online", *labels: str) -> dict:
+        return {"status": status, "busy": True, "labels": [{"name": label} for label in labels]}
+
+    def test_a_declared_xcode_label_no_online_runner_carries_takes_the_fallback(self) -> None:
+        only_26 = census([self.mac("online", "glaeda-side-std-xcode-26.6", "xcode-26.6")])
+        self.assertEqual(self.fallback(only_26)[0], self.FALLBACK)
+        offline_27 = census([self.mac("offline", "glaeda-side-std-xcode-27.0", "xcode-27.0")])
+        self.assertEqual(self.fallback(offline_27)[0], self.FALLBACK)
+        self.assertIn("no online runner carries", self.fallback(offline_27)[1])
+
+    def test_a_live_carrier_keeps_the_fleet_label(self) -> None:
+        # Busy still counts: the job waits for a Mac that has Xcode 27, not for none.
+        live = census([self.mac("online", "cmux-mac", "xcode-27.0")])
+        self.assertEqual(self.fallback(live)[0], "")
+
+    def test_no_reading_or_no_fallback_keeps_the_fleet_label(self) -> None:
+        self.assertEqual(self.fallback("")[0], "")
+        self.assertEqual(self.fallback("invalid-base64")[0], "")
+        self.assertEqual(self.fallback(census([]), fallback="")[0], "")
+
+    def test_main_writes_the_fallback_only_without_a_dedicated_pick(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out")
+            env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=out, FALLBACK_MAC=self.FALLBACK,
+                       CI_RUNNER_STATE=census([]), GITHUB_RUN_ATTEMPT="1")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main(env), 0)
+            self.assertEqual(Path(out).read_text(), f"dedicated=\nattempt=1\nfallback={self.FALLBACK}\n")
+
+    def test_the_checked_set_is_the_workflows_fleet_fallback(self) -> None:
+        self.assertIn("fromJSON('" + json.dumps(list(picker.FLEET_XCODE), separators=(",", ":")) + "')",
+                      WORKFLOW.read_text(encoding="utf-8"))
 
 
 class Workflow(unittest.TestCase):
@@ -153,7 +229,12 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
-        self.assertTrue(runs_on.rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
+        # The fallback must land on an Xcode 27 Mac: plain cmux-mac took 26.6-only Macs.
+        # ... unless no online runner carries xcode-27.0: then the picker's fallback (a Blacksmith Mac).
+        self.assertTrue(runs_on.rstrip("} ").endswith(
+            "|| vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && "
+            "needs.pick-archive-runner.outputs.fallback || fromJSON('[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
+        self.assertEqual(jobs["pick-archive-runner"]["outputs"]["fallback"], "${{ steps.pick.outputs.fallback }}")
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])

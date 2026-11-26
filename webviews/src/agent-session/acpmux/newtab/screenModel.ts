@@ -20,6 +20,7 @@ import { resumeReference } from "../resumeCommand";
 import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
@@ -424,7 +425,7 @@ function namesSite(query: string, row: ScreenRow | undefined): boolean {
 /// The row named exactly what was typed, any case: a workspace by its name first ("app-efficiency"),
 /// then a tab by its title as the host sent it (before the row cleaned it), then a tab in a
 /// workspace of that name (a terminal tab titled "~" lists under its workspace's name).
-function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
+export function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
   const needle = query.toLocaleLowerCase();
   const named = (name: string | undefined) => name?.trim().toLocaleLowerCase() === needle;
   const tab = (row: ScreenRow) =>
@@ -459,16 +460,6 @@ export function returnRow(
   const row = opensTop ? list[defaultSelection(list)] : rows[current];
   const takes = !!row && (context.attachments === 0 || row.type === "ask" || row.type === "create");
   return { row, takes };
-}
-
-/// Whether the top row is the prompt for the composer's own agent (Ask, for the agent the model
-/// chip names). That row is what Return does with plain text, which the chip and Send already say,
-/// so the list draws it as no row (David Beyer 2026-11-20: "the Ask Claude code thing is confusing
-/// 'cause it's not clear that I'm ... already set on Claude Code"). It stays the list's first stop:
-/// Down leaves it for the first drawn row and Up comes back to it, Return's highlight on nothing.
-export function promptLeads(rows: readonly ScreenRow[], harness: string | undefined): boolean {
-  const top = rows[0];
-  return top?.type === "ask" && top.harness === harness;
 }
 
 /// The inline address completion accepted by Right or End. Only a top row that is an address and
@@ -720,6 +711,8 @@ export type ChatCard = {
   chatId?: string;
   title: string;
   harness?: string;
+  /// The icon the chat set (acpmux `icon`), drawn over its harness mark.
+  icon?: HarnessIconSpec;
   age: string;
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
@@ -836,6 +829,7 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
+    ...(session.icon ? { icon: session.icon } : {}),
     age: ageLabel(activityTime(session), now, t),
     ...(message ? { message } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
