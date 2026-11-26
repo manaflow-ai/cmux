@@ -39,22 +39,49 @@ jobs:
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
     # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 325
+    # counts 40 min): 337 min with 33 shared steps (17 waves), plus room for the checkout, so a slow step is reported
+    # by the runner, not cut here.
+    timeout-minutes: 355
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
+      # The base's verdict of cmux-next-guards.yml's tooling-tests job (the tooling-tests-base-red step below).
+      actions: read
     outputs:
       # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
       mac_fallback: ${{ steps.run.outputs.mac_fallback }}
       canary_targets: ${{ steps.run.outputs.canary_targets }}
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -66,9 +93,37 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
+      # cmux-next-guards.yml's tooling-tests-base-red job, carried over with the tooling-tests steps (Leo,
+      # 2026-11-23: "we're drowning in our own workflow"): while that job is red on feat-cmux-next, a pull request
+      # does not run tooling-tests-1..5, as it does not run the job (scripts/ci/base_red_skip.py: fails open, 10% of
+      # skips still run as the audit, label full-ci runs them, vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). The
+      # steps are left out of the run rather than passed, so no skip is stored as a pass under their inputs.
+      - name: Tooling tests red on the base right now?
+        id: tooling-tests-base-red
+        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
       - name: Run the routed linux steps (ci/steps.toml)
         id: run
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        env:
+          # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
+          TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+        run: |
+          # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
+          only=""
+          if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+              | python3 -I -c 'import json, re, sys
+          print(" ".join(n for n in json.load(sys.stdin).get("linux", []) if not re.fullmatch(r"tooling-tests-\d+", n)))')"; then
+            if [ -z "$only" ]; then
+              echo "No linux step is routed but tooling-tests-1..5, which the base's red skips."
+              exit 0
+            fi
+          fi
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -133,10 +188,34 @@ jobs:
       id-token: write
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -187,9 +266,26 @@ jobs:
             .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -200,9 +296,25 @@ jobs:
           # Queue, job and capacity-snapshot reads use this App's quota.
           permission-actions: read
           permission-organization-self-hosted-runners: read
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-repo-bot
+        if: (steps.route-token.outcome == 'failure') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+
       - name: Mint the repository routing token
         id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
+        if: (steps.route-token.outcome == 'failure') && steps.route-token-repo-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -217,7 +329,7 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
@@ -270,35 +382,6 @@ jobs:
 
   # The `ios` job: the CmuxMobileKit tests and the reliability matrix's phone cells (ci/steps.toml's ios steps), on
   # the Mac ios-runner picked, one iPhone simulator, one step after the other.
-  # CmuxMobileLinkFFI.xcframework of the pull request head, started on the build fleet while `ios` waits for a Mac
-  # (the Mac build was 3.3-5.0 min of every kit run). The gateway runner only submits the build (cmux-ci ios-build,
-  # one request key per commit) and waits for it; the `ios` steps' scripts/ci/ios_link_ffi.sh asks for the same
-  # build and takes its copy, or builds on the Mac (logged). Never a verdict: anything here is a warning at most.
-  # CI_IOS_FFI_FLEET=0 turns it off.
-  ios-ffi-fleet:
-    name: ios ffi (build fleet)
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    # The literal fallback never schedules: the job's if: skips when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
-    timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
-    permissions: {}
-    steps:
-      - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
-        env:
-          SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME; the ios job builds the xcframework"
-            exit 0
-          fi
-          status=0
-          "$client" ios-build --what ffi --ref "$SHA" --out "$RUNNER_TEMP/link-ffi" --timeout 1500 --queue-timeout 600 || status=$?
-          if [[ "$status" != 0 ]]; then
-            echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); the ios job builds it"
-          fi
-
   ios:
     name: ios
     needs: [ios-runner]
