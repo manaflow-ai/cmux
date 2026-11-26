@@ -4,10 +4,12 @@
 //! with a reading is weighed by it while a fresh one is asked. After a placement, a refresh asks
 //! again each minute for `INTEREST_MS`, then stops.
 //!
-//! Of the machines with no reading, a placement waits on [`SAMPLE`] chosen at random plus the
-//! last one that answered (RFD 0181 B3, Sparrow's power of d choices): every one is still asked,
-//! the rest in the background for the next placement, so a pick's wait is the slowest of
-//! `SAMPLE + 1`, not of N, whatever N grows to.
+//! Of the machines with no reading, a placement waits on [`SAMPLE`] chosen at random (RFD 0181
+//! B3, Sparrow's power of d choices): every one due is still asked, the rest in the background
+//! for the next placement, so a pick's wait is the slowest of [`SAMPLE`], whatever N grows to.
+//! The RFD's "plus the last good one" needs no wait of its own: a machine that answered holds a
+//! reading, so placement already weighs it (an earlier draft waited on it too, but it was only
+//! ever missing a reading after that reading was dropped).
 
 use crate::hub::Hub;
 use crate::hub::hub_health::{EVERY_MS, HubHealth};
@@ -20,13 +22,9 @@ use std::time::Duration;
 // timeout: placement goes on without a reading (it reads as unknown) once this passes.
 const FIRST_WAIT: Duration = Duration::from_secs(6);
 
-/// How many machines with no reading, chosen at random, a placement waits on (with the last
-/// that answered): the rest are asked without holding it.
-const SAMPLE: usize = 2;
-
-/// The last machine whose health read through the hub answered: the one most likely to answer
-/// the next placement's wait in time.
-static LAST_GOOD: StdMutex<Option<String>> = StdMutex::new(None);
+/// How many machines with no reading, chosen at random, a placement waits on: the rest are
+/// asked without holding it.
+const SAMPLE: usize = 3;
 
 /// The session a machine's health read goes through (`mesh_read.rs` `host_health`), looked up at
 /// each ask: the book's rows change while a refresh keeps readings fresh.
@@ -56,6 +54,19 @@ pub(super) async fn refresh_with(
     via: Via,
     wait: Duration,
 ) {
+    refresh_drawn(scope, mesh, cache, hosts, via, wait, seed()).await;
+}
+
+/// [`refresh_with`] with the draw of the machines it waits on given (`seed`, [`wait_on`]).
+async fn refresh_drawn(
+    scope: &cmux_scope::Scope,
+    mesh: Arc<dyn MeshHub>,
+    cache: Arc<StdMutex<HubHealth>>,
+    hosts: Vec<String>,
+    via: Via,
+    wait: Duration,
+    seed: u64,
+) {
     let now = crate::store::now_ms();
     let (due, missing, running) = {
         let mut h = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -66,8 +77,7 @@ pub(super) async fn refresh_with(
             due.iter().filter(|host| h.reading(host).is_none()).cloned().collect();
         (due, missing, running)
     };
-    let last_good = LAST_GOOD.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let missing = wait_on(&missing, last_good.as_deref(), seed());
+    let missing = wait_on(&missing, seed);
     let mut first = Vec::new();
     for host in due {
         let task = scope
@@ -85,14 +95,13 @@ pub(super) async fn refresh_with(
 }
 
 /// Of `missing` (machines with no reading), the ones a placement waits on: [`SAMPLE`] drawn by
-/// `seed`, plus `last_good` when it is one of them. All of them while they are that few.
-fn wait_on(missing: &BTreeSet<String>, last_good: Option<&str>, seed: u64) -> BTreeSet<String> {
-    if missing.len() <= SAMPLE + 1 {
+/// `seed`. All of them while they are that few.
+fn wait_on(missing: &BTreeSet<String>, seed: u64) -> BTreeSet<String> {
+    if missing.len() <= SAMPLE {
         return missing.clone();
     }
-    let mut pool: Vec<&String> = missing.iter().filter(|h| Some(h.as_str()) != last_good).collect();
-    let mut out: BTreeSet<String> =
-        last_good.filter(|h| missing.contains(*h)).map(str::to_owned).into_iter().collect();
+    let mut pool: Vec<&String> = missing.iter().collect();
+    let mut out = BTreeSet::new();
     let mut x = seed | 1;
     for _ in 0..SAMPLE {
         // xorshift64: a draw needs no more than uniform here.
@@ -138,10 +147,7 @@ async fn ask_through(
     let read =
         crate::server::mesh_relay::read::host_health(mesh.as_ref(), &host, session.as_deref());
     let reading = match read.await {
-        Ok(v) => {
-            *LAST_GOOD.lock().unwrap_or_else(|e| e.into_inner()) = Some(host.clone());
-            Some(v)
-        }
+        Ok(v) => Some(v),
         Err(e) => {
             tracing::debug!(host, error = %e.message, "no health reading through the hub");
             None
