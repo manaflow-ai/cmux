@@ -658,6 +658,28 @@
           ]
         },
         {
+          "key": "experiments.chatInstantUnderLoad",
+          "note": "Perf experiment (docs/design/chat-instant-under-load.md, the idle lane): once the chat list shared with new tabs (webviews newtab/chatStore.ts) holds a list, a page writes a changed list from its idle lane (acpmux/schedule) instead of at once, so the write never shares a task with a key or a transcript frame; the newest list still wins and a page that hides still writes at once (webviews experimentSwitchOn(\"chatInstantUnderLoad\")). Off by default; off keeps today's timing.",
+          "title": {
+            "key": "settings.experiments.chatInstantUnderLoad",
+            "text": "Prioritize Chat Input"
+          },
+          "help": {
+            "key": "settings.experiments.chatInstantUnderLoad.help",
+            "text": "While you type or a reply streams, wait for a pause before saving the chat list new tabs show."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "chat",
+            "typing",
+            "streaming",
+            "performance"
+          ]
+        },
+        {
           "key": "experiments.threadMinimapRestReveal",
           "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
           "title": {
@@ -856,6 +878,30 @@
             "account",
             "helium",
             "labs"
+          ]
+        },
+        {
+          "key": "experiments.appStoreFeatures",
+          "note": "App Store Features: the App Store's Features tab, every built-in feature (backgrounds, Chief pet, Now Playing, every Lab and Experiment) as a switch on its own setting (cmux-tui server/app_features.rs, webviews pages/apps/FeaturesView.tsx). Leo, 2026-10-21: \"have that app store area as a sort of way to, like, toggle things on and off\". Off by default (Leo's UI rule: merge default-off); off draws no tab and apps.features.* lists nothing and refuses writes.",
+          "title": {
+            "key": "settings.experiments.appStoreFeatures",
+            "text": "App Store Features"
+          },
+          "help": {
+            "key": "settings.experiments.appStoreFeatures.help",
+            "text": "The App Store gets a Features tab where built-in features turn on and off."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "app",
+            "store",
+            "features",
+            "switches",
+            "toggles"
           ]
         }
       ]

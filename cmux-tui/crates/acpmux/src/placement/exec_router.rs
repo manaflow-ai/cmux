@@ -279,7 +279,7 @@ pub fn trace_main(last: usize, json: bool) -> anyhow::Result<()> {
     let rows: Vec<serde_json::Value> =
         text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let skip = rows.len().saturating_sub(last);
-    for row in &rows[skip..] {
+    for row in rows.iter().skip(skip) {
         if json { println!("{row}") } else { println!("{}", trace_line(row)) }
     }
     Ok(())

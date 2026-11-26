@@ -74,10 +74,20 @@ pub fn bound_rows(path: &Path, max: u64) {
         return;
     }
     let Ok(text) = std::fs::read_to_string(path) else { return };
+    // The newer half from the first line start past the middle. Found by bytes, so a middle
+    // that falls inside a multi-byte character cannot panic; just past a '\n' is always a char
+    // boundary, so `get` finds it.
     let cut = text.len() / 2;
-    let start = text[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(text.len());
+    let newer = text
+        .as_bytes()
+        .iter()
+        .skip(cut)
+        .position(|&b| b == b'\n')
+        .and_then(|i| cut.checked_add(i)?.checked_add(1))
+        .and_then(|start| text.get(start..))
+        .unwrap_or("");
     // Made whole: a copy beside it, renamed over it.
-    let _ = crate::home_fs::write(path, &text[start..]);
+    let _ = crate::home_fs::write(path, newer);
 }
 
 /// The program `command` runs, file name only, never a `VAR=value` or an argument: the first
