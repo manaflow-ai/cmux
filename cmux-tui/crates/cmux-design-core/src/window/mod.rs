@@ -1,6 +1,6 @@
 //! Window press routing, focus route, click trace, resize bands, full-screen titlebar press,
-//! the top row's line and spacing, the traffic lights' line, zoom, window targeting, the launch
-//! layout settle and the debug probes' rules (CmuxNextDesign `Windows/`, `Debug/`,
+//! the top row's line and spacing, the traffic lights' line, zoom, window targeting, the frame
+//! strip's key repeat and the debug probes' rules (CmuxNextDesign `Windows/`, `Debug/`,
 //! `Diagnostics/`, `ClickTrace`, `WindowPressRouter`, `FullScreenTitlebarPress`, `ResizeBands`,
 //! `KeyWindowRepaint`, `FocusRoute`).
 //!
@@ -12,7 +12,7 @@
 pub mod click_trace;
 pub mod diagnostics;
 pub mod fill;
-pub mod launch;
+pub mod key_repeat;
 pub mod press;
 pub mod targeting;
 pub mod top_row;
@@ -128,13 +128,8 @@ pub fn call(name: &str, request: &Value) -> OpResult {
         "zoomSame" => zoom::op_same(request),
         "target" => targeting::op_target(request),
         "cycled" => targeting::op_cycled(request),
-        // Launch
-        "launchDisplayParse" => launch::op_display_parse(request),
-        "launchDisplayScreenIndex" => launch::op_display_screen_index(request),
-        "launchSettle" => launch::op_settle(request),
-        "launchSettleMarkName" => launch::op_mark_name(request),
-        "launchRecordRequest" => launch::op_record_request(request),
-        "frameStripKeyRepeat" => launch::op_key_repeat(request),
+        // Frame strip key repeat
+        "frameStripKeyRepeat" => key_repeat::op_key_repeat(request),
         // Diagnostics and debug probes
         "switchKeyChanges" => diagnostics::op_switch_key_changes(request),
         "syntheticScroll" => diagnostics::op_synthetic_scroll(request),

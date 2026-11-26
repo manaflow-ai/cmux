@@ -1,7 +1,7 @@
 //! The window rules, ported value for value from the Swift tests (ClickTraceTests,
 //! WindowZoomTests, WindowCycleReachesEachWindowTests, FocusRouteTests, FrameStripKeyRepeatTests,
-//! LaunchDisplayTests, LaunchLayoutSettleTests, SwitchKeyChangesTests, TrafficLightsLineTests,
-//! WindowedTrafficLightsTests), plus the press routing rules' own behavior.
+//! SwitchKeyChangesTests, TrafficLightsLineTests, WindowedTrafficLightsTests),
+//! plus the press routing rules' own behavior.
 
 use cmux_design_core::ops::call;
 use cmux_design_core::window::click_trace::{
@@ -9,10 +9,7 @@ use cmux_design_core::window::click_trace::{
 };
 use cmux_design_core::window::diagnostics::{Mark, Row, Span, SwitchKeyChanges, pointer_move};
 use cmux_design_core::window::fill::{Rgb, compensated_fill};
-use cmux_design_core::window::launch::{
-    self, LaunchDisplay, Move, SettleTally, key_repeat_delay, key_repeat_interval, mark_name,
-    parse_display,
-};
+use cmux_design_core::window::key_repeat::{key_repeat_delay, key_repeat_interval};
 use cmux_design_core::window::press::{
     ChainWindow, CoveredButton, FocusOrigin, FullScreenTitlebarState, KeyNeutralFacts,
     KeyNeutralState, ResizeBand, focus_route_description, full_screen_titlebar_button, is_page,
@@ -407,110 +404,6 @@ fn key_repeat_delays() {
     assert_eq!(key_repeat_interval(None), 40);
     assert_eq!(key_repeat_interval(Some(0.2)), 1);
     assert_eq!(key_repeat_interval(Some(100.0)), 100);
-}
-
-// MARK: LaunchDisplayTests
-
-#[test]
-fn launch_display_parse() {
-    assert_eq!(parse_display(None, true), Some(LaunchDisplay::BuiltIn));
-    assert_eq!(parse_display(Some("  "), true), Some(LaunchDisplay::BuiltIn));
-    assert_eq!(parse_display(Some("BuiltIn"), true), Some(LaunchDisplay::BuiltIn));
-    assert_eq!(parse_display(None, false), None);
-    assert_eq!(parse_display(Some("builtin"), false), Some(LaunchDisplay::BuiltIn));
-    assert_eq!(parse_display(Some("off"), true), None);
-    assert_eq!(parse_display(Some("main"), true), Some(LaunchDisplay::Index(0)));
-    assert_eq!(parse_display(Some("1"), true), Some(LaunchDisplay::Index(1)));
-    assert_eq!(parse_display(Some("-1"), true), None);
-    assert_eq!(parse_display(Some("xdr"), true), None);
-}
-
-#[test]
-fn launch_display_screen_index() {
-    assert_eq!(LaunchDisplay::Index(0).screen_index(&[false, true]), Some(0));
-    assert_eq!(LaunchDisplay::Index(5).screen_index(&[false, true]), Some(1));
-    assert_eq!(LaunchDisplay::BuiltIn.screen_index(&[false, true]), Some(1));
-    assert_eq!(LaunchDisplay::BuiltIn.screen_index(&[false]), None);
-    assert_eq!(LaunchDisplay::Index(0).screen_index(&[]), None);
-}
-
-// MARK: LaunchLayoutSettleTests
-
-fn mark(marks: &[(String, f64)], name: &str) -> Option<f64> {
-    marks.iter().find(|(n, _)| n == name).map(|(_, v)| *v)
-}
-
-#[test]
-fn settle_still_first_frame() {
-    let mut t = SettleTally::default();
-    t.first(500.0);
-    assert!(!t.is_over(1999.0));
-    assert!(t.is_over(2000.0));
-    let m = t.marks();
-    assert_eq!(mark(&m, "layout.first_frame"), Some(500.0));
-    assert_eq!(mark(&m, "layout.settle"), Some(500.0));
-    assert_eq!(mark(&m, "layout.max_move"), Some(0.0));
-    assert_eq!(mark(&m, "layout.changed_frames"), Some(0.0));
-    assert_eq!(mark(&m, "layout.capped"), None);
-}
-
-#[test]
-fn settle_after_moves() {
-    let mut t = SettleTally::default();
-    t.first(500.0);
-    t.note(
-        600.0,
-        "SidebarContainerView",
-        Some(Move { name: "SidebarContainerView".into(), points: 40.0 }),
-    );
-    t.note(900.0, "TabStripView", Some(Move { name: "TabStripView".into(), points: 6.0 }));
-    assert!(!t.is_over(2100.0));
-    assert!(t.is_over(2400.0));
-    let m = t.marks();
-    assert_eq!(mark(&m, "layout.settle"), Some(900.0));
-    assert_eq!(mark(&m, "layout.max_move"), Some(40.0));
-    assert_eq!(mark(&m, "layout.max_move.SidebarContainerView"), Some(40.0));
-    assert_eq!(mark(&m, "layout.last.TabStripView"), Some(900.0));
-    assert_eq!(mark(&m, "layout.changed_frames"), Some(2.0));
-}
-
-#[test]
-fn settle_capped() {
-    let mut t = SettleTally::default();
-    t.first(0.0);
-    for ms in (100..=5000).step_by(100) {
-        t.note(ms as f64, "window", None);
-    }
-    assert!(t.is_over(5000.0));
-    let m = t.marks();
-    assert_eq!(mark(&m, "layout.capped"), Some(5000.0));
-    assert_eq!(mark(&m, "layout.max_move"), Some(0.0));
-    assert_eq!(mark(&m, "layout.last.window"), Some(5000.0));
-}
-
-#[test]
-fn settle_mark_names_and_empty() {
-    assert_eq!(mark_name("NSHostingView<ModifiedContent<A, B>>"), "NSHostingView");
-    assert_eq!(mark_name("TabStripView moved 0,0,10,10 -> 0,0,12,10"), "TabStripView");
-    assert_eq!(mark_name(""), "view");
-    let t = SettleTally::default();
-    assert!(!t.is_over(60_000.0));
-    assert!(t.marks().is_empty());
-}
-
-#[test]
-fn record_request_reads_flags() {
-    let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let r = launch::record_request(&args(&["app", "--record-launch", "~/rec"]), "/home/u").unwrap();
-    assert_eq!((r.dir.as_str(), r.seconds), ("/home/u/rec", 6.0));
-    let r = launch::record_request(
-        &args(&["--record-launch", "/tmp/x", "--record-launch-seconds", "40"]),
-        "/h",
-    )
-    .unwrap();
-    assert_eq!(r.seconds, 12.0);
-    assert_eq!(launch::record_request(&args(&["--record-launch", "--x"]), "/h"), None);
-    assert_eq!(launch::record_request(&args(&["app"]), "/h"), None);
 }
 
 // MARK: SwitchKeyChangesTests
