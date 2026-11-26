@@ -795,7 +795,8 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
         self.assertEqual(steps[names.index(pack["name"]) + 1]["name"], px.UPLOAD_STEP)
         self.assertEqual(NEXT["jobs"]["daemon-test"]["name"], px.DAEMON_JOB)
-        self.assertEqual(NEXT["jobs"]["generated-files"]["name"], px.GENERATED_JOB)
+        # The fleet Linux job holds the name; the Mac job is its logged fallback.
+        self.assertEqual(NEXT["jobs"]["generated-files-linux"]["name"], px.GENERATED_JOB)
 
     def test_both_workflows_start_on_changes_to_the_scripts(self):
         autofix_paths = AUTOFIX[True]["push"]["paths"]

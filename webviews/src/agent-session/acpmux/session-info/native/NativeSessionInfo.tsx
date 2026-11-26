@@ -1,3 +1,5 @@
+/** @jsxImportSource ../../../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // Session Info for the App to draw (model.ts): the page's sections as plain rows, sent as
 // `pane.sessionInfo` whenever what they list changes, and none of the page's own panel. It takes
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
@@ -130,6 +132,7 @@ export type NativeSessionInfoProps = {
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onOpenArtifacts?: () => void;
@@ -410,6 +413,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
+          onRemoveFolder: props.onRemoveFolder,
           failures: sourceFiles.failures,
           onOpenBeside: props.onOpenUrl,
           expanded: state.sourcesAll,
