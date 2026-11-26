@@ -6,7 +6,7 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { useContext } from "react";
+import { useContext, memo } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 
 import { formatDuration } from "../conversation/turns";
@@ -185,20 +185,33 @@ export function SubagentStatusList({
           {t("summary.openInPane")}
         </button>
       )}
-      {autoOpen && (
-        <label className="acpmux-summary-row acpmux-summary-autoopen">
-          <input
-            type="checkbox"
-            aria-label={t("summary.subagents.openPanes")}
-            checked={autoOpen.on}
-            onChange={(event) => autoOpen.set(event.currentTarget.checked)}
-          />
-          <span className="acpmux-summary-text">{t("summary.subagents.openPanes")}</span>
-        </label>
-      )}
+      {autoOpen && <AutoOpenSwitch on={autoOpen.on} set={autoOpen.set} label={t("summary.subagents.openPanes")} />}
     </section>
   );
 }
+
+/// The switch for opening new subagents in panes, drawn again only when its setting or label changes.
+/// The list above re-renders on the page clock while a subagent runs, and React 19 writes an input's
+/// `name` and `type` on every render of it (ReactDOMInput `updateInput`), so drawn inline it took
+/// three attribute writes a second in an idle chat, each an edge mark on the card's scroller
+/// (summary-card-idle-attributes.test.tsx). Its setter is the page's one module function
+/// (subagents/subagentPanes.ts `setAutoOpen`), so the memo holds.
+const AutoOpenSwitch = memo(function AutoOpenSwitch({
+  on,
+  set,
+  label,
+}: {
+  on: boolean;
+  set: (on: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="acpmux-summary-row acpmux-summary-autoopen">
+      <input type="checkbox" aria-label={label} checked={on} onChange={(event) => set(event.currentTarget.checked)} />
+      <span className="acpmux-summary-text">{label}</span>
+    </label>
+  );
+});
 
 /// A sub-session's row: its name (and what it does now while it works, or what it waits on the
 /// person for), its unread dot, how many messages wait for it, and its state.
