@@ -74,10 +74,8 @@ impl Hub {
         };
         let local = local_idents(&self.live_session_handles(), &hosts);
         let rows = self.remote_sessions.snapshot();
-        let values: Vec<(String, String, Value)> = rows
-            .iter()
-            .map(|(key, r)| (key.clone(), r.peer.clone(), r.summary.value()))
-            .collect();
+        let values: Vec<(String, String, Value)> =
+            rows.iter().map(|(key, r)| (key.clone(), r.peer.clone(), r.summary.value())).collect();
         let notices = watch.pass(
             values.iter().map(|(k, h, v)| (k.as_str(), h.as_str(), v)),
             now_ms,

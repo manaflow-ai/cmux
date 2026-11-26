@@ -164,11 +164,8 @@ pub fn step_line(route: &Route, at: &str) -> String {
 /// What recovery does next for a dead row, from what the row says (`death_route::Facts`; what
 /// the row cannot say, such as which hosts have room, stays at its default).
 pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) -> Route {
-    let dead_seconds = if dead.since_ms == 0 {
-        0.0
-    } else {
-        now_ms.saturating_sub(dead.since_ms) as f64 / 1000.0
-    };
+    let dead_seconds =
+        if dead.since_ms == 0 { 0.0 } else { now_ms.saturating_sub(dead.since_ms) as f64 / 1000.0 };
     crate::death_route::route(&Facts {
         key: key.into(),
         host: host.into(),
@@ -288,8 +285,8 @@ mod tests {
 
     #[test]
     fn a_machine_down_within_the_grace_asks_it_to_start() {
-        let dead = Dead { why: "its machine does not answer", since_ms: NOW - 11 * MIN,
-                          host_down: true };
+        let dead =
+            Dead { why: "its machine does not answer", since_ms: NOW - 11 * MIN, host_down: true };
         // Past the 10 min watch grace but within the 20 min host grace recovery uses.
         let r = route_of("k", "vm-1", &dead, NOW, 20 * MIN);
         assert!(matches!(r, Route::StartHost | Route::Wait { .. }), "{r:?}");
