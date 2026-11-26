@@ -75,6 +75,10 @@ public struct ListStressSettings: Equatable, Sendable {
     /// hands them to `MacTabCards` (favicon and thumbnail of each browser, screen of each terminal),
     /// and they are kept on disk. A later launch without it is cold: it reads them from disk.
     public var macCards: Bool
+    /// `CMUX_MOBILE_LIST_MAC_CARDS_DROP=1` (with `MAC_CARDS`): a few seconds after the rows, the mock Mac pushes
+    /// them again with no thumbnail, favicon or screen (a hibernated tab, a restarted hostd) and tells the phone
+    /// no row names the blobs any more: no card may go blank, in this launch or the next.
+    public var macCardsDrop: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
     /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
@@ -109,6 +113,7 @@ public struct ListStressSettings: Equatable, Sendable {
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
         macCards = environment["CMUX_MOBILE_LIST_MAC_CARDS"] == "1"
+        macCardsDrop = environment["CMUX_MOBILE_LIST_MAC_CARDS_DROP"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"

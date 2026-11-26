@@ -41,3 +41,88 @@ async fn claude_codes_late_answer_brings_its_commands_and_no_second_answer() {
         .await;
     assert!(failed.is_empty(), "{failed:?}");
 }
+
+/// The `availableCommands` of the last commands update in `out`, as (name, tagged a skill).
+fn commands_sent(out: &[Message]) -> Vec<(String, bool)> {
+    let update = out
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            Message::Notification { params: Some(p), .. } => {
+                let update = p.get("update")?;
+                (update["sessionUpdate"] == "available_commands_update").then(|| update.clone())
+            }
+            _ => None,
+        })
+        .expect("a commands update");
+    update["availableCommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["name"].as_str().unwrap().to_owned(), c["_meta"]["kind"] == "skill"))
+        .collect()
+}
+
+#[tokio::test]
+async fn before_the_first_turn_every_command_not_builtin_is_a_skill_then_the_init_decides() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    let _ = t.outbound(&Message::request(7, method::INITIALIZE, json!({}))).await;
+    // Claude Code's real answer marks its own commands, bundled skills too, `builtin`; the person's,
+    // a project's and a plugin's skills carry no mark. A chat with no turn has no system/init yet
+    // (the New Tab's deferred chat), so its skills are tagged from this answer: the menu lists them
+    // mid-prompt.
+    let out = t
+        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
+            "request_id": "init-7", "response": {"commands": [
+                {"name": "compact", "description": "Free up context", "argumentHint": "", "builtin": true},
+                {"name": "dataviz", "description": "Charts", "argumentHint": "", "builtin": true},
+                {"name": "emil-color", "description": "OKLCH (user)", "argumentHint": ""},
+                {"name": "vercel:deploy", "description": "Deploy", "argumentHint": ""}]}}}))
+        .await;
+    assert_eq!(
+        commands_sent(&out),
+        [
+            ("compact".to_owned(), false),
+            ("dataviz".to_owned(), false),
+            ("emil-color".to_owned(), true),
+            ("vercel:deploy".to_owned(), true)
+        ]
+    );
+    // The first turn's system/init names the skills: that list decides from then on.
+    let out = t
+        .inbound(&json!({"type": "system", "subtype": "init", "session_id": "claude-1",
+            "skills": ["dataviz", "emil-color", "vercel:deploy"]}))
+        .await;
+    assert_eq!(
+        commands_sent(&out),
+        [
+            ("compact".to_owned(), false),
+            ("dataviz".to_owned(), true),
+            ("emil-color".to_owned(), true),
+            ("vercel:deploy".to_owned(), true)
+        ]
+    );
+    // A turn that names no skills leaves none tagged.
+    let out = t
+        .inbound(
+            &json!({"type": "system", "subtype": "init", "session_id": "claude-1", "skills": []}),
+        )
+        .await;
+    assert!(commands_sent(&out).iter().all(|(_, skill)| !skill), "{out:?}");
+}
+
+#[tokio::test]
+async fn an_older_claude_code_that_marks_no_builtins_gets_no_tags_before_its_init() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    let _ = t.outbound(&Message::request(7, method::INITIALIZE, json!({}))).await;
+    let out = t
+        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
+            "request_id": "init-7", "response": {"commands": [
+                {"name": "compact", "description": "Free up context", "argumentHint": ""},
+                {"name": "demo-skill", "description": "A demo skill (user)", "argumentHint": ""}]}}}))
+        .await;
+    assert_eq!(
+        commands_sent(&out),
+        [("compact".to_owned(), false), ("demo-skill".to_owned(), false)]
+    );
+}

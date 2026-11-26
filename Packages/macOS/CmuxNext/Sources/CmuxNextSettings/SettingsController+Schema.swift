@@ -86,8 +86,7 @@ extension SettingsController {
         guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
         // A renamed key's old key goes with the write, so it can never apply
         // again behind the new value (or behind a reset to the default).
-        var legacy: [String]?
-        if let old = RenamedSettingKeys.legacyPath(for: descriptor.path), root.value(at: old) != nil { legacy = old }
+        let legacy = RenamedSettingKeys.legacyPaths(for: descriptor.path).filter { root.value(at: $0) != nil }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
         // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
         // the whole edits map it shows, which holds the file's colors).
@@ -126,7 +125,7 @@ extension SettingsController {
         if descriptor.path == DensitySetting.configPath, root.value(at: customDensity) != nil {
             linked.append((path: customDensity, value: nil))
         }
-        let others = (legacy.map { [SettingsFileEdit.reset($0)] } ?? []) + linked.map { edit -> SettingsFileEdit in
+        let others = legacy.map { SettingsFileEdit.reset($0) } + linked.map { edit -> SettingsFileEdit in
             if let value = edit.value { .set(edit.path, value) } else { .reset(edit.path) }
         }
         // A removal goes last, then each parent object it empties (cmux-config `remove_pruning`).
@@ -167,7 +166,7 @@ extension SettingsController {
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             edits.append(.reset(descriptor.path))
             // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
-            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { edits.append(.reset(legacy)) }
+            for legacy in RenamedSettingKeys.legacyPaths(for: descriptor.path) { edits.append(.reset(legacy)) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
             edits.append(.reset(CmuxConfigFile.keyPath(from: key)))

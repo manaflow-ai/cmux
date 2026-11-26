@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.resumeDetail" : {
+      "comment" : "Agent pane: the second line of the Resume button's tooltip on a stopped subagent's transcript line (subagents/SubagentDoneLine.tsx): what it does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start it again from its last step, with its transcript and brief"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "شغّله مرة أخرى من آخر خطوة، مع سجله ومهمته"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokreni ga ponovo od zadnjeg koraka, s njegovim zapisom i zadatkom"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Start den igen fra sidste trin med dens udskrift og opgave"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ab dem letzten Schritt neu starten, mit Verlauf und Auftrag"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Iniciarlo de nuevo desde su último paso, con su transcripción y su encargo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le relancer depuis sa dernière étape, avec sa transcription et sa consigne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Riavvialo dall'ultimo passo, con la sua trascrizione e il suo incarico"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "記録と指示を引き継ぎ、最後の手順から再開します"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចាប់ផ្តើមវាម្តងទៀតពីជំហានចុងក្រោយ ជាមួយកំណត់ត្រា និងភារកិច្ចរបស់វា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기록과 지시를 이어받아 마지막 단계부터 다시 시작"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Start den igjen fra siste trinn, med utskrift og oppdrag"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchom ponownie od ostatniego kroku, z jego zapisem i zadaniem"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Iniciar de novo a partir do último passo, com a transcrição e a tarefa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запустить снова с последнего шага, с его записью и заданием"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เริ่มอีกครั้งจากขั้นตอนล่าสุด พร้อมบันทึกและงานของมัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dökümü ve göreviyle son adımından yeniden başlat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запустити знову з останнього кроку, з його записом і завданням"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy lại từ bước cuối, kèm bản ghi và nhiệm vụ của nó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "带着它的记录和任务，从最后一步重新开始"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "帶著它的紀錄與任務，從最後一步重新開始"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

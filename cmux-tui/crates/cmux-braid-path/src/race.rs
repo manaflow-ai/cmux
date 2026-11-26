@@ -234,7 +234,12 @@ where
                     let won = Won { value, attempt, target_index, elapsed: started.elapsed(), connect };
                     return Ok((won, running));
                 }
-                Err(error) => last_error = Some(error),
+                // A failed attempt frees its place: the next starts at once (RFC 8305 section
+                // 5), not when the stagger since the last start runs out.
+                Err(error) => {
+                    last_error = Some(error);
+                    next_launch = Instant::now();
+                }
             },
             () = tokio::time::sleep_until(next_launch), if may_launch => {}
         }

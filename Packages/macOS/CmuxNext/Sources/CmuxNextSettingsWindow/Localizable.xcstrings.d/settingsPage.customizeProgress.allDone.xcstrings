@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.customizeProgress.allDone" : {
+      "comment" : "One line under the checklist's progress once every step is done.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Everything is set up. Dismiss this card, or keep it to come back to."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل شيء جاهز. أغلق هذه البطاقة، أو أبقها للرجوع إليها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sve je podešeno. Odbaci ovu karticu ili je zadrži da se vratiš na nju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alt er sat op. Luk dette kort, eller behold det, så du kan vende tilbage til det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alles ist eingerichtet. Schließen Sie diese Karte oder behalten Sie sie, um später zurückzukehren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todo está configurado. Descarta esta tarjeta o consérvala para volver a ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tout est configuré. Fermez cette carte ou gardez-la pour y revenir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "È tutto pronto. Chiudi questa scheda oppure tienila per tornarci."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべて設定済みです。このカードを閉じるか、あとで見返せるようにそのままにしておけます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្វីៗត្រូវបានរៀបចំរួចហើយ។ បិទកាតនេះ ឬទុកវាដើម្បីត្រឡប់មកវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 설정이 끝났습니다. 이 카드를 닫거나, 나중에 다시 볼 수 있게 그대로 두세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alt er satt opp. Lukk dette kortet, eller behold det for å komme tilbake til det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystko skonfigurowane. Zamknij tę kartę lub zachowaj ją, aby do niej wrócić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tudo configurado. Dispense este cartão ou mantenha-o para voltar a ele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Всё настроено. Закройте эту карточку или оставьте её, чтобы вернуться к ней позже."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตั้งค่าทุกอย่างเรียบร้อยแล้ว ปิดการ์ดนี้ หรือเก็บไว้เพื่อกลับมาดูภายหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her şey ayarlandı. Bu kartı kapatın ya da daha sonra dönmek için tutun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усе налаштовано. Закрийте цю картку або залиште її, щоб повернутися до неї пізніше."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi thứ đã được thiết lập. Hãy đóng thẻ này, hoặc giữ lại để quay lại sau."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一切都已设置好。你可以关闭此卡片，也可以保留它以便日后回来查看。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一切都已設定好。你可以關閉此卡片，也可以保留它以便日後回來查看。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

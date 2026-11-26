@@ -41,10 +41,12 @@ public struct AccountCloud: Sendable {
         try await call("/v1/read", ["op": op, "params": params], team: team)
     }
 
-    /// `/v1/ops {op, params, idempotency_key, origin: user}`: a write the person made; a retry
-    /// with the same key applies once.
-    public func mutate(_ op: String, params: [String: any Sendable], key: String, team: String? = nil) async throws -> Data {
-        try await call("/v1/ops", ["op": op, "params": params, "idempotency_key": key, "origin": "user"], team: team)
+    /// `/v1/ops {op, params, idempotency_key, origin}`: a write the person made (`user`), or one
+    /// the app made on its own (`script`, a wake on intent's resume or re-pause); a retry with the
+    /// same key applies once.
+    public func mutate(_ op: String, params: [String: any Sendable], key: String, team: String? = nil,
+                       origin: String = "user") async throws -> Data {
+        try await call("/v1/ops", ["op": op, "params": params, "idempotency_key": key, "origin": origin], team: team)
     }
 
     private func call(_ path: String, _ object: [String: any Sendable], team: String?) async throws -> Data {

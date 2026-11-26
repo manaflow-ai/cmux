@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.toastsV2.help" : {
+      "comment" : "Settings > Experimental > Toasts v2 help: a notice with a spinner turns into its result, and closing a tab or workspace or archiving a chat offers Undo.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إشعارات بمؤشر انتظار تتحول إلى نتيجتها في مكانها، وزر تراجع بعد إغلاق علامة تبويب أو مساحة عمل أو أرشفة محادثة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obavijesti s indikatorom učitavanja koje se na istom mjestu pretvaraju u svoj rezultat, i Poništi nakon zatvaranja kartice ili radnog prostora ili arhiviranja chata."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meddelelser med en indlæsningsindikator, der bliver til deres resultat på stedet, og Fortryd efter at have lukket en fane eller et arbejdsområde eller arkiveret en chat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hinweise mit Ladeanzeige, die an derselben Stelle zu ihrem Ergebnis werden, und Widerrufen nach dem Schließen eines Tabs oder Arbeitsbereichs oder dem Archivieren eines Chats."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avisos con indicador de carga que se convierten en su resultado en el mismo lugar, y Deshacer después de cerrar una pestaña o un espacio de trabajo o archivar un chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Des notifications avec indicateur de chargement qui deviennent leur résultat sur place, et Annuler après la fermeture d’un onglet ou d’un espace de travail ou l’archivage d’une discussion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avvisi con indicatore di caricamento che diventano il loro risultato sul posto, e Annulla dopo aver chiuso una scheda o uno spazio di lavoro o archiviato una chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スピナー付きのトーストがその場で結果に変わり、タブやワークスペースを閉じたりチャットをアーカイブしたりした後に「取り消す」が表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជូនដំណឹងដែលមានសញ្ញាកំពុងដំណើរការ ប្ដូរទៅជាលទ្ធផលរបស់វានៅកន្លែងដដែល ហើយមាន មិនធ្វើវិញ បន្ទាប់ពីបិទផ្ទាំង ឬកន្លែងធ្វើការ ឬទុកការជជែកក្នុងបណ្ណសារ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스피너가 있는 토스트가 그 자리에서 결과로 바뀌고, 탭이나 워크스페이스를 닫거나 채팅을 보관한 뒤에는 실행 취소가 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsler med lasteindikator som blir til resultatet sitt på stedet, og Angre etter at du lukker en fane eller et arbeidsområde eller arkiverer en chat."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Powiadomienia ze wskaźnikiem ładowania, które w tym samym miejscu zmieniają się w swój wynik, oraz Cofnij po zamknięciu karty lub obszaru roboczego albo zarchiwizowaniu czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avisos com indicador de carregamento que viram o próprio resultado no mesmo lugar, e Desfazer depois de fechar uma aba ou um espaço de trabalho ou arquivar um chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уведомления с индикатором загрузки, которые на месте превращаются в результат, и «Отменить» после закрытия вкладки или рабочего пространства или архивации чата."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การแจ้งเตือนที่มีตัวหมุนจะเปลี่ยนเป็นผลลัพธ์ในที่เดิม และมี เลิกทำ หลังจากปิดแท็บหรือพื้นที่ทำงาน หรือเก็บแชทถาวร"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yükleme göstergeli bildirimler yerinde sonuçlarına dönüşür; bir sekmeyi veya çalışma alanını kapattıktan ya da bir sohbeti arşivledikten sonra Geri Al görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сповіщення з індикатором завантаження, які на місці перетворюються на результат, і «Скасувати» після закриття вкладки чи робочого простору або архівування чату."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thông báo có biểu tượng đang tải sẽ biến thành kết quả ngay tại chỗ, và có Hoàn tác sau khi đóng một tab hoặc không gian làm việc hay lưu trữ một cuộc trò chuyện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "带加载指示的提示条会在原处变成结果；关闭标签页或工作区、归档聊天后会出现“撤销”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
