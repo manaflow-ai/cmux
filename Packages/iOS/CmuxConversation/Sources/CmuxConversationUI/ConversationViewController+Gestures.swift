@@ -368,11 +368,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     private func presentRetry(for model: MessageRowModel) {
         let sheet = UIAlertController(
             title: model.message.isScheduled
+                // retry-prompt-ok: re-sends a scheduled message
                 ? String(localized: "conversation.sendLater.failedTryAgain", defaultValue: "Your scheduled message was not sent. Tap “Try Again” to schedule this message.", bundle: .module)
                 : String(localized: "conversation.retry.title", defaultValue: "Your message was not delivered.", bundle: .module),
             message: nil,
             preferredStyle: .actionSheet
         )
+        // retry-prompt-ok: re-sends a failed message
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
             self?.store.retry(rowID: model.rowID)
         })
@@ -396,6 +398,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
+            // retry-prompt-ok: re-sends a failed message
             let tryAgain = UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
                 self?.store.retryUnsend(messageID: messageID)
             }
