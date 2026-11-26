@@ -563,20 +563,8 @@ fn usable_side_snapshot(
     }
 }
 
-/// Background QoS on macOS; lowest CPU and idle IO priority for this thread
-/// on Linux. Elsewhere the thread keeps its default priority.
+/// Background QoS on macOS; lowest CPU and idle IO priority for this thread on Linux
+/// (`cmux-interactivity`'s `Maintenance` class, which is background whether or not the person interacts).
 fn lower_thread_priority() {
-    #[cfg(target_vendor = "apple")]
-    // SAFETY: sets the calling thread's own QoS class; no pointers.
-    unsafe {
-        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_BACKGROUND, 0);
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: plain syscalls on the calling thread's own id.
-    unsafe {
-        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 19);
-        // ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE).
-        libc::syscall(libc::SYS_ioprio_set, 1, tid, 3 << 13);
-    }
+    cmux_interactivity::lower_current_thread_for_life();
 }

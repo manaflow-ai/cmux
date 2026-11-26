@@ -352,8 +352,12 @@ fn machine_list_relays_disk_health_to_the_app() {
     );
 
     let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    assert_eq!(page["machines"][0]["disk_health"], disk_health);
-    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+    // The relay adds the disk bar: 12 of 16 GB used, no split reported.
+    let mut relayed = disk_health;
+    relayed["bar"] = page["machines"][0]["disk_health"]["bar"].clone();
+    assert_eq!(relayed["bar"]["label"], "12 / 16 GB");
+    assert_eq!(page["machines"][0]["disk_health"], relayed);
+    assert_eq!(record(&s, &vm(9))["disk_health"], relayed);
 }
 
 #[test]
@@ -738,6 +742,12 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
     assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
+    let usage = s.handle(&Request::new("cloud.usage.current", json!({})));
+    assert!(usage.is_ok(), "{usage:?}");
+    let usage = usage.unwrap();
+    assert_eq!(usage["usd"]["total"], 0.84, "the billing owner's price passes through");
+    assert_eq!(usage["payment_method"]["last4"], "4242");
+    assert_eq!(usage["stripe_mode"], "test");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
     assert_eq!(

@@ -1,14 +1,15 @@
 /// The buttons the browser toolbar shows next to the address bar, in cmux.json (cx-d0d.81):
 ///
 /// ```jsonc
-/// "browser": { "toolbarButtons": ["media", "zoom", "downloads"] }
+/// "browser": { "toolbarButtons": ["media", "zoom", "downloads", "profile"] }
 /// ```
 ///
 /// By default the toolbar keeps only what a page needs: Back, Forward, Reload, the address bar,
 /// the Extensions button (Chromium tabs), and More. Of the other buttons, the media
 /// hub, the zoom level and Downloads show by default, each only while it has something to show
-/// (media playing, a zoomed page, a download). Every other action (Favorites, design mode, the
-/// profile, the page theme, DevTools) is in the More menu, whose Show in Toolbar items pin it
+/// (media playing, a zoomed page, a download), and the tab's browser profile, which left the
+/// address bar for the toolbar's right (cmuxterm-hq RFD 0050). Every other action (Favorites,
+/// design mode, the page theme, DevTools) is in the More menu, whose Show in Toolbar items pin it
 /// back; an item left out of this list is unpinned. A bad or unknown item is dropped with a
 /// diagnostic. The app reads the effective root (``current(_:)``), so the snapshot type does not
 /// grow.

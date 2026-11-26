@@ -45,4 +45,9 @@ public nonisolated extension RemoteRdHello {
     /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
     /// host may then encode a smaller picture on a slow link (its resolution ladder).
     static let videoScaledCap = "video.scaled"
+    /// The session clock (`caps::CLOCK`): the viewer probes the host's clock, so its
+    /// times convert to the host's.
+    static let clockCap = "clock"
+    /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
+    static let ledgerCap = "ledger"
 }

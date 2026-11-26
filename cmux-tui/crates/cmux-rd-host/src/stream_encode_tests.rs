@@ -157,6 +157,7 @@ fn cfg() -> SessionCfg {
         encode_profile: Default::default(),
         start_kbps: 1000,
         max_kbps: 2000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),

@@ -51,6 +51,7 @@ export const mockBlockedDetails: PullRequestDetails = counted({
           body: "Does this run before or after the drop animation ends?",
           url: "https://github.com/example/app/pull/482#discussion_r1",
           resolved: true,
+          thread: "PRRT_r1",
         },
         {
           path: "Sources/Sidebar/SidebarSelection.swift",
@@ -58,6 +59,7 @@ export const mockBlockedDetails: PullRequestDetails = counted({
           body: "What happens when the selected row is filtered out?",
           url: "https://github.com/example/app/pull/482#discussion_r2",
           resolved: false,
+          thread: "PRRT_r2",
         },
       ],
     },

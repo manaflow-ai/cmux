@@ -39,12 +39,22 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // The shared opener prompts for every non-gesture navigation,
-            // including sign-in returns, before handing it to another app.
+            // The shared opener prompts for every non-gesture navigation
+            // before handing it to another app; a return to this app (its
+            // own scheme) goes to the app itself, and the flow's tab closes.
             if navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
+                let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, firstPage: first,
+                                                close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
             }
             return
+        }
+        // GitHub's return to the App's Setup URL for this build's connect: the app finishes it, and no page loads.
+        if navigationAction.targetFrame?.isMainFrame ?? true {
+            let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
+            if BrowserExternalApps.shared.handOffReturn(url, firstPage: first, close: { [weak self] in self?.emit(.close) }) {
+                return decisionHandler(.cancel, preferences)
+            }
         }
         // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
         // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.

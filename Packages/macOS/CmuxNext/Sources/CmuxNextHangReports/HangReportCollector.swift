@@ -8,7 +8,10 @@ import Foundation
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
 /// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
 /// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
-/// reads dyld and the classifier) and kept after that. Nothing here runs while the app is idle.
+/// reads dyld and the classifier) and kept after that. Sampled stalls wait in a short list for the
+/// one resolution job running: the main thread starts a job only when none is pending, so a burst
+/// of stalls under load costs it one job, not one per stall (a 2.0 s hang inside the job's start,
+/// hq#18810). Nothing here runs while the app is idle.
 ///
 /// ```swift
 /// let collector = HangReportCollector(resolve: { addresses in frames(for: addresses) })
@@ -23,6 +26,14 @@ public final class HangReportCollector: Sendable {
     // end; an actor would add a Task and a hop per stall.
     private let aggregate = Mutex(StallAggregate())
     private let resolve: Resolve
+    /// Sampled stalls and hangs waiting for the resolution job, and whether one is scheduled.
+    private let pending = Mutex(Pending())
+    private struct Pending {
+        var jobs: [(sample: HangSample, addresses: [UInt])] = []
+        var scheduled = false
+    }
+    /// At most this many samples wait for resolution; more are dropped (only the 8 longest are kept anyway).
+    static let maxPending = 16
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
@@ -103,13 +114,32 @@ public final class HangReportCollector: Sendable {
     public func snapshot() -> StallAggregate { aggregate.withLock { $0 } }
 
     private func keepLater(_ sample: HangSample, addresses: [UInt]) {
-        let resolve = resolve
-        schedule { [self] in
-            var resolved = sample
-            resolved.frames = Array(resolve(addresses).prefix(HangSample.maxFrames))
-            guard isEnabled else { return }
-            aggregate.withLock { $0.keep(resolved) }
+        let start = pending.withLock { pending in
+            guard pending.jobs.count < Self.maxPending else { return false }
+            pending.jobs.append((sample, addresses))
+            guard !pending.scheduled else { return false }
+            pending.scheduled = true
+            return true
         }
+        if start { schedule { [self] in resolvePending() } }
+    }
+
+    /// Resolves the samples waiting now (off the main thread); samples that came meanwhile go to a next job,
+    /// and the last job, finding none, lets the main thread start one again.
+    private func resolvePending() {
+        let jobs = pending.withLock { pending in
+            let jobs = pending.jobs
+            pending.jobs = []
+            if jobs.isEmpty { pending.scheduled = false }
+            return jobs
+        }
+        guard !jobs.isEmpty else { return }
+        for job in jobs {
+            var resolved = job.sample
+            resolved.frames = Array(resolve(job.addresses).prefix(HangSample.maxFrames))
+            if isEnabled { aggregate.withLock { $0.keep(resolved) } }
+        }
+        schedule { [self] in resolvePending() }
     }
 
     static func milliseconds(_ nanos: UInt64) -> Int { Int(min(nanos / 1_000_000, UInt64(HistogramBucket.maxMs))) }

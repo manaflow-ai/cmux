@@ -686,3 +686,20 @@ test("a new chat's large kept draft and typed text are merged and sent", async (
   await act(async () => handle.current!.settleDraft());
   expect(sent.at(-1)).toBe(merged);
 });
+
+test("a switch into a chat whose saved draft equals the last drawn text shows that draft, not the typed one", async () => {
+  // A typed key that changes nothing the composer draws renders nothing, so the field's `value` prop holds the text
+  // as of its last render. Switching to a chat whose draft equals that stale prop must still put the draft in the
+  // field: otherwise the field keeps chat A's text and the next key writes it into chat B.
+  const { writePersistedDraft, readPersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
+  writePersistedDraft("chat-equal-b", "h");
+  await render("chat-equal-a");
+  await type("h");
+  await type("ello");
+  expect(prompt()).toBe("hello");
+  await render("chat-equal-b");
+  await settle();
+  expect(prompt()).toBe("h");
+  await type("i");
+  expect(readPersistedDraft("chat-equal-b")).toBe("hi");
+});

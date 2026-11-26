@@ -535,14 +535,27 @@ pub(crate) fn profile_findings(roots: &crate::Roots, profile: &Profile) -> Vec<F
             );
             continue;
         }
-        if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
+        if let Err(refusal) = cmux_config::schema::accepts(row, value, &Default::default()) {
             // The key says where to look; the refused value (which may be
-            // a credential under the wrong key) stays in the file.
+            // a credential under the wrong key) stays in the file. A document's
+            // refusal says where it goes wrong (`phases.row.frames[3]: ...`):
+            // a path in the look's own file, never a value.
+            let document = match &refusal {
+                cmux_config::refusal::Refusal::InvalidValue {
+                    accepted: cmux_config::schema::Accepted::Document { schema, reason },
+                    ..
+                } => Some(format!(
+                    "the profile's value for {key} is not a {schema} document: {reason}"
+                )),
+                _ => None,
+            };
             findings.push(
                 Finding::error(
                     codes::SETTING_VALUE,
                     at,
-                    if key == "workspaceColors.indicatorStyle" {
+                    if let Some(message) = document {
+                        message
+                    } else if key == "workspaceColors.indicatorStyle" {
                         "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
                     } else {
                         format!("the profile's value for {key} is not one that setting accepts")
@@ -617,17 +630,24 @@ fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
             error.column()
         ))
     };
-    let original_error = match serde_json::from_str::<Profile>(&text) {
-        Ok(profile) => return Ok(profile),
-        Err(error) => error,
+    let mut profile = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => profile,
+        Err(original_error) => {
+            let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+            crate::file_refs::resolve(
+                &mut value,
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map_err(Error::Profile)?;
+            serde_json::from_value(value).map_err(|_| invalid(original_error))?
+        }
     };
-    let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
-    crate::file_refs::resolve(
-        &mut value,
-        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
-    )
-    .map_err(Error::Profile)?;
-    serde_json::from_value(value).map_err(|_| invalid(original_error))
+    // A look's cmux-setup.json read as a profile (`cmux customize try PATH`) keeps long values in
+    // files beside it, as a setup install reads them.
+    if let Some(dir) = path.parent() {
+        crate::setup::inline_files(&mut profile.settings, dir)?;
+    }
+    Ok(profile)
 }
 
 #[cfg(test)]

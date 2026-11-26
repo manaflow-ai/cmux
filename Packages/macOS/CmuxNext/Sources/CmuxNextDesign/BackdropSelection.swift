@@ -25,6 +25,18 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     case moment(path: String, frame: Int, dark: Bool)
     /// A living wallpaper (``BackdropShader``): drawn every frame, answering the pointer.
     case shader(BackdropShader)
+    /// A live wallpaper (``LiveWallpaper``) by its manifest id: a program the GPU runs behind the
+    /// window, persisted as `live:<id>`. Only the first-party set loads for now.
+    case live(String)
+
+    /// The persisted id prefix of ``live(_:)``.
+    public static let livePrefix = "live:"
+
+    /// The live wallpaper's id of a ``live(_:)`` selection; nil for any other.
+    public var liveID: String? {
+        if case .live(let id) = self { return id }
+        return nil
+    }
 
     /// The persisted id of ``desktop``.
     public static let desktopID = "desktop"
@@ -38,6 +50,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .desktop: return Self.desktopID
         case .pair(let light, let dark): return "appearance:\(light.id)|\(dark.id)"
         case .moment(let path, let frame, let dark): return "system:\(path)|frame:\(frame)|\(dark ? "dark" : "light")"
+        case .live(let id): return Self.livePrefix + id
         case .shader(let shader): return shader.id
         }
     }
@@ -58,6 +71,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             return light == dark ? light.title(aerialNames: aerialNames)
                 : "\(light.title(aerialNames: aerialNames)) / \(dark.title(aerialNames: aerialNames))"
         case .moment(let path, _, _): return Self.systemTitle(path, aerialNames: aerialNames)
+        case .live(let id): return LiveWallpaper.named(id)?.name ?? id
         case .shader(let shader): return shader.title
         }
     }
@@ -76,7 +90,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .system(let path), .file(let path): return AppleWallpapers.isVideo(path)
         case .pair(let light, let dark): return light.isVideo || dark.isVideo
-        case .art, .desktop, .moment, .shader: return false
+        case .art, .desktop, .moment, .shader, .live: return false
         }
     }
 
@@ -85,7 +99,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .shader(let shader): return shader
         case .pair(let light, let dark): return light.shader ?? dark.shader
-        case .art, .system, .file, .desktop, .moment: return nil
+        case .art, .system, .file, .desktop, .moment, .live: return nil
         }
     }
 
@@ -98,9 +112,15 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
         case .system: return isVideo ? Self.videoCollection : (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
         case .moment: return (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
+        case .live: return Self.liveCollection
         case .shader: return (BackdropShader.collection, BackdropShader.collectionTitle)
         case .desktop, .pair: return nil
         }
+    }
+
+    /// The picker group of every live wallpaper, after Moving wallpapers.
+    private static var liveCollection: (String, String) {
+        ("live", String(localized: "backdrop.collection.live", defaultValue: "Live wallpapers", bundle: .localizedModule))
     }
 
     private static var videoCollection: (String, String) {
@@ -126,6 +146,11 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
                 .replacingOccurrences(of: "%@", with: (path as NSString).lastPathComponent)
         case .desktop:
             return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .localizedModule)
+        case .live(let id):
+            let summary = LiveWallpaper.named(id)?.summary ?? ""
+            return summary.isEmpty
+                ? String(localized: "backdrop.live.attribution", defaultValue: "Live wallpaper: moves, and follows the pointer", bundle: .localizedModule)
+                : summary
         case .shader(let shader): return shader.attribution
         }
     }
@@ -135,7 +160,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.sourceURL
         case .pair(let light, _): return light.sourceURL
-        case .system, .file, .desktop, .moment, .shader: return nil
+        case .system, .file, .desktop, .moment, .shader, .live: return nil
         }
     }
 
@@ -151,6 +176,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .pair(let light, _): return light.thumbnailURL
         case .shader(let shader): return shader.posterURL(dark: true)
         case .file, .desktop: return imageURL
+        // Its still is drawn, not a file (SettingsBackdropThumbnails).
+        case .live: return nil
         }
     }
 
@@ -172,7 +199,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             if AppleWallpapers.isVideo(path) { return AppleWallpapers.file(for: path, dark: appearance == .dark) }
             return appleWallpaper(path)?.imageURL(for: appearance) ?? URL(fileURLWithPath: path)
         case .file(let path): return URL(fileURLWithPath: path)
-        case .desktop: return nil
+        case .desktop, .live: return nil
         case .pair(let light, let dark): return (appearance == .dark ? dark : light).imageURL(for: appearance)
         case .moment(let path, _, let dark):
             // The full picture holds every frame; until it downloads, the thumbnail of the moment's side.
@@ -225,7 +252,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             // window shows) it is read here.
             let picture = BackdropImageStore.shared.desktop.picture ?? DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first)
             return picture.resolvedURL(dark: dark)
-        case .art, .file: return imageURL
+        case .art, .file, .live: return imageURL
         }
     }
 
@@ -268,6 +295,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             let path = String(id.dropFirst("system:".count))
             guard path.hasPrefix("/"), !path.isEmpty else { return nil }
             self = .system(path: path)
+        } else if id.hasPrefix(Self.livePrefix) {
+            let slug = String(id.dropFirst(Self.livePrefix.count))
+            guard !slug.isEmpty, !slug.contains(where: \.isWhitespace) else { return nil }
+            self = .live(slug)
         } else if id.hasPrefix("file:") {
             let path = String(id.dropFirst("file:".count))
             guard path.hasPrefix("/") else { return nil }

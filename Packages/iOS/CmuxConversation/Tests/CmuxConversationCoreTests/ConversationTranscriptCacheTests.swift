@@ -148,8 +148,10 @@ import Testing
         for count in 1...5 { cache.save("k", info: nil, meID: "me", messages: Array(messages.prefix(count))) }
         cache.flush()
         #expect(await ConversationTranscriptCache(directory: directory).load("k")?.messages.count == 5)
+        #if canImport(Darwin)  // iCloud backup exclusion is an Apple resource value
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         #expect(values.isExcludedFromBackup == true)
+        #endif
     }
 
     /// Sign-out while a store shows kept rows: they go, and it keeps nothing more.

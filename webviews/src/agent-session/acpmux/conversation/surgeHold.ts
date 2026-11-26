@@ -1,7 +1,7 @@
 // A message surge the chat's inbox holds (cmuxterm-hq RFD 0018, per-host-dedup handbook page): when
 // other agents write faster than the chat should take turns, acpmux stores their messages in the
-// chat's inbox and wakes the agent only for the ones that need it. The pane draws that as one row of
-// the composer hat (SurgeHoldRow.tsx), never a row per held message (Leo, 2026-11-20: "when it gets
+// chat's inbox and wakes the agent only for the ones that need it. Session Info draws that as one row
+// of Background tasks (session-info/agentSide.ts), never a row per held message (Leo, 2026-11-20: "when it gets
 // to states like this all of you need to be able to temporarily let the messages go to some inbox
 // that you later categorize/read maybe with a cheaper model to filter things").
 //

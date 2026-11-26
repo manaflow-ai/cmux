@@ -85,6 +85,57 @@ class BranchOnRequest(unittest.TestCase):
         hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
         self.assertIn("gh workflow run cmux-tui-artifacts.yml", hv)
 
+    def test_hot_verify_sends_no_dispatch_that_cannot_publish(self) -> None:
+        # The artifacts workflow publishes a dispatched run only on main or feat-cmux-next, so a dispatch on a pull
+        # request's branch built three targets and published nothing (82 lane/* heads, 2026-11-24 05:08-10:20Z).
+        wf = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
+        publish_if = next(l for l in wf.split("\n  publish-tree:\n", 1)[1].splitlines() if l.strip().startswith("if:"))
+        self.assertIn("github.event_name == 'push'", publish_if)
+        self.assertNotIn("workflow_dispatch", publish_if)
+        hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
+        step = hv.split("- name: Ask for the head's tree when it is not published", 1)[1].split("\n  # ", 1)[0]
+        self.assertIn("LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}", step)
+        gate = step.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then')
+        self.assertLess(gate, step.index("gh workflow run cmux-tui-artifacts.yml"))
+
+
+class SpareTokens(unittest.TestCase):
+    """A 403 or 429 on one token moves the read to the next spare (a spent github.token kept unasked heads building)."""
+
+    def fake_urlopen(self, answers: dict, seen: list):
+        import io
+        import urllib.error
+
+        def urlopen(request, timeout=0):
+            token = request.get_header("Authorization").removeprefix("Bearer ")
+            seen.append(token)
+            code = answers[token]
+            if code != 200:
+                raise urllib.error.HTTPError(request.full_url, code, "no", {}, io.BytesIO(b""))
+            return mock.MagicMock(__enter__=lambda self: mock.MagicMock(status=200, read=lambda: b'{"total_count": 0}'),
+                                  __exit__=lambda *a: False)
+        return urlopen
+
+    def call(self, answers: dict, spares: str):
+        seen: list = []
+        env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "pool", "GH_TOKEN_SPARES": spares}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(sup.urllib.request, "urlopen", self.fake_urlopen(answers, seen)):
+            return sup.api("actions/workflows/cmux-next.yml/runs"), seen
+
+    def test_rate_limited_token_falls_through_to_the_next(self) -> None:
+        (status, data), seen = self.call({"pool": 403, "spare": 429, "ghtoken": 200}, "spare ghtoken")
+        self.assertEqual((status, data), (200, {"total_count": 0}))
+        self.assertEqual(seen, ["pool", "spare", "ghtoken"])
+
+    def test_other_errors_stop_at_once(self) -> None:
+        (status, data), seen = self.call({"pool": 404, "ghtoken": 200}, "ghtoken")
+        self.assertEqual((status, data, seen), (404, None, ["pool"]))
+
+    def test_every_token_spent_answers_the_last_status(self) -> None:
+        (status, data), seen = self.call({"pool": 403, "ghtoken": 403}, "pool ghtoken")
+        self.assertEqual((status, data, seen), (403, None, ["pool", "ghtoken"]))
+
 
 if __name__ == "__main__":
     unittest.main()

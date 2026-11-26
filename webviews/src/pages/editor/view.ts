@@ -35,6 +35,7 @@ import {
   type EditorSettings,
 } from "./settings";
 import { cssColorToHex } from "./colors";
+import type { VimHandle } from "./vimMode";
 import { markScrolling, onScrollerStyleChange, scrollerStyle } from "../../scrollers";
 
 declare global {
@@ -255,6 +256,8 @@ export interface ViewCallbacks {
   find?(command: FindCommand, text?: string): boolean;
   /** The document's text changed (find searches again). */
   onContentChange?(): void;
+  /** Where vim's mode line and `:` prompt render (`editor.vimMode`): the status bar's vim slot. */
+  vimLine?: HTMLElement;
 }
 
 /** The page commands the shared find pill runs. */
@@ -356,7 +359,10 @@ export class MonacoView implements CodeView {
         if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
-        dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
+        dispose: onScrollerStyleChange(() => {
+          this.editor.updateOptions(this.editorOptions());
+          this.vim?.restyle();
+        }, document.documentElement),
       },
     );
     this.scheme.addEventListener("change", this.onSchemeChange);
@@ -399,6 +405,7 @@ export class MonacoView implements CodeView {
       this.editor.onDidChangeModelContent(() => this.callbacks.onContentChange?.()),
     );
     this.applyKeybindings();
+    this.applyVim();
     this.watchKeySequences(container);
     // The Shiki themes replace the stand-ins as soon as the highlighter is up, also for plain text.
     void this.applyTheme();
@@ -416,6 +423,41 @@ export class MonacoView implements CodeView {
     this.keybindingDisposable?.dispose();
     const rules = keybindingRules(entries, monaco as never);
     this.keybindingDisposable = rules.length > 0 ? monaco.editor.addKeybindingRules(rules) : null;
+  }
+
+  /** Vim (`editor.vimMode`): on, loading (the module is fetched on first use) or off. */
+  private vim: VimHandle | null = null;
+  private vimLoading = false;
+  private disposed = false;
+
+  /** Turns vim on or off to match the settings, live; its module loads only the first time it is on. */
+  private applyVim(): void {
+    const on = this.look.settings.vimMode && !!this.callbacks.vimLine;
+    if (!on) {
+      if (!this.vim) return;
+      this.vim.dispose();
+      this.vim = null;
+      document.documentElement.dataset.cmuxEditorVim = "off";
+      // monaco-vim leaves its own cursor shape: the settings' cursor comes back.
+      this.editor.updateOptions(this.editorOptions());
+      return;
+    }
+    if (this.vim) return this.vim.restyle();
+    if (this.vimLoading) return;
+    this.vimLoading = true;
+    void import("./vimMode").then(
+      ({ startVim }) => {
+        this.vimLoading = false;
+        const line = this.callbacks.vimLine;
+        if (this.disposed || this.vim || !line || !this.look.settings.vimMode) return;
+        this.vim = startVim(this.editor, line);
+        document.documentElement.dataset.cmuxEditorVim = "on";
+      },
+      (error) => {
+        this.vimLoading = false;
+        console.warn("cmux editor: vim mode failed to load", error);
+      },
+    );
   }
 
   /**
@@ -575,6 +617,7 @@ export class MonacoView implements CodeView {
     this.editor.setModel(model);
     this.applyingLoad = false;
     this.editor.updateOptions(this.editorOptions());
+    this.vim?.restyle();
     this.modelListener?.dispose();
     previous?.dispose();
     this.modelListener = model.onDidChangeContent((event) => {
@@ -606,6 +649,7 @@ export class MonacoView implements CodeView {
     if (languagesChanged) this.syntax.installLanguages(look.languages);
     this.editor.updateOptions(this.editorOptions());
     this.applyKeybindings();
+    this.applyVim();
     if (themesKey !== this.themesKey) {
       this.themesKey = themesKey;
       void this.syntax
@@ -666,6 +710,7 @@ export class MonacoView implements CodeView {
   setReadOnly(readOnly: boolean): void {
     if (this.documentInfo) this.documentInfo.readOnly = readOnly;
     this.editor.updateOptions(this.editorOptions());
+    this.vim?.restyle();
   }
 
   /**
@@ -796,6 +841,9 @@ export class MonacoView implements CodeView {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.vim?.dispose();
+    this.vim = null;
     this.scheme.removeEventListener("change", this.onSchemeChange);
     for (const disposable of this.disposables) disposable.dispose();
     this.modelListener?.dispose();

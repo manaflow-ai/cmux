@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// The thread line that joins an inline reply's quote to the reply, as
 /// Messages draws it (`CKReplyLineView`): a 4 pt line in its own column at
@@ -86,6 +90,7 @@ public struct ConversationReplyThread: Equatable, Sendable {
         return min(Self.bracketRadius, span)
     }
 
+    #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
     public var path: CGPath {
         let x = columnX
         let end = x + Self.armLength
@@ -109,4 +114,5 @@ public struct ConversationReplyThread: Equatable, Sendable {
         }
         return path
     }
+    #endif
 }

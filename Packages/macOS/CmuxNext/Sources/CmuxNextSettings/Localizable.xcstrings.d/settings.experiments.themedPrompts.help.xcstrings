@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.themedPrompts.help" : {
+      "comment" : "Settings > Experimental row help for Themed Floating Prompts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تستخدم المطالبات فوق التطبيقات الأخرى، مثل طلب زميل التحكم في هذا الـ Mac، زجاج سمتك وألوانها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upiti preko drugih aplikacija, npr. kad kolega traži kontrolu nad ovim Macom, koriste staklo i boje vaše teme."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompter over andre apps, f.eks. når en kollega beder om at styre denne Mac, bruger dit temas glas og farver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abfragen über anderen Apps, etwa wenn ein Teammitglied diesen Mac steuern möchte, nutzen Glas und Farben deines Designs."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los avisos sobre otras apps, como cuando un compañero pide controlar este Mac, usan el cristal y los colores de tu tema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les invites au-dessus des autres apps, comme un coéquipier qui demande à contrôler ce Mac, utilisent le verre et les couleurs de votre thème."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le richieste sopra le altre app, ad esempio un collega che chiede di controllare questo Mac, usano il vetro e i colori del tuo tema."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チームメイトがこの Mac の操作を求めるときなど、他のアプリの上に出るプロンプトがテーマのガラスと色を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រអប់សួរនៅលើកម្មវិធីផ្សេង ដូចជាមិត្តរួមក្រុមសុំគ្រប់គ្រង Mac នេះ ប្រើកញ្ចក់ និងពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "팀원이 이 Mac 제어를 요청할 때처럼 다른 앱 위에 뜨는 프롬프트가 테마의 글래스와 색상을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forespørsler over andre apper, for eksempel når en kollega ber om å styre denne Macen, bruker temaets glass og farger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monity nad innymi aplikacjami, np. gdy członek zespołu prosi o sterowanie tym Makiem, używają szkła i kolorów Twojego motywu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avisos sobre outros apps, como um colega pedindo para controlar este Mac, usam o vidro e as cores do seu tema."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запросы поверх других приложений, например когда коллега просит управлять этим Mac, используют стекло и цвета вашей темы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อความถามที่อยู่เหนือแอปอื่น เช่น เมื่อเพื่อนร่วมทีมขอควบคุม Mac เครื่องนี้ จะใช้กระจกและสีของธีมคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diğer uygulamaların üzerindeki istemler, örneğin bir ekip arkadaşınızın bu Mac'i denetlemek istemesi, temanızın camını ve renklerini kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запити поверх інших застосунків, наприклад коли колега просить керувати цим Mac, використовують скло й кольори вашої теми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lời nhắc trên các ứng dụng khác, như khi đồng đội xin điều khiển máy Mac này, dùng kính và màu của chủ đề bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮在其他应用上方的提示（例如队友请求控制这台 Mac）使用你主题的玻璃和颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮在其他 App 上方的提示（例如隊友要求控制這台 Mac）使用你主題的玻璃和顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

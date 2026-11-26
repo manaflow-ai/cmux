@@ -1,41 +1,25 @@
 import XCTest
 
-/// Leo, 2026-11-17: "the gui is fine on phone other than the jitter on load sometimes and layout
-/// shift and the lack of themeing/background inheriting (these need to be improved)". Opens the
-/// shipping app's offline DEBUG agent chat (`-cmux-mobile-demo disclosure-chat`) under a Mac's
-/// appearance frame (`-cmux-mobile-mac-appearance`, ChatLookFixture.swift) and reads the chat's
-/// ground from the screenshot, in the left margin beside the transcript:
-/// - `default` (a Mac at its defaults: hostd sends no `chat`): the stock black or white ground;
-/// - `mocha` (a dark theme the person chose): the theme's #1e1e2e;
-/// - `mocha-wallpaper` (with a picture behind the window): the picture under #1e1e2e at 0.45, so
-///   neither the stock ground nor the flat theme color;
-/// - `solarized-bubbles` (a light theme): the theme's #fdf6e3 on a phone in dark mode.
+/// The agent chat's ground under a Mac's appearance frame (`-cmux-mobile-mac-appearance`,
+/// ChatLookFixture.swift), read from the screenshot in the left margin beside the transcript of the
+/// shipping app's offline DEBUG agent chat (`-cmux-mobile-demo disclosure-chat`). For now every
+/// background is black (2026-11-25; the options were PR #53342): whatever the Mac shows (its
+/// defaults, a dark theme, a picture behind its window, a light theme), the chat on a phone in dark
+/// mode sits on black.
 final class ChatMacLookUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testTheAgentChatTakesTheMacsThemeAndPicture() throws {
+    func testTheAgentChatStaysOnBlackWhateverTheMacShows() throws {
         XCUIDevice.shared.orientation = .portrait
         XCUIDevice.shared.appearance = .dark
 
-        let stock = try ground(fixture: "default")
-        XCTAssertTrue(Self.near(stock, (0, 0, 0)) || Self.near(stock, (255, 255, 255)),
-                      "a Mac at its defaults leaves the stock chat ground, got \(stock)")
-
-        let mocha = try ground(fixture: "mocha")
-        XCTAssertTrue(Self.near(mocha, (0x1e, 0x1e, 0x2e)), "the chat's ground is the Mac theme's background, got \(mocha)")
-
-        let picture = try ground(fixture: "mocha-wallpaper", sampleY: 0.30)
-        XCTAssertFalse(Self.near(picture, (0, 0, 0)), "the Mac's picture shows behind the chat, got \(picture)")
-        XCTAssertFalse(Self.near(picture, (0x1e, 0x1e, 0x2e)), "the picture shows through the theme's tint, got \(picture)")
-
-        let solarized = try ground(fixture: "solarized-bubbles")
-        XCTAssertTrue(Self.near(solarized, (0xfd, 0xf6, 0xe3)), "a light Mac theme is the chat's ground on a dark phone, got \(solarized)")
-
-        // Back to a Mac at its defaults, so later tests start from the stock chat.
-        _ = try ground(fixture: "default")
+        for fixture in ["default", "mocha", "mocha-wallpaper", "solarized-bubbles"] {
+            let ground = try ground(fixture: fixture, sampleY: fixture == "mocha-wallpaper" ? 0.30 : 0.5)
+            XCTAssertTrue(Self.near(ground, (0, 0, 0)), "the chat's ground is black under \(fixture), got \(ground)")
+        }
     }
 
     /// Launches the chat under `fixture`, attaches a screenshot, and returns the color at the left

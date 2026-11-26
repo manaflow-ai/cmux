@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.computerUse.builtIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built in, no install needed: agents use your apps through cmux itself."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مدمج، دون حاجة إلى تثبيت: يستخدم الوكلاء تطبيقاتك عبر cmux نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ugrađeno, bez instalacije: agenti koriste vaše aplikacije kroz sam cmux."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indbygget, ingen installation: agenter bruger dine apps gennem cmux selv."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Integriert, keine Installation nötig: Agenten nutzen deine Apps über cmux selbst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Integrado, sin instalar nada: los agentes usan tus apps a través de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intégré, rien à installer : les agents utilisent vos apps via cmux lui-même."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Integrato, nessuna installazione: gli agenti usano le tue app tramite cmux stesso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵機能でインストール不要：エージェントは cmux 自体を通してアプリを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មានស្រាប់ មិនចាំបាច់ដំឡើង៖ ភ្នាក់ងារប្រើកម្មវិធីរបស់អ្នកតាមរយៈ cmux ផ្ទាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내장 기능이라 설치가 필요 없습니다. 에이전트는 cmux를 통해 앱을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innebygd, ingen installasjon: agenter bruker appene dine gjennom cmux selv."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wbudowane, bez instalacji: agenci używają Twoich aplikacji przez sam cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Integrado, sem instalar nada: os agentes usam seus apps pelo próprio cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроено, ничего устанавливать не нужно: агенты используют ваши приложения через сам cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "มีในตัว ไม่ต้องติดตั้ง: เอเจนต์ใช้แอปของคุณผ่าน cmux เอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yerleşik, kurulum gerekmez: ajanlar uygulamalarınızı doğrudan cmux üzerinden kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вбудовано, нічого не треба встановлювати: агенти користуються програмами через сам cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tích hợp sẵn, không cần cài đặt: tác nhân dùng ứng dụng của bạn qua chính cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内置，无需安装：智能体通过 cmux 本身使用你的应用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內建，無需安裝：代理程式透過 cmux 本身使用你的 App。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
