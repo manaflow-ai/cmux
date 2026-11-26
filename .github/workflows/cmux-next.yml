@@ -228,6 +228,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -610,6 +612,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -1785,6 +1789,7 @@ jobs:
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/package-test-lane-unverified-build.test.sh
             bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
+            bash scripts/ci/tests/swiftpm-resolve-github-refusal.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
             bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
@@ -2778,7 +2783,7 @@ jobs:
           # Why: note-551
           if [[ "$word" == superseded ]]; then
             authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 \
+            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
               ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF" 2>/dev/null | awk 'NR==1{print $1}')" || head=""
             if [[ -n "$head" && "$head" != "$REF" ]]; then
               echo "::notice title=Build fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; not compiled here"
@@ -5301,6 +5306,7 @@ jobs:
             /web/data/next-docs/
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
+            /.gitmodules
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
@@ -5932,7 +5938,7 @@ jobs:
             if [[ "$state" == superseded ]]; then
               head=""
               if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
-                head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+                head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
                   "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
                   awk 'NR==1{print $1}')" || head=""
               fi
@@ -6201,6 +6207,8 @@ jobs:
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
           CMUX_NEXT_RELEASE_FLEET_CAS: ${{ vars.CMUX_NEXT_RELEASE_FLEET_CAS == 'off' && 'off' || 'read' }}
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
@@ -6774,6 +6782,8 @@ jobs:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/scheme/summary.md
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
@@ -7675,7 +7685,7 @@ jobs:
   # Why: 2026-11-24-request-cmux-next-dev-publish-2.md, note-340
   pr-red-checks:
     needs: [checks]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.checks.result != 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.checks.result != 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     permissions:
       actions: read
       checks: read
@@ -7966,7 +7976,7 @@ jobs:
             [[ -z "${PR:-}" && "${SUPERSEDED_GATE:-1}" != 0 && -z "$head_read" ]] || return 1
             head_read=1
             local head
-            head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+            head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
               "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
               awk 'NR==1{print $1}')" || head=""
             [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$SHA" ]]
