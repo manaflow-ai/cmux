@@ -468,7 +468,7 @@ fn staged_objects(
         .split(|byte| *byte == 0)
         .filter_map(|entry| {
             let tab = entry.iter().position(|byte| *byte == b'\t')?;
-            let mut fields = entry[..tab].split(|byte| byte.is_ascii_whitespace());
+            let mut fields = entry.get(..tab)?.split(|byte| byte.is_ascii_whitespace());
             let mode = fields.next()?;
             let object = fields.next()?;
             // A gitlink belongs to the submodule's object store, not this repository.
