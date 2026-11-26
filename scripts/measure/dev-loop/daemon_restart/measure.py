@@ -119,7 +119,7 @@ def main() -> int:
     report: dict = {
         "schema": "dev-loop-ceiling/loop/v1", "loop": "daemon_restart", "commit": commit,
         "host": socket.gethostname(), "measured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "target": ("one-line edit in cmux-tui-core `identify` (crates/cmux-tui-core/src/server/cmd_server.rs) through "
+        "target": ("one-line edit in the daemon's `identify` (crates/cmux-tui/src/bin/cmux-tui/identify.rs) through "
                    "`cmux live start --rust`'s own loop (scripts/cmux-next/rust-live.py Loop/Builder/Swapper, "
                    "building here, profile " + rl.PROFILE + "), to a scratch daemon with "
                    f"{args.terminals} shells answering `identify` with the edit"),

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Goal dev-loop-ceiling, loop daemon_restart: a one-line Rust edit in cmux-tui-core going live in a
+# Goal dev-loop-ceiling, loop daemon_restart: a one-line Rust edit to the daemon's `identify` going live in a
 # running terminal daemon with its terminals kept, through `cmux live start --rust`'s own loop
 # (scripts/cmux-next/rust-live.py, building here), split into stages (fs_event, compile, link, swap,
 # first_answer, unattributed), with each stage's floor measured beside it on the same host.
@@ -17,7 +17,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 here="$root/scripts/measure/dev-loop/daemon_restart"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
-edited="$root/cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+edited="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 bin_root="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui.rs"
 scratch="$(mktemp -d /tmp/dlc-dr-sh.XXXXXX)"
 cp -p "$edited" "$scratch/edited.rs"
