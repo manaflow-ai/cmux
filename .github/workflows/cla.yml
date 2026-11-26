@@ -10,15 +10,17 @@ name: "CLA Assistant"
 # status from github-actions[bot] in this repository needs no signature.
 #
 # Reads that GITHUB_TOKEN's shared budget refuses ("API rate limit exceeded
-# for installation", #42487 on 2026-11-13) are sent once more on CLA_READ_TOKEN.
-# That is the CLA_READ_TOKEN secret: a read-only, one-repository token of the
-# quota-goblin-9006 App, which nothing but this check spends (leo-workspace
+# for installation", #42487 on 2026-11-13) are sent again on CLA_READ_TOKEN,
+# a comma-separated list the action tries in order. First the CLA_READ_TOKEN
+# secret: a read-only, one-repository token of the quota-goblin-9006 App,
+# which nothing but this check spends (leo-workspace
 # machines/gh-app-roles.json push.actions_secrets sets it). The shared
 # manaflow-glaeda-route App ran out about 40 minutes into each hour, and CLA
-# failed on it from 08:10Z to 09:26Z on 2026-11-25. When the secret is unset,
-# the read-only glaeda-route token minted below is used, as before. Writes
-# never use either: comments and ledger commits stay github-actions[bot], the
-# identity the action's marker-comment check trusts.
+# failed on it from 08:10Z to 09:26Z on 2026-11-25. Then the read-only
+# glaeda-route token minted below. The action skips an entry that answers 401
+# (an expired secret) and drops empty ones (an unset secret leaves a leading
+# comma). Writes never use either: comments and ledger commits stay
+# github-actions[bot], the identity the action's marker-comment check trusts.
 on:
   issue_comment:
     types: [created]
@@ -95,10 +97,10 @@ jobs:
           skip-token-revoke: true
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+        uses: manaflow-ai/cla-github-action@e7f0b10f3f492799c6a0af6f7a7e90812b96c113
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CLA_READ_TOKEN: ${{ secrets.CLA_READ_TOKEN || steps.glaeda-token.outputs.token }}
+          CLA_READ_TOKEN: ${{ secrets.CLA_READ_TOKEN }},${{ steps.glaeda-token.outputs.token }}
         with:
           path-to-signatures: 'signatures/version2/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
