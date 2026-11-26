@@ -32,9 +32,9 @@ fn native(root: &Path, name: &str, acpmux: &Path) -> Machine {
     fs::create_dir_all(dir.join("acpmux")).unwrap();
     fs::write(dir.join("acpmux/config.json"), "{\"harnesses\":{}}").unwrap();
     // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    std::fs::set_permissions(
+    fs::set_permissions(
         dir.join("acpmux/config.json"),
-        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+        <fs::Permissions as PermissionsExt>::from_mode(0o600),
     )
     .unwrap();
     let machine = Machine {
