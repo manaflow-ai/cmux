@@ -259,8 +259,6 @@ nonisolated extension SidebarLayoutOptions {
         if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
-        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 
