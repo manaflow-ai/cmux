@@ -574,8 +574,8 @@ class ReleaseNotesTests(unittest.TestCase):
         self.head = git(self.repo, "rev-parse", "HEAD")
         self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", since, "--repo", "o/r"), (
             "### PRs in this build\n\n"
-            "- [#101](https://github.com/o/r/pull/101) fix(sidebar): keep the row, again\n"
-            "- [#102](https://github.com/o/r/pull/102) feat: a tab moves\n"
+            "- [#101](https://github.com/o/r/pull/101) fix(sidebar): keep the row, again by t\n"
+            "- [#102](https://github.com/o/r/pull/102) feat: a tab moves by t\n"
             "\n1 commit without a PR number not listed.\n"))
 
     def test_prs_caps_the_list_and_counts_the_rest(self):
@@ -584,8 +584,8 @@ class ReleaseNotesTests(unittest.TestCase):
             git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: change {number} (#{number})")
         self.head = git(self.repo, "rev-parse", "HEAD")
         lines = run(self.repo, "prs", "--head", self.head, "--since", since, "--limit", "2").splitlines()
-        self.assertEqual(lines[2:], ["- [#5](https://github.com/manaflow-ai/cmux/pull/5) fix: change 5",
-                                     "- [#4](https://github.com/manaflow-ai/cmux/pull/4) fix: change 4",
+        self.assertEqual(lines[2:], ["- [#5](https://github.com/manaflow-ai/cmux/pull/5) fix: change 5 by t",
+                                     "- [#4](https://github.com/manaflow-ai/cmux/pull/4) fix: change 4 by t",
                                      "- and 3 more"])
 
     def test_prs_counts_past_the_change_cap_and_escapes_mentions(self):
@@ -594,8 +594,109 @@ class ReleaseNotesTests(unittest.TestCase):
             git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: thanks @someone <x> {number} (#{number})")
         self.head = git(self.repo, "rev-parse", "HEAD")
         lines = run(self.repo, "prs", "--head", self.head, "--since", since).splitlines()
-        self.assertEqual(lines[2], "- [#205](https://github.com/manaflow-ai/cmux/pull/205) fix: thanks &#64;someone &lt;x> 205")
+        self.assertEqual(lines[2], "- [#205](https://github.com/manaflow-ai/cmux/pull/205) fix: thanks &#64;someone &lt;x> 205 by t")
         self.assertEqual(lines[-1], "- and 165 more")
+
+    def test_items_are_every_commit_with_area_url_and_merge_time(self):
+        # Build 4572038238101 carried exactly MAX_CHANGES (200) items: the cap dropped PRs from the notes.
+        since = self.head
+        for number in range(1, 206):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: change {number} (#{number})")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="7")
+        self.assertEqual(len(notes["items"]), 205)
+        self.assertEqual(len(notes["changes"]), 205)
+        newest = notes["items"][0]
+        self.assertEqual(newest["pr"], 205)
+        self.assertEqual(newest["url"], "https://github.com/manaflow-ai/cmux/pull/205")
+        self.assertEqual(newest["area"], "Other")
+        self.assertRegex(newest["mergedAt"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual(notes["since"], {"build": "", "head": since})
+        self.assertRegex(notes["publishedAt"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_a_build_without_a_start_keeps_the_cap_and_a_null_since(self):
+        out = os.path.join(self.repo, "out")
+        run(self.repo, "build", "--build", "3", "--short", "1.0.0-nightly.3", "--date", "2026-10-04",
+            "--head", self.head, "--out", out)
+        with open(os.path.join(out, "3.json")) as f:
+            notes = json.load(f)
+        self.assertIsNone(notes["since"])
+
+    def test_since_names_the_previous_build_from_the_index_and_published_at_passes_through(self):
+        since = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "feat: a tab moves (#102)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        index = os.path.join(self.repo, "prev-index.json")
+        with open(index, "w") as f:
+            json.dump({"version": 1, "builds": [{"build": "41", "head": since}, {"build": "40", "head": "f" * 40}]}, f)
+        out = os.path.join(self.repo, "out")
+        run(self.repo, "build", "--build", "42", "--short", "1.0.0-nightly.42", "--date", "2026-10-04",
+            "--head", self.head, "--since", since, "--out", out, "--previous-index", index,
+            "--published-at", "2026-11-26T00:42:00Z", "--repo", "o/r")
+        with open(os.path.join(out, "42.json")) as f:
+            notes = json.load(f)
+        self.assertEqual(notes["since"], {"build": "41", "head": since})
+        self.assertEqual(notes["publishedAt"], "2026-11-26T00:42:00Z")
+        self.assertEqual(notes["items"][0]["url"], "https://github.com/o/r/pull/102")
+
+    def test_pr_index_keeps_each_prs_first_build(self):
+        notes_path = os.path.join(self.repo, "n.json")
+        previous = os.path.join(self.repo, "prev-pr-index.json")
+        out = os.path.join(self.repo, "pr-index.json")
+        with open(previous, "w") as f:
+            json.dump({"version": 1, "prs": {"101": {"build": "40", "shortVersion": "1.0.0-nightly.40",
+                                                     "publishedAt": "2026-11-25T00:00:00Z"}}}, f)
+        with open(notes_path, "w") as f:
+            json.dump({"build": "41", "shortVersion": "1.0.0-nightly.41", "publishedAt": "2026-11-26T00:00:00Z",
+                       "items": [{"title": "a", "pr": 101}, {"title": "b", "pr": 102}, {"title": "c"}]}, f)
+        run(self.repo, "pr-index", "--notes", notes_path, "--previous", previous, "--out", out)
+        with open(out) as f:
+            index = json.load(f)
+        self.assertEqual(index, {"version": 1, "prs": {
+            "101": {"build": "40", "shortVersion": "1.0.0-nightly.40", "publishedAt": "2026-11-25T00:00:00Z"},
+            "102": {"build": "41", "shortVersion": "1.0.0-nightly.41", "publishedAt": "2026-11-26T00:00:00Z"}}})
+        # No previous copy: the build's own PRs alone.
+        run(self.repo, "pr-index", "--notes", notes_path, "--out", out)
+        with open(out) as f:
+            self.assertEqual(sorted(json.load(f)["prs"]), ["101", "102"])
+
+    def test_change_area_reads_the_changed_paths(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_areas", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        area = notes.change_area
+        self.assertEqual(area("fix: x", ["cmux-next-ios/CmuxMobileKit/A.swift"]), "iOS")
+        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-cloud-cli/src/lib.rs"]), "Cloud")
+        self.assertEqual(area("fix: x", ["workers/cmux-vm/src/index.ts"]), "Cloud")
+        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-browser-host/src/lib.rs"]), "Browser")
+        self.assertEqual(area("fix: x", ["cmux-tui/crates/acpmux-core/src/lib.rs"]), "Agents")
+        self.assertEqual(area("fix: x", ["webviews/src/agent-chat/Pane.tsx"]), "Agents")
+        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux/src/cli/main.rs"]), "CLI")
+        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-pty/src/lib.rs"]), "Terminal")
+        self.assertEqual(area("fix: x", ["Packages/macOS/Sidebar/Row.swift", "tests/test_x.py"]), "App")
+        self.assertEqual(area("fix: x", ["webviews/src/settings/Page.tsx"]), "App")
+        self.assertEqual(area("fix: x", [".github/workflows/nightly.yml", "tests/test_x.py"]), "CI")
+        self.assertEqual(area("ci: retry", []), "CI")
+        self.assertEqual(area("feat: x", []), "Other")
+        self.assertEqual(area("fix: x", ["scenarios/a.txt"]), "Other")
+        # Most files win; a tie keeps the AREAS order.
+        self.assertEqual(area("fix: x", ["Packages/macOS/A.swift", "Packages/macOS/B.swift",
+                                         "cmux-tui/crates/cmux-pty/src/lib.rs"]), "App")
+        self.assertIn(area("fix: x", ["Packages/macOS/A.swift"]), notes.AREAS)
+
+    def test_appcast_pr_text_lists_title_number_and_author(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_appcast", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        items = [notes.change_item("feat: a tab moves (#102)", "Ann"), notes.change_item("ci: x", "Bo"),
+                 notes.change_item("fix: row (#101)", ""), notes.change_item("feat: a tab moves again (#102)", "Ann")]
+        self.assertEqual(notes.appcast_pr_text(items),
+                         "PRs in this build:\n- feat: a tab moves (#102) by Ann\n- fix: row (#101)")
+        self.assertEqual(notes.appcast_pr_text(items, limit=1),
+                         "PRs in this build:\n- feat: a tab moves (#102) by Ann\n- and 1 more")
+        self.assertEqual(notes.appcast_pr_text([items[1]]), "")
 
     def test_prs_is_empty_for_an_empty_span(self):
         self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", self.head), "")
