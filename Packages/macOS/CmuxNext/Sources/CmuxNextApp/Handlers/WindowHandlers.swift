@@ -56,8 +56,7 @@ enum WindowHandlers {
         })
         registry.bind("about", run: { _ in
             context.activateApp()
-            let credits = AboutPanelCredits(bundle: .main).credits
-            NSApp.orderFrontStandardAboutPanel(options: credits.map { [.credits: $0] } ?? [:])
+            context.services.updater.showAboutPanel()
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
         registry.bind("showHideAllWindows", run: { _ in
