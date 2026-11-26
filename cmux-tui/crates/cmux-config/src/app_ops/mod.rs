@@ -14,7 +14,7 @@
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
 //! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`], [`controller`],
-//!   [`build_defaults`], [`quick_toggles`].
+//!   [`build_defaults`], [`quick_toggles`], [`schema`].
 
 pub mod build_defaults;
 pub mod controller;
