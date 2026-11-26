@@ -58,6 +58,7 @@
     "field:_meta.acpmux#personKey",
     "field:_meta.acpmux#personVerified",
     "field:_meta.acpmux#placeRedirect",
+    "field:_meta.acpmux#placedBy",
     "field:_meta.acpmux#policy",
     "field:_meta.acpmux#pr",
     "field:_meta.acpmux#preset",
@@ -109,9 +110,11 @@
     "method:_acpmux/attachments_held",
     "method:_acpmux/audit",
     "method:_acpmux/auto_session/leftover",
+    "method:_acpmux/auto_session/move",
     "method:_acpmux/auto_session/set",
     "method:_acpmux/auto_session/transcript",
     "method:_acpmux/auto_session/wake",
+    "method:_acpmux/autocloud_enroll",
     "method:_acpmux/bg/list",
     "method:_acpmux/bg/output",
     "method:_acpmux/bg/start",
@@ -132,6 +135,9 @@
     "method:_acpmux/chat_resolve",
     "method:_acpmux/chat_roots",
     "method:_acpmux/chat_roots_record",
+    "method:_acpmux/chat_secrets_clear",
+    "method:_acpmux/chat_secrets_list",
+    "method:_acpmux/chat_secrets_set",
     "method:_acpmux/chat_settings",
     "method:_acpmux/chat_settled",
     "method:_acpmux/chat_transcript",
@@ -199,6 +205,8 @@
     "method:_acpmux/harness/secret/set",
     "method:_acpmux/harness/update",
     "method:_acpmux/history",
+    "method:_acpmux/history_delete",
+    "method:_acpmux/history_offload",
     "method:_acpmux/host_health",
     "method:_acpmux/host_notice",
     "method:_acpmux/host_overload",
@@ -250,6 +258,9 @@
     "method:_acpmux/person_enroll",
     "method:_acpmux/place",
     "method:_acpmux/place_chat",
+    "method:_acpmux/place_get",
+    "method:_acpmux/place_set",
+    "method:_acpmux/place_undo",
     "method:_acpmux/plan/build",
     "method:_acpmux/plan/compare",
     "method:_acpmux/plan/keep",
@@ -317,12 +328,11 @@
     "method:_acpmux/tailnet/placement",
     "method:_acpmux/tailnet/start",
     "method:_acpmux/tailnet/state",
-    "method:_acpmux/task_list/get",
-    "method:_acpmux/task_list/set",
     "method:_acpmux/task_new",
     "method:_acpmux/tasks",
     "method:_acpmux/trace/spans",
     "method:_acpmux/trace/status",
+    "method:_acpmux/transcript_offload",
     "method:_acpmux/transfer_abort",
     "method:_acpmux/transfer_commit",
     "method:_acpmux/transfer_finish",
@@ -350,6 +360,7 @@
     "method:session/list",
     "method:session/load",
     "method:session/request_permission",
+    "method:session/signature",
     "notify:_acpmux/admission_waiting",
     "notify:_acpmux/cancel_refused",
     "notify:_acpmux/chat_changed",
@@ -431,6 +442,7 @@
     "param:_acpmux/draft_set#text",
     "param:_acpmux/events#afterSeq",
     "param:_acpmux/events#beforeSeq",
+    "param:_acpmux/events#inOrder",
     "param:_acpmux/events#kinds",
     "param:_acpmux/events#limit",
     "param:_acpmux/events#maxBytes",
@@ -438,6 +450,7 @@
     "param:_acpmux/events#sessionId",
     "param:_acpmux/events#sinceSeen",
     "param:_acpmux/events#subagent",
+    "param:_acpmux/follow#target",
     "param:_acpmux/handoff_discard#handoffId",
     "param:_acpmux/handoff_draft#capsule",
     "param:_acpmux/handoff_draft#checkpoint",
@@ -463,6 +476,8 @@
     "param:_acpmux/harness/inventory/watch#enabled",
     "param:_acpmux/harness/update/plan#cli",
     "param:_acpmux/harness/update/prepare#cli",
+    "param:_acpmux/harness_disable#folder",
+    "param:_acpmux/harness_disable#id",
     "param:_acpmux/harness_enable#folder",
     "param:_acpmux/harness_enable#id",
     "param:_acpmux/harnesses#cwd",
@@ -703,7 +718,8 @@
     "param:session/set_mode#modeId",
     "param:session/set_mode#sessionId",
     "param:session/set_model#modelId",
-    "param:session/set_model#sessionId"
+    "param:session/set_model#sessionId",
+    "param:session/signature#sessionIds"
   ],
   "capabilities": {
     "acp.session.fork.subagent.v1": [
@@ -720,6 +736,7 @@
       "method:_acpmux/draft_get",
       "method:_acpmux/draft_set",
       "method:_acpmux/events",
+      "method:_acpmux/harness_disable",
       "method:_acpmux/harness_enable",
       "method:_acpmux/harnesses",
       "method:_acpmux/info",
@@ -801,8 +818,11 @@
       "method:_acpmux/pin"
     ],
     "chat-presence-v1": [
+      "method:_acpmux/follow",
+      "method:_acpmux/rooms",
       "method:_acpmux/typing",
-      "notify:_acpmux/presence"
+      "notify:_acpmux/presence",
+      "notify:_acpmux/room"
     ],
     "chunk-deltas-v1": [
       "method:_acpmux/attach",
@@ -1059,6 +1079,9 @@
       "method:_acpmux/archive",
       "method:_acpmux/rename"
     ],
+    "paused-reads-v1": [
+      "method:_acpmux/paused_files"
+    ],
     "peer-row-batches-v1": [
       "method:_acpmux/watch",
       "method:initialize",
@@ -1118,6 +1141,9 @@
     ],
     "session-auth-v1": [
       "method:_acpmux/session/auth"
+    ],
+    "session-bg-facts-v1": [
+      "method:_acpmux/sessions"
     ],
     "session-changed-delta-v1": [
       "method:initialize",
