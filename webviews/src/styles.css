@@ -2168,7 +2168,7 @@ svg[data-icon-fill] {
 /* Menus and palettes share one surface. */
 .toolbar-menu {
   position: fixed;
-  z-index: 130;
+  z-index: var(--layer-overlay);
   display: flex;
   flex-direction: column;
   min-width: 200px;

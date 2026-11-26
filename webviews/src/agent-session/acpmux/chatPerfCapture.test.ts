@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import {
   ChatPerfCapture,
   type CaptureEnv,
@@ -51,7 +52,7 @@ describe("chat perf capture: pure parts", () => {
     const report = longTaskSummary(
       [
         {
-          duration: 120, // motion-allow: a long-task entry's length, not motion
+          duration: MOTION_MS.micro, // motion-allow: a long-task entry's length, not motion
           blockingDuration: 70,
           scripts: [
             { invoker: "MessagePort.onmessage", sourceURL: "cmux-page://agent/app.js?token=x", duration: 90 },
@@ -67,10 +68,10 @@ describe("chat perf capture: pure parts", () => {
       "long-animation-frame",
     );
     expect(report.count).toBe(2);
-    expect(report.longest_ms).toBe(120);
+    expect(report.longest_ms).toBe(MOTION_MS.micro);
     expect(report.blocking_ms).toBe(80);
     // A longtask entry (no LoAF) has no blockingDuration: its blocking time is its duration past 50 ms.
-    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask"); // motion-allow: a long-task entry's length, not motion
+    const fallback = longTaskSummary([{ duration: MOTION_MS.micro }, { duration: 40 }, { duration: 51 }], "longtask"); // motion-allow: a long-task entry's length, not motion
     expect(fallback.blocking_ms).toBe(71);
     expect(report.top_scripts[0]).toEqual({
       invoker: "MessagePort.onmessage",
@@ -86,11 +87,11 @@ describe("chat perf capture: pure parts", () => {
 
   test("script time sums every script in long animation frames, not only the top list", () => {
     const scripts = Array.from({ length: 8 }, () => ({ invoker: "i", sourceURL: "u", duration: 10 }));
-    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame");
+    const report = longTaskSummary([{ duration: MOTION_MS.micro, scripts }], "long-animation-frame");
     expect(report.script_ms).toBe(80);
     expect(report.top_scripts).toHaveLength(1);
     // A longtask entry carries no script attribution: no number, not zero.
-    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull();
+    expect(longTaskSummary([{ duration: MOTION_MS.micro }], "longtask").script_ms).toBeNull();
   });
 
   test("keydown-to-frame is the p95 of keydown entries, null when nobody typed", () => {
@@ -327,7 +328,7 @@ describe("chat perf capture: script, keydown and size", () => {
     const recorder = new ChatPerfCapture();
     const running = recorder.capture({ seconds: 2 }, page.env, () => ({ rows: 340, events: 5200 }));
     page.observers.get("long-animation-frame")?.([
-      { duration: 120, scripts: [{ invoker: "a", sourceURL: "u", duration: 50 }] }, // motion-allow: a long-task entry's length, not motion
+      { duration: MOTION_MS.micro, scripts: [{ invoker: "a", sourceURL: "u", duration: 50 }] }, // motion-allow: a long-task entry's length, not motion
       { duration: 90, scripts: [{ invoker: "b", sourceURL: "u", duration: 30 }] }, // motion-allow: a long-task entry's length, not motion
     ]);
     page.observers.get("event")?.([
