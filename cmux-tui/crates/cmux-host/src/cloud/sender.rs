@@ -235,6 +235,11 @@ pub struct Reporter {
     activity: Activity,
     /// The updater's block (`updater/look.rs`), when this machine's updater checked.
     updater: Option<Value>,
+    /// The last finished wake's timing block (`wake_echo.rs`) until a report carrying it is
+    /// accepted.
+    wake: Option<Value>,
+    /// The wake block the report in flight carries.
+    wake_in_flight: Option<Value>,
     state: MachineState,
     dirty: bool,
     pending: Vec<String>,
@@ -255,6 +260,8 @@ impl Reporter {
             daemon,
             activity: Activity::default(),
             updater: None,
+            wake: None,
+            wake_in_flight: None,
             state: MachineState::Running,
             dirty: false,
             pending: Vec::new(),
@@ -323,6 +330,22 @@ impl Reporter {
         if report { self.trigger("updater", now) } else { None }
     }
 
+    /// A wake's timing finished: the next report carries its block, and one is due.
+    pub fn set_wake(&mut self, block: Value, now: u64) -> Option<OpRequest> {
+        self.wake = Some(block);
+        self.trigger("wake", now)
+    }
+
+    /// Replaces the wake block the next report carries without making one due.
+    pub fn replace_wake(&mut self, block: Option<Value>) {
+        self.wake = block;
+    }
+
+    /// The wake block the next report carries.
+    pub fn wake(&self) -> Option<&Value> {
+        self.wake.as_ref()
+    }
+
     /// The daemon block changed (`activity` on while the stream is live).
     pub fn set_daemon(&mut self, daemon: DaemonInfo, now: u64) -> Option<OpRequest> {
         self.daemon = daemon;
@@ -356,8 +379,13 @@ impl Reporter {
     /// one is due at once.
     pub fn finished(&mut self, answer: &Answer, now: u64, random: f64) -> Option<OpRequest> {
         let reasons = self.in_flight.take().unwrap_or_default();
+        let carried = self.wake_in_flight.take();
         if answer.ok() {
             self.backoff.reset();
+            // Delivered: later reports leave it out (a newer wake that finished meanwhile stays).
+            if carried.is_some() && carried == self.wake {
+                self.wake = None;
+            }
             // The server counts its 10 s from when it received this report, which is
             // after the send and before `now` (the answer): count from the answer, so
             // the next report never lands inside the server's window and is held.
@@ -448,6 +476,10 @@ impl Reporter {
         if let (Some(updater), Some(map)) = (&self.updater, params.as_object_mut()) {
             map.insert("updater".to_owned(), updater.clone());
         }
+        if let (Some(wake), Some(map)) = (&self.wake, params.as_object_mut()) {
+            map.insert("wake".to_owned(), wake.clone());
+        }
+        self.wake_in_flight = self.wake.clone();
         OpRequest { op: STATUS_REPORT_OP, params, reason }
     }
 }

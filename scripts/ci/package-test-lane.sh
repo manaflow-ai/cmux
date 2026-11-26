@@ -294,29 +294,21 @@ PY
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
 # registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
     CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxEgress
-    CmuxHomeCore
     CmuxHomeRender
-    CmuxMobileBilling
-    CmuxMobileSupport
-    CmuxMobileTunnel
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
-    CmuxVisibleRows
     GlassHost
+    CmuxLiveCode
   )
 
   changed="$work/changed-files.txt"
@@ -956,14 +948,37 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: three targets that
+  # read neither the web bundles nor cmux-tui), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  # CMUX_SWIFT_TEST_PRODUCTS=fleet: run on the test bundles a fleet job built for this commit
+  # (scripts/ci/fleet-test-products.py) instead of building them here. Debug, unsanitized suites of a
+  # whole package only. When the fleet has no products (no verdict, a red build, an unreachable
+  # controller), this Mac builds them as it always has, and the log says so.
+  local fleet_products=0
+  if [ "${CMUX_SWIFT_TEST_PRODUCTS:-build}" = fleet ] && [ "$lane_os" != Linux ] \
+    && [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = debug ] && [ -z "${CMUX_SWIFT_SANITIZE:-}" ] \
+    && [ -z "${CMUX_SWIFT_TEST_DEBUG_INFO:-}" ]; then
+    echo "::group::fleet test products $suite_package"
+    local products_started=$SECONDS
+    if python3 scripts/ci/fleet-test-products.py "$suite_package"; then
+      fleet_products=1
+      echo "fleet test products: in place after $((SECONDS - products_started))s; this Mac builds nothing"
+    else
+      echo "::warning title=Fleet test products::$suite_package: no fleet test products for this commit; building them on this Mac"
+    fi
+    echo "::endgroup::"
+  fi
+  if [ "$fleet_products" != 1 ]; then
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
@@ -990,6 +1005,7 @@ run_suite() {
   [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
+  fi
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
   # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)

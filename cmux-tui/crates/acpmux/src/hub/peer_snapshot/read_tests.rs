@@ -21,7 +21,9 @@ fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
 
 fn row(created: u64) -> Value {
     json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": created,
-           "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99}})
+           "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99},
+           "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
+           "tools": [{"name": "a"}], "toolsMutable": true})
 }
 
 /// Captures `page` of m1 as the hub's forward path does, and waits for it to be written.
@@ -150,6 +152,10 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     assert!(got["capturedAt"].is_u64());
     assert!(got["summary"].get("retry").is_none(), "no countdown from a peer that is down: {got}");
     assert_eq!(got["summary"]["stale"], true);
+    let left_out = |got: &Value| {
+        ["timeBreakdown", "tools", "toolsMutable"].map(|f| got["summary"].get(f).is_none())
+    };
+    assert_eq!(left_out(&got), [true; 3], "the copy keeps no detail of the row: {got}");
     // The newest within the limit, and more is older.
     let two = hub.peer_snapshot(&json!({"sessionId": "m1", "limit": 2})).unwrap();
     assert_eq!((seqs(&two), two["hasMore"].clone()), (vec![5, 6], json!(true)));
@@ -171,6 +177,7 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     let got = again.peer_snapshot(&json!({"sessionId": "huge-blue/lane"})).unwrap();
     assert_eq!(seqs(&got), (1..=6).collect::<Vec<_>>());
     assert!(got["summary"].get("retry").is_none(), "{got}");
+    assert_eq!(left_out(&got), [true; 3], "nor after a restart: {got}");
 
     // No row lists it any more (a lease that ended with its VM): host and id.
     again.remote_sessions.write().retain(|_, _| false);

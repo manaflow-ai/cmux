@@ -25,6 +25,9 @@
 # (RECORD, FORMAT, SCHEMA, STATE, STORE, JOURNAL, CACHE, SNAPSHOT, LEDGER, MANIFEST, INDEX); a wire or ABI version
 # is not one. An unlisted one fails the check.
 #
+# The app's Swift and webviews formats and webviews storage keys: persisted-formats/formats.toml. Settings keys:
+# schemas/settings/published-keys.txt and retired-keys.json. One check covers all three.
+#
 # The handbook page: cmuxterm-hq docs/handbook/cutover-ships-its-migration.md.
 
 [[format]]
@@ -234,3 +237,11 @@ file = "crates/cmux-tui/src/provider_notice_identity.rs"
 const = "STATE_VERSION"
 name = "cmux-tui/provider_notice_identity#STATE_VERSION"
 policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-snapshot-manifest"
+about = "an Auto move's snapshot manifest (the chat's chunk lists), uploaded to the store for the receiving machine"
+policy = "rebuild"
+why = "the sender builds it fresh from the live chat on every move; a manifest of another version is refused (chunks.rs validate) and the chat stays on its machine until the next move sends a new one"

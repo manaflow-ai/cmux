@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.notConnectedRepo" : {
+      "comment" : "Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line; {repo} is the repository the call named, OWNER/REPO",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub isn't connected for this chat, so it can't reach {repo}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

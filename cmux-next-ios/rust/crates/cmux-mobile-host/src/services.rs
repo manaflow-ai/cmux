@@ -39,6 +39,8 @@ pub struct Peer {
     pub route: Option<LinkRoute>,
     /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
     pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+    /// The link's viewport sync port, on a WireGuard overlay (`None` elsewhere).
+    pub viewport: Option<Arc<crate::viewport_link::LinkHub>>,
 }
 
 /// What the link's route is read from.
@@ -155,7 +157,9 @@ pub async fn serve(
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
             let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
@@ -269,8 +273,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
+/// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
+/// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 11] = [
+pub const CAPABILITIES: [&str; 12] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -282,6 +288,7 @@ pub const CAPABILITIES: [&str; 11] = [
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
     names::MAILBOX_SEND,
+    names::BUNDLE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -313,6 +320,10 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
+    }
+    if crate::lan::running() {
+        // The phone may enroll for the LAN direct path (`lan`, lan.rs).
+        out.push(crate::lan::CAPABILITY);
     }
     out
 }
@@ -668,6 +679,14 @@ async fn daemon(
     {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
+    // A new phone asks for redraw ids (`"pseq": true`) and for viewport sync (`"viewport_sync": 1`);
+    // an old one gets the plain stream.
+    let pseq = args.get("pseq") == Some(&Value::Bool(true));
+    let asked = args.get("viewport_sync").and_then(Value::as_u64) == Some(1);
+    let sync = match (asked, &config.viewport_sync, &peer.viewport) {
+        (true, Some(selector), Some(hub)) => Some((Arc::clone(hub), selector.clone())),
+        _ => None,
+    };
     splice(
         &path,
         session,
@@ -678,6 +697,7 @@ async fn daemon(
         sender,
         receiver,
         peer.session_exposure.clone(),
+        LineStamps { pseq, sync },
     )
     .await
 }
@@ -703,7 +723,15 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None).await
+    let stamps = LineStamps { pseq: true, sync: None };
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None, stamps).await
+}
+
+/// How a splice's daemon lines leave for the phone: stamped with redraw ids (`pseq`) or not,
+/// and through a viewport sync (the link's port and the path selector's numbers) or not.
+struct LineStamps {
+    pseq: bool,
+    sync: Option<(Arc<crate::viewport_link::LinkHub>, crate::viewport_sync::SelectorConfig)>,
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
@@ -712,6 +740,7 @@ const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
+#[allow(clippy::too_many_arguments)] // one splice: its socket, policies, channel, exposure and line stamps
 async fn splice(
     path: &Path,
     label: &str,
@@ -720,6 +749,7 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    stamps: LineStamps,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
@@ -752,12 +782,23 @@ async fn splice(
     let answers = Arc::clone(&pending);
     // The daemon lane: when each output byte went to the phone (output_paint.rs).
     let output_stamps = reply_phone.as_deref().map(crate::output_paint::Tracker::start);
+    let LineStamps { pseq, sync } = stamps;
+    let mut viewport = sync.map(|(hub, selector)| {
+        crate::viewport_link::ViewportLink::new(hub, selector, pseq, daemon_lines.clone())
+    });
+    let hybrid_marks = viewport.as_ref().map(crate::viewport_link::ViewportLink::hybrid_marks);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
             let mut line = Vec::new();
             match reader.read_until(b'\n', &mut line).await {
-                Ok(0) | Err(_) => return,
+                Ok(0) | Err(_) => {
+                    // Every sync's last lines, in order, before the stream ends.
+                    if let Some(viewport) = &mut viewport {
+                        let _ = viewport.finish().await;
+                    }
+                    return;
+                }
                 Ok(_) => {
                     // hostd's own releases: answered to hostd, not the phone.
                     if answers.answer(&line) {
@@ -766,8 +807,15 @@ async fn splice(
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
-                    // A redraw's id and its read time (Mac redraw to iPhone paint).
-                    let (line, _) = crate::paint_latency::stamp_line(line);
+                    if let Some(viewport) = &mut viewport {
+                        // Its own lines and this one, stamped when asked, in order.
+                        if viewport.on_line(line).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    // A redraw's id and its read time (Mac redraw to iPhone paint), when asked.
+                    let line = crate::viewport_link::stamped(line, pseq);
                     if let Some(stamps) = &output_stamps {
                         stamps.line(&line);
                     }
@@ -887,6 +935,12 @@ async fn splice(
                 }
                 let (checked, verdict) = daemon_line_verdict(&policy, line, request_exposure.as_ref());
                 line = checked;
+                // A hybrid attach's surface never syncs (its stream is not the PTY's bytes).
+                if let Some(marks) = &hybrid_marks
+                    && !matches!(verdict, Verdict::Refuse(_))
+                {
+                    marks.observe(&line);
+                }
                 // A reply to a terminal notification is answered locally. Keep it
                 // in the input task so it cannot be confused with an ordinary rewrite.
                 if matches!(verdict, Verdict::Forward)
@@ -1935,16 +1989,13 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file of any size inside a workspace root, then
-/// close with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now. `file-preview`
-/// prepends metadata from the same open descriptor before streaming those bytes.
-async fn file(
+/// The regular file `args.path` names, opened inside the shared roots (the Chat Folders, then the
+/// Mac's workspace folders as they are now), checked again where the open descriptor points. `file`,
+/// `file-preview` and `bundle` `get` read only through it.
+pub(crate) async fn open_shared_file(
     config: &ServiceConfig,
     args: &Value,
-    sender: &ChannelSender,
-    preview_metadata: bool,
-) -> Result<(), Refusal> {
+) -> Result<(tokio::fs::File, std::fs::Metadata), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -1977,6 +2028,20 @@ async fn file(
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
+    Ok((file, metadata))
+}
+
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
+    let (file, metadata) = open_shared_file(config, args).await?;
     // A distinct service keeps old hosts' raw file bytes from being mistaken for
     // metadata. Read the size from this descriptor, after all confinement checks,
     // so the phone can check free storage before accepting the file's contents.
@@ -2288,7 +2353,7 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
     Ok(resolved)
 }
 
-fn create_private_dir(path: &Path) -> Result<(), Refusal> {
+pub(crate) fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     use std::os::unix::fs::DirBuilderExt;
     match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
         Ok(()) => Ok(()),
@@ -2298,7 +2363,7 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
-fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
@@ -2352,12 +2417,13 @@ async fn upload(
     }
 }
 
-async fn receive_upload(
+/// An `upload`'s (or a `bundle` `put`'s) `{name, size, cwd?}`: the safe file name, the declared size
+/// and the folder it lands in ([`upload_folder`]).
+pub(crate) async fn upload_target(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
-    mut receiver: ChannelReceiver,
-) -> Result<(PathBuf, u64), Refusal> {
+) -> Result<(String, u64, PathBuf), Refusal> {
     let name = args
         .get("name")
         .and_then(Value::as_str)
@@ -2371,6 +2437,16 @@ async fn receive_upload(
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
+    Ok((name, size, folder))
+}
+
+async fn receive_upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    mut receiver: ChannelReceiver,
+) -> Result<(PathBuf, u64), Refusal> {
+    let (name, size, folder) = upload_target(config, peer, args).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -2469,6 +2545,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         let view = config.view().await;
         assert!(view.browser_urls.is_empty());
@@ -2547,6 +2624,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert_eq!(
             capabilities(&config),
@@ -2561,7 +2639,8 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
-                "mailbox-send-v1"
+                "mailbox-send-v1",
+                "bundle-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2582,6 +2661,7 @@ mod tests {
                 "phone-frames-v1",
                 "tab-snapshots-v1",
                 "mailbox-send-v1",
+                "bundle-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2668,6 +2748,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
         config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);

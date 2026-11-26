@@ -234,6 +234,15 @@ test("a full store keeps a smaller newest tail, and a copy that fits nowhere is 
   }
 });
 
+test("rows each past the byte bound save no rows, never the whole transcript", () => {
+  // The newest 3 rows are already past SAVED_BYTES, so the last try keeps none: slice(-0) is every row.
+  const { value } = writeTimed(longChat(40, "x".repeat(SAVED_BYTES / 2)));
+  expect(value.length).toBeLessThan(SAVED_BYTES);
+  const saved = JSON.parse(value);
+  expect(saved.rows.length).toBe(0);
+  expect(saved.canLoadOlder).toBe(true);
+});
+
 // Last: a cleared page keeps no copy for the rest of its life.
 test("clearSnapshot drops a pending write and later saves (a pane failure)", async () => {
   const { clearSnapshot } = await import("../src/agent-session/acpmux/snapshotCache");

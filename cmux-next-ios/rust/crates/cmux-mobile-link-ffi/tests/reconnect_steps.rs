@@ -180,6 +180,8 @@ impl Rig {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             force_relay: false,
             video_lane: false,
             webrtc_media: false,

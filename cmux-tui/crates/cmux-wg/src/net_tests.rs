@@ -89,6 +89,69 @@ async fn a_cookie_challenge_leaves_the_watchdog_armed() {
     assert!(driver.watchdog.deadline(None).is_some(), "a cookie challenge began a session");
 }
 
+/// Both peers of a hybrid dial initiate at once, and every handshake message
+/// arrives on each candidate path: past the 10 a second limit the peer
+/// answers with a cookie. A handshake carrying that cookie goes out at once,
+/// and the peer, still under load, answers it, instead of the session (and
+/// the stream dial queued on it) waiting out boringtun's 5 s retry.
+#[tokio::test]
+async fn a_cookie_reply_sends_a_handshake_that_carries_it_at_once() {
+    use boringtun::noise::rate_limiter::RateLimiter;
+
+    let pair = crate::testing::loopback_pair().await.unwrap();
+    let server = pair.server_socket.local_addr().unwrap();
+    let client = pair.client_socket.local_addr().unwrap();
+    let origin = Origin { path: cmux_transport::PathId(0), addr: Some(server) };
+    let server_private = StaticSecret::from(*pair.server.private_key);
+    let server_public = PublicKey::from(&server_private);
+    let client_public = PublicKey::from(pair.server.peer_public_key);
+    let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
+    let underlay = SocketPath::new(pair.client_socket, Some(server));
+    let mut driver = Driver::new(
+        pair.client,
+        UltraUnderlay::new(Box::new(underlay), UltraMode::Off, Arc::default()),
+        Negotiation::new(UltraMode::Off),
+        None,
+        receiver,
+        Arc::new(Notify::new()),
+    )
+    .unwrap();
+    // A server past its handshake rate: every handshake without a valid
+    // MAC2 gets a cookie.
+    let under_load = Arc::new(RateLimiter::new(&server_public, 0));
+    let mut peer = Tunn::new(server_private, client_public, None, None, 1, Some(under_load));
+
+    driver.initiate_handshake();
+    std::future::poll_fn(|cx| driver.underlay.poll_flush(cx)).await;
+    let mut datagram = [0u8; 2048];
+    let mut scratch = [0u8; 2048];
+    let receive = async |datagram: &mut [u8]| {
+        tokio::time::timeout(Duration::from_millis(500), pair.server_socket.recv(datagram))
+            .await
+            .ok()
+            .map(Result::unwrap)
+    };
+    let len = receive(&mut datagram).await.expect("no first initiation");
+    let cookie = match peer.decapsulate(Some(client.ip()), &datagram[..len], &mut scratch) {
+        TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+        other => panic!("the loaded peer did not challenge: {other:?}"),
+    };
+    assert_eq!(classify(&cookie), DatagramClass::WireGuardCookieReply);
+
+    driver.handle_datagram(&cookie, origin);
+    std::future::poll_fn(|cx| driver.underlay.poll_flush(cx)).await;
+    let len = receive(&mut datagram)
+        .await
+        .expect("the cookie reply left the handshake to boringtun's 5 s retry");
+    assert_eq!(classify(&datagram[..len]), DatagramClass::WireGuardInitiation);
+    match peer.decapsulate(Some(client.ip()), &datagram[..len], &mut scratch) {
+        TunnResult::WriteToNetwork(packet) => {
+            assert_eq!(classify(packet), DatagramClass::WireGuardResponse, "challenged again");
+        }
+        other => panic!("the retry was not answered: {other:?}"),
+    }
+}
+
 fn loopback_driver(config: WgConfig, socket: UdpSocket, peer: SocketAddr) -> Driver {
     let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
     let underlay = SocketPath::new(socket, Some(peer));

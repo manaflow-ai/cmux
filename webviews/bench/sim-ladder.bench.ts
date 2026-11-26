@@ -37,6 +37,7 @@
 // read hidden fails the run.
 // Linux only (it reads /proc); prints SIM-LADDER lines and PERF_ROW lines (sim_ladder.*).
 /// <reference types="bun" />
+import { sceneTurns } from "./sceneSize";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -79,6 +80,12 @@ function fromProfile(...keys: string[]): number | null {
 }
 const SESSIONS = Number(flag("--sessions") ?? fromProfile("listed_sessions", "listed") ?? 3000);
 const ROWS = Number(flag("--rows") ?? 120);
+// The shown chats' log lengths from a profile (perf_sensor.py `transcript_events`); null when it carries none.
+const TRANSCRIPT_EVENTS: number[] | null = (() => {
+  const list = PROFILE?.transcript_events;
+  const events = Array.isArray(list) ? list.filter((n): n is number => typeof n === "number" && n > 0) : [];
+  return events.length ? events : null;
+})();
 // --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
 // fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
 // against the app's 66.3.
@@ -93,6 +100,14 @@ const CHROME_ARGS = (flag("--chrome-args") ?? "").split(",").filter(Boolean);
 // --timer-census: count every timer callback a page runs, by the frame that scheduled it, and print the hidden pages'
 // top sources after the last rung (what a hidden chat wakes for).
 const TIMER_CENSUS = argv.includes("--timer-census");
+// --churn-hidden: churn every chat page's list, not only the focused one's. In the app every agent page holds its own
+// daemon connection and hears every listed chat's change; here each page's mock is its own daemon, so without this flag
+// the hidden chats hear no change at all. Off by default, so the ladder's numbers stay comparable across runs.
+const CHURN_HIDDEN = argv.includes("--churn-hidden");
+// --alloc-profile: over each rung's first window, a sampled allocation profile of the chats' shared isolate
+// (HeapProfiler.startSampling on the focused chat, which samples every page of its renderer): bytes allocated per
+// second and the top allocation sites by self size, as SIM-LADDER   alloc lines.
+const ALLOC_PROFILE = argv.includes("--alloc-profile");
 const JSON_OUT = flag("--json");
 // --profile FILE (read above): the fidelity mode. Instead of the ladder, build one scene from a profile of a running app
 // (cmux-app-profile, from leo-workspace tools/perf_sensor.py): its agent pages, browser tabs, listed sessions, change
@@ -223,13 +238,19 @@ setInterval(() => { document.getElementById("clock").textContent = new Date().to
 </script>`;
 
 /// A Chrome of this bench's own (so a descendant of this process, its renderers ours to read), its DevTools endpoint
-/// from stderr: the patched headless shell when CI fetched one, else the installed Chrome headless.
+/// from stderr: the installed Chrome in its new headless mode, the headless shell only where no Chrome is installed.
+/// The shell (CMUX_CHROME_HEADLESS_SHELL, which ensure-system-chrome.sh exports to the job) has no window to put a tab
+/// behind, so every page reads "visible" and keeps drawing: on chrome-headless-shell 157.0.8103.78 a tab behind the
+/// focused chat read visible at 19 frames in 300 ms, where Chrome 157 --headless=new read hidden at 0. With the shell
+/// first, every perf cron run since 2026-11-25 08:54Z ended "sim-ladder: chats #N reads visible ..., not hidden" (exit
+/// 1; run 45643103662 job 139309163781) and NOW's sim_ladder/sim_fidelity rows stopped at 02:20Z.
 async function launchChrome(): Promise<{
   browser: Browser;
   close: () => Promise<void>;
 }> {
-  const shell = process.env.CMUX_CHROME_HEADLESS_SHELL;
-  const exe = shell || Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const chrome = Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const shell = chrome ? undefined : process.env.CMUX_CHROME_HEADLESS_SHELL;
+  const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
   const proc = Bun.spawn(
@@ -250,6 +271,11 @@ async function launchChrome(): Promise<{
       // tabs add no renderer of their own (x1 to x10 added 9 tabs and 7 renderers, x10 to x100 90 and 90) and the low
       // PSS slope read 13.9 MB a tab against 16.4 at the top. Off, each tab's renderer starts with its tab.
       "--disable-features=IntensiveWakeUpThrottling,SpareRendererForSitePerProcess",
+      // Ubuntu 24.04 runners restrict unprivileged user namespaces with AppArmor, so Chrome's sandbox cannot start and
+      // Chrome exits before it prints a DevTools endpoint (web-ui-ladder and web-ui-fidelity's `exit 1` on the perf
+      // cron, run 45408142192). The bench loads only its own local pages; every Playwright launch the other benches
+      // use passes the same flag. (#54319 added it; a conflict resolution in #52348/#54537 dropped it.)
+      "--no-sandbox",
       ...CHROME_ARGS,
       "about:blank",
     ],
@@ -313,6 +339,33 @@ async function settle(rootPid: number, focused: Page): Promise<boolean> {
     last = now;
   }
   return false;
+}
+
+type AllocNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  selfSize: number;
+  children: AllocNode[];
+};
+/// A sampled allocation profile as bytes per second and its top sites: each by its own frame and the two frames above
+/// it, so a site reached from many callers (JSON.parse) is told apart by who called it.
+function printAllocations(profile: { head: AllocNode }, secs: number): void {
+  const sites = new Map<string, number>();
+  let total = 0;
+  const name = (node: AllocNode) =>
+    `${node.callFrame.functionName || "(anon)"}@${node.callFrame.url.split("/").pop()?.split("?")[0] ?? ""}:${node.callFrame.lineNumber + 1}`;
+  const walk = (node: AllocNode, stack: string[]) => {
+    const here = [...stack, name(node)];
+    if (node.selfSize > 0) {
+      total += node.selfSize;
+      const key = here.slice(-3).reverse().join(" < ");
+      sites.set(key, (sites.get(key) ?? 0) + node.selfSize);
+    }
+    for (const child of node.children) walk(child, here);
+  };
+  walk(profile.head, []);
+  console.log(`SIM-LADDER   alloc ${Math.round(total / 1024 / secs)} KB/s sampled over ${secs.toFixed(1)} s`);
+  for (const [key, bytes] of [...sites].sort((a, b) => b[1] - a[1]).slice(0, 25))
+    console.log(`SIM-LADDER   alloc ${Math.round(bytes / 1024 / secs)} KB/s ${key}`);
 }
 
 /// The last rung's load collection (renderer CPU ms), kept for the summary printed at the end.
@@ -402,6 +455,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
       lastPool = pool;
     }
   })();
+  if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.enable");
+  if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.startSampling", { samplingInterval: 16384 });
   const thirds: number[] = [];
   let mark = ticks0;
   let markAt = t0;
@@ -419,6 +474,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
+  if (ALLOC_PROFILE) printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, secs);
   const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
   console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
   const threads = [...threadTicks(pids)]
@@ -534,9 +590,15 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     const browserCdp = await browser.newBrowserCDPSession();
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
-    await context.addInitScript((size) => {
-      (globalThis as any).cmuxAcpmuxMockListSize = size;
-    }, SESSIONS);
+    // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    await context.addInitScript(
+      ([size, shape]) => {
+        (globalThis as any).cmuxAcpmuxMockListSize = size;
+        if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
+      },
+      [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
+    );
     if (TIMER_CENSUS)
       await context.addInitScript(() => {
         const counts: Record<string, number> = ((globalThis as any).__slTimers = {});
@@ -574,15 +636,20 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     await focused.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, {
       timeout: 60_000,
     });
-    const seed = async (page: Page) => {
+    // `slot`: the chat's place among the shown chats (0 the focused one), whose log lengths a profile lists as
+    // transcript_events; a hidden chat takes the last one listed (the sensor reads only shown chats). Without
+    // the field every chat keeps ROWS / 2 turns.
+    const seed = async (page: Page, slot = Number.MAX_SAFE_INTEGER) => {
+      const turns = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
       const seeded = (await page.evaluate(
-        ([turns, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light }),
-        [Math.max(1, Math.round(ROWS / 2)), !FULL_SEED] as const,
+        ([count, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light }),
+        [turns, !FULL_SEED] as const,
       )) as Record<string, any>;
+      report.seed_turns = [...((report.seed_turns as number[] | undefined) ?? []), turns];
       if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
       await page.locator(PROMPT).first().waitFor({ timeout: 60_000 });
     };
-    await seed(focused);
+    await seed(focused, 0);
     await focused.bringToFront();
     const items: Item[] = [{ page: focused, cdp: await context.newCDPSession(focused), awake: true }];
     await items[0]!.cdp.send("Performance.enable");
@@ -619,6 +686,10 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
         throw new Error(`sim-ladder: ${kind} #${index} reads ${state} at ${frames} frames, not hidden`);
       if (FREEZE) await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
       items.push({ page, cdp, awake: !FREEZE });
+      if (CHURN_HIDDEN && kind === "chats" && hasChurn)
+        void page
+          .evaluate((o) => (window as any).cmuxAcpmuxDebug.sessionChurn(o), { seconds: 3600, changes_per_second: RATE })
+          .catch(() => undefined);
     };
     const startChurn = (rate: number) => {
       if (hasChurn && !churn)
@@ -643,7 +714,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
         ]);
         await page.goto(url);
         await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
-        await seed(page);
+        await seed(page, index);
         const cdp = await context.newCDPSession(page);
         await cdp.send("Performance.enable");
         items.push({ page, cdp, awake: true });
@@ -760,6 +831,7 @@ async function runProfile() {
     tabs,
     stream_ms: streamMs,
     sessions: SESSIONS,
+    transcript_events: TRANSCRIPT_EVENTS,
     rate: RATE,
     hogs,
   };

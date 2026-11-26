@@ -640,6 +640,22 @@ function Columns({
       setFastOffFor(undefined);
     }
   }
+  // The chat's harness changing under an open menu (a New Tab's chat started on another harness, a
+  // switch landed) moves it to that harness's tab: a menu kept open across it still showed the old
+  // harness's tab and models (cmux#55750: an Antigravity chat's picker on Claude Code's). A reply
+  // streaming in keeps the harness, so the tab and the typed filter stay.
+  const [seenCurrent, setSeenCurrent] = useState(families.current);
+  if (families.current !== seenCurrent) {
+    setSeenCurrent(families.current);
+    if (open && families.current) {
+      setTab(heldTab(families) ?? families.current);
+      setCol(1);
+      setModelHl(-1);
+      setHeld(undefined);
+      setPending(undefined);
+      setChosenLevel(undefined);
+    }
+  }
 
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.

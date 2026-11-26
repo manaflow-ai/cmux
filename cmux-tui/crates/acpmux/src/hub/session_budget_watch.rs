@@ -48,6 +48,10 @@ impl Hub {
             let weak = Arc::downgrade(self);
             self.scope.spawn_until_cancelled("session-budget-watch", async move {
                 let floor = tokio::task::spawn_blocking(|| {
+                    // The hosts slice's total (`session_total.rs`), once per daemon.
+                    crate::session_total::limit_hosts_slice(
+                        &crate::session_budget::daemon_totals().1,
+                    );
                     crate::placement::disk_floor(
                         crate::placement::load_registry().as_ref(),
                         &crate::host_pressure::host_name(),
@@ -73,6 +77,7 @@ impl Hub {
                                 .sessions,
                         );
                         let (samples, truncated) = session_disk::scan(&manager, &mut known);
+                        crate::session_total::sweep_blocking(&manager);
                         let mut watch =
                             session_disk::shared().lock().unwrap_or_else(|e| e.into_inner());
                         watch.sessions = known;
@@ -333,9 +338,19 @@ pub(crate) fn status() -> Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(session_disk::enabled() && budget.disk > 0);
+    let tasks = crate::session_scope::sessions_tasks_default(crate::session_scope::threads_max());
+    let session_total = crate::session_budget::session_total_from(&get, &host, &budget);
+    let hosts_total = crate::session_budget::hosts_total_from(&get, &host, tasks);
     let store = session_store::shared()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(cfg!(target_os = "linux"));
-    crate::session_budget::status(&budget, &task, &host, watch, store)
+    crate::session_budget::status(
+        &budget,
+        &task,
+        (&session_total, &hosts_total),
+        &host,
+        watch,
+        store,
+    )
 }

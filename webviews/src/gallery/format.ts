@@ -16,7 +16,6 @@ import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
-import type { ProviderRow } from "../pages/coderouter/types";
 import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
@@ -290,9 +289,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
-  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
-   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
-  sessionStatus?: boolean;
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
@@ -305,6 +301,9 @@ export type AgentPaneVariant = VariantBase & {
   /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
    *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
   experiments?: Record<string, string>;
+  /** Settings > Advanced > Experiments switches the variant turns on, by name (`{ foldSummaryCounts:
+   *  true }`), as the app's `applyExperiments` push sends them (experiments/switches.ts). */
+  experimentSwitches?: Record<string, boolean>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
@@ -439,14 +438,6 @@ export type CloudPageVariant = VariantBase & {
   snapshots: CloudSnapshot[];
 };
 
-/** The CodeRouter page on an in-page cmuxPage host serving account and provider rows. */
-export type CodeRouterPageVariant = VariantBase & {
-  mode?: "normal" | "loading" | "error";
-  error?: { code: string; message: string };
-  signedIn?: boolean;
-  providers: ProviderRow[];
-};
-
 /** The changelog page on an in-page cmuxPage host serving verified release notes. */
 export type ChangelogPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
@@ -575,7 +566,6 @@ export type MarkdownPageEntry = EntryBase<MarkdownPageVariant> & { host: "markdo
 export type DiffPageEntry = EntryBase<DiffPageVariant> & { host: "diff-page" };
 export type AppsPageEntry = EntryBase<AppsPageVariant> & { host: "apps-page" };
 export type CloudPageEntry = EntryBase<CloudPageVariant> & { host: "cloud-page" };
-export type CodeRouterPageEntry = EntryBase<CodeRouterPageVariant> & { host: "coderouter-page" };
 export type ChangelogPageEntry = EntryBase<ChangelogPageVariant> & { host: "changelog-page" };
 export type IconPickerPageEntry = EntryBase<IconPickerPageVariant> & { host: "icon-picker-page" };
 export type EditorPageEntry = EntryBase<EditorPageVariant> & { host: "editor-page" };
@@ -604,7 +594,6 @@ export type GalleryEntry =
   | DiffPageEntry
   | AppsPageEntry
   | CloudPageEntry
-  | CodeRouterPageEntry
   | ChangelogPageEntry
   | IconPickerPageEntry
   | EditorPageEntry
@@ -624,7 +613,6 @@ export {
   diffPageEntry,
   appsPageEntry,
   cloudPageEntry,
-  codeRouterPageEntry,
   changelogPageEntry,
   iconPickerPageEntry,
   editorPageEntry,

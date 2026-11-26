@@ -288,6 +288,26 @@ final class SidebarFooterBand {
         return badge.frame.maxX
     }
 
+    // MARK: Experiments mark
+
+    /// Places the experiments mark (`host.experimentsMark`) over the sidebar: at the avatar's leading edge,
+    /// just above the bottom stack (`ceiling`). It is never in the footer row's flow: its arrival and
+    /// departure move nothing in the row.
+    func placeExperimentsMark(above ceiling: CGFloat) {
+        guard let host, let mark = host.experimentsMark, !mark.isHidden else { return }
+        let size = mark.fittingSize
+        let row = bandFirstRow
+        let x = row?.frame.minX ?? Metrics.space4
+        let top = min(ceiling, row?.frame.minY ?? ceiling)
+        let width = min(size.width, host.bounds.width - x - Metrics.space4)
+        guard width >= Self.searchButtonSide * 2 else {
+            mark.frame = .zero
+            return
+        }
+        mark.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
+                                                 scale: host.window?.backingScaleFactor ?? 2)
+    }
+
     // MARK: Update Available button
 
     /// Places the quiet Update Available button (`showUpdateAvailable`) on the footer line's trailing end,

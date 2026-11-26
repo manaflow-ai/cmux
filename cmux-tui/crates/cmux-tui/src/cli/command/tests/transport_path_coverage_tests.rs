@@ -372,6 +372,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "theme.scheme.convert"
                         | "theme.scheme.export"
                         | "theme.scheme.from_image"
+                        | "theme.slots.resolve"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"

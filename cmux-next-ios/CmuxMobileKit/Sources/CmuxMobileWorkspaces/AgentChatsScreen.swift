@@ -24,7 +24,7 @@ public final class AgentChatsModel {
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
     /// The first page is being read again over the rows shown (the ones this run kept): the
-    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    /// list says nothing while it does. A pull to refresh shows its own progress instead.
     public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""

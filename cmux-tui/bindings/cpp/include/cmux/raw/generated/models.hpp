@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0e9ad98facd4f616a6231f6b8026499abece893f159b8615c391195d999fb099";
+inline constexpr std::string_view kProtocolIrSha256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -429,6 +429,8 @@ struct FeedLocalHandoffDoneRequest;
 struct FeedLocalListRequest;
 struct FeedLocalReadRequest;
 struct FloatPaneRequest;
+struct FlushLaunchSnapshotRequest;
+struct FlushLaunchSnapshotResult;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -790,7 +792,10 @@ struct AckTabNotificationsRequest {
 
 struct ActivitySnapshot {
     std::uint32_t attached_clients{};
+    Field<std::uint64_t> echo_at_ms{};
+    Field<std::uint64_t> echo_input_at_ms{};
     std::optional<std::uint64_t> last_agent_action_at_ms{};
+    Field<std::uint64_t> last_person_attach_at_ms{};
     std::optional<std::uint64_t> last_user_input_at_ms{};
     std::uint32_t live_agents{};
     friend bool operator==(const ActivitySnapshot&, const ActivitySnapshot&) = default;
@@ -2491,6 +2496,7 @@ struct ConversationInboxChangedEvent {
 struct ConversationInboxOpRequest {
     std::string conversation{};
     std::optional<JsonValue> op{};
+    Field<std::string> op_id{};
     friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
 };
 
@@ -2883,6 +2889,11 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct WorkspaceFirstTabBrowser {
     std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
@@ -2910,6 +2921,7 @@ struct CreateWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
+    Field<NameSource> name_source{};
     Field<std::string> origin{};
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
 };
@@ -3142,6 +3154,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FlushLaunchSnapshotRequest {
+    friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
+};
+
+struct FlushLaunchSnapshotResult {
+    bool flushed{};
+    friend bool operator==(const FlushLaunchSnapshotResult&, const FlushLaunchSnapshotResult&) = default;
 };
 
 enum class PaneDirection {
@@ -4272,11 +4293,6 @@ struct MoveWorkspaceToGroupRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
-};
-
-enum class NameSource {
-    user,
-    auto_,
 };
 
 struct NewBrowserTabRequest {
@@ -9310,6 +9326,18 @@ template <>
 struct Codec<FloatPaneRequest> {
     static Result<Json> encode(const FloatPaneRequest& value);
     static Result<FloatPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotRequest> {
+    static Result<Json> encode(const FlushLaunchSnapshotRequest& value);
+    static Result<FlushLaunchSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotResult> {
+    static Result<Json> encode(const FlushLaunchSnapshotResult& value);
+    static Result<FlushLaunchSnapshotResult> decode(const Json& value);
 };
 
 template <>

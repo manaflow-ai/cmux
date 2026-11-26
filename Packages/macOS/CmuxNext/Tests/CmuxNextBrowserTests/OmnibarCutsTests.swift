@@ -84,21 +84,19 @@ struct OmnibarCutsTests {
         #expect(bar.field.frame == fieldAtRest, "focus moved the field: \(fieldAtRest) to \(bar.field.frame)")
     }
 
-    /// The profile avatar is clear at rest too and keeps its room; focus shows it (Leo 2026-11-22, "why do we have the
-    /// profile icon here if it's always visible").
-    @Test func theProfileAvatarIsClearAtRestAndKeepsItsRoom() throws {
+    /// The address bar holds no profile avatar, at rest or focused (Leo 2026-11-22, "why do we have the profile icon
+    /// here if it's always visible ... move it outside the omnibar"): it is the toolbar's profile button
+    /// (`BrowserToolbarProfileButtonTests`).
+    @Test func theAddressBarHoldsNoProfileAvatar() throws {
         let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
         defer { window.closeAfterTest() }
-        bar.setProfileBadge(BrowserProfileBadge(monogram: "D", color: nil, name: "Default"))
-        window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.profileBadgeView.alphaValue == 0, "the profile avatar shows at rest")
-        #expect(!bar.profileBadgeView.isHidden, "the quiet avatar keeps its room")
-        let fieldAtRest = bar.field.frame
-
+        func avatars(in view: NSView) -> [ProfileBadgeView] {
+            view.subviews.flatMap { ($0 as? ProfileBadgeView).map { [$0] } ?? avatars(in: $0) }
+        }
+        #expect(avatars(in: bar).isEmpty, "the address bar draws a profile avatar")
         bar.focus()
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.profileBadgeView.alphaValue == 1, "focus does not show the profile avatar")
-        #expect(bar.field.frame == fieldAtRest, "the avatar's coming moved the field: \(fieldAtRest) to \(bar.field.frame)")
+        #expect(avatars(in: bar).isEmpty, "the focused address bar draws a profile avatar")
     }
 
     @Test func aPageThatIsNotSecureShowsItsChip() throws {

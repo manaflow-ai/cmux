@@ -39,6 +39,16 @@ const PROBE_CONNECT: Duration = Duration::from_secs(10);
 /// connect budget still accommodates a first handshake or a slow ssh login.
 const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
+/// Who a dial is for. Only the link's own dial carries its `initialize` behind the upgrade
+/// (`Peer::early_initialize`). A probe's socket greets the peer with its observer `probe_hello`;
+/// a full `initialize` ahead of it made the hub probe a second full client of the peer, and its
+/// dual send stopped delivering (#54052: mac-mac direct failover 2.4-2.9 s became 7.9 s).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum For {
+    Link,
+    Probe,
+}
+
 /// How often a redial of a URL that already carried this peer starts a fresh TCP connect while
 /// none has connected. The pair matrix's direct path after a 60 s outage: the link opened 9.9 s
 /// after the network came back, its dial waiting on the SYN sent 16 s before.
@@ -252,6 +262,20 @@ pub(crate) async fn dial_link(_socket: &Path, _host: &str) -> Result<BoxDuplex, 
 }
 
 /// The next copy queued for the shadow; never, without one.
+/// The probe's next dual-send check: `check`'s tick, or `doubt_at` (wall-clock ms) when that
+/// comes first, which restarts `check` from then.
+async fn doubt_or_check(check: &mut tokio::time::Interval, doubt_at: Option<u64>) {
+    let Some(at) = doubt_at else {
+        check.tick().await;
+        return;
+    };
+    let wait = Duration::from_millis(at.saturating_sub(crate::store::now_ms()));
+    tokio::select! {
+        _ = check.tick() => {}
+        () = tokio::time::sleep(wait) => check.reset(),
+    }
+}
+
 async fn next_copy(shadow: &mut Option<super::dual::ShadowRun>) -> Option<String> {
     match shadow.as_mut() {
         Some(run) => run.rx.recv().await,
@@ -365,6 +389,14 @@ impl Peer {
         self.with_paths(|paths| paths.serving(via, crate::store::now_ms()));
     }
 
+    /// When the link's path falls in doubt, while that is still ahead and the probe on `via`
+    /// is not the link's own path: the moment its shadow may be wanted (`Paths::doubt_at`).
+    pub(super) fn doubt_ahead(&self, via: Via) -> Option<u64> {
+        let serving = self.serving().filter(|serving| *serving != via)?;
+        let at = self.with_paths(|paths| paths.doubt_at(serving))?;
+        (at > crate::store::now_ms()).then_some(at)
+    }
+
     /// A pong on `via`.
     pub(super) fn path_pong(&self, via: Via, rtt: Duration) {
         let switch = self.with_paths(|paths| paths.pong(via, rtt, crate::store::now_ms()));
@@ -449,7 +481,7 @@ impl Peer {
     /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
         use futures_util::FutureExt;
-        // Opt-in tailnet path: read from the cached snapshot (a first read waits briefly).
+        // Opt-in tailnet path: read from memory only, never awaited (a first read runs behind).
         self.refresh_tailnet(None).await;
         let started = crate::store::now_ms();
         let (order, together) = self.with_paths(|paths| {
@@ -575,11 +607,12 @@ impl Peer {
         }
     }
 
-    /// Open the peer's WebSocket on direct path `via`.
+    /// Open the peer's WebSocket on direct path `via`, for the link or for a probe (`For`).
     async fn open_direct(
         &self,
         via: Via,
         ssh_tokens: Option<&(tokens::Tokens, bool)>,
+        dialer: For,
     ) -> Result<Opened, DialError> {
         let (token, peer_token) = self
             .direct_credentials(ssh_tokens)
@@ -593,8 +626,9 @@ impl Peer {
         };
         // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
         // listener predates that refuses the upgrade ("junk after client request"), which is
-        // remembered (`early_refused`) and dialed again without it.
-        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        // remembered (`early_refused`) and dialed again without it. A probe sends none: its
+        // socket is the observer `probe_hello`'s, never the link's (`For`).
+        let mut use_early = dialer == For::Link && !self.early_refused.load(Ordering::SeqCst);
         loop {
             let heard = Heard::default();
             let early = use_early.then(|| self.early_initialize()).flatten();
@@ -637,8 +671,9 @@ impl Peer {
         }
     }
 
-    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
-    async fn open_url(&self) -> Result<Opened, DialError> {
+    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL, for the link or for a
+    /// probe (`For`).
+    async fn open_url(&self, dialer: For) -> Result<Opened, DialError> {
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !super::carries_peer_token(&self.url) => {
@@ -656,8 +691,10 @@ impl Peer {
         let attempt = || async {
             let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
             let heard = Heard::default();
-            // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-            let early = (self.url.starts_with("ws://")
+            // Over TLS the upgrade is written inside the stream this would wrap: no early frame. A
+            // probe sends none either (`For`).
+            let early = (dialer == For::Link
+                && self.url.starts_with("ws://")
                 && !self.early_refused.load(Ordering::SeqCst))
             .then(|| self.early_initialize())
             .flatten();
@@ -733,7 +770,7 @@ impl Peer {
                 if sent_early.load(Ordering::SeqCst) && !token_said_no.load(Ordering::SeqCst) =>
             {
                 self.early_refused.store(true, Ordering::SeqCst);
-                return Box::pin(self.open_url()).await;
+                return Box::pin(self.open_url(dialer)).await;
             }
             Ok(Err(error)) => return Err(error),
             Err(_) => return Err(DialError::timeout(connect_timed_out(self.timings.connect))),
@@ -872,11 +909,13 @@ impl Peer {
     ) -> Result<Opened, DialError> {
         let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
-            Via::Url => self.open_url().await,
+            Via::Url => self.open_url(For::Link).await,
             Via::Wireguard | Via::Link | Via::Tailnet => {
-                self.open_direct(via, ssh_tokens.as_ref()).await
+                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
             }
-            Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Hub if via.streams() => {
+                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
+            }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned().into()),
         }?;
         // Unproven until the daemon's `initialize` answer on this connection says it is the
@@ -988,6 +1027,9 @@ impl Peer {
         check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
+            // Without a shadow, the check also wakes the moment the link's path falls in doubt,
+            // so dual send starts then and not up to a whole `DOUBT_CHECK` later.
+            let doubt_at = if shadow.is_none() { self.doubt_ahead(via) } else { None };
             tokio::select! {
                 _ = stopped.changed() => break,
                 _ = ping.tick() => {
@@ -1002,7 +1044,7 @@ impl Peer {
                         break;
                     }
                 }
-                _ = check.tick() => {
+                () = doubt_or_check(&mut check, doubt_at) => {
                     let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
                     let frames = match shadow.take() {
                         None if self.dual_wanted(via) => {
@@ -1079,17 +1121,17 @@ impl Peer {
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
             Via::Wireguard | Via::Link | Via::Tailnet => {
-                let opened = self.open_direct(via, None).await?;
+                let opened = self.open_direct(via, None, For::Probe).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Hub if via.streams() => {
-                let opened = self.open_direct(via, None).await?;
+                let opened = self.open_direct(via, None, For::Probe).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Url => {
-                let ws = self.open_url().await?.ws;
+                let ws = self.open_url(For::Probe).await?.ws;
                 self.note_token_path(via, false);
                 Ok((ws, None))
             }

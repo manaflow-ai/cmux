@@ -395,6 +395,8 @@ MODEL_BY_PATH = {
     'commands/feed-local-list/request': models.FeedLocalListRequest,
     'commands/feed-local-read/request': models.FeedLocalReadRequest,
     'commands/float-pane/request': models.FloatPaneRequest,
+    'commands/flush-launch-snapshot/request': models.FlushLaunchSnapshotRequest,
+    'commands/flush-launch-snapshot/result': models.FlushLaunchSnapshotResult,
     'commands/focus-direction/request': models.FocusDirectionRequest,
     'commands/focus-pane/request': models.FocusPaneRequest,
     'commands/forget-session/request': models.ForgetSessionRequest,

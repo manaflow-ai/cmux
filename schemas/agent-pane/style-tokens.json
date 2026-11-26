@@ -68,6 +68,12 @@
       "about": "The prompt bubble's hairline edge. Unset: none (transparent)."
     },
     {
+      "name": "--cv-user-bubble-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The prompt bubble's text, for a filled bubble (white on a blue pill). Its quiet lines (a quote, Show more) take it at 88%, a skill's /name and inline code follow it, and with --cv-user-bubble-tint set it keeps that tint under Reduce Transparency. Unset: the transcript's text (--cv-text)."
+    },
+    {
       "name": "--cv-user-bubble-radius",
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",

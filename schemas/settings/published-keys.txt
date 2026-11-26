@@ -10,6 +10,7 @@ agentPane.dictationSource
 agentPane.display.code.family
 agentPane.display.code.scale
 agentPane.display.commandLabels
+agentPane.display.compactShortTurns
 agentPane.display.environment.placement
 agentPane.display.finishSound
 agentPane.display.font.faces
@@ -301,6 +302,7 @@ chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
 cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
+cloud.defaultImage
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
@@ -426,12 +428,15 @@ home.server
 imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
+labs.appStore
 labs.classicHome
+labs.commentThreads
 labs.liveCode
 labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.previousBuild
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -612,6 +617,7 @@ sidebar.sections.hidden
 sidebar.sections.order
 sidebar.sessionTree
 sidebar.settleFinished
+sidebar.showAgentSessions
 sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors

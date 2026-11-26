@@ -63,6 +63,7 @@ jobs:
       react_doctor: ${{ steps.route.outputs.react_doctor }}
     steps:
       - name: Checkout the merge commit's router (trees only)
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -71,6 +72,33 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/
+            /.gitmodules
+      - name: "Pool mirror: checkout the merge commit's router"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/ci/
+        # Same as cmux-next-fast-gates.yml's resolve job: a pool VM fetches unfiltered from its local git mirror
+        # (actions/checkout's blob:none made git copy ~3 GB of promisor objects, 60-75 s a checkout on 2026-11-25).
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # A router failure leaves the output empty, and the gate runs.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -188,20 +216,35 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/receipt_signed.py lookup react-doctor --output "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:

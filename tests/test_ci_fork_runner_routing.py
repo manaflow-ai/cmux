@@ -99,9 +99,14 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "report text that prints the lane's effective label, not a runs-on value"
     ),
     ("cmux-next-fast-tier-seed.yml",
-     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30},'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
+    ),
+    ("cmux-next-fast-tier-seed.yml",
+     '{"pool": "blacksmith-root2", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux-2/cmux", "timeout": 30}]'): (
+        "the second seed root's pool row in the same `due` job (github.repository == 'manaflow-ai/cmux'); "
+        "the seed job reading it has the same gate"
     ),
 }
 # Release publication controls are trusted release-environment jobs. They must
@@ -123,6 +128,7 @@ RELEASE_JOBS_FORK_GATED = {
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
     "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
+    "nightly-next-pkg": "builds, signs, notarizes and uploads the pre-warming .pkg on the signing Mac; starts with the owner fork branch",
 }
 
 

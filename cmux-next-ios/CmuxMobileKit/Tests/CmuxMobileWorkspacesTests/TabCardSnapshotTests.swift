@@ -35,12 +35,28 @@ import UIKit
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
             color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            // A stripe: a picture of one solid colour is a placeholder (`CardPictureGate`), never kept.
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: max(1, width / 4), height: height))
         }
     }
 
+    static func solid(_ color: UIColor, width: CGFloat = 40, height: CGFloat = 56) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+    }
+
+    /// Polls until `done`, up to 30 s. The simulator leg runs the kit's ~2900 tests in parallel
+    /// (`cmux-next-ios-sim.sh test`), and this store's encodes, reads and writes run off the main
+    /// thread at utility priority: on 2026-11-25 a save and a Mac thumbnail read each missed a
+    /// 5 s bound there while passing alone. A path that never finishes still fails.
     static func wait(_ what: String, until done: @MainActor () -> Bool) async throws {
-        for _ in 0..<500 where !done() { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(done(), "\(what) within 5 s")
+        for _ in 0..<3000 where !done() { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(done(), "\(what) within 30 s")
     }
 
     @Test func aPictureIsStoredOnceByItsHashAndReadBack() {
@@ -206,15 +222,68 @@ import UIKit
             context.fill(CGRect(x: 10, y: 18, width: 20, height: 20))
         }
         #expect(CannotDrawMark.isIn(mark))
-        first.put(mark, for: Self.key("marked"))
+        // Saved as an earlier build did (this one never saves it: `CardPictureGate`).
+        store.save(try #require(mark.jpegData(compressionQuality: 0.8)), pixelWidth: 40, pixelHeight: 56,
+                   capturedAtMs: 1, source: .phone, for: Self.key("marked"))
         first.put(Self.picture(.systemBlue), for: Self.key("clean"))
-        try await Self.wait("both pictures are written") { first.saves == 2 }
+        try await Self.wait("the clean picture is written") { first.saves == 1 }
 
         let next = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
         next.warm([Self.key("marked"), Self.key("clean")])
         try await Self.wait("both reads finish") { next.loads == 2 }
         #expect(next.entry(Self.key("marked")).image == nil, "the mark is never on a card")
         #expect(next.entry(Self.key("clean")).image != nil)
+    }
+
+    /// Leo, 2026-11-24, on a grid of black cards: "wer need to chase all these placeholders doen and
+    /// prevent them". A picture of one solid colour (a capture of a page that had drawn nothing) is
+    /// neither shown nor saved, from the phone or the Mac; the card keeps its last real picture.
+    @Test func aSolidPictureIsNeverShownOrSaved() async throws {
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.black)))
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.white, width: 1200, height: 2600)))
+        #expect(!CardPictureGate.isPlaceholder(Self.picture(.black)))
+        let store = TabSnapshotStore(directory: Self.directory())
+        let snapshots = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        snapshots.put(Self.picture(.systemRed), for: Self.key("a"))
+        try await Self.wait("the real picture is written") { snapshots.saves == 1 }
+        let real = store.picture(Self.key("a"))
+        snapshots.put(Self.solid(.black), for: Self.key("a"))
+        snapshots.put(Self.solid(.black, width: 1200, height: 2600), for: Self.key("page"), pixelWidth: 520)
+        try await Self.wait("the black one is dropped and the real one read back") {
+            snapshots.entry(Self.key("a")).image.map { !CardPictureGate.isPlaceholder($0) } ?? false
+        }
+        await snapshots.diskSettled()
+        #expect(snapshots.saves == 1, "no black picture is saved")
+        #expect(store.picture(Self.key("a")) == real)
+        #expect(snapshots.entry(Self.key("page")).image == nil)
+
+        let (cards, pictures) = Self.cards(Self.directory())
+        let black = try #require(Self.solid(.black, width: 8, height: 8).pngData())
+        cards.cards([(tabID: "web", info: MacCardInfo(title: "A", kind: "browser", thumbHash: Self.hash(black), capturedAtMs: 10))], macID: "mac-1")
+        cards.save(black, hash: Self.hash(black), macID: "mac-1")
+        await cards.blobArrived(hash: Self.hash(black), tabIDs: ["web"], macID: "mac-1")?.value
+        #expect(pictures.entry(Self.key("web")).image == nil, "the Mac's black thumbnail is not a card's picture")
+    }
+
+    /// Leo's 51 tabs: a list's warm reads its first `limit`; a card that appears reads its own, so
+    /// one past the limit, or one evicted since, shows its picture rather than a stand-in.
+    @Test func aCardPastTheWarmLimitOrEvictedIsReadWhenItAppears() async throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let first = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        for tab in ["a", "b", "c"] { first.put(Self.picture(.systemGreen), for: Self.key(tab)) }
+        try await Self.wait("the pictures are written") { first.saves == 3 }
+
+        let next = TabCardSnapshots(store: store, limit: 2, memoryPressure: MemoryPressure(observesSystem: false))
+        next.warm([Self.key("a"), Self.key("b"), Self.key("c")])
+        try await Self.wait("the list's reads finish") { next.loads == 2 }
+        #expect(next.entry(Self.key("c")).image == nil)
+        next.warm(Self.key("c"))
+        try await Self.wait("the appearing card's read finishes") { next.loads == 3 }
+        #expect(next.entry(Self.key("c")).image != nil)
+        let evicted = try #require(["a", "b"].first { next.entry(Self.key($0)).image == nil }, "one of a and b was evicted")
+        next.warm(Self.key(evicted))
+        try await Self.wait("the evicted card's read finishes") { next.loads == 4 }
+        #expect(next.entry(Self.key(evicted)).image != nil)
     }
 
     @Test func aPagesSnapshotIsKeptAtTheCardsResolution() async throws {
@@ -259,10 +328,53 @@ import UIKit
         rasterizer.setIdle(true)
         rasterizer.frame()
         rasterizer.setIdle(false)
-        try #require(feed.raster != nil)
+        let raster = try #require(feed.raster)
+        // A raster the gate calls a placeholder is never saved: say so rather than time out below.
+        #expect(!CardPictureGate.isPlaceholder(raster.image), "the agent card's picture reads as a placeholder")
         #expect(snapshots.entry(Self.key("agent")).image != nil)
         try await Self.wait("the picture is written") { snapshots.saves == 1 }
         #expect(snapshots.store.record(Self.key("agent"))?.pixelWidth == 402)
+    }
+
+    /// A chat shorter than its page rests on the composer, below the part of the page a card
+    /// shows: its card was one flat colour and was never kept (Leo, 2026-11-24: "there are too
+    /// many empty previews in the safari grid thing"; measured on the fleet simulator, 402x566,
+    /// 0 pixels off the background, while the whole page drew its text). In a card its rows sit
+    /// inside the slice.
+    @Test func aShortChatsCardShowsItsRows() throws {
+        var turn = AgentTurn(id: "t", prompt: "Card", promptAt: Date(timeIntervalSince1970: 0))
+        turn.items = [.message(id: "m", markdown: "Reply")]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        let page = CGSize(width: 402, height: 874)
+        for scheme in [ColorScheme.dark, .light] {
+            let key = AgentCardRasterKey.current(feed, turns: [turn], colorScheme: scheme, page: page, visibleHeight: 566,
+                                                 topInset: 70, bottomInset: 110, scale: 1)
+            let image = try #require(AgentCardRasterizer.render(feed, key))
+            #expect(!CardPictureGate.isPlaceholder(image), "a short chat's card is one flat colour (\(scheme))")
+        }
+    }
+
+    /// Where a card's rows rest: on the slice's bottom edge when the page would rest them below
+    /// it, under the header when they are taller than the slice, and as the page (no move on
+    /// open) once they fill the page.
+    @Test func aCardsRowsRestInsideItsSlice() {
+        func top(_ rows: CGFloat, slice: CGFloat? = 566) -> CGFloat {
+            AgentChatPreviewPlacement.rowsTop(pageHeight: 874, rowsHeight: rows, topInset: 70, bottomInset: 110, cardSlice: slice)
+        }
+        // The page at rest (no slice): on the composer's gap.
+        #expect(top(100, slice: nil) == 664)
+        // A short chat: wholly inside the slice, on its bottom edge.
+        #expect(top(100) + 100 <= 566 && top(100) >= 70)
+        let onTheSlicesEdge: CGFloat = 566 - 8 - 100
+        #expect(top(100) == onTheSlicesEdge)
+        // Taller than the slice: from under the header.
+        #expect(top(600) == 70)
+        // Filling the page: as the page rests it.
+        #expect(top(700) == 64)
+        #expect(top(3000) == top(3000, slice: nil))
+        // No step between the cases.
+        #expect(abs(top(487) - top(489)) <= 2 && abs(top(693) - top(695)) <= 2)
     }
 
     /// What a card draws: a still whenever one exists, the live page of transcript only when none does.

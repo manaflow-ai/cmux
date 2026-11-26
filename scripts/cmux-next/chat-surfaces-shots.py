@@ -49,7 +49,7 @@ parser.add_argument("--hovers", action="store_true", help="also shoot each contr
 opts = parser.parse_args()
 # The chat's controls whose hover fill moved to the host's hover (design/chat-surfaces.md): KEY -> selector.
 HOVERS = {
-    "edited-file": "button.acpmux-edited-file",
+    "edited-chevron": "button.acpmux-edited-chevron",
     "edited-head": ".acpmux-edited-head[data-interactive]",
     "edited-undo": ".acpmux-edited-undo",
     "review-changes": ".acpmux-review-changes",

@@ -289,6 +289,22 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
 }
 
+/// A task that ends on SIGTERM stops at once: the stop waits out no fixed grace (it took 5 s
+/// a stop, every stop, while the runner slept the whole grace before looking).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_of_a_task_that_ends_on_sigterm_returns_well_inside_the_grace() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "quick").await;
+    let task = start(&mut r, &id, "echo up; sleep 600").await["id"].as_str().unwrap().to_owned();
+    r.until("the task never started", || text(&r, &id, &task).ends_with('\n')).await;
+    let at = std::time::Instant::now();
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    assert!(at.elapsed() < acpmux::bg_run::GRACE / 2, "the stop took {:?}", at.elapsed());
+}
+
 /// The processes under `root` (pid, process group, command name), from `ps`.
 #[cfg(unix)]
 fn under(root: u32) -> Vec<(u32, u32, String)> {
