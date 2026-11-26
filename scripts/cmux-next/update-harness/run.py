@@ -798,7 +798,7 @@ def main():
         if a.required_update:
             config = os.path.join(work, "cmux.json")
             with open(config, "w") as f:
-                json.dump({"updates": {"downloadAutomatically": False}}, f)
+                json.dump({"updates": {"automatic": "notify"}}, f)
             managed = os.path.join(work, "managed.plist")
             with open(managed, "wb") as f:
                 plistlib.dump({"MinimumVersion": i2["CFBundleShortVersionString"]}, f)
