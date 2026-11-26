@@ -138,6 +138,16 @@ class GithubTokenPollingTests(unittest.TestCase):
 
 
 class ShellTests(unittest.TestCase):
+    def test_redirections_and_literals_in_quoted_command_substitutions(self) -> None:
+        poll = "while :; do gh api rate_limit; sleep 1; done"
+        for command in ("cat <<<WORD", "echo '<<EOF'", 'echo "<<EOF"', "echo ok # <<EOF"):
+            with self.subTest(command=command):
+                self.assertTrue(shell_polls(f'value="$(\n{command}\ntrue\n)"\n{poll}'))
+        # The quotes, close parenthesis and apparent shell commands in this body are literal.
+        body = f'cat <<-\'EOF\'\n\t)" {poll}\n\tEOF'
+        self.assertIsNone(shell_polls(f'value="$({body}\n)"'))
+        self.assertTrue(shell_polls(f'value="$({body}\n)"\n{poll}'))
+
     def test_loops_that_sleep_and_call(self) -> None:
         self.assertTrue(shell_polls('until gh run view "$id" --json status | grep -q completed; do\n  sleep 30\ndone\n'))
         self.assertTrue(shell_polls("x=1; while true; do gh api rate_limit; sleep 5; done"))
