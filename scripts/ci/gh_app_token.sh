@@ -28,8 +28,8 @@
 #
 #   gh_app_token.sh --install --reads-only
 #                               The same, except that only a call that reads goes out as the App
-#                               (a `gh api` GET, a GraphQL query, or `gh run|workflow|pr|issue|release
-#                               list|view`); every other call, writes and anything this cannot tell,
+#                               (a `gh api` GET, a GraphQL query, `gh run|workflow|pr|issue|release
+#                               list|view`, or `gh run|release download`); every other call, writes and anything this cannot tell,
 #                               runs once with github.token as before, untouched by this wrapper. For a
 #                               job whose writes must stay github.token's and whose reads should
 #                               spend another actor's budget (nightly-next-tick.yml's unstick job).
@@ -95,13 +95,16 @@ fi
 # Whether a call only reads (--reads-only): `gh api` with no method but GET and no request
 # fields (gh sends a call with fields as POST), a GraphQL request whose query is on the command
 # line with no mutation (one read from a file or stdin, `@file` or `--input`, counts as a write),
-# or a list or view subcommand. Anything else counts as a write.
+# or a list or view subcommand (and `gh run download` / `gh release download`, which only read
+# artifacts and assets). Anything else counts as a write.
 reads_only_call() {
   local method="" fields="" graphql="" mutation="" next=""
   case "${1:-}" in
     api) ;;
-    run | workflow) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
-    pr | issue | release) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
+    run) case "${2:-}" in list | view | download) return 0 ;; esac; return 1 ;;
+    workflow) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
+    release) case "${2:-}" in list | view | download) return 0 ;; esac; return 1 ;;
+    pr | issue) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
     *) return 1 ;;
   esac
   shift
