@@ -1397,6 +1397,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-closed-tabs"
+version = "0.1.0"
+dependencies = [
+ "cmux-window-rules",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,16 @@
+[package]
+name = "cmux-app-closed-tabs"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux NEXT app's closed tabs feed rules, out of its Swift (swift-out step A): how a daemon's closed item reads, the newest-first list across machines, the History and New Tab rows, Cmd-Shift-T's pick, what a reopen shows, and the undo toast's record diff and message. Pure: the app reports the facts and applies the result"
+
+[dependencies]
+cmux-window-rules = { path = "../cmux-window-rules" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

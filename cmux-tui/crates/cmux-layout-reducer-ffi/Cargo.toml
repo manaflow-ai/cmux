@@ -31,6 +31,7 @@ cmux-tab-discard = { path = "../cmux-tab-discard" }
 # The VNC client's rules (src/vnc.rs: `vnc_*`).
 cmux-vnc = { path = "../cmux-vnc" }
 cmux-browser-rules = { path = "../cmux-browser-rules" }
+cmux-app-closed-tabs = { path = "../cmux-app-closed-tabs" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 cmux-window-rules = { path = "../cmux-window-rules" }
 serde = { version = "1", features = ["derive"] }

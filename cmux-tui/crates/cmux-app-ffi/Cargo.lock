@@ -217,6 +217,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-closed-tabs"
+version = "0.1.0"
+dependencies = [
+ "cmux-window-rules",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
@@ -559,6 +568,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-closed-tabs",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",

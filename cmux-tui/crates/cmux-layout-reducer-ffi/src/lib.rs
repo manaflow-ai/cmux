@@ -28,6 +28,8 @@
 //! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
+//! `cmux-app-closed-tabs`' closed tabs feed rules (`closed_tabs_*`: the closed history's
+//! listing, Cmd-Shift-T's pick, the closed rows, reopen/delete/clear steps and the undo toast),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! the onboarding tool window's rules (`onboarding_*`: its footer, Import
