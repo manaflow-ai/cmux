@@ -10,8 +10,8 @@ name: iOS App Review readiness
 # guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo.
 # The review-gate job dispatches that workflow on feat-cmux-next for the
 # feat-cmux-next head and takes its run's conclusion, as
-# ios-reliability-matrix.yml starts the matrix. It holds no secret: the gate
-# runs as feat-cmux-next's own run, and main's release key never reaches a
+# ios-reliability-matrix.yml starts the matrix. The dispatch uses an App token.
+# The gate runs as feat-cmux-next's own run, and main's release key never reaches a
 # workflow defined on another branch.
 #
 # A dispatched gate runs on refs/heads/feat-cmux-next, where its asc-validate
@@ -97,7 +97,8 @@ jobs:
     permissions:
       actions: write # dispatch and read ios-review-gate.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # The dispatch step mints an App token and needs an ephemeral runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
     # macOS queue), and a followed successor waits behind the run holding the
     # gate's group first, so up to about 4; past this the push run is red with
