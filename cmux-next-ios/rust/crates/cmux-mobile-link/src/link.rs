@@ -3495,7 +3495,13 @@ impl ChannelSender {
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
     ) -> Result<(), LinkError> {
-        self.send_numbered(data, mark).await.map(|_| ())
+        self.send_numbered(data, mark, None).await.map(|_| ())
+    }
+
+    /// Report a chunk only after this particular write acquired room in the transport queue.
+    /// Other writers on the same channel never touch this flag.
+    pub async fn send_observed(&self, data: Bytes, advanced: &AtomicBool) -> Result<(), LinkError> {
+        self.send_numbered(data, None, Some(advanced)).await.map(|_| ())
     }
 
     /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
@@ -3531,13 +3537,14 @@ impl ChannelSender {
             return Ok(0);
         }
         let message = crate::classes::screen_wire(base.unwrap_or(crate::classes::NO_BASE), payload);
-        Ok(self.send_numbered(message, None).await?.unwrap_or(0))
+        Ok(self.send_numbered(message, None, None).await?.unwrap_or(0))
     }
 
     async fn send_numbered(
         &self,
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
+        advanced: Option<&AtomicBool>,
     ) -> Result<Option<u64>, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
@@ -3599,6 +3606,9 @@ impl ChannelSender {
                 .await
             {
                 Pushed::Queued => {
+                    if let Some(advanced) = advanced {
+                        advanced.store(true, Ordering::Relaxed);
+                    }
                     self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
