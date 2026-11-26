@@ -53,8 +53,8 @@
 // (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
-// environment; no cmux.json key): on, a Cloud start names the environment it was given
-// (chatCloudEnvironment.ts), else Auto. On by default, as the host's flag is: only the host's
+// environment; no cmux.json key): on, a Cloud start names the environment Settings > Cloud > Default
+// Image picked (chatCloudEnvironment.ts). On by default, as the host's flag is: only the host's
 // `false` (CLOUD_ENVIRONMENTS_ENABLED=0 or false) turns it off, and every Cloud start runs on Auto.
 // `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
 // composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
