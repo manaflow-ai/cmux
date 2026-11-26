@@ -163,14 +163,14 @@
   font-variant-numeric: tabular-nums;
 }
 .hc-chief-work__plan {
-  margin: 6px 0 0;
+  margin: var(--ds-space-2) 0 0;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
 }
 .hc-chief-work__plan[data-look="inline"] {
   display: flex;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
 }
 .hc-chief-work__plan-count {
