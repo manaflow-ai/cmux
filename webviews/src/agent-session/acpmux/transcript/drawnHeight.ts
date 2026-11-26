@@ -55,10 +55,11 @@ export type QueueDrawn = (
 /// The cleanup of a row whose commit queued no measure.
 export const noQueue = () => {};
 
-export function drawnHeightOf(node: HTMLElement): number | undefined {
+export function drawnHeightOf(node: HTMLElement, observedHeight?: number): number | undefined {
   // A row whose contents the page skips (mounted away from the view, conversation/offscreenRows.ts)
   // is as high as it was placed: that is no drawn height, and it must not overwrite the estimate.
   if (skippedRow(node)) return undefined;
+  if (observedHeight !== undefined) return observedHeight;
   const height = node.getBoundingClientRect().height;
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }

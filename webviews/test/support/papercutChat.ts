@@ -110,6 +110,7 @@ export async function papercutPane(
   options: {
     turns: number;
     running: boolean;
+    capabilities?: string[];
     extra?: PapercutStep[];
     lead?: PapercutStep[];
     session?: Record<string, unknown>;
@@ -153,11 +154,16 @@ export async function papercutPane(
   const answer = (method: string, params?: Record<string, any>): unknown => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [], capabilities: options.capabilities } },
+        };
       case "_acpmux/watch":
         return { sessions };
       case "_acpmux/attach": {
         const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
+        if (params?.hold && options.capabilities?.includes("attach-hold-v1"))
+          return { session: selected, lastSeq: events.length, events: [], hasMore: false };
         const from = options.attachPage ? Math.max(0, events.length - options.attachPage) : 0;
         // acpmux names the opener of the turn its page starts inside with the page
         // (`server/requests/turn_opener.rs`); without it the pane waits on a read of its own.

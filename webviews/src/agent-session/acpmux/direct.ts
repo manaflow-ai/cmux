@@ -12114,6 +12114,9 @@ export class AcpmuxDirectClient {
           }
         : {}),
       rows: publishedRows,
+      ...(fromStore
+        ? { chatRowsV2: true as const, chatRowsHeightSid: this.chatRows.heightSid(this.selectedSessionId) }
+        : {}),
       ...(this.supersededRowIds.size > 0
         ? {
             supersededRows: [...this.supersededRowIds],

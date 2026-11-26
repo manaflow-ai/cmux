@@ -21,8 +21,8 @@ import Testing
         }
     }
 
-    @Test func theFiveOpsAreAgentPageOps() {
-        for name in ["open", "close", "page", "blob", "taken"] {
+    @Test func rowOpsAreAgentPageOps() {
+        for name in ["open", "close", "page", "blob", "taken", "heights.read", "heights.write"] {
             #expect(AgentPageOps.method(for: AgentPaneChatRows.prefix + name) == "chat.rows.\(name)")
         }
         #expect(AgentPaneChatRows.prefix.hasPrefix(AgentPageOps.namespace))

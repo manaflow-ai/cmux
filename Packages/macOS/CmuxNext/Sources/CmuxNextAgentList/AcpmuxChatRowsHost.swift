@@ -204,6 +204,24 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         }
     }
 
+    /// `chat.rows.heights.read`: returns remembered exact measurements for this open sid.
+    public func rowHeightsRead(sid: String, request: Data) async -> Result<Data, Refusal> {
+        await run { (state: inout State) -> Result<Data, Refusal> in
+            guard state.sids.contains(sid), let client = state.client else { return .failure(.name) }
+            guard let response = client.rowHeightsRead(request) else { return .failure(.busy) }
+            return .success(response)
+        }
+    }
+
+    /// `chat.rows.heights.write`: stores page measurements for this open sid.
+    public func rowHeightsWrite(sid: String, request: Data) async -> Result<Data, Refusal> {
+        await run { (state: inout State) -> Result<Data, Refusal> in
+            guard state.sids.contains(sid), let client = state.client else { return .failure(.name) }
+            guard let response = client.rowHeightsWrite(request) else { return .failure(.busy) }
+            return .success(response)
+        }
+    }
+
     /// `chat.rows.taken`: the page applied batch `number`. The driver reads on, and a held batch
     /// goes (hidden, at the hidden pace).
     public func taken(batch number: Int) {

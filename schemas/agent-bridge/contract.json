@@ -37,6 +37,8 @@
     "chat.rewindTurn": "chat.rewindTurn",
     "chat.rows.blob": "chat.rows.blob",
     "chat.rows.close": "chat.rows.close",
+    "chat.rows.heights.read": "chat.rows.heights.read",
+    "chat.rows.heights.write": "chat.rows.heights.write",
     "chat.rows.open": "chat.rows.open",
     "chat.rows.page": "chat.rows.page",
     "chat.rows.taken": "chat.rows.taken",
@@ -254,6 +256,14 @@
     "workspace.useFolder": "workspace.useFolder"
   },
   "params": {
+    "chat.rows.heights.read": [
+      "rows",
+      "sid"
+    ],
+    "chat.rows.heights.write": [
+      "entries",
+      "sid"
+    ],
     "browser.list": [],
     "browser.openIn": [
       "browserId",

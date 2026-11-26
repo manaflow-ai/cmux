@@ -109,6 +109,7 @@ type RowFramesView = {
   rowWidth: number;
   expanded: Folds;
   observer: ResizeObserver | undefined;
+  observeBorderBox?: boolean;
   queueDrawn: QueueDrawn;
   sentPromptIds: ReadonlySet<string>;
   /// Rows may enter (`RowFrameSources.entering`): not while a session switch loads.
@@ -252,6 +253,7 @@ export function drawRowFrames(
           rowWidth={view.rowWidth}
           expanded={isExpanded}
           observer={view.observer}
+          observeBorderBox={view.observeBorderBox}
           queueDrawn={view.queueDrawn}
           sendThinking={inputs.sendThinking}
           enter={inputs.enter}

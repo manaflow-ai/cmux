@@ -5,6 +5,8 @@
 // keeps the height already placed. The placed heights are the same as when the commit read them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { BOOK_EDITION, BOOK_REVISION } from "../src/agent-session/acpmux/rows/bookRevision";
+import type { MeasuredRow } from "../src/agent-session/acpmux/rows/heights";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
@@ -52,6 +54,11 @@ const replacements: Record<string, unknown> = {
     disconnect() {}
   },
   ResizeObserver: RecordingResizeObserver,
+  ResizeObserverEntry: class {
+    get borderBoxSize() {
+      return [];
+    }
+  },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -177,6 +184,113 @@ test("streamed tokens read no row height in their commit, and place the reply as
     // No height read in any token's commit.
     expect(reads).toEqual(Array.from({ length: TOKENS }, () => 0));
   } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("v2 places the delivered border box, including a visible empty row", async () => {
+  observers.length = 0;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          chatRowsV2
+          rows={turnView(transcript(0), new Set())}
+          expanded={new Set()}
+          onToggleActivity={() => {}}
+        />,
+      ),
+    );
+    await act(nextFrame);
+    const answer = answerNode();
+    const observer = observers.find((item) => item.targets.has(answer));
+    expect(observer).toBeDefined();
+    const deliver = (width: number, height: number) =>
+      act(async () => {
+        observer!.callback([
+          {
+            target: answer,
+            borderBoxSize: [{ inlineSize: width, blockSize: height }],
+          } as unknown as ResizeObserverEntry,
+        ]);
+      });
+    await deliver(760, 210.5);
+    const start = spacerHeight();
+    // Hidden by the host: retain the measured height until the row is laid out again.
+    await deliver(0, 0);
+    expect(spacerHeight()).toBe(start);
+    await deliver(760, 0);
+    expect(spacerHeight()).toBeLessThan(start - 200);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a reopened v2 subscription places a native height and reports a changed border box", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const source = { ...row("row-17", "user", "Question", 99), [BOOK_REVISION]: 3, [BOOK_EDITION]: 7 };
+  const page = dom.window as unknown as Window;
+  const written: MeasuredRow[] = [];
+  const requested: Omit<MeasuredRow, "height">[] = [];
+  let cached: number | null = null;
+  let cachedEdition: number | null = null;
+  page.cmuxAcpmuxActions = {
+    "chat.rows.heights.read": async ({ rows }) => {
+      const keys = rows as Omit<MeasuredRow, "height">[];
+      requested.push(...keys);
+      return { rows: keys.map((key) => ({ ...key, edition: cachedEdition ?? key.edition, height: cached })) };
+    },
+    "chat.rows.heights.write": async ({ entries }) => {
+      written.push(...(entries as MeasuredRow[]));
+      return { stored: written.length };
+    },
+  };
+  const render = (sid: string) =>
+    root.render(
+      <VirtualTranscript
+        key={sid}
+        heightSid={sid}
+        sessionId="book"
+        chatRowsV2
+        rows={[source]}
+        expanded={new Set()}
+        onToggleActivity={() => {}}
+      />,
+    );
+  try {
+    await act(async () => render("first"));
+    await act(nextFrame);
+    const node = page.document.querySelector<HTMLElement>('[data-row-id="row-17"]')!;
+    const observer = observers.find((item) => item.targets.has(node))!;
+    const report = (height: number) =>
+      act(async () =>
+        observer.callback([
+          {
+            target: node,
+            borderBoxSize: [{ inlineSize: 760, blockSize: height }],
+          } as unknown as ResizeObserverEntry,
+        ]),
+      );
+    const estimated = spacerHeight();
+    await report(1380.5);
+    const placed = spacerHeight();
+    expect(placed).toBeGreaterThan(estimated + 500);
+    expect(written.at(-1)).toMatchObject({ id: 17, rev: 3, edition: 7, height: 1380.5 });
+    await report(1380.5);
+    expect(written).toHaveLength(1);
+    cached = written[0].height;
+    await act(async () => render("second"));
+    await act(nextFrame);
+    const { height: _, ...expected } = written[0];
+    expect(requested.at(-1)).toEqual(expected);
+    expect(spacerHeight()).toBe(placed);
+    cachedEdition = 6;
+    await act(async () => render("stale-edition"));
+    await act(nextFrame);
+    expect(spacerHeight()).toBe(estimated);
+  } finally {
+    delete page.cmuxAcpmuxActions;
     await act(async () => root.unmount());
   }
 });

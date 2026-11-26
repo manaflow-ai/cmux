@@ -118,7 +118,7 @@ export function PromptText({
       const entry = width > 0 ? longPrompts.get(rowId) : undefined;
       return entry && entry.text === text && entry.join === join ? entry.widths.get(width) : undefined;
     };
-    const measure = (width: number) => {
+    const measure = (width: number, bubbleHeight?: number) => {
       const first = !measuredHere.current;
       measuredHere.current = true;
       const known = first ? kept(width) : undefined;
@@ -135,7 +135,18 @@ export function PromptText({
       // as before), clamped it is a clipping box, and neither changes its content's boxes. Two
       // measures (its lines' Range open, its scrollHeight clamped) disagreed on text clipped inside
       // it, a folded pick's report: Show less flipped the fold until React's update limit.
-      const height = laidOutHeight(node);
+      // When a whole plain-text prompt already fits inside the bubble's delivered
+      // content box, its inline text fits too. Rich and clipped content still needs
+      // its own extent (a folded pick can clip a larger subtree).
+      const shortPlain =
+        !collapsed &&
+        bubbleHeight !== undefined &&
+        bubbleHeight > 0 &&
+        bubbleHeight <= COLLAPSED_PROMPT_LINES * lineHeight + 1 &&
+        node.childNodes.length === 1 &&
+        node.firstElementChild?.matches(".cv-user__typed") &&
+        !node.firstElementChild.childElementCount;
+      const height = shortPlain ? bubbleHeight : laidOutHeight(node);
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
@@ -170,7 +181,12 @@ export function PromptText({
     // 2026-11-15: "there is layout shift here... why...", a chat shown again).
     const observer = new ResizeObserver((entries?: ResizeObserverEntry[]) => {
       const entry = entries?.[entries.length - 1];
-      flushSync(() => measure(Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0)));
+      flushSync(() =>
+        measure(
+          Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0),
+          entry?.contentRect?.height,
+        ),
+      );
     });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);

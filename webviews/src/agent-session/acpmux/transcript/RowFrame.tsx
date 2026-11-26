@@ -144,6 +144,7 @@ export const RowFrame = React.memo(function RowFrame({
   rowWidth,
   expanded,
   observer,
+  observeBorderBox,
   queueDrawn,
   sendThinking,
   enter,
@@ -212,6 +213,7 @@ export const RowFrame = React.memo(function RowFrame({
   rowWidth: number;
   expanded: boolean;
   observer: ResizeObserver | undefined;
+  observeBorderBox?: boolean;
   queueDrawn: QueueDrawn;
   /// This thinking row belongs to a prompt that entered on the current send. It may be separated
   /// from that prompt by finished activity rows, so the style cannot rely on adjacent siblings.
@@ -369,9 +371,9 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !observer) return;
-    observer.observe(node);
+    observer.observe(node, observeBorderBox ? { box: "border-box" } : undefined);
     return () => observer.unobserve(node);
-  }, [observer]);
+  }, [observer, observeBorderBox]);
   // What the last queue was for, but the version: a commit that changed only the version (a streamed
   // token) is one the row's observer reports when it changed the row's size (queueDrawn).
   const queuedFor = useRef<readonly unknown[] | undefined>(undefined);

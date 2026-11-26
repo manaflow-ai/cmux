@@ -98,6 +98,8 @@ impl State {
         let mut ids = std::collections::BTreeSet::new();
         if state.prompts.len() > 32
             || state.settled_prompts.len() > 32
+            || state.recent_calls.len() > 64
+            || state.recent_calls.iter().any(|(_, id)| *id == 0 || *id > state.last_id)
             || state.forced_tools.len() > 64
             || state.forced_order.len() > 64
             || state
