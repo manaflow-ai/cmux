@@ -1,6 +1,7 @@
 // A window-local queue for agent questions. Sorting changes this view only.
 // Install: copy this file into ~/.config/cmux/sidebars/ and select waiting-workspaces.
 const statuses = { needs_input: "Waiting for you", working: "Working", idle: "Idle", ended: "Ended" };
+const priority = { ended: 1, idle: 2, working: 3, needs_input: 4 };
 let observedStarts = new Map();
 
 function workspaceRow(workspace, nextStarts, observedAt) {
@@ -11,7 +12,7 @@ function workspaceRow(workspace, nextStarts, observedAt) {
     const row = {
       id: tab.id, surfaceId: tab.surfaceId, title: tab.title, branch: tab.branch,
       dirty: tab.dirty, directory: tab.directory, prompt: tab.latestPrompt,
-      selected: workspace.selected && tab.focused, pinned: tab.pinned, status: "", wait: null,
+      selected: workspace.selected && tab.focused, pinned: tab.pinned, status: "", rank: 0, wait: null,
     };
     if (tab.surfaceId) bySurface.set(tab.surfaceId, row);
     byPanel.set(tab.id, row);
@@ -22,13 +23,16 @@ function workspaceRow(workspace, nextStarts, observedAt) {
   for (const agent of workspace.agents ?? []) {
     const tab = agent.surfaceId ? bySurface.get(agent.surfaceId) : byPanel.get(agent.panelId);
     if (!tab) continue;
-    if (!tab.status) tab.status = statuses[agent.status] || "";
+    const rank = priority[agent.status] ?? 0;
+    if (rank > tab.rank) {
+      tab.rank = rank;
+      tab.status = statuses[agent.status];
+    }
     if (agent.status !== "needs_input" || !tab.surfaceId) continue;
     const key = JSON.stringify([workspace.id, tab.surfaceId, agent.id]);
     const start = agent.sinceEpoch ?? observedStarts.get(key) ?? observedAt;
     nextStarts.set(key, start);
     tab.wait = tab.wait === null ? start : Math.min(tab.wait, start);
-    tab.status = statuses.needs_input;
   }
   const waiting = surfaces.filter((tab) => tab.wait !== null).sort((a, b) => a.wait - b.wait);
   return {
@@ -66,22 +70,39 @@ const view = computed(() => {
   }
   queue.sort((a, b) => a.start - b.start);
   loose.sort(waitOrder);
-  let looseIndex = 0;
   const rows = [];
-  for (const workspace of workspaces) {
-    const group = groups.get(workspace.group);
-    if (!group) {
-      rows.push({ kind: "workspace", ...loose[looseIndex++] });
-      continue;
-    }
-    // Place a group at its anchor's manual position, independent of wait rank.
-    group.anchor ??= group.members.find((w) => w.id === group.anchorId) ?? group.members[0];
-    if (workspace !== group.anchor) continue;
+  function appendGroup(group) {
     const waitingCount = group.members.filter((w) => w.waiting.length).length;
     rows.push({ kind: "group", id: group.id, title: group.name, collapsed: group.collapsed, waitingCount });
     if (!group.collapsed) {
       for (const member of group.members.sort(waitOrder)) rows.push({ kind: "workspace", ...member });
     }
+  }
+  // Headers with no surviving workspace still have a position in data.groups.
+  // Insert each before the next live group in its tier, or at the end of the tier.
+  for (const pinned of [true, false]) {
+    const byAnchor = new Map();
+    let empty = [];
+    for (const group of groups.values()) {
+      if (Boolean(group.pinned) !== pinned) continue;
+      if (!group.members.length) {
+        empty.push(group);
+        continue;
+      }
+      const anchor = group.members.find((w) => w.id === group.anchorId) ?? group.members[0];
+      byAnchor.set(anchor.id, [...empty, group]);
+      empty = [];
+    }
+    const looseInTier = loose.filter((w) => Boolean(w.pinned) === pinned);
+    let looseIndex = 0;
+    for (const workspace of workspaces) {
+      if (byAnchor.has(workspace.id)) {
+        for (const group of byAnchor.get(workspace.id)) appendGroup(group);
+      } else if (!groups.has(workspace.group) && Boolean(workspace.pinned) === pinned) {
+        rows.push({ kind: "workspace", ...looseInTier[looseIndex++] });
+      }
+    }
+    for (const group of empty) appendGroup(group);
   }
   return { rows, queue };
 });
