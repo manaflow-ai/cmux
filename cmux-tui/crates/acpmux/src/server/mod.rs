@@ -47,6 +47,7 @@ mod app_reply;
 mod attach_latency_bench;
 mod auto_gate;
 pub(crate) mod bg_rearm;
+mod autocloud_enroll;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -112,6 +113,7 @@ mod in_flight;
 mod inbox_gate_tests;
 pub(crate) mod interest;
 mod inventory_watch;
+pub(crate) mod joined_capacity;
 #[cfg(test)]
 mod key_route_tests;
 mod keys_relay;
