@@ -1886,6 +1886,38 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
 
+    def checkout_death_setup(self):
+        # cmux#51655 at fd3c0b17: 'changes' died fetching in actions/checkout (git exit 128), before any PR step ran.
+        checkout = "Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+        self.gh.jobs[1]["steps"] = [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1,
+             "started_at": "2026-11-25T19:16:17Z", "completed_at": "2026-11-25T19:16:18Z"},
+            {"name": checkout, "status": "completed", "conclusion": "failure", "number": 2,
+             "started_at": "2026-11-25T19:16:19Z", "completed_at": "2026-11-25T19:17:24Z"},
+            {"name": "Complete job", "status": "completed", "conclusion": "success", "number": 3,
+             "started_at": "2026-11-25T19:17:24Z", "completed_at": "2026-11-25T19:17:25Z"}]
+        self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
+
+    def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
+        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        self.checkout_death_setup()
+        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
+                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+            self.judge()
+
+    def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
+        self.checkout_death_setup()
+        json_of = self.gh.json
+        for changed in ({"filename": ".gitmodules", "blob_url": "https://github.com/b", "patch": "+x"},
+                        {"filename": "ghostty-next", "blob_url": None, "patch": "+Subproject commit abc"}):
+            def json(route, *, paginate=False, changed=changed):
+                found = json_of(route, paginate=paginate)
+                return dict(found, files=[changed]) if f"/compare/feat-cmux-next...{HEAD}" in route else found
+            self.gh.json = json
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+            self.assertNotIn("actions/checkout step", str(said.exception))
+
     def test_a_job_with_no_steps_is_never_excused(self):
         self.gh.jobs[1]["steps"] = []
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
@@ -6098,6 +6130,7 @@ class InheritedCompileRed(unittest.TestCase):
 
     def setUp(self):
         self.receipts = {self.PR_HEAD: "fail", self.MERGE_BASE: "fail", self.TIP: "pass"}
+        self.superseded_by: dict[str, str] = {}
         self.status = {"context": "cmux-next/compile", "state": "failure", "target_url": self.SOURCE_RUN,
                        "description": "The app did not compile in SwiftPM Release (-Onone); see the log"}
         self.gh = FakeGitHub()
@@ -6119,6 +6152,14 @@ class InheritedCompileRed(unittest.TestCase):
                                f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
                 return status_answer(route, [self.status])
+            # The GitHub path (github_compile_red), read only when the receipts gave no base verdict: this base has no
+            # cmux-next/compile status anywhere, so it cannot decide either and says so.
+            if "commits?sha=feat-cmux-next" in route:
+                self.gh.routes.append(route)
+                return []
+            if "/statuses?per_page=100&page=1" in route:
+                self.gh.routes.append(route)
+                return status_answer(route, [])
             return original(route, paginate=paginate)
 
         self.gh.json = json
@@ -6126,7 +6167,12 @@ class InheritedCompileRed(unittest.TestCase):
         def receipt(repo, sha):
             self.assertEqual(repo, REPO)
             state = self.receipts.get(sha)
-            return None if state is None else {"repo": repo, "sha": sha, "state": state}
+            if state is None:
+                return None
+            found = {"repo": repo, "sha": sha, "state": state}
+            if sha in self.superseded_by:
+                found["superseded_by"] = self.superseded_by[sha]
+            return found
 
         patch = unittest.mock.patch.object(excuse, "compile_receipt", receipt)
         patch.start()
@@ -6166,6 +6212,31 @@ class InheritedCompileRed(unittest.TestCase):
     def test_a_merge_base_with_no_receipt_does_not_excuse(self):
         del self.receipts[self.MERGE_BASE]
         with self.assertRaisesRegex(excuse.Refused, "reads no receipt"):
+            self.judge_status()
+
+    def test_a_merge_base_read_as_superseded_is_no_verdict_and_follows_the_tip_that_covers_it(self):
+        """cmux#50979 (2026-11-25): its head 2e7dd1d9 changed only Swift, the fleet receipt failed on a cmux-tui crate
+        the PR does not touch, and the merge-base fc7c32be read "superseded" -- the controller's word for a push tip it
+        will not check because a newer tip's check covers this commit (fleet_compile_result.judge). That is no verdict
+        about the merge-base, yet it was read as "the red is this head's". The receipt that covers it decides."""
+        covering = "d" * 40
+        self.receipts[self.MERGE_BASE] = "superseded"
+        self.superseded_by[self.MERGE_BASE] = covering
+        self.receipts[covering] = "fail"
+        audit = "\n".join(self.judge_status())
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn(f"{covering[:12]}", audit)
+        self.assertIn(f"merge-base {self.MERGE_BASE[:12]}", audit)
+        # The covering tip compiled: then the red really is this head's.
+        self.receipts[covering] = "pass"
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge_status()
+
+    def test_a_superseded_merge_base_naming_no_covering_tip_lets_github_decide(self):
+        """No `superseded_by` to follow, so the receipts gave no base verdict: GitHub answers the same question
+        (github_compile_red) instead of the refusal claiming the red is the head's."""
+        self.receipts[self.MERGE_BASE] = "superseded"
+        with self.assertRaisesRegex(excuse.Refused, "names no covering tip"):
             self.judge_status()
 
     def test_an_unread_receipt_refuses(self):
@@ -12862,6 +12933,8 @@ RAW_LOG_READERS = {
                        "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
+    "checkout_death": "a gate: a checkout that died before any step of the change ran (test_reds.died_in_checkout); "
+                      "only refuses, for a rerun",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
