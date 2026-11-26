@@ -142,7 +142,7 @@ class FixtureTests(unittest.TestCase):
     def test_a_claude_start_passes_a_login_only_when_asked(self):
         self.assertEqual(self.args.login, "")
         self.assertEqual(matrix.start_login("claude", self.args.login), [])
-        self.assertEqual(matrix.start_login("claude", "none"), ["--login", "none"])
+        self.assertEqual(matrix.start_login("claude", "none"), [])
         self.assertEqual(matrix.start_login("codex", "none"), [])
 
     def test_a_stale_machine_list_refusal_is_asked_again(self):
@@ -163,7 +163,8 @@ class LaunchTests(unittest.TestCase):
     def test_socket_travels_only_as_the_next_knob(self):
         argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging", "/tmp/c.json")
         envs = [argv[i + 1] for i, word in enumerate(argv) if word == "--env"]
-        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock", "CMUX_NEXT_CONFIG_FILE=/tmp/c.json"])
+        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock", "CMUX_NEXT_CONFIG_FILE=/tmp/c.json",
+                                "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
         self.assertEqual(argv[-3:], ["--args", "--cloud-backend", "staging"])
 
     def test_credentials_sign_the_launched_app_in(self):
@@ -203,6 +204,26 @@ class GrantTests(unittest.TestCase):
         self.assertNotIn(".config/cmux", str(config))
         m.quit()
         self.assertFalse(config.exists())
+
+    def test_list_machines_never_loading_says_why(self):
+        from unittest.mock import patch
+        m = matrix.Matrix(matrix.parse_args([*self.APP]))
+        app = str(Path(m.args.app).resolve())
+        answers = {("app", "identify", "--json"): {"pid": 1, "app_bundle_path": app},
+                   ("app", "call", "auth.status", "--json"): {"signed_in": True, "cloud_environment": m.args.cloud_backend,
+                                                              "backend": m.args.expected_api_origin or ""},
+                   ("cloud", "list-machines", "--json"): {"account": {"signed_in": True}, "loaded": False},
+                   ("app", "call", "cloud.machines", "--json"): {"last_error": "machines read: 503", "link_route": None}}
+        clock = [0.0]
+        with patch.object(m, "cmux", side_effect=lambda *w, timeout: (0, json.dumps({"result": answers[w]}), "")), \
+                patch("subprocess.Popen"), patch("time.monotonic", side_effect=lambda: clock[0]), \
+                patch("time.sleep", side_effect=lambda s: clock.__setitem__(0, clock[0] + s)), \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            why = m.launch()
+            m.launcher = None
+            m.quit()
+        self.assertTrue(why.startswith("the app is not ready: cloud list-machines after 300 s"), why)
+        self.assertIn("machines read: 503", why)
 
     def test_cache_claude_login_stores_for_the_signed_in_account_and_removes_at_quit(self):
         from unittest.mock import patch
@@ -246,7 +267,7 @@ class GrantTests(unittest.TestCase):
             m.quit()
             self.assertEqual(sorted(words for words, _ in calls), sorted([["cloud", "secret", "rm", e] for e in entries]
                              + [["cloud", "connections", "--remove", "conn-1", "--keychain-account", "claude-token-0a1b2c3d"]]))
-        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
+        self.assertEqual(matrix.start_login("claude", "pass"), [])
 
 
 class TrustTests(unittest.TestCase):
