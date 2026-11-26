@@ -358,6 +358,7 @@ extension MacConversationViewController {
     func sendLaterMenu(rowID: String, anchor: NSView, cancelTitle: Bool = false) -> NSMenu {
         let menu = NSMenu()
         if store.message(rowID: rowID)?.delivery?.isFailed == true {
+            // retry-prompt-ok: re-sends a scheduled message
             menu.addItem(MacClosureMenuItem(title: String(localized: "conversation.sendLater.tryAgain", defaultValue: "Try Again", bundle: .module)) { [weak self] in
                 self?.store.retryScheduled(rowID: rowID)
             })
