@@ -394,7 +394,10 @@ fn a_burst_of_due_terminals_all_type_in_one_pass_and_none_compacts_cold() {
     timer.fire_due(start, |t, _| Some(&fakes[index(t)]));
     assert!(began.elapsed() < SUBMIT_GAP, "one pass never waits on a gap");
     assert!(fakes.iter().all(|fake| written(fake) == "/compact"));
-    timer.fire_due(timer.next_due().unwrap(), |t, _| Some(&fakes[index(t)]));
+    // Each Return waits its own full gap after its own `/compact`.
+    let last_submit = timer.armed.values().map(|entry| entry.due).max().unwrap();
+    assert!(timer.armed.values().all(|entry| entry.stage == Stage::Submit));
+    timer.fire_due(last_submit, |t, _| Some(&fakes[index(t)]));
     assert!(fakes.iter().all(|fake| written(fake) == "/compact\r"));
 }
 
