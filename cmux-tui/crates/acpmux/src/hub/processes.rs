@@ -1087,6 +1087,7 @@ impl Hub {
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
+            tracing::warn!("PROBE process_table first read");
             *table = self.read_processes(session);
             table.shrink(true);
         }
@@ -1124,7 +1125,10 @@ impl Hub {
     /// Replaces `table` with the session's whole history from its log, keeping what only this
     /// daemon knows: the stops a person asked for and the preview watches running.
     fn read_whole(&self, session: &Session, table: &mut ProcessTable) {
+        let probe = std::time::Instant::now();
+        tracing::warn!("PROBE read_whole begin bt={}", std::backtrace::Backtrace::force_capture());
         let mut whole = self.read_processes(session);
+        tracing::warn!("PROBE read_whole took {:?}", probe.elapsed());
         whole.watching = std::mem::take(&mut table.watching);
         whole.stopping = std::mem::take(&mut table.stopping);
         whole.held_whole = table.held_whole;
@@ -1160,7 +1164,13 @@ impl Hub {
             false
         });
         table.through = table.through.max(last);
-        if !self.fold_processes(session, &mut table, after, u64::MAX) {
+        let probe = std::time::Instant::now();
+        let ok = self.fold_processes(session, &mut table, after, u64::MAX);
+        tracing::warn!(
+            "PROBE read_processes_from after={after} ok={ok} took {:?}",
+            probe.elapsed()
+        );
+        if !ok {
             // A record reached past what the saved table holds: the whole log, as with none.
             table = ProcessTable { loaded: true, through: last, ..ProcessTable::default() };
             self.fold_processes(session, &mut table, 0, u64::MAX);
@@ -1205,6 +1215,7 @@ impl Hub {
             match f {
                 Folded::Task { at, params } => {
                     if table.fold_needs_history(session, &params) {
+                        tracing::warn!("PROBE fold_needs_history seq={seq} params={params}");
                         return false;
                     }
                     table.fold(session, &params, at, None);
@@ -1212,6 +1223,10 @@ impl Hub {
                 Folded::Update(process) => {
                     if let Some(process) = process {
                         if table.upsert_needs_history(&process) {
+                            tracing::warn!(
+                                "PROBE upsert_needs_history seq={seq} id={}",
+                                process.id
+                            );
                             return false;
                         }
                         table.upsert(*process);
@@ -1238,7 +1253,13 @@ impl Hub {
             None => ProcessTable { loaded: true, ..ProcessTable::default() },
         };
         let after = table.through;
-        if !self.fold_processes(session, &mut table, after, through.saturating_add(1)) {
+        let probe = std::time::Instant::now();
+        let ok = self.fold_processes(session, &mut table, after, through.saturating_add(1));
+        tracing::warn!(
+            "PROBE processes_through after={after} through={through} ok={ok} took {:?}",
+            probe.elapsed()
+        );
+        if !ok {
             table = ProcessTable { loaded: true, ..ProcessTable::default() };
             self.fold_processes(session, &mut table, 0, through.saturating_add(1));
         }

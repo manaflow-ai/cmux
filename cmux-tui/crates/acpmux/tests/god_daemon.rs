@@ -2532,6 +2532,11 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (_, second_peak_rss) = daemon.rss();
     drop(rpc);
     daemon.stop();
+    for line in std::fs::read_to_string(&daemon.log).unwrap_or_default().lines() {
+        if line.contains("PROBE") {
+            eprintln!("PROBE-LINE {label} {}", line.chars().take(12000).collect::<String>());
+        }
+    }
     let home_bytes: u64 = home_files(&home).values().sum();
     let result = json!({
         "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
