@@ -227,7 +227,7 @@ public final class GhosttyRuntime {
         }
         let fallbackFamilies = fontOverride.family == nil ? [] : GhosttyConfigFontFamily.families(
             inFiles: finalizedLoadedFiles(of: config))
-        for line in fontOverrideLines(fontOverride, fallbackFamilies: fallbackFamilies) {
+        for line in fontOverrideLines(fontOverride, fallbackFamilies: fallbackFamilies) + fontOverride.cursorLines {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         return finalizeConfig(config, diagnostics: &diagnostics, opacity: &opacity, theme: theme)
