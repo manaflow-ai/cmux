@@ -129,10 +129,15 @@ impl Enrollment {
 
     /// The setting's value for this enrollment (what `_acpmux/autocloud_enroll` saves).
     pub fn to_value(&self) -> Value {
-        let mut v = serde_json::to_value(&self.policy).unwrap_or_else(|_| json!({}));
-        v["enabled"] = json!(self.enabled);
-        v["idleSecs"] = json!(self.idle_secs);
-        v
+        // `IndexMut` on a `Value` panics on a non-object; a policy that does not serialize to
+        // an object starts from an empty one instead.
+        let mut map = match serde_json::to_value(&self.policy) {
+            Ok(Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        map.insert("enabled".into(), json!(self.enabled));
+        map.insert("idleSecs".into(), json!(self.idle_secs));
+        Value::Object(map)
     }
 
     /// This enrollment with the fields `params` names replaced: `enabled`, `teams`, `agents`,
