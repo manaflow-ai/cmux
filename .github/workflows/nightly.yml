@@ -144,6 +144,18 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
+    # The main app ticks (15-minute and daily backstop) decide one at a time.
+    # The in-flight cap below counts other runs' app jobs, which exist only
+    # after their decide finished, so two decides running at once cannot see
+    # each other. That happened when the decide runner pool stalled: ticks
+    # piled up with decide queued, then all decided together, each counted
+    # fewer than 3 builds, and five main runs were in flight (run 45668811281).
+    # One group holds one running decide and one pending; a newer tick replaces
+    # only a pending decide that has not started (it would build an older head),
+    # and nothing running is cancelled. Every other run keeps its own group.
+    concurrency:
+      group: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.event.schedule != '17 */6 * * *' && 'nightly-main-tick-decide' || format('nightly-decide-{0}', github.run_id) }}
+      cancel-in-progress: false
     # Main's decide is a keyless metadata job, so it runs on a Linux JIT
     # runner, never a nightly mini: queued there behind a build, every push's
     # decide waited for the mini and the runs drained in a burst when it freed
@@ -406,9 +418,15 @@ jobs:
                     // runner pool were invisible here, and every tick started another (11-25, five at once).
                     const isLive = (job) => job.status !== 'completed' || job.conclusion === 'success';
                     const appJobs = jobs.filter((job) => /^build-nightly-app/.test(job.name));
+                    // A run whose decide finished but whose pick job GitHub has not created yet
+                    // may be building: count it, so the previous tick's run is never missed in
+                    // the seconds between its decide ending and this one starting.
+                    const pickJob = jobs.find((job) => /^pick-nightly-app-runner/.test(job.name));
+                    const decided = jobs.find((job) => job.name === 'decide' &&
+                      job.status === 'completed' && job.conclusion === 'success');
                     const building = appJobs.length > 0
                       ? appJobs.find(isLive)
-                      : jobs.find((job) => /^pick-nightly-app-runner/.test(job.name) && isLive(job));
+                      : pickJob ? (isLive(pickJob) && pickJob) : decided;
                     if (!building) continue;
                     inFlight.push(run);
                     if (run.head_sha === headSha && !duplicateOfRun) duplicateOfRun = run;
