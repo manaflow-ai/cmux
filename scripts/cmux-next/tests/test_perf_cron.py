@@ -280,6 +280,22 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
 
+    def test_a_due_part_with_a_goal_goes_before_the_other_due_parts(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"chat-anim": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.PART_BY_NAME["chat-anim"].get("goal"), "typing-latency")
+        state["last"] = {"rows": {"sidebar.400.scroll.frame@host": {"p95": 1}}}  # sidebar: no stored rows, a row read
+        self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "fresh", "chat-anim"], t),
+                         ["build", "fresh", "chat-anim", "sidebar", "motion"],
+                         "only a part with no row anywhere goes before the goal's part")
+
+    def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
+        state = cron.empty_state(T0)
+        t = at(1)
+        state["part_stored"] = {"chat-anim": {"at": cron.iso(t)}, "motion": {"at": cron.iso(t)}}
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t), ["build", "motion", "chat-anim"])
+
     def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
         state = cron.empty_state(T0)
         state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0)}}
@@ -3670,6 +3686,37 @@ class NoHostTipTests(OneRunRule):
                          {"web-ui": "done", "build": "no_tree", "motion": "no_tree"})
         self.assertIn("no published cmux-tui tree", cur["parts"]["motion"]["reason"])
 
+    def test_a_tip_whose_tree_never_comes_gives_its_linux_parts_a_bound(self):
+        """2026-11-23: tip 2322b92a's Mac parts ended no_tree at 19:14Z, and its 16 Linux parts still to do held the
+        next tip (tree published, tabs never read) back past 22:30Z."""
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui", "coord-sim"], None, tree_ready=no_tree)
+        cur = state["current"]
+        t = cron.TREE_WAIT_HOURS + 0.1
+        d = cron.decide(state, at(t), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual(d["action"], "part", "the Linux parts may still run")
+        self.assertEqual(sorted(d["linux_parts"]), ["coord-sim", "web-ui"])
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS / 2), None, None, lambda sha: [], None,
+                        tree_ready=no_tree)
+        self.assertNotEqual(d["action"], "finish", "inside its bound it keeps the Linux parts")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, lambda sha: [], None,
+                        tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"]), ("finish", self.NEW), d["reason"])
+        self.assertEqual(cur["parts"]["motion"]["state"], "no_tree")
+        self.assertEqual(cur["parts"]["coord-sim"]["state"], "superseded")
+
+    def test_a_no_tree_tip_from_before_the_bound_ends_its_linux_parts_at_once(self):
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui"], None, tree_ready=no_tree)
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if not cron.is_linux_part(n)]:
+            cur["parts"][name] = {"state": "no_tree", "reason": "no published cmux-tui tree of x for 2 h"}
+            cur["parts_todo"].remove(name)
+        d = cron.decide(state, at(9), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"]), ("finish", self.NEW), d["reason"])
+
     def test_a_bisect_step_never_waits_for_a_tree(self):
         state = cron.empty_state(T0)
         state["current"] = cron.new_measurement(self.OLD, "bisect", ["build", "motion"], T0, {"good": "9" * 40, "bad": "8" * 40})
@@ -4888,6 +4935,57 @@ class UnreadPartFirstTests(unittest.TestCase):
             cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
         d = cron.decide(state, at(cron.PART_STALE_HOURS + 5), None, None, self.supported, None)
         self.assertEqual(d["action"], "finish", "the next tip measures every part anyway")
+
+    def test_a_tip_whose_build_failed_frees_the_mac_at_once(self):
+        # 2026-11-25: tip 6c8931ce22be's app build failed at 10:32Z (exit 65), and its Linux parts held the Mac pass of
+        # the next tip, b4a3f501, until 19:51Z: terminal_throughput_vs_ghostty_ratio went stale.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER}, "u", T0)
+        cron.record_part(cur, "coord-sim", {"state": "done"}, "u", T0)  # a Linux part that ran with the build
+        d = cron.decide(state, at(0.3), None, None, self.supported, None, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer commit: it keeps going")
+        self.assertIn("diff-viewer", d["linux_parts"])
+        d = cron.decide(state, at(0.6), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish", "the next tip claims the Mac at this tick")
+        self.assertIn("build failed", d["reason"])
+        parts = state["current"]["parts"]
+        self.assertEqual(parts["coord-sim"]["state"], "done", "a Linux part that finished keeps its rows")
+        self.assertEqual(parts["diff-viewer"]["state"], "superseded")
+        self.assertEqual(parts["throughput"]["state"], "build_failed", "the build failure is still reported")
+        self.assertEqual(parts["build"]["state"], "failed")
+        cron.finish_measurement(state, {}, 8.33, None, "u", at(0.6), budgets_mod)
+        self.assertTrue(state["history"][-1]["build_failed"])
+        self.assertEqual(state["history"][-1]["failed_why"]["throughput"], "build_failed")
+        self.assertTrue(cron.last_tip_build_failed(state))
+        cron.decide(state, at(0.6), self.NEW, None, self.supported, None)
+        self.assertEqual(state["current"]["sha"], self.NEW)
+        self.assertEqual(state["current"]["parts_todo"][0], "build", "its Mac pass starts at the same tick")
+
+    def test_a_tip_whose_build_failed_after_another_gives_way_after_its_linux_bound(self):
+        # A second tip in a row whose build failed: the base is likely broken, so its Linux parts keep their bound
+        # (SUPERSEDED_LINUX_HOURS) rather than every tip ending before any Linux part finished.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True}]
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER}, "u", T0)
+        self.assertTrue(cron.build_failed_tip(cur))
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer commit: it keeps going")
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(state["current"]["superseded"]["by"], self.NEW)
+        self.assertIn("coord-sim", d["linux_parts"], "its Linux parts still run inside the bound")
+        d = cron.decide(state, at(1 + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertIn("build failed", d["reason"])
+
+    def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
+        cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
+        self.assertFalse(cron.build_failed_tip(cur), "a bisect step skips the commit when it ends (drop_dead_measurement)")
 
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
         state = self.mid_tip()

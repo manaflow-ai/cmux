@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// The workspace hover card (Codex parity, Leo 2026-10-08): a title row
 /// (the name, a kind or host icon, the relative age) and one row per
 /// meaningful fact (`WorkspaceHoverCardContent`); CPU and memory summed over
-/// its tabs show as one muted line, only when notable. It replaces the row
+/// its tabs show as one line in the details, warm when hot. It replaces the row
 /// tooltip.
 ///
 /// Resources are sampled only while the card's details are expanded; collapsing

@@ -205,7 +205,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button (Continue with ChatGPT, Set
     /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
     /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
-    case cloudSetUp(key: String, action: String, family: String)
+    /// With no `key` (the model picker's set up button, cmux#51731) it only runs that way in and waits: no start keeps the click.
+    case cloudSetUp(key: String?, action: String, family: String)
+    /// `cloud.setupState`: which families a Cloud chat can run now (``CloudSetup/serving()``), for the composer's
+    /// model picker with Cloud picked. Reads only; no gesture.
+    case cloudSetupState
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
@@ -225,6 +229,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
     /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
     case cloudHandoffTurn(sessionId: String)
+    /// `cloud.forkFirst {sessionId, permissionId, optionId, machine, clientKey}`: "Fork first" on a risky
+    /// step's card in a Cloud chat (``AgentPaneForkFirst``, ``AgentPaneModel/onCloudForkFirst``).
+    case cloudForkFirst(AgentPaneForkFirst)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
