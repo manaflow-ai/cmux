@@ -20,7 +20,7 @@ use super::model::*;
 use super::order_key;
 use serde_json::Value;
 
-pub use super::check::{check, diff, fit_title, repair};
+pub use super::check::{check, clear_in_group_pins, diff, fit_title, repair};
 
 /// The rows one apply changed.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -599,19 +599,15 @@ pub(super) fn neighbors(
     })
 }
 
-/// Move `ids` (in this order, as one run) to `to`.
-pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
-    let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
-    for id in ids {
-        if !moved.contains(id) {
-            moved.push(id.clone());
-        }
-    }
-    if moved.is_empty() {
-        return Ok(());
-    }
-    let moved_set: HashSet<ItemId> = moved.iter().cloned().collect();
-    let section = tx.doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
+/// Validate a destination before mutation, including remembered Unpin targets
+/// whose group topology or machine may have changed since Pin.
+fn validate_placement(
+    doc: &Doc,
+    moved: &[ItemId],
+    moved_set: &HashSet<ItemId>,
+    to: &Target,
+) -> Result<(), Refusal> {
+    let section = doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
     if matches!(section.kind, SectionKind::App { .. }) {
         return Err(Refusal::ProviderOwned);
     }
@@ -619,38 +615,37 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
     let mut parent_machine = None;
     let mut parent_level = 0;
     if let Some(parent) = &to.parent {
-        let group = tx.doc.item(parent).ok_or(Refusal::UnknownItem)?;
+        let group = doc.item(parent).ok_or(Refusal::UnknownItem)?;
         if !group.body.is_group() || group.section != to.section {
             return Err(Refusal::Nesting);
         }
         // Not into itself or anything under a moved group.
         if moved_set.contains(parent)
-            || tx.doc.ancestors(group).iter().any(|ancestor| moved_set.contains(&ancestor.id))
+            || doc.ancestors(group).iter().any(|ancestor| moved_set.contains(&ancestor.id))
         {
             return Err(Refusal::InvalidTarget);
         }
-        parent_level = tx.doc.group_level(group);
-        let root = tx.doc.root(group);
-        parent_machine = tx
-            .doc
+        parent_level = doc.group_level(group);
+        let root = doc.root(group);
+        parent_machine = doc
             .descendants(root)
             .into_iter()
             .filter(|child| {
                 !moved_set.contains(&child.id)
-                    && !tx.doc.ancestors(child).iter().any(|a| moved_set.contains(&a.id))
+                    && !doc.ancestors(child).iter().any(|a| moved_set.contains(&a.id))
             })
             .find_map(|child| child.body.workspace().map(|r| r.session_id.clone()));
     }
     let mut moved_machine: Option<String> = None;
-    for id in &moved {
-        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+    for id in moved {
+        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
         if to.parent.is_some()
             && item.body.is_group()
-            && parent_level + tx.doc.group_height(item) > MAX_GROUP_DEPTH
+            && parent_level + doc.group_height(item) > MAX_GROUP_DEPTH
         {
             return Err(Refusal::Nesting);
         }
-        if let Some(machine) = tx.doc.item_machine(item) {
+        if let Some(machine) = doc.item_machine(item) {
             if target_machine.as_ref().is_some_and(|target| *target != machine)
                 || parent_machine.as_ref().is_some_and(|group| *group != machine)
             {
@@ -664,6 +659,22 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             }
         }
     }
+    Ok(())
+}
+
+/// Move `ids` (in this order, as one run) to `to`.
+pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
+    let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
+    for id in ids {
+        if !moved.contains(id) {
+            moved.push(id.clone());
+        }
+    }
+    if moved.is_empty() {
+        return Ok(());
+    }
+    let moved_set: HashSet<ItemId> = moved.iter().cloned().collect();
+    validate_placement(tx.doc, &moved, &moved_set, to)?;
     // Archived items list last (archiving-DESIGN.md): a run that mixes both
     // goes in two steps, and each keeps to its side.
     let (archived, unarchived): (Vec<ItemId>, Vec<ItemId>) =
@@ -777,20 +788,30 @@ fn place_run(
             (ids, item.section.clone())
         })
         .collect();
-    // Where each top-level item entering the Pinned band sat, for Unpin.
+    // Where each item entering the Pinned band sat (its section, the group it was a member of, the
+    // sibling before it), for Unpin.
     let enters_band = to.section == PINNED_SECTION_ID && to.parent.is_none();
     let unpin_to: HashMap<ItemId, Value> = moved
         .iter()
         .filter_map(|id| tx.doc.item(id))
-        .filter(|item| enters_band && item.parent.is_none() && item.section != PINNED_SECTION_ID)
+        .filter(|item| enters_band && (item.section != PINNED_SECTION_ID || item.parent.is_some()))
         .map(|item| {
-            let after = tx.doc.list_entries(&item.section, None).and_then(|set| {
-                Doc::entry_before(set, &(item.order.clone(), item.id.clone()), &|id| {
-                    moved_set.contains(id)
-                })
-            });
+            let after =
+                tx.doc.list_entries(&item.section, item.parent.as_deref()).and_then(|set| {
+                    Doc::entry_before(set, &(item.order.clone(), item.id.clone()), &|id| {
+                        moved_set.contains(id)
+                    })
+                });
             let after = after.map_or(Value::Null, |(_, id)| Value::String(id.clone()));
-            (item.id.clone(), serde_json::json!({ "section": item.section, "after": after }))
+            let mut place = serde_json::Map::new();
+            place.insert("section".into(), Value::String(item.section.clone()));
+            place.insert("after".into(), after);
+            place.insert("order".into(), Value::String(item.order.clone()));
+            if let Some(parent) = &item.parent {
+                place.insert("parent".into(), Value::String(parent.clone()));
+            }
+            let place = Value::Object(place);
+            (item.id.clone(), place)
         })
         .collect();
     for (id, key) in assignments {
@@ -803,7 +824,7 @@ fn place_run(
                 if item.parent != to.parent {
                     item.extra.remove(PINNED_IN_GROUP_KEY);
                 }
-                if to.section != PINNED_SECTION_ID {
+                if to.section != PINNED_SECTION_ID || to.parent.is_some() {
                     item.extra.remove(UNPIN_TO_KEY);
                 }
                 if let Some(place) = remembered {
@@ -857,29 +878,20 @@ fn ensure_pinned_section(tx: &mut Tx) {
     tx.put_section(section);
 }
 
-/// Pin (plans/cmux-next/pinning-DESIGN.md). A group member stays in its
-/// group, marked pinned, after the group's other pinned members. Any other
-/// item goes to the end of the Pinned band; [`place`] remembers where it was.
+/// Pin (plans/cmux-next/pinning-DESIGN.md): the item goes to the end of the
+/// Pinned band, a group member too, and [`place`] remembers where it sat (its
+/// group and neighbor) for Unpin. Leo 2026-11-23 (ask-b5d3e0efb6): "you pin and
+/// it sends it to the fucking top. ok." and "these aren't pinned. they're in a
+/// fucking group": a pinned member that stayed in its group read as a grouped
+/// row with an Unpin on it. A member of a pinned group also moves out of its
+/// group into the band's top-level rows.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     // A pin is not archived: it comes back first.
     unarchive(tx, ids)?;
     let mut moving = Vec::new();
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if let Some(group) = item.parent.clone() {
-            if item.pinned_in_group() {
-                continue;
-            }
-            let section = item.section.clone();
-            tx.edit_item(id, |item| {
-                item.extra.insert(PINNED_IN_GROUP_KEY.into(), Value::Bool(true));
-                Ok(())
-            })?;
-            let index = pinned_members(tx.doc, &section, &group, id);
-            let to =
-                Target { section, parent: Some(group), index: Some(index), ..Target::default() };
-            place(tx, std::slice::from_ref(id), &to)?;
-        } else if item.section != PINNED_SECTION_ID {
+        if item.section != PINNED_SECTION_ID || item.parent.is_some() {
             moving.push(id.clone());
         }
     }
@@ -890,12 +902,82 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
-/// Unpin. A member pinned in its group goes right under the group's other
-/// pinned members; any other group member is not pinned and stays (a tree
-/// pinned with its top group unpins with it). An item in the Pinned band (or a custom section) goes
-/// back where it was pinned from when that place is still there, else to
-/// the top of its own machine section.
+/// Return a selected parent or anchor before any row that remembers it. Rows
+/// that remember the same insertion point must return last sibling first:
+/// each insertion immediately after the shared anchor precedes the last one.
+fn unpin_order(doc: &Doc, ids: &[ItemId]) -> Result<Vec<ItemId>, Refusal> {
+    let selected: HashSet<_> = ids.iter().map(String::as_str).collect();
+    let mut stack = Vec::with_capacity(ids.len());
+    let mut sibling_runs: HashMap<_, Vec<_>> = HashMap::new();
+    for id in ids.iter().rev() {
+        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
+        stack.push((item, false));
+        if let Some(place) = item.extra.get(UNPIN_TO_KEY) {
+            let key = |field: &str| place.get(field).and_then(Value::as_str);
+            if let Some(section) = key("section") {
+                // Old places have no source order. Their order in Pinned is
+                // the only surviving order for siblings with the same place.
+                let order = key("order").unwrap_or(&item.order);
+                let parent = key("parent");
+                // A saved parent is followed across sections, so two rows
+                // pinned before and after their group moved share one run.
+                let run = sibling_runs
+                    .entry((parent.is_none().then_some(section), parent, key("after")))
+                    .or_default();
+                run.push((order, item));
+            }
+        }
+    }
+    let mut later_sibling = HashMap::new();
+    for run in sibling_runs.values_mut() {
+        run.sort_unstable_by_key(|(order, item)| (*order, item.id.as_str()));
+        for ((_, earlier), (_, later)) in run.iter().zip(run.iter().skip(1)) {
+            later_sibling.insert(earlier.id.as_str(), *later);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::with_capacity(ids.len());
+    while let Some((item, ready)) = stack.pop() {
+        if ready {
+            ordered.push(item.id.clone());
+        } else if seen.insert(item.id.as_str()) {
+            stack.push((item, true));
+            if let Some(next) = later_sibling.get(item.id.as_str()) {
+                stack.push((next, false));
+            }
+            if let Some(place) = item.extra.get(UNPIN_TO_KEY) {
+                for field in ["after", "parent"] {
+                    if let Some(anchor) =
+                        place.get(field).and_then(Value::as_str).and_then(|id| doc.item(id))
+                    {
+                        // A member of a selected pinned tree comes back with its root.
+                        let root = doc.root(anchor);
+                        if selected.contains(root.id.as_str()) {
+                            stack.push((root, false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(ordered)
+}
+
+/// Unpin. A member an older daemon pinned in its group (`extra.pinned`) goes
+/// right under the group's other pinned members; any other group member is not
+/// pinned and stays (a tree pinned with its top group unpins with it). An item
+/// in the Pinned band (or a custom section) goes back where it was pinned from
+/// (into its group when it was pinned from one) when that place is still
+/// there, else to the top of its own machine section.
 fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    let ordered;
+    let ids = if ids.len() > 1 {
+        ordered = unpin_order(tx.doc, ids)?;
+        &ordered
+    } else {
+        ids
+    };
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
         if item.pinned_in_group() {
@@ -958,6 +1040,16 @@ fn unpin_machine(doc: &Doc, item: &Item) -> Option<String> {
         .and_then(|section| doc.section(section))
         .and_then(machine_of)
         .or_else(|| {
+            // An empty subgroup can have left an already-pinned parent.
+            // That parent's current tree identifies its machine better than
+            // choosing the first machine in the document.
+            let parent = item.extra.get(UNPIN_TO_KEY)?.get("parent")?.as_str()?;
+            let parent = doc.item(parent)?;
+            doc.section(&parent.section)
+                .and_then(machine_of)
+                .or_else(|| doc.item_machine(doc.root(parent)))
+        })
+        .or_else(|| {
             doc.sections()
                 .iter()
                 .filter(|section| section.kind.machine().is_some())
@@ -976,27 +1068,81 @@ fn pinned_members(doc: &Doc, section: &str, group: &str, except: &str) -> i64 {
 }
 
 /// Where Unpin puts `item` back: its `extra.unpin_to` place, while that
-/// section is `machine`'s own and the neighbor it sat after still sits at
-/// that section's top level. Nil: no place is remembered, or it is gone.
+/// section is `machine`'s own or holds its pinned group, the group (`parent`) is
+/// still there in that section, and the neighbor it sat after still sits in
+/// that same list. Nil: no place is remembered, or it is gone.
 fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     let remembered = item.extra.get(UNPIN_TO_KEY)?;
-    let section = remembered.get("section")?.as_str()?;
-    if doc.section(section)?.kind.machine() != Some(machine) {
+    let saved_section = remembered.get("section")?.as_str()?;
+    let (section, parent) = match remembered.get("parent").and_then(Value::as_str) {
+        None => (saved_section, None),
+        Some(group) => {
+            let group = doc.item(group)?;
+            if !group.body.is_group() {
+                return None;
+            }
+            // The parent may have been pinned or unpinned since this item
+            // left it, including earlier in the same batch Unpin. Follow its
+            // identity; the shared validator still enforces machine and tree rules.
+            (group.section.as_str(), Some(group.id.clone()))
+        }
+    };
+    if doc.section(section)?.kind.machine() != Some(machine)
+        && !(section == PINNED_SECTION_ID && parent.is_some())
+    {
         return None;
     }
-    match remembered.get("after").and_then(Value::as_str) {
-        None => Some(Target { section: section.into(), index: Some(0), ..Target::default() }),
-        Some(after) => {
-            let anchor = doc.item(after)?;
-            (anchor.id != item.id && anchor.section == section && anchor.parent.is_none()).then(
-                || Target {
-                    section: section.into(),
-                    after: Some(after.into()),
-                    ..Target::default()
-                },
-            )
-        }
+    let after = remembered.get("after").and_then(Value::as_str);
+    let anchor = after.and_then(|id| doc.item(id)).filter(|anchor| {
+        anchor.id != item.id && anchor.section == section && anchor.parent == parent
+    });
+    if after.is_some() && anchor.is_none() {
+        return None;
     }
+
+    // Separate Unpin operations can share one remembered anchor. If the first
+    // sibling is restored with no high neighbor, its generated order key is
+    // after the anchor but before the later sibling's saved key. Use the saved
+    // key to stop before the first existing sibling that originally followed
+    // this item; otherwise a later restore would be inserted before the first.
+    let before = remembered.get("order").and_then(Value::as_str).and_then(|saved| {
+        let list = doc.list_entries(section, parent.as_deref())?;
+        let mut past_anchor = anchor.is_none();
+        list.iter().find_map(|(order, id)| {
+            if !past_anchor {
+                past_anchor = anchor.is_some_and(|anchor| anchor.id == *id);
+                return None;
+            }
+            (id != &item.id && order.as_str() >= saved).then_some(id.clone())
+        })
+    });
+    let target = match before {
+        Some(before) => {
+            Target { section: section.into(), parent, before: Some(before), ..Target::default() }
+        }
+        None => match (remembered.get("order").is_some(), anchor) {
+            // Every remaining sibling after the anchor was pinned, so this
+            // item belongs at the end of the restored run.
+            (true, _) => Target { section: section.into(), parent, ..Target::default() },
+            (false, Some(anchor)) => Target {
+                section: section.into(),
+                parent,
+                after: Some(anchor.id.clone()),
+                ..Target::default()
+            },
+            (false, None) => {
+                Target { section: section.into(), parent, index: Some(0), ..Target::default() }
+            }
+        },
+    };
+    validate_placement(
+        doc,
+        std::slice::from_ref(&item.id),
+        &HashSet::from([item.id.clone()]),
+        &target,
+    )
+    .ok()?;
+    Some(target)
 }
 
 fn adopt(tx: &mut Tx, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<(), Refusal> {
