@@ -10,6 +10,126 @@
             "state" : "translated",
             "value" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
           }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض الدور القصير ملخصًا من سطر واحد لما فعله، بدلًا من طيّه تحت ‏Worked for."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kratki potez prikazuje sažetak u jednom redu umjesto da se sklopi pod Worked for."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En kort tur viser et resumé på én linje af, hvad den gjorde, i stedet for at blive foldet under Worked for."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine kurze Runde zeigt eine einzeilige Zusammenfassung dessen, was sie getan hat, statt unter „Worked for“ eingeklappt zu werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un turno corto muestra un resumen de una línea de lo que hizo, en lugar de plegarse bajo Worked for."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un tour court affiche un résumé d’une ligne de ce qu’il a fait, au lieu d’être replié sous Worked for."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un turno breve mostra un riepilogo di una riga di ciò che ha fatto, invece di essere compresso sotto Worked for."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短いターンは Worked for の下に折りたたまれず、何をしたかを 1 行で要約して表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វេនខ្លីបង្ហាញសេចក្តីសង្ខេបមួយបន្ទាត់អំពីអ្វីដែលវាបានធ្វើ ជំនួសឱ្យការបត់នៅក្រោម Worked for។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "짧은 턴은 Worked for 아래로 접히는 대신 수행한 작업을 한 줄 요약으로 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En kort runde viser et sammendrag på én linje av hva den gjorde, i stedet for å foldes under Worked for."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Krótka tura pokazuje jednowierszowe podsumowanie tego, co zrobiła, zamiast zwijać się pod Worked for."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um turno curto mostra um resumo de uma linha do que fez, em vez de ser recolhido em Worked for."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Короткий ход показывает однострочную сводку того, что он сделал, вместо того чтобы сворачиваться под Worked for."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เทิร์นสั้นจะแสดงสรุปหนึ่งบรรทัดของสิ่งที่ทำ แทนที่จะถูกพับไว้ใต้ Worked for"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kısa bir tur, Worked for altında katlanmak yerine ne yaptığını tek satırlık bir özetle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Короткий хід показує однорядкове зведення того, що він зробив, замість згортання під Worked for."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lượt ngắn hiển thị tóm tắt một dòng về những gì nó đã làm, thay vì thu gọn dưới Worked for."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短回合会显示一行摘要说明它做了什么，而不是折叠在 Worked for 下。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短回合會顯示一行摘要說明它做了什麼，而不是摺疊在 Worked for 下。"
+          }
         }
       }
     }
