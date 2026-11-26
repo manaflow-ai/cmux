@@ -13,10 +13,12 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`load_waits`]: the browser automation's waits for a tab's load states (`LoadWaits`).
 
 pub mod address;
 pub mod calculator;
 pub mod links;
+pub mod load_waits;
 pub mod ops;
 
 #[cfg(test)]
