@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "summary.empty" : {
+      "comment" : "Agent pane: the chat summary card's one line while the chat has nothing to list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا شيء بعد: تظهر هنا المخرجات والوكلاء الفرعيون والمصادر والمهام في الخلفية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Još ništa: ovdje se prikazuju izlazi, subagenti, izvori i pozadinski zadaci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet endnu: output, subagenter, kilder og baggrundsopgaver vises her"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noch nichts: Ausgaben, Subagenten, Quellen und Hintergrundaufgaben erscheinen hier"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing yet: outputs, subagents, sources and background tasks show here"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada todavía: aquí aparecen los resultados, subagentes, fuentes y tareas en segundo plano"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien pour l’instant : les résultats, sous-agents, sources et tâches en arrière-plan s’affichent ici"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ancora niente: qui compaiono output, subagenti, fonti e attività in background"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "まだありません: 出力、サブエージェント、ソース、バックグラウンドタスクがここに表示されます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនទាន់មានទេ៖ លទ្ធផល ភ្នាក់ងាររង ប្រភព និងកិច្ចការផ្ទៃខាងក្រោយ បង្ហាញនៅទីនេះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아직 없음: 출력, 하위 에이전트, 소스, 백그라운드 작업이 여기에 표시됩니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting ennå: utdata, underagenter, kilder og bakgrunnsoppgaver vises her"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeszcze nic: tutaj pojawią się wyniki, subagenci, źródła i zadania w tle"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada ainda: saídas, subagentes, fontes e tarefas em segundo plano aparecem aqui"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пока ничего: здесь появятся результаты, субагенты, источники и фоновые задачи"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยังไม่มี: ผลลัพธ์ เอเจนต์ย่อย แหล่งที่มา และงานเบื้องหลังจะแสดงที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Henüz bir şey yok: çıktılar, alt ajanlar, kaynaklar ve arka plan görevleri burada görünür"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Поки нічого: тут з’являться результати, субагенти, джерела та фонові завдання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa có gì: đầu ra, tác nhân phụ, nguồn và tác vụ nền hiển thị ở đây"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "暂无内容：输出、子代理、来源和后台任务会显示在这里"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚無內容：輸出、子代理、來源和背景工作會顯示在這裡"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
