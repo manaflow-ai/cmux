@@ -1113,6 +1113,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/cold_archive",
       "params": true,
       "result": true
@@ -2241,6 +2259,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/add",
       "params": true,
       "result": true
@@ -2690,6 +2716,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
       "params": true,
       "result": true
     },
@@ -4841,6 +4873,17 @@
         "handoffId": true,
         "promptId": true,
         "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
       },
       "type": "object"
     },
