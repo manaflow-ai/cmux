@@ -161,6 +161,11 @@ impl State {
             .user_agent("git/cmux-git-cache")
             .build()
             .map_err(|e| e.to_string())?;
+        // A git a restart or a crash cut leaves its partial pack; nothing else ever removes it.
+        let (n, bytes) = crate::mirror::sweep_stale_partial_writes(&cfg.cache_root);
+        if n > 0 {
+            eprintln!("git-cache: gave back {n} partial writes left behind, {} MiB", bytes >> 20);
+        }
         Ok(Arc::new(Self {
             auth: AuthCache::new(cfg.auth_ttl),
             mirrors: Mirrors::new(cfg.cache_root.clone()),
