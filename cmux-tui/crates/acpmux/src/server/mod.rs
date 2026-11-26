@@ -164,6 +164,7 @@ mod outbound;
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
+mod paused_files;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
@@ -173,6 +174,7 @@ mod pending;
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
+mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
