@@ -196,7 +196,21 @@ impl ConnectionSurfaceScheduler {
         // On the dispatcher thread of the connection, which runs its requests
         // in the order of their arrival: a page's request takes its slot there too.
         let hole = pending.request.cmd.admit_tab_place(mux, client);
-        let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
+        let frontend_shell = frontend_shell(mux, client);
+        // A plain-shell new tab that may start lazily launches no host ahead
+        // (mux/terminal_respawn/lazy.rs): the create decides.
+        let lazy_tab = match &pending.request.cmd {
+            Command::NewTab(params) => {
+                params.may_start_lazily(frontend_shell)
+                    && !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(
+                        &origin_gate::connection_actor(mux, client),
+                    )
+                    && mux.lazy_tab_skips_prelaunch(params.pane)
+            }
+            _ => false,
+        };
+        let prelaunch =
+            PrelaunchRequest::of(&pending.request.cmd, frontend_shell).filter(|_| !lazy_tab);
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
             (Command::NewTab { .. }, true) => "new-tab",
             (_, true) => "pane-create",

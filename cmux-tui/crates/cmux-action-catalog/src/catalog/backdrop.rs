@@ -20,6 +20,34 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "settings change-background",
         ..Action::DEFAULT
     },
+    // Leo, 2026-11-22: "it was cumbersome back then to switch back" and "the fast-actions need to
+    // be most accessible": one click between a rotating folder and a past pick
+    // (appearance.backgroundRecents, recorded by cmux-config's settings write).
+    Action {
+        id: "appearance.previousBackground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.previousBackground", "Switch to Previous Background"),
+        keywords: &["background", "wallpaper", "previous", "back", "last", "swap", "toggle", "folder", "recent"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
+        cli_name: "wallpaper back",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "appearance.recentBackgrounds",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.recentBackgrounds", "Recent Backgrounds…"),
+        keywords: &["background", "wallpaper", "recent", "history", "previous", "folder", "picture"],
+        category: "settings",
+        symbol: "clock.arrow.circlepath",
+        surfaces: PALETTE | CONTEXT_MENU,
+        arguments: &[RECENT_BACKGROUND],
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("windowBackground", "identity", 2)], ..SurfacePlan::DEFAULT },
+        cli_name: "wallpaper recent",
+        ..Action::DEFAULT
+    },
     Action {
         id: "appearance.background.followDesktop",
         group: GROUP,
@@ -43,7 +71,7 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.up.and.down.and.arrow.left.and.right",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { context_menus: &[Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
         cli_name: "settings adjust-background",
         ..Action::DEFAULT
     },
@@ -55,7 +83,8 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.up.left.and.arrow.down.right",
         surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), ..SurfacePlan::DEFAULT },
+        // Adjust Background… (on the window background's menu) offers Fill and Fit.
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
         cli_name: "settings background-fill",
         ..Action::DEFAULT
     },
@@ -67,8 +96,14 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.down.right.and.arrow.up.left",
         surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), ..SurfacePlan::DEFAULT },
+        // Adjust Background… (on the window background's menu) offers Fill and Fit.
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
         cli_name: "settings background-fit",
         ..Action::DEFAULT
     },
 ];
+
+/// Recent Backgrounds…'s pick: one of appearance.backgroundRecents (the app's `backgroundRecents`
+/// suggestions).
+#[rustfmt::skip]
+const RECENT_BACKGROUND: Argument = Argument { name: "background", title: t("ActionCatalog", "argument.recentBackground", "Background"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "backgroundRecents", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

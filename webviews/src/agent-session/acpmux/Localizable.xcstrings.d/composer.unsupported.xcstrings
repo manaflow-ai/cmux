@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.unsupported" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} ليس صورة أو ملف PDF أو ملفًا نصيًا"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} nije slika, PDF datoteka ni tekstualna datoteka"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} er hverken et billede, en PDF-fil eller en tekstfil"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} ist weder ein Bild, eine PDF-Datei noch eine Textdatei"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{name} is not an image, PDF, or text file"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} no es una imagen, un archivo PDF ni un archivo de texto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} n’est ni une image, ni un fichier PDF, ni un fichier texte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} non è un’immagine, un file PDF né un file di testo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name}は画像、PDF、またはテキストファイルではありません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} មិនមែនជារូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name}은(는) 이미지, PDF 또는 텍스트 파일이 아닙니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} er verken et bilde, en PDF-fil eller en tekstfil"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} nie jest obrazem, plikiem PDF ani plikiem tekstowym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} não é uma imagem, um arquivo PDF nem um arquivo de texto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} не является изображением, PDF-файлом или текстовым файлом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} ไม่ใช่รูปภาพ ไฟล์ PDF หรือไฟล์ข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} bir görsel, PDF dosyası veya metin dosyası değil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} не є зображенням, PDF-файлом або текстовим файлом"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} không phải là hình ảnh, tệp PDF hoặc tệp văn bản"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} 不是图片、PDF 文件或文本文件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} 不是圖片、PDF 檔案或文字檔案"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

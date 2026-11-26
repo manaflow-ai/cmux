@@ -29,9 +29,13 @@
 use cmux_process::Command as Process;
 use std::path::{Path, PathBuf};
 
+use serde_json::{Value, json};
+
+use super::super::GlobalArgs;
 use super::UsageError;
 
 mod chromium;
+mod web_abi;
 
 /// The script in a cmux checkout that runs the dev server and writes `web-dev.json`.
 const SCRIPT: &str = "scripts/cmux-next/web-overlay.sh";
@@ -277,7 +281,7 @@ pub(super) fn routed(command: &Command, socket: Option<&Path>, session: Option<&
 }
 
 /// Runs `command`: the checkout's script, with this process's terminal, and its exit status.
-pub(super) fn run(command: &Command) -> i32 {
+pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let messages = &crate::localization::catalog().app_control.live;
     let (worktree, args): (&Option<PathBuf>, Vec<String>) = match command {
         Command::Help => {
@@ -305,6 +309,23 @@ pub(super) fn run(command: &Command) -> i32 {
         eprintln!("{}", messages.no_checkout);
         return 2;
     };
+    if matches!(command, Command::Start { .. })
+        && let Some(found) = web_abi::mismatch(
+            &tree,
+            &web_abi::target_apps(std::env::var_os("CMUX_WEB_OVERLAY_APP")),
+        )
+    {
+        // Nothing is started or written: a write to web-dev.json reloads every page of every app.
+        eprintln!(
+            "{}",
+            messages
+                .abi_mismatch
+                .replace("{tree_abi}", &found.tree_abi.to_string())
+                .replace("{app}", &found.app.display().to_string())
+                .replace("{app_abi}", &found.app_abi.to_string())
+        );
+        return 1;
+    }
     let mut process = Process::new("bash");
     process.arg(tree.join(SCRIPT)).args(&args).current_dir(&tree);
     if let Some(path) = tool_path(std::env::var_os("PATH"), std::env::var_os("HOME")) {
@@ -312,6 +333,16 @@ pub(super) fn run(command: &Command) -> i32 {
     }
     if matches!(command, Command::Start { .. }) {
         process.args(["--worktree".as_ref(), tree.as_os_str()]);
+    }
+    // The script writes web-dev.json beside this file. Passing the app's own path keeps a checkout's
+    // script from before NEXT moved to ~/.config/cmux-next (#53567) from writing a file no app reads.
+    // Same rule as the app's CmuxConfigFile.defaultURL: CMUX_NEXT_CONFIG_FILE (a DEV build's own), else
+    // ~/.config/cmux-next/cmux-next.json (https://github.com/manaflow-ai/cmux/issues/56156).
+    process.env(cmux_config::CONFIG_OVERRIDE, cmux_config::config_path());
+    if matches!(command, Command::Status { .. }) {
+        // The script's own `cmux settings get` reached no app this command was pointed at
+        // (`--app-socket`), and the `cmux` on a GUI app's `PATH` may be none at all.
+        process.env(LIVE_SETTING_ENV, live_setting(global));
     }
     match process.status() {
         Ok(status) => {
@@ -337,6 +368,37 @@ pub(super) fn run(command: &Command) -> i32 {
             eprintln!("{}", messages.cannot_run.replace("{error}", &error.to_string()));
             1
         }
+    }
+}
+
+/// The cmux Live setting, read here for `status`.
+const LIVE_SETTING: &str = "updates.liveWebReload";
+/// How `status` hands [`LIVE_SETTING`] to [`SCRIPT`]: `true`, `false` or `unknown`.
+const LIVE_SETTING_ENV: &str = "CMUX_LIVE_WEB_RELOAD";
+
+/// [`LIVE_SETTING`] from the app this command reaches (`--app-socket`, `--socket`, else the app
+/// around this CLI or in its environment, as every app command finds it): `true` or `false`, else
+/// `unknown` when no app answered or it answered no boolean.
+fn live_setting(global: &GlobalArgs) -> String {
+    let Ok(mut stream) = super::connect_command(global) else { return "unknown".to_owned() };
+    let answer = super::exchange(
+        &mut stream,
+        "settings.get",
+        json!({ "path": LIVE_SETTING }),
+        super::READ_TIMEOUT,
+    );
+    match answer {
+        Ok(Ok(answer)) => setting_word(&answer),
+        _ => "unknown".to_owned(),
+    }
+}
+
+/// `settings.get`'s answer as the word the script reads.
+pub(super) fn setting_word(answer: &Value) -> String {
+    match answer.get("value") {
+        Some(Value::Bool(on)) => on.to_string(),
+        Some(Value::String(word)) if word == "true" || word == "false" => word.clone(),
+        _ => "unknown".to_owned(),
     }
 }
 

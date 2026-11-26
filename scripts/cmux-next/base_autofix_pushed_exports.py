@@ -157,6 +157,7 @@ class Api:
         return self.deadline - time.monotonic()
 
     def sleep(self, seconds: float) -> None:
+        # sleep-ok: the poll interval of the callers' deadline-bounded loops (tests replace it), capped by the deadline.
         time.sleep(max(0.0, min(seconds, self.left())))
 
     def json(self, path: str) -> dict:
@@ -166,6 +167,7 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28"}
         if cached:
             headers["If-None-Match"] = cached[0]
+        # user-agent: GitHub's API, no CDN
         request = urllib.request.Request(f"{self.base}/repos/{self.repo}/{path}", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:

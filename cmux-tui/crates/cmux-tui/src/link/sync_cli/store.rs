@@ -39,14 +39,11 @@ use super::remote::Remote;
 
 /// Files up to this size are one blob.
 const WHOLE_FILE_MAX: u64 = 4 * 1024 * 1024;
-/// Content-defined chunk bounds (FastCDC with normalized chunking).
-const CHUNK_MIN: usize = 512 * 1024;
-const CHUNK_AVG: usize = 2 * 1024 * 1024;
-const CHUNK_MAX: usize = 8 * 1024 * 1024;
-/// Bits the cut test checks below and above the average: harder to cut
-/// before it, easier after, so sizes cluster around it.
-const MASK_HARD_BITS: u32 = 23;
-const MASK_EASY_BITS: u32 = 19;
+/// Content-defined chunk bounds: the shared chunker's `link sync push` size
+/// (FastCDC with normalized chunking, 512 KiB to 8 MiB, 2 MiB average).
+const CHUNKER: cmux_projection::cdc::Params = cmux_projection::cdc::SYNC;
+const CHUNK_MIN: usize = CHUNKER.min;
+const CHUNK_MAX: usize = CHUNKER.max;
 /// Hashes per `missing` request (the store's limit is 1000).
 const MISSING_BATCH: usize = 500;
 /// Uploads at once.
@@ -74,6 +71,11 @@ pub(crate) fn configure(config: Config) {
 
 fn configured() -> Option<&'static Config> {
     CONFIG.get()
+}
+
+/// Whether this process's pushes have a store ([`configure`]).
+pub(super) fn is_configured() -> bool {
+    configured().is_some()
 }
 
 /// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
@@ -212,6 +214,9 @@ pub(super) struct Sent {
     /// write left: the caller records that one, never a later listing, and
     /// writes every other file over the link.
     pub written: BTreeMap<String, String>,
+    /// The blobs of each file cut into pieces, by the file's SHA-256: what
+    /// the folder pair's GC root names for it ([`super::roots`]).
+    pub chunks: BTreeMap<String, Vec<String>>,
 }
 
 /// The machine's fetch may have started and could not be stopped (a start or
@@ -244,59 +249,10 @@ impl std::fmt::Display for Superseded {
 
 impl std::error::Error for Superseded {}
 
-/// The gear table of the rolling hash: fixed, so the same bytes always cut
-/// at the same places on every Mac.
-fn gear() -> &'static [u64; 256] {
-    static GEAR: OnceLock<[u64; 256]> = OnceLock::new();
-    GEAR.get_or_init(|| {
-        let mut table = [0u64; 256];
-        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-        for entry in &mut table {
-            // splitmix64
-            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut z = state;
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            *entry = z ^ (z >> 31);
-        }
-        table
-    })
-}
-
-/// The top `bits` bits of a u64.
-const fn top(bits: u32) -> u64 {
-    !0u64 << (64 - bits)
-}
-
-/// Where the first chunk of `data` ends (FastCDC, normalized chunking).
-/// `data` is the rest of the file, or at least [`CHUNK_MAX`] of it.
+/// Where the first chunk of `data` ends ([`cmux_projection::cdc::cut`], the chunker a
+/// projection shares). `data` is the rest of the file, or at least [`CHUNK_MAX`] of it.
 pub(super) fn cut(data: &[u8]) -> usize {
-    if data.len() <= CHUNK_MIN {
-        return data.len();
-    }
-    let end = data.len().min(CHUNK_MAX);
-    let normal = end.min(CHUNK_AVG);
-    let gear = gear();
-    let roll = |hash: u64, byte: &u8| {
-        (hash << 1).wrapping_add(gear.get(usize::from(*byte)).copied().unwrap_or_default())
-    };
-    let (Some(hard), Some(easy)) = (data.get(CHUNK_MIN..normal), data.get(normal..end)) else {
-        return end;
-    };
-    let mut hash = 0u64;
-    for (at, byte) in (CHUNK_MIN..).zip(hard) {
-        hash = roll(hash, byte);
-        if hash & top(MASK_HARD_BITS) == 0 {
-            return at + 1;
-        }
-    }
-    for (at, byte) in (normal..).zip(easy) {
-        hash = roll(hash, byte);
-        if hash & top(MASK_EASY_BITS) == 0 {
-            return at + 1;
-        }
-    }
-    end
+    cmux_projection::cdc::cut(&CHUNKER, data)
 }
 
 /// The pieces of `reader`'s bytes, cut by [`cut`].
@@ -398,6 +354,10 @@ pub(super) fn send(
             );
         }
         plan_files.push(entry);
+        if !whole && file.size > 0 {
+            sent.chunks
+                .insert(file.sha256.clone(), pieces.iter().map(|p| p.sha256.clone()).collect());
+        }
         for piece in pieces {
             wanted.entry(piece.sha256.clone()).or_insert((index, piece));
         }
@@ -503,6 +463,32 @@ pub(super) fn send(
     Ok(sent)
 }
 
+/// Sets the GC root of the folder pair `pair` to `tree` (its bytes, the
+/// [`super::roots`] format): uploads the tree when the store lacks it, then
+/// `POST /v1/sync/roots`. A store that is deleting that very tree answers
+/// 503; the tree is uploaded again and the root asked for once more.
+pub(super) fn register_root(pair: &str, tree: &[u8]) -> anyhow::Result<()> {
+    let config = configured().ok_or_else(|| anyhow!("no store"))?;
+    let client = Client::new(config)?;
+    let tree_sha = hex(&Sha256::digest(tree));
+    let mut last = anyhow!("the store did not answer");
+    for _ in 0..2 {
+        let tried = (|| {
+            if client.missing(std::slice::from_ref(&tree_sha))?.contains(&tree_sha) {
+                client.put(&tree_sha, tree.to_vec())?;
+            }
+            client
+                .runtime
+                .block_on(client.json("/v1/sync/roots", json!({"pair": pair, "tree": tree_sha})))
+        })();
+        match tried {
+            Ok(_) => return Ok(()),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
+}
+
 /// The store, as one signed-in person.
 struct Client {
     origin: String,
@@ -516,7 +502,7 @@ impl Client {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui::link::sync_cli::store")
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -647,6 +633,92 @@ impl Client {
     }
 }
 
+/// A revision of the folder's listing, stored (RFD 0007, open question 3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Published {
+    /// The root piece's hash: the revision's name.
+    pub root: String,
+    /// Bytes uploaded: pieces the store already held are not sent again.
+    pub sent: u64,
+    /// Pieces in the revision.
+    pub pieces: usize,
+}
+
+/// Whether the store is on in this process.
+pub(super) fn on() -> bool {
+    configured().is_some()
+}
+
+/// The store this process signs in to, as the two lines a folder's server reads from its stdin
+/// (origin, then credential), when one is configured.
+pub(super) fn handoff() -> Option<String> {
+    configured().map(|config| format!("{}\n{}\n", config.origin, config.credential))
+}
+
+/// Takes the store a parent handed over ([`handoff`]) from `stdin`.
+pub(super) fn take_handoff(stdin: &mut dyn std::io::BufRead) -> anyhow::Result<()> {
+    let (mut origin, mut credential) = (String::new(), String::new());
+    stdin.read_line(&mut origin)?;
+    stdin.read_line(&mut credential)?;
+    let (origin, credential) = (origin.trim(), credential.trim());
+    anyhow::ensure!(!origin.is_empty() && !credential.is_empty(), "no store was handed over");
+    configure(Config { origin: origin.to_owned(), credential: credential.to_owned() });
+    Ok(())
+}
+
+/// Splits `manifest` into pieces, uploads the ones the store lacks and registers the revision's
+/// tree as the root of `pair`, so a resume or a second session reads the listing from the store.
+pub(super) fn publish(
+    manifest: &cmux_projection::manifest::Manifest,
+    pair: &str,
+) -> anyhow::Result<Published> {
+    let config = configured().ok_or_else(|| anyhow!("no store is configured"))?;
+    let client = Client::new(config)?;
+    let split = cmux_projection::revision::split(manifest)?;
+    let tree = split.tree();
+    let tree_sha = cmux_projection::revision::sha256_hex(&tree);
+    let mut blobs: Vec<(String, Vec<u8>)> =
+        split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
+    blobs.push((tree_sha.clone(), tree));
+    let hashes: Vec<String> = blobs.iter().map(|(sha, _)| sha.clone()).collect();
+    let missing = client.missing(&hashes)?;
+    blobs.retain(|(sha, _)| missing.contains(sha));
+    let sent = client.put_blobs(blobs)?;
+    client
+        .runtime
+        .block_on(client.json("/v1/sync/roots", json!({ "pair": pair, "tree": tree_sha })))?;
+    Ok(Published { root: split.root, sent, pieces: split.pieces.len() })
+}
+
+/// What the machine fetches revision `root` with: the store's origin and a fresh read grant.
+pub(super) fn reference(root: &str) -> anyhow::Result<Value> {
+    let config = configured().ok_or_else(|| anyhow!("no store is configured"))?;
+    let client = Client::new(config)?;
+    let grant = client.grant()?;
+    Ok(json!({ "root": root, "origin": client.origin, "grant": grant }))
+}
+
+impl Client {
+    /// Uploads whole blobs, [`PARALLEL_UPLOADS`] at once; the bytes sent.
+    fn put_blobs(&self, blobs: Vec<(String, Vec<u8>)>) -> anyhow::Result<u64> {
+        self.runtime.block_on(async {
+            use futures_util::stream::{self, StreamExt as _};
+            let mut results = stream::iter(blobs)
+                .map(|(sha, bytes)| async move {
+                    let size = bytes.len() as u64;
+                    self.put_async(&sha, bytes).await?;
+                    anyhow::Ok(size)
+                })
+                .buffer_unordered(PARALLEL_UPLOADS);
+            let mut total = 0;
+            while let Some(result) = results.next().await {
+                total += result?;
+            }
+            Ok(total)
+        })
+    }
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -654,3 +726,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 #[path = "store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "store_seeded_tests.rs"]
+mod seeded_tests;

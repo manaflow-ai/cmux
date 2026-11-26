@@ -88,27 +88,26 @@
   font-family: var(--cv-mono);
   overflow-wrap: anywhere;
 }
-.cv-preset-approval__row {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2, 8px);
-  min-width: 0;
-}
-.cv-preset-approval__text {
-  flex: 1;
-  min-width: 0;
+/* The row and its text follow cardFit.css; the text wraps (a preset's name and what it starts are
+   worth reading whole) instead of cutting to one line. */
+.cv-preset-approval__text.cv-fit-text {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 .cv-preset-approval__foot {
   display: flex;
   justify-content: flex-end;
   padding-top: var(--ds-space-2, 8px);
 }
-.cv-preset-approval__actions {
-  display: inline-flex;
-  flex: none;
-  gap: var(--ds-space-1, 4px);
+.cv-preset-approval__foot .cv-preset-approval__actions {
+  margin-inline-start: auto;
 }
 .cv-preset-approval__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-1, 4px);
   min-height: 24px;
   padding: 0 var(--ds-space-2, 8px);
   border: 0;

@@ -62,6 +62,12 @@ public enum MobileHostMacIdentityError: Error, Equatable {
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
+    /// A DEV build's copy of the Keychain key (`mac-identity.keychain-copy`, 0600), nil elsewhere.
+    /// A rebuilt DEV tag is signed another way and may never read the item its earlier build made;
+    /// with no copy it minted a new file key, a second identity, and the phone that pinned the
+    /// Keychain's refused the Mac as `mac_identity_changed` after every republish (drawn-tabs,
+    /// 2026-11-25). The copy is the Keychain key itself, so proving it is proving the pinned identity.
+    public let keychainCopyFile: URL?
     /// Off in tests: only the file is used.
     let useKeychain: Bool
     let keychain: MobileHostSecItems
@@ -78,13 +84,19 @@ public struct MobileHostMacIdentityStore: Sendable {
         return context
     }
 
-    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, loginKeychain: LoginKeychain) {
-        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keychain: .system, loginKeychain: loginKeychain)
+    /// - Parameter keepsKeychainCopy: A DEV build: keep ``keychainCopyFile`` so a rebuild that may not
+    ///   read the Keychain item proves the same key.
+    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsKeychainCopy: Bool = false,
+                loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain,
+                  keepsKeychainCopy: keepsKeychainCopy, keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
+    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsKeychainCopy: Bool = false,
+         keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = Self.service(bundleID: bundleID)
         fallbackFile = stateDirectory.appendingPathComponent("mac-identity", isDirectory: false)
+        keychainCopyFile = keepsKeychainCopy ? stateDirectory.appendingPathComponent("mac-identity.keychain-copy", isDirectory: false) : nil
         self.useKeychain = useKeychain
         self.keychain = keychain
         self.loginKeychain = loginKeychain
@@ -108,6 +120,8 @@ public struct MobileHostMacIdentityStore: Sendable {
     ///   beside a Keychain item that refuses is the second identity (phones pinned the Keychain's), so
     ///   the caller waits and reads again. A build that can never read the item (a re-signed DEV app)
     ///   passes `fileStoreOnRefusal` after its retries and keeps one key of its own in the file.
+    /// - a DEV build keeps a copy of the Keychain key (``keychainCopyFile``) and proves it when the
+    ///   read is refused, at once: it is the key phones pinned, not a second identity.
     public func loadOrCreate(fileStoreOnRefusal: Bool = true) throws -> MobileHostMacIdentity {
         let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
         var refused: OSStatus?
@@ -116,21 +130,44 @@ public struct MobileHostMacIdentityStore: Sendable {
             case .found(let data):
                 if let stored = MobileHostMacIdentity.restore(data) {
                     if fileKey != nil { setAsideFileKey() }
+                    keepKeychainCopy(of: stored)
                     return stored
                 }
             case .notFound:
                 break
             case .refused(let status):
                 refused = status
+                if let copied = keychainCopy() {
+                    Self.logger.notice("iPhone host identity: Keychain read refused; proving this DEV build's copy of its key")
+                    return copied
+                }
             }
         }
         if let refused, !fileStoreOnRefusal { throw MobileHostMacIdentityError.keychainRefused(refused) }
         if let fileKey { return fileKey }
         let identity = MobileHostMacIdentity.generate()
-        if !(useKeychain && refused == nil && keychainAdd(identity.privateKey)) {
-            try writeFallback(identity.privateKey)
+        if useKeychain && refused == nil && keychainAdd(identity.privateKey) {
+            keepKeychainCopy(of: identity)
+        } else {
+            try writeSecret(identity.privateKey, to: fallbackFile)
         }
         return identity
+    }
+
+    /// This DEV build's copy of its Keychain key, nil when there is none (or it is not a DEV build).
+    private func keychainCopy() -> MobileHostMacIdentity? {
+        guard let keychainCopyFile else { return nil }
+        return (try? Data(contentsOf: keychainCopyFile)).flatMap(MobileHostMacIdentity.restore)
+    }
+
+    /// Writes the copy when it is missing or holds another key (a DEV build only).
+    private func keepKeychainCopy(of identity: MobileHostMacIdentity) {
+        guard let keychainCopyFile, keychainCopy() != identity else { return }
+        do {
+            try writeSecret(identity.privateKey, to: keychainCopyFile)
+        } catch {
+            Self.logger.error("iPhone host identity: could not keep the DEV copy of the key (\(String(describing: error), privacy: .public))")
+        }
     }
 
     static func query(service: String) -> [String: Any] {
@@ -183,11 +220,11 @@ public struct MobileHostMacIdentityStore: Sendable {
         }
     }
 
-    private func writeFallback(_ privateKey: Data) throws {
-        let directory = fallbackFile.deletingLastPathComponent()
+    private func writeSecret(_ privateKey: Data, to file: URL) throws {
+        let directory = file.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try privateKey.write(to: fallbackFile, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackFile.path)
+        try privateKey.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }

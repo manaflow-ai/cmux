@@ -11,6 +11,7 @@
 # Every command runs even after one fails. Output is printed per command, whole
 # and in input order, in a collapsed group with its duration; a failed command's
 # output is printed again at the end, and the exit status is 1 when any failed.
+# A passing command's `::error` lines print as text, never as annotations (print_passing_log).
 # --jobs defaults to twice the CPU count: most of these checks wait on child
 # processes and fixtures, not the CPU.
 #
@@ -111,6 +112,15 @@ run_one() {
 }
 export -f run_one
 
+# Prints a passing command's log with each `::error` line inert: the line prints as text between
+# ::stop-commands:: and its resume token, so the runner makes no `##[error]` annotation of it. A passing
+# test's fixture stderr (a negative case's `::error::`) otherwise reads as the step's red to every log
+# reader (hq docs/handbook/red-quoted-from-a-passing-step.md, cmux#45463). Warnings and notices stay live.
+print_passing_log() {
+  local token="check-pool-inert-$$-$RANDOM$RANDOM"
+  awk -v token="$token" '/^[[:space:]]*::error[ :]/ { print "::stop-commands::" token; print; print "::" token "::"; next } { print }' "$1"
+}
+
 # Prints each listed command's output in order and exits 1 when any failed.
 report() {
   local work="$1"; shift
@@ -127,7 +137,11 @@ report() {
     [ "$status" = 0 ] || { verdict="failed (exit $status)"; failed+=("$index"); }
     [ ! -e "$work/$index.timedout" ] || verdict="timed out at the pool deadline after ${seconds}s"
     echo "::group::$command: $verdict, ${seconds}s"
-    cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
+    if [ "$verdict" = ok ] && [ -e "$work/$index.log" ]; then
+      print_passing_log "$work/$index.log"
+    else
+      cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
+    fi
     echo "::endgroup::"
   done
   local skipped_note=""

@@ -1,5 +1,6 @@
 //! The PipeWire half of Wayland capture (feature `portal`): connects to the PipeWire remote
-//! the ScreenCast portal opened (src/portal.rs), takes the stream of the shared monitor and
+//! the ScreenCast portal opened (src/portal.rs), or to the default remote for a stream mutter
+//! cast directly (src/mutter.rs), takes the stream of the shared monitor and
 //! keeps its newest picture as BGRX, the same bytes `capture::Capturer::grab` returns on X11.
 //!
 //! - Formats: BGRx, RGBx, BGRA and RGBA (alpha ignored). No modifier is offered, so the
@@ -129,7 +130,7 @@ impl Shared {
     }
 }
 
-/// A running PipeWire stream of one portal node.
+/// A running PipeWire stream of one screen-cast node.
 pub struct PwStream {
     shared: Arc<Shared>,
     quit: Option<pw::channel::Sender<()>>,
@@ -147,9 +148,10 @@ pub struct PwFrames {
 }
 
 impl PwStream {
-    /// Connects to the portal's PipeWire remote `fd`, streams node `node_id` and waits up to
-    /// `timeout` for the first negotiated format.
-    pub fn start(fd: OwnedFd, node_id: u32, timeout: Duration) -> Res<Self> {
+    /// Connects to the portal's PipeWire remote `fd` (`None`: the session's default remote,
+    /// where mutter's own screen casts live), streams node `node_id` and waits up to `timeout`
+    /// for the first negotiated format.
+    pub fn start(fd: Option<OwnedFd>, node_id: u32, timeout: Duration) -> Res<Self> {
         // SAFETY: a fresh eventfd; checked below.
         let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
         if efd < 0 {
@@ -189,7 +191,7 @@ impl PwStream {
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(format!(
-                "pipewire: no video format from the portal stream within {} s",
+                "pipewire: no video format from the screen cast within {} s",
                 timeout.as_secs()
             )
             .into()),
@@ -360,7 +362,7 @@ fn buffer_pods() -> Result<(Vec<u8>, Vec<u8>), String> {
 }
 
 fn run_loop(
-    fd: OwnedFd,
+    fd: Option<OwnedFd>,
     node_id: u32,
     shared: Arc<Shared>,
     ready: mpsc::Sender<Result<(u32, u32), String>>,
@@ -369,9 +371,14 @@ fn run_loop(
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None).map_err(|e| e.to_string())?;
     let context = pw::context::ContextRc::new(&mainloop, None).map_err(|e| e.to_string())?;
-    let core = context
-        .connect_fd_rc(fd, None)
-        .map_err(|e| format!("connect to the portal's remote: {e}"))?;
+    let core = match fd {
+        Some(fd) => context
+            .connect_fd_rc(fd, None)
+            .map_err(|e| format!("connect to the portal's remote: {e}"))?,
+        None => context
+            .connect_rc(None)
+            .map_err(|e| format!("connect to the session's PipeWire: {e}"))?,
+    };
     let stream = pw::stream::StreamBox::new(
         &core,
         "cmux-rd-capture",
@@ -393,7 +400,7 @@ fn run_loop(
                 }
                 ud.shared.fail(msg);
             } else if matches!(new, pw::stream::StreamState::Unconnected) && ud.fmt.is_some() {
-                ud.shared.fail("the portal's screen cast ended".into());
+                ud.shared.fail("the screen cast ended".into());
             }
         })
         .param_changed(|stream, ud, id, param| {
@@ -535,69 +542,5 @@ unsafe fn take_buffer(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bgrx_copies_rows_with_strides() {
-        // 3x2 source with 4 bytes of row padding; copy the 2x2 rect at (1, 0).
-        let src: Vec<u8> = (0..32).collect();
-        let mut dst = vec![0u8; 3 * 2 * 4];
-        copy_rect_to_bgrx(
-            &src,
-            16,
-            PixelFormat::Bgrx,
-            Rect { x: 1, y: 0, w: 2, h: 2 },
-            &mut dst,
-            12,
-        );
-        assert_eq!(&dst[0..4], &[0, 0, 0, 0]);
-        assert_eq!(&dst[4..12], &src[4..12]);
-        assert_eq!(&dst[12..16], &[0, 0, 0, 0]);
-        assert_eq!(&dst[16..24], &src[20..28]);
-    }
-
-    #[test]
-    fn rgbx_swaps_red_and_blue() {
-        let src = [10u8, 20, 30, 255, 1, 2, 3, 0];
-        let mut dst = vec![0u8; 8];
-        copy_rect_to_bgrx(&src, 8, PixelFormat::Rgbx, Rect { x: 0, y: 0, w: 2, h: 1 }, &mut dst, 8);
-        assert_eq!(dst, [30, 20, 10, 255, 3, 2, 1, 0]);
-    }
-
-    #[test]
-    fn pixel_formats_map_from_spa() {
-        use spa::param::video::VideoFormat as F;
-        assert_eq!(PixelFormat::from_spa(F::BGRx), Some(PixelFormat::Bgrx));
-        assert_eq!(PixelFormat::from_spa(F::BGRA), Some(PixelFormat::Bgrx));
-        assert_eq!(PixelFormat::from_spa(F::RGBx), Some(PixelFormat::Rgbx));
-        assert_eq!(PixelFormat::from_spa(F::RGBA), Some(PixelFormat::Rgbx));
-        assert_eq!(PixelFormat::from_spa(F::I420), None);
-    }
-
-    #[test]
-    fn damage_is_full_frame_without_meta_or_regions() {
-        let full = vec![Rect { x: 0, y: 0, w: 64, h: 32 }];
-        assert_eq!(damage_rects(None, 64, 32), full);
-        assert_eq!(damage_rects(Some(&[]), 64, 32), full);
-        assert_eq!(damage_rects(Some(&[(0, 0, 0, 0), (1, 1, 4, 4)]), 64, 32), full);
-    }
-
-    #[test]
-    fn damage_regions_are_clipped_and_end_at_the_first_empty_one() {
-        let got = damage_rects(
-            Some(&[(-4, 2, 10, 4), (60, 30, 10, 10), (0, 0, 0, 0), (5, 5, 1, 1)]),
-            64,
-            32,
-        );
-        assert_eq!(got, vec![Rect { x: 0, y: 2, w: 6, h: 4 }, Rect { x: 60, y: 30, w: 4, h: 2 }]);
-    }
-
-    #[test]
-    fn param_pods_serialize() {
-        assert!(spa::pod::Pod::from_bytes(&enum_format_pod().unwrap()).is_some());
-        let (b, m) = buffer_pods().unwrap();
-        assert!(spa::pod::Pod::from_bytes(&b).is_some());
-        assert!(spa::pod::Pod::from_bytes(&m).is_some());
-    }
-}
+#[path = "pipewire_capture_tests.rs"]
+mod tests;

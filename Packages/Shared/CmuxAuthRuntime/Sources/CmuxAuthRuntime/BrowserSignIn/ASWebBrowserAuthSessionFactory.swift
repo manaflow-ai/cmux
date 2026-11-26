@@ -1,3 +1,4 @@
+#if canImport(AuthenticationServices)
 public import AuthenticationServices
 public import Foundation
 
@@ -106,3 +107,4 @@ private final class ASWebBrowserAuthSession: HostBrowserAuthSession {
         session.cancel()
     }
 }
+#endif

@@ -151,6 +151,8 @@ public final class MacScreenDevicesSettings {
             var on: Bool
             var busy: Bool
             var permissions: [Permission]
+            /// The account's "My agents can turn screen sharing and control on my machines" (the hub's).
+            var agentsMayShare: Bool
         }
 
         public struct Check: Encodable, Equatable, Sendable {
@@ -272,7 +274,7 @@ public final class MacScreenDevicesSettings {
                 .init(id: "accessibility", title: L.t("macScreen.home.accessibility", "Accessibility"),
                       detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
                       granted: share.accessibilityGranted),
-            ])
+            ], agentsMayShare: hub.agentsMayShare)
         }
         let relays = hub.relays.sorted { ($0.priority, $0.name) < ($1.priority, $1.name) }.map { relay in
             State.Relay(id: relay.id, name: relay.name, urls: relay.urls, mode: relay.authMode.rawValue, modeText: Self.modeText(relay.authMode),
@@ -413,6 +415,8 @@ public final class MacScreenDevicesSettings {
         case "permission_changed": L.t("devices.event.permission", "Access changed")
         case "device_added": L.t("devices.event.added", "Device added")
         case "device_removed": L.t("devices.event.removed", "Device removed")
+        case "agents_allowed": CmuxRemoteAgentStrings.historyAllowed
+        case "agents_disallowed": CmuxRemoteAgentStrings.historyDisallowed
         default: event
         }
     }
@@ -578,7 +582,14 @@ public final class MacScreenDevicesSettings {
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
                 if run.on == true { shareThisMac() }
-                else { try await hubHost.setSharing(false) }
+                else {
+                    // The person's switch in Settings: their off outranks the join default (Z4).
+                    CmuxRemoteShareConsent.recordDecline()
+                    try await hubHost.setSharing(false)
+                }
+            case "setAgentsMayShare":
+                // The person's click on this switch is the consent; the hub audits it, the notice says it.
+                _ = try await CmuxRemoteActionEnvironment.setAgentsMayShare(run.on ?? false, hub: hub, window: nil)
             case "openPermission":
                 share.openSettings(screenRecording: run.id == "screenRecording")
             case "saveRelay":
@@ -604,14 +615,17 @@ public final class MacScreenDevicesSettings {
 
     /// What a failed gesture says (never a secret: hub errors carry codes and the server's message).
     static func message(_ error: any Error) -> String {
+        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
         guard let hubError = error as? DeviceHubError else { return L.t("devices.error.generic", "That didn’t work. Try again.") }
         switch hubError {
         case .notSignedIn, .notConfigured: return L.t("devices.error.signedOut", "Sign in to cmux first.")
+        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
         case .transport: return L.t("devices.error.network", "Couldn’t reach the device hub. Check your connection and try again.")
         default:
             if hubError.code == .deviceRemoved || hubError.code == .notFound {
                 return L.t("devices.error.gone", "That device is no longer in your devices.")
             }
+            // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
             return L.t("devices.error.generic", "That didn’t work. Try again.")
         }
     }
@@ -709,6 +723,7 @@ extension MacScreenDevicesSettings {
         var access: String
         var accessOptions: [Option]
         var sharingSection, sharingToggle, sharingDetail, openSettings, allowed: String
+        var agentsToggle, agentsDetail: String
         var relaysSection, relaysEmpty, relaysHelp, addRelay, editRelay, deleteRelay: String
         var deleteRelayTitle, deleteRelayBody, checkRelay, relayOff: String
         var relayName, relayURLs, relayURLsHelp, relayMode: String
@@ -737,9 +752,11 @@ extension MacScreenDevicesSettings {
                 accessOptions: MacScreenAccess.all.map { Option(value: $0.value, title: $0.title) },
                 sharingSection: L.t("devices.section.sharing", "Mac Screen on This Mac"),
                 sharingToggle: L.t("macScreen.home.allowToggle", "Allow Mac Screen on this Mac"),
-                sharingDetail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
+                sharingDetail: L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect."),
                 openSettings: L.t("macScreen.home.openSettings", "Open System Settings"),
                 allowed: L.t("macScreen.home.granted", "Allowed"),
+                agentsToggle: CmuxRemoteAgentStrings.settingsToggle,
+                agentsDetail: CmuxRemoteAgentStrings.settingsDetail,
                 relaysSection: L.t("devices.section.relays", "Relays"),
                 relaysEmpty: L.t("devices.relays.empty", "No relays. Sessions connect directly when they can."),
                 relaysHelp: L.t("devices.relays.help", "Your own TURN relays for when your Macs can’t reach each other directly. Their secrets are sealed to each of your devices; the device hub never sees them."),

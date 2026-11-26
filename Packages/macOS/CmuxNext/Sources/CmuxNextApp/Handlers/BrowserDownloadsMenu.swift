@@ -10,36 +10,77 @@ import CmuxNextCompat
 /// file, show it in Finder, pause, resume or cancel it, retry it, or copy
 /// its link. cmux opens a file only on a click there, never by itself. Every
 /// row has an icon; the row view themes the menu (`themedMenu()`).
+///
+/// Each row runs its palette action (`browser.download.*`, `download` = the download's id) through
+/// the registry, so the menu and the palette run one handler (``run(_:on:in:)``); ``offers(_:_:)``
+/// says which rows a download has, for both.
 enum BrowserDownloadsMenu {
     /// The right-click menu of `download`'s row; nil when it offers nothing
     /// (a failed blob: download).
-    static func actions(_ download: BrowserDownload, list: BrowserDownloadList) -> NSMenu? {
+    static func actions(_ download: BrowserDownload, list: BrowserDownloadList, registry: ActionRegistry?) -> NSMenu? {
         let submenu = NSMenu(title: download.filename)
         submenu.autoenablesItems = false
-        let file = download.status == .finished ? download.destination : nil
-        if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen, "arrow.up.forward.app") { NSWorkspace.shared.openInBackground(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder, "folder") { NSWorkspace.shared.revealInBackground([file]) })
-        }
-        if download.canPause {
-            let (title, symbol) = download.isPaused ? (BrowserHitStrings.downloadResume, "play.circle") : (BrowserHitStrings.downloadPause, "pause.circle")
-            submenu.addItem(closure(title, symbol) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
-        }
-        if download.canRetry {
-            submenu.addItem(closure(BrowserHitStrings.downloadRetry, "arrow.clockwise") { [weak list, weak download] in
-                if let list, let download { list.retry(download) }
-            })
-        }
-        if download.status == .inProgress {
-            submenu.addItem(closure(BrowserHitStrings.downloadCancel, "xmark.circle") { [weak download] in download?.cancel() })
-        }
-        if let source = download.sourceURL, source.scheme == "http" || source.scheme == "https" {
-            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink, "link") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(source.absoluteString, forType: .string)
-            })
+        let pause = download.isPaused ? (BrowserHitStrings.downloadResume, "play.circle") : (BrowserHitStrings.downloadPause, "pause.circle")
+        let rows: [(ActionID, String, String)] = [
+            ("browser.download.open", BrowserHitStrings.downloadOpen, "arrow.up.forward.app"),
+            ("browser.download.reveal", BrowserHitStrings.downloadShowInFinder, "folder"),
+            ("browser.download.togglePause", pause.0, pause.1),
+            ("browser.download.retry", BrowserHitStrings.downloadRetry, "arrow.clockwise"),  // retry-prompt-ok: a download retry fetches the file again over the network and writes it to disk; the person asks for it
+            ("browser.download.cancel", BrowserHitStrings.downloadCancel, "xmark.circle"),
+            ("browser.download.copyLink", BrowserHitStrings.downloadCopyLink, "link"),
+        ]
+        for (id, title, symbol) in rows where offers(id, download) {
+            submenu.addItem(closure(title, symbol) { [weak registry] in run(id, on: download, list: list, in: registry) })
         }
         return submenu.items.isEmpty ? nil : submenu
+    }
+
+    /// Whether `download` has the row of `id` now: Open and Show in Finder for a finished file, Pause or
+    /// Resume while the engine can, Retry where it can, Cancel while it runs, Copy Download Link for a web link.
+    static func offers(_ id: ActionID, _ download: BrowserDownload) -> Bool {
+        switch id.rawValue {
+        case "browser.download.open", "browser.download.reveal": file(of: download) != nil
+        case "browser.download.togglePause": download.canPause
+        case "browser.download.retry": download.canRetry
+        case "browser.download.cancel": download.status == .inProgress
+        case "browser.download.copyLink": webLink(of: download) != nil
+        default: false
+        }
+    }
+
+    /// A row's palette action on `download`: the menu's choice, confirmed (Cancel asks nothing there), on the
+    /// browser the popup stands in for; refused (or with no registry), the row's own effect (``perform``), as before.
+    static func run(_ id: ActionID, on download: BrowserDownload, list: BrowserDownloadList, in registry: ActionRegistry?) {
+        var invocation = ActionInvocation(arguments: ["download": .string(download.id.uuidString)], origin: .user).confirmed()
+        invocation.keyContext = registry?.context.union(.browserFocused)
+        if registry?.perform(id, invocation: invocation) != true { _ = perform(id, on: download, list: list) }
+    }
+
+    /// What the row of `id` does to `download` (the action's handler); false when the download has no such row now.
+    static func perform(_ id: ActionID, on download: BrowserDownload, list: BrowserDownloadList) -> Bool {
+        guard offers(id, download) else { return false }
+        switch id.rawValue {
+        case "browser.download.open": if let file = file(of: download) { NSWorkspace.shared.openInBackground(file) }
+        case "browser.download.reveal": if let file = file(of: download) { NSWorkspace.shared.revealInBackground([file]) }
+        case "browser.download.togglePause": download.setPaused(!download.isPaused)
+        case "browser.download.retry": _ = list.retry(download)
+        case "browser.download.cancel": download.cancel()
+        case "browser.download.copyLink":
+            guard let source = webLink(of: download) else { return false }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(source.absoluteString, forType: .string)
+        default: return false
+        }
+        return true
+    }
+
+    private static func file(of download: BrowserDownload) -> URL? {
+        download.status == .finished ? download.destination : nil
+    }
+
+    private static func webLink(of download: BrowserDownload) -> URL? {
+        guard let source = download.sourceURL, source.scheme == "http" || source.scheme == "https" else { return nil }
+        return source
     }
 
     /// The file a finished row drags out and opens: its destination while

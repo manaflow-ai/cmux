@@ -17,10 +17,11 @@
 # exports there when this run made them (ACTIONS_MADE_AT) and none was held: the tip then holds this
 # run's exports, or a newer commit's own copy (base-autofix-push.sh lands them as progress past a
 # move of their inputs), and the checks compare the built files with the exports committed beside them. The defaults snapshot, which reads
-# both exports, also needs the settings exports' inputs on the tip to be the ones this run judged
-# them at: the tip's sources give the same source stamp (defaults_guard.py source-stamp, derived from
-# each tree; the stamp is never committed) as SETTINGS_MADE_AT when this run made them and none was
-# held, or else as BASE_SHA, whose committed exports the first push built the snapshot from. Otherwise,
+# both exports, and the settings docs reference are made again the same way when this run made the
+# settings exports (SETTINGS_MADE_AT) and none was held (they landed, as progress past a move of their
+# inputs too); without SETTINGS_MADE_AT only when the tip's sources give the same source stamp
+# (defaults_guard.py source-stamp, derived from each tree; the stamp is never committed) as BASE_SHA,
+# whose committed exports the first push built the snapshot from. Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
@@ -68,7 +69,7 @@ main() {
   trap 'rm -rf "${work:-}"' EXIT
   root="$(git rev-parse --show-toplevel)"
   # The run's own push and area rules, copied before a checkout of the tip can change them. The repair
-  # and the defaults guard on the tip are the tip's own (in the checkout).
+  # and the defaults snapshot tool on the tip are the tip's own (in the checkout).
   cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
   areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
@@ -104,6 +105,8 @@ main() {
       web/data/next-docs/*.generated.json) ((actions_current)) ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a), from the tip's own crate.
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
         | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) ((actions_current)) ;;
       schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;
@@ -161,7 +164,8 @@ main() {
       -m "scripts/cmux-next/base-autofix-land.sh: ${RUN_URL:-} could not compile these, so they wait for this pull request's CI instead of landing on $branch.")"
     # The same rewrite again (every base push makes it while it waits) leaves the branch, and its CI, alone.
     if ! previous="$(remote_refs . "$remote" "refs/heads/$sources_branch")"; then
-      echo "::warning title=Base autofix Swift rewrites::$remote did not answer; they are left out of $branch and the next run makes them again" >&2
+      echo "::warning title=Base autofix Swift rewrites::$remote did not answer; they are left out of $branch and the run fails, so the next run's since still covers them" >&2
+      sources_left+="$paths"$'\n'
       return 0
     fi
     previous="$(cut -f1 <<<"$previous")"
@@ -172,7 +176,8 @@ main() {
       return 0
     fi
     if ! with_token git push --quiet --force "$remote" "$commit:refs/heads/$sources_branch"; then
-      echo "::warning title=Base autofix Swift rewrites::could not push them to $sources_branch; they are left out of $branch and the next run makes them again" >&2
+      echo "::warning title=Base autofix Swift rewrites::could not push them to $sources_branch; they are left out of $branch and the run fails, so the next run's since still covers them" >&2
+      sources_left+="$paths"$'\n'
       return 0
     fi
     echo "Left the Swift rewrites out of $branch: they wait on $sources_branch (${commit:0:12}) for a pull request whose CI compiles them."
@@ -196,9 +201,26 @@ none" >/dev/null; then
     fi
     return 0
   }
+  # A rewrite that reached neither BRANCH nor SOURCES_BRANCH: the run ends red (finish), or its success
+  # would move base-autofix-since.sh's since past the change and no later run would make it again. Run
+  # 45587592604 regenerated the FFI bindings below three times, every push here was refused ("Unable to
+  # determine if workflow can be created or updated due to timeout"), and it ended green: the bindings
+  # stayed stale after #56006 until a person regenerated them (#56493).
+  sources_left=""
+  finish() {
+    if [[ -n "$sources_left" ]]; then
+      echo "::error::these Swift rewrites reached neither $branch nor $sources_branch; the next run makes them again:" >&2
+      printf '%s' "$sources_left" | sort -u | sed 's/^/  /' >&2
+      exit 1
+    fi
+    exit 0
+  }
   split_sources() { # <base>: moves the Swift HEAD rewrote out of HEAD; 1 when nothing is left to push
     local on="$1" paths path message
-    paths="$(git diff --name-only "$on" HEAD -- '*.swift' | grep -Ev '(^|/)Package\.swift$' || true)"
+    # The uniffi bindings (scripts/ios-ffi-bindings.sh, base-autofix.sh 5a) are no rewrite: they are the
+    # generator's output for the crate on BRANCH, and the fleet ios-build ffi job and the ios job's drift
+    # check compare them with what that crate makes. Held in a pull request they left BRANCH stale (#56006).
+    paths="$(git diff --name-only "$on" HEAD -- '*.swift' | grep -Ev '(^|/)Package\.swift$|^cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/' || true)"
     [[ -n "$paths" ]] || return 0
     propose_sources "$on" "$paths"
     message="$(git log -1 --format=%B HEAD | grep -vF -f <(printf '%s\n' "$paths") || true)"
@@ -241,6 +263,13 @@ none" >/dev/null; then
   while ((status != 0)); do
     held="$(grep . "$work/held" || true)"
     if [[ -z "$held" ]]; then
+      if ((status == 75)); then
+        # A base that keeps moving is no red: every push to it starts a run (cancel-in-progress: false keeps
+        # the newest pending one), and that run repairs these (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING
+        # SHIT INSTEAD OF JUST BEING OOPS").
+        echo "$branch kept moving under every push; the run its newest push started repairs it."
+        finish
+      fi
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
     git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
@@ -265,8 +294,13 @@ none" >/dev/null; then
         judged="$settings_made_at"
         grep -qE "$settings_exports" <<<"$held"$'\n'"$waits" && judged=""
       fi
-      # The tip's own guard (it finds the repository from its own path) derives both stamps.
-      if [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
+      # Exports this run made and none held: the tip holds them, as made at SETTINGS_MADE_AT, or as
+      # progress past a move of their inputs (base-autofix-push.sh), and what is built from them is made
+      # from the exports committed beside it, as for the action exports. Without them the tip's own
+      # guard (it finds the repository from its own path) derives both stamps.
+      if [[ -n "$settings_made_at" && -n "$judged" ]]; then
+        settings_current=1
+      elif [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
         && judged_stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$judged" 2>/dev/null)" \
         && [[ -n "$judged_stamp" ]] \
         && [[ "$judged_stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]]; then
@@ -281,9 +315,10 @@ none" >/dev/null; then
       exit "$status"
     fi
     if ((round >= rounds)); then
-      echo "::error::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
+      # No red: the run the newest of those pushes started repairs them.
+      echo "::warning title=Base autofix::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
       printf '%s' "$again" | sed 's/^/  /' >&2
-      exit 1
+      finish
     fi
     round=$((round + 1))
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
@@ -323,6 +358,6 @@ for meta, path in zip(parts[0::2], parts[1::2]):
     printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
     exit 1
   fi
-  exit 0
+  finish
 }
 main "$@"; exit $?

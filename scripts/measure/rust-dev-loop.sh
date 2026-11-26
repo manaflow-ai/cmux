@@ -3,7 +3,7 @@
 # build-setting variant, as p50/p95. Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/rust-dev-loop.sh --ref SHA \
 #     [--arg=variants=base,lld,nodebug] [--arg=n=8] [--arg=clean_n=1] \
-#     [--arg=scenarios=acpmux_leaf,shared_struct,test_only] [--arg=tests=acpmux] \
+#     [--arg=scenarios=acpmux_leaf,shared_struct,test_only,tui_server,tui_core] [--arg=tests=acpmux] [--arg=load=N] \
 #     --artifact .build/rust-dev-loop/samples.json --timeout 10800
 # Each variant gets its own target directory and a clean build (clean_n of them), then n
 # interleaved rounds of an acpmux leaf edit, a shared Formula layout edit, and an acpmux
@@ -21,7 +21,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 # blaze_home_path: a BLAZE_HOME whose daemon socket fits a Unix socket address (macOS: 104 bytes).
 source "$root/scripts/measure/blaze-home.sh"
-variants=base n=8 clean_n=1 scenarios=acpmux_leaf,shared_struct,test_only tests="" out="" timings=0 custom=()
+variants=base n=8 clean_n=1 scenarios=acpmux_leaf,shared_struct,test_only tests="" out="" timings=0 load=0 custom=()
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;
@@ -31,6 +31,7 @@ for kv in "$@"; do
     tests=*) tests="${kv#*=}" ;;
     out=*) out="${kv#*=}" ;;
     timings=*) timings="${kv#*=}" ;;
+    load=*) load="${kv#*=}" ;;
     custom=*) custom+=(--custom "${kv#*=}") ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
@@ -153,6 +154,6 @@ out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 status=0
 python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
+  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" --load "$load" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
 du -sh "$scratch" | sed 's/^/scratch: /'
 exit "$status"

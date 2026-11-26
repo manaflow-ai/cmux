@@ -190,6 +190,12 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
+    /// `hub/cold_wake.rs`).
+    pub gather: bool,
+    /// `--within`: the sender's own delivery deadline in ms (`_meta.acpmux.within`,
+    /// `prompt_class::due_at`), which can only tighten the class's.
+    pub within: Option<u64>,
 }
 
 impl PromptId {
@@ -212,6 +218,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +238,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
         }
     }
@@ -288,6 +298,12 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.gather {
+            mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
+        }
+        if let Some(within) = self.within {
+            mux.set(crate::prompt_class::WITHIN_META, json!(within));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());
@@ -389,6 +405,17 @@ async fn queue_prompt_once(
     }
 }
 
+/// A held message's deadline (`hub/inbox.rs` "Deadlines") as `send` and `send --status` print
+/// it: "due in 14m" (the receiver is woken for it by then), or "due 3m ago" past it.
+pub(crate) fn due_words(due_ms: u64, now_ms: u64) -> String {
+    let mins = |ms: u64| ms.div_ceil(60_000);
+    if due_ms > now_ms {
+        format!("due in {}m", mins(due_ms - now_ms))
+    } else {
+        format!("due {}m ago", mins(now_ms - due_ms))
+    }
+}
+
 /// What `acpmux send --no-wait` prints for its acceptance.
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
@@ -401,6 +428,11 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         "queued"
     };
     let mut lines = vec![first.to_owned()];
+    if first == HELD_LINE
+        && let Some(due) = accepted.get("dueAt").and_then(Value::as_u64)
+    {
+        lines.push(due_words(due, crate::store::now_ms()));
+    }
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
@@ -408,6 +440,26 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
             None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
                 .to_owned(),
         });
+    }
+    lines
+}
+
+/// [`sent_lines`] naming the target by the name it was given (`displayName` in its acceptance,
+/// from a daemon that has it), its typed `key` beside it: "steered to Mango · HOST/NAME". A target
+/// without a given name reads as before.
+pub(crate) fn sent_lines_to(accepted: &Value, supersede: bool, key: &str) -> Vec<String> {
+    let mut lines = sent_lines(accepted, supersede);
+    let given = accepted
+        .get("displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    if let (Some(given), Some(first)) = (given, lines.first_mut()) {
+        let to = crate::prompt_provenance::display_label(Some(given), key);
+        *first = match first.split_once(':') {
+            // The held line explains itself after its colon: the name goes before it.
+            Some((head, rest)) => format!("{head} (to {to}):{rest}"),
+            None => format!("{first} to {to}"),
+        };
     }
     lines
 }
@@ -931,12 +983,6 @@ pub(crate) fn print_item(item: &Item) {
         Item::Tool { title, kind, status, .. } => {
             println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
         }
-        Item::Plan { entries } => {
-            println!("\x1b[35mplan:\x1b[0m");
-            for (s, c) in entries {
-                println!("  [{s}] {c}");
-            }
-        }
         Item::Permission { title, decided, .. } => match decided {
             Some(d) => println!("\x1b[33mpermission {title}: {d}\x1b[0m"),
             None => println!("\x1b[33mpermission needed: {title}\x1b[0m"),
@@ -1430,6 +1476,27 @@ mod prompt_tests {
         let lines = sent_lines(&json!({"queued": true}), true);
         assert_eq!(lines[0], "queued");
         assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
+    }
+
+    /// Leo: "the send/recieve messages are still only the older names". `acpmux send` says the
+    /// target's given name, the typed key beside it; a target without one prints as before.
+    #[test]
+    fn a_send_names_the_target_by_its_given_name() {
+        let steered = json!({"steer": true, "displayName": "Mango"});
+        assert_eq!(
+            sent_lines_to(&steered, false, "studio-mac/coord-old"),
+            ["steered to Mango · studio-mac/coord-old"]
+        );
+        assert_eq!(sent_lines_to(&steered, false, "Mango"), ["steered to Mango"]);
+        let held = json!({"heldInInbox": true, "displayName": "Mango"});
+        let line = &sent_lines_to(&held, false, "coord-old")[0];
+        assert!(
+            line.starts_with("held in its inbox (to Mango · coord-old): the receiver"),
+            "{line}"
+        );
+        assert_eq!(sent_lines_to(&json!({"queued": true}), false, "coord-old"), ["queued"]);
+        let invalid = json!({"queued": true, "displayName": "no spaces allowed"});
+        assert_eq!(sent_lines_to(&invalid, false, "coord-old"), ["queued"]);
     }
 
     #[test]

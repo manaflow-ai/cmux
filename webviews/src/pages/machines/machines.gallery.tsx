@@ -39,6 +39,16 @@ function MachinesGallery({ snapshot = sampleSnapshot, asking, dial, layout }: Pr
 }
 
 const joinedOnly: MachinesSnapshot = { rows: [thisMac, ...joinedRows], style: "compact", busy: [], failed: {} };
+const linuxBox: MachineRow = {
+  id: "joined:m_box",
+  name: "lane-box",
+  kind: "joined",
+  isLocal: false,
+  isConnected: false,
+  isConnecting: false,
+  joined: { id: "m_box", name: "lane-box", state: "online", platform: "linux", mintedBy: "you@example.com" },
+};
+const linuxJoined: MachinesSnapshot = { ...joinedOnly, rows: [...joinedOnly.rows, linuxBox] };
 const waiting = { row: "joined:m_mini", answers: [{ state: "consent_required" }] } satisfies Props["dial"];
 const declined = { row: "joined:m_mini", answers: [{ state: "consent_declined" }] } satisfies Props["dial"];
 
@@ -124,10 +134,12 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "caption" },
     },
     "dial-caption-declined": {
+      // retry-prompt-ok: the kept Retry (a new consent card on the other Mac).
       note: "Picked. studio-mini said Not now: the caption says so and Retry follows it. Nothing asks again until Retry.",
       props: { snapshot: joinedOnly, dial: declined, layout: "caption" },
     },
     "dial-caption-unanswered": {
+      // retry-prompt-ok: the kept Retry (a new consent card on the other Mac).
       note: "Picked. No answer within about three minutes: the row stops asking and offers Retry.",
       props: {
         snapshot: joinedOnly,
@@ -136,10 +148,31 @@ export default componentEntry<Props>({
       },
     },
     "dial-caption-update": {
+      // retry-prompt-ok: the person updates cmux on the other Mac first, then Retry.
       note: "Picked. studio-mini's cmux predates the consent (it answers service.unknown): Update cmux on it, with Retry.",
       props: {
         snapshot: joinedOnly,
         dial: { row: "joined:m_mini", answers: [{ state: "unavailable", reason: "service.unknown" }] },
+        layout: "caption",
+      },
+    },
+    "linux-joined-online": {
+      note: "Picked. lane-box, a Linux machine joined by a line or pair code, online and reached only through the hub: New Workspace is on, as on a joined Mac. Its join is its consent, so it opens with no card.",
+      props: { snapshot: linuxJoined },
+    },
+    "linux-dial-update": {
+      note: "lane-box's acpmux predates its join counting as consent (it still asks, and has no card): Update cmux on lane-box, with Retry.",
+      props: {
+        snapshot: linuxJoined,
+        dial: { row: "joined:m_box", answers: [{ state: "unavailable", reason: "service.outdated" }] },
+        layout: "caption",
+      },
+    },
+    "linux-dial-failed": {
+      note: "lane-box cannot be reached over the hub (carrier off): Could not reach lane-box, with Retry.",
+      props: {
+        snapshot: linuxJoined,
+        dial: { row: "joined:m_box", answers: [{ state: "unavailable", reason: "carrier.off" }] },
         layout: "caption",
       },
     },
@@ -148,6 +181,7 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "trailing" },
     },
     "dial-trailing-declined": {
+      // retry-prompt-ok: the kept Retry, laid out on the New Workspace button.
       note: "Variant: trailing words; Retry is the New Workspace button, shown without hover.",
       props: { snapshot: joinedOnly, dial: declined, layout: "trailing" },
     },
@@ -156,6 +190,7 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "tinted" },
     },
     "dial-tinted-declined": {
+      // retry-prompt-ok: the kept Retry, laid out on the New Workspace button.
       note: "Variant: Not now in the danger ink, Retry as the New Workspace button. Reads as an error, which Not now is not.",
       props: { snapshot: joinedOnly, dial: declined, layout: "tinted" },
     },

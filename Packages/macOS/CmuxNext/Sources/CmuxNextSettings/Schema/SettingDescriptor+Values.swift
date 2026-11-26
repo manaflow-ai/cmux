@@ -22,14 +22,23 @@ extension SettingDescriptor {
     public func accepts(_ value: JSONValue) -> Bool {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
+        if path == ThinkingGlyphSetting().configPath { return ThinkingGlyphSetting.accepts(value) }
         if path == TranscriptTokensSetting.configPath { return TranscriptTokensSetting.accepts(value) }
+        if path == SidebarSectionIDsSetting.sectionsHiddenPath || path == SidebarSectionIDsSetting.sectionsOrderPath {
+            return SidebarSectionIDsSetting.accepts(value)
+        }
+        if path == HostsSetting.configPath { return HostsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
-        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
+        if ThemeFlourishSetting.pictureListPaths.contains(path) { return ThemeFlourishSetting.acceptsPictures(value) }
+        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath
+            || ThemeFlourishSetting.picturePaths.contains(path) {
             return BackdropSelectionSetting.acceptsPicture(value)
         }
         if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }
         if path == BackdropSelectionSetting.locationPath { return BackdropSelectionSetting.acceptsLocation(value) }
         if path == BackdropSelectionSetting.memoryPath { return BackdropSelectionSetting.acceptsMemory(value) }
+        if path == BackdropPlacementSetting.placementPath { return BackdropPlacementSetting.accepts(value) }
+        if path == BackdropSelectionSetting.recentsPath { return BackdropSelectionSetting.acceptsRecents(value) }
         if path == NewTabAppSetting.configPath { return value.stringValue.map(NewTabAppSetting.isValidID) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
@@ -89,6 +98,13 @@ extension SettingDescriptor {
         case .orderedChoices(let choices), .choiceSet(let choices):
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
+        case .json(let shape):
+            // The top-level type only: the shape and its domain are the daemon's (cmux-config schema::shape).
+            switch shape["type"]?.stringValue {
+            case "array": return value.arrayValue != nil
+            case "object": return value.objectValue != nil
+            default: return true
+            }
         }
     }
 

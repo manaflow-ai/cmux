@@ -6,12 +6,14 @@ mod declared;
 mod delete_retry;
 mod environment;
 mod machine;
+mod machine_lifecycle;
 mod machine_projection;
 mod migration;
 mod pause_all;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;
+pub mod surge;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
@@ -72,6 +74,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.environment.boot", Kind::UserOnly),
     ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
+    ("cloud.usage.current", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
     ("cloud.migration.status", Kind::Read),
@@ -240,6 +243,7 @@ pub struct Server<C> {
     control_plane: C,
     projection: Projection,
     ledger: Ledger,
+    lifecycle: machine_lifecycle::Ledger,
     attach: crate::link::Attach,
     edge: crate::ports::Edge,
     /// Host-only ops this server sent and their answers (crate::api::host).
@@ -290,6 +294,7 @@ impl<C: ControlPlane> Server<C> {
             control_plane,
             projection: Projection::default(),
             ledger: Ledger::default(),
+            lifecycle: machine_lifecycle::Ledger::default(),
             attach,
             edge,
             host: crate::api::host::HostRequests::default(),
@@ -465,6 +470,15 @@ impl<C: ControlPlane> Server<C> {
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request, Some(&upstream));
         }
+        if matches!(name, "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete") {
+            self.ledger.replay(key, name, &args)?;
+            self.ledger.attempt(key, name, &args);
+            let result = self.run(name, &args, request, Some(key));
+            if result.as_ref().is_err_and(|error| error.code == codes::INVALID_ARGS) {
+                self.ledger.forget(key);
+            }
+            return result;
+        }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             if name == "cloud.machine.pause_all" && pause_all::retryable(&done) {
                 let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, Some(key))
@@ -535,10 +549,10 @@ impl<C: ControlPlane> Server<C> {
         match group {
             "auth" => auth::run(&mut ctx, name, args),
             _ if name == "cloud.machine.upgrade" => migration::run(&mut ctx, name, args),
-            "machine" => machine::run(&mut ctx, name, args),
+            "machine" => machine::run(&mut ctx, &mut self.lifecycle, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
-            "plan" | "billing" | "retention" => plan::run(&mut ctx, name, args),
+            "plan" | "usage" | "billing" | "retention" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }

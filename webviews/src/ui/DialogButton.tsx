@@ -1,18 +1,19 @@
 // The one button of every web dialog and sheet (u2647): it shows the key that presses it, as the
-// native cmux dialogs do ("Cancel ⎋", "Create ↩", "Don't Save ⌘D"), and tells assistive tech the
+// native cmux dialogs do ("Cancel esc", "Create return", "Don't Save ⌘D"), and tells assistive tech the
 // same key (aria-keyshortcuts). Return and Escape are answered by the dialog itself (a form submit,
 // ui/Dialog's Escape); a Command key is answered here while the button is mounted and enabled.
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { cx } from "./cx";
+import { KeyHint } from "./KeyHint";
 
 /** The key that presses a dialog button: Return, Escape, an arrow (viewers step with them), or
  * Command plus one character. */
 export type DialogKey = "return" | "escape" | "left" | "right" | { command: string };
 
-/** The keycap text, as macOS menus write keys. */
+/** The key as macOS menus write it, for tooltips (Escape as "esc"); its keycap reads `keycapLegend` of it. */
 export function dialogKeyGlyph(key: DialogKey): string {
   if (key === "return") return "↩";
-  if (key === "escape") return "⎋";
+  if (key === "escape") return "esc";
   if (key === "left") return "←";
   if (key === "right") return "→";
   return `⌘${key.command.toUpperCase()}`;
@@ -28,7 +29,7 @@ export function dialogKeyAria(key: DialogKey): string {
 }
 
 /** The props that name an icon-only button's key: its label for VoiceOver, the key in
- * `aria-keyshortcuts`, and a tooltip of the label and the keycap ("Close ⎋"). The dialog answers
+ * `aria-keyshortcuts`, and a tooltip of the label and the key ("Close esc"). The dialog answers
  * the key; spread these on the button. */
 export function keyedIconProps(label: string, key: DialogKey) {
   return { "aria-label": label, "aria-keyshortcuts": dialogKeyAria(key), title: `${label} ${dialogKeyGlyph(key)}` };
@@ -78,11 +79,7 @@ export function DialogButton({
       aria-keyshortcuts={dialogKey ? dialogKeyAria(dialogKey) : undefined}
     >
       {children}
-      {dialogKey && (
-        <kbd className="ui-keyhint" aria-hidden="true">
-          {dialogKeyGlyph(dialogKey)}
-        </kbd>
-      )}
+      {dialogKey && <KeyHint keys={dialogKeyGlyph(dialogKey)} aria-hidden="true" />}
     </button>
   );
 }

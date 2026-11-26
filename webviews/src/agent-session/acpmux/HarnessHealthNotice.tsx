@@ -1,6 +1,8 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CloudSignIn } from "./conversation/CloudSignIn";
 import { ErrorDetails } from "./conversation/ErrorDetails";
-import { Spinner } from "./conversation/icons";
+import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
 import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
@@ -30,6 +32,10 @@ const message = (error: unknown) => (error instanceof Error ? error.message.trim
 /// starts it, the host runs it in place (`harness.update`) while the line says so (the lowest
 /// tier, so it never covers an error), then Restart Chat (`harness.restart`) to use the new
 /// version. An update that needs sudo is left to Settings > Agents, which shows its command.
+/// Where this Mac's daemon runs the agent's own login (`signIn`, cloudAgentLogin.ts
+/// `localAgentLogin`), Log In is the sign-in card instead: the page beside the chat and the code in
+/// the card, no terminal tab (logins done right; Leo, 2026-11-22: "this is simply logins, done
+/// righr."). Without it the login runs in the terminal tab as before.
 export function HarnessHealthNotice({
   health,
   harness,
@@ -37,6 +43,7 @@ export function HarnessHealthNotice({
   cwd,
   open,
   native,
+  signIn,
   turnRunning = false,
   onUpdated,
   onOffer,
@@ -49,6 +56,8 @@ export function HarnessHealthNotice({
   cwd?: string;
   open: Open;
   native: Native;
+  /// The agent's own login on this Mac, in the card; none: Log In runs the login in a terminal tab.
+  signIn?: CloudSignInActions;
   /// Whether the chat's turn is running: a restart the host holds for it happens when it ends.
   turnRunning?: boolean;
   /// The update is in use (or the restart is waiting on the turn): read the agent's health again.
@@ -59,6 +68,7 @@ export function HarnessHealthNotice({
   onSignInVisible?: (visible: boolean) => void;
 }) {
   const t = useT();
+  const actionsRef = useRef<HTMLDivElement>(null);
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
   const signedOut = health && needsLogin(health.auth) && health.login ? health.login : undefined;
@@ -186,7 +196,9 @@ export function HarnessHealthNotice({
   if (kind === "signedOut") {
     // Names whose sign-in it is and the one fix, as the composer's notice does (sessionAuth.ts).
     text = t(health.auth === "expired" ? "auth.login.expired" : "auth.login.signedOut", { agent: name });
-    buttons = (
+    buttons = signIn ? (
+      <CloudSignIn signIn={signIn} rowId={undefined} prompt={undefined} actionsRef={actionsRef} />
+    ) : (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
         {t("auth.fix.signInTo", { name })}
       </button>
@@ -222,6 +234,7 @@ export function HarnessHealthNotice({
           </button>
         )}
         <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
+          {/* retry-prompt-ok: runs the agent's updater again (an install). */}
           {t("harness.tryAgain")}
         </button>
       </>
@@ -243,10 +256,10 @@ export function HarnessHealthNotice({
         {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
           {text}
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+          {busy && <WaitSpinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
         {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
-        <div className="acpmux-host-error-actions">
+        <div className="acpmux-host-error-actions" ref={actionsRef}>
           {notNow}
           {buttons}
         </div>

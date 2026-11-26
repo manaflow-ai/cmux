@@ -1011,7 +1011,7 @@ class NothingAfterTheBound(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the bound is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -1024,7 +1024,7 @@ class NothingAfterTheBound(unittest.TestCase):
         def start(thread):
             real(thread)
             if thread.name == "github-request":
-                time.sleep(seconds)
+                time.sleep(seconds)  # sleep-ok: a simulated loaded caller, held after it starts the request
 
         threading.Thread.start = start
         self.addCleanup(setattr, threading.Thread, "start", real)
@@ -1273,6 +1273,10 @@ class Workflows(unittest.TestCase):
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("inputs.base_tier == true", jobs["push-attribution"]["if"])
+        # The tip suite dispatches (swift test, the daemon tests) are the after-merge runs of jobs a pull request
+        # into feat-cmux-next no longer runs (2026-11-26): their red names the merges in range and pages the culprit.
+        self.assertIn("inputs.tip_swift_suite == true", jobs["push-attribution"]["if"])
+        self.assertIn("inputs.tip_daemon_suite == true", jobs["push-attribution"]["if"])
 
     def test_a_red_crash_gate_alone_starts_push_attribution(self):
         # failure() reads only the needed jobs: the crash gate is one of the base tier's jobs.

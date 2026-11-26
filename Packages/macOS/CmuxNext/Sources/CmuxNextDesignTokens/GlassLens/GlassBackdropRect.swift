@@ -31,8 +31,14 @@ public nonisolated struct GlassBackdropRect: Equatable, Sendable {
     /// - Returns: Nil when the art or the page has no area, or the zoom is not positive.
     public init?(imageSize: CGSize, artFrame: CGRect, pageFrame: CGRect, zoom: Double,
                  fit: BackdropArtFit = .fill, pointsPerPixel: CGFloat = 1) {
-        guard zoom > 0, zoom.isFinite, pageFrame.width > 0, pageFrame.height > 0,
-              let image = fit.rect(of: imageSize, in: artFrame, pointsPerPixel: pointsPerPixel) else { return nil }
+        guard let image = fit.rect(of: imageSize, in: artFrame, pointsPerPixel: pointsPerPixel) else { return nil }
+        self.init(imageFrame: image, pageFrame: pageFrame, zoom: zoom)
+    }
+
+    /// The rect of the whole drawn image, `imageFrame` in window coordinates (bottom-left origin;
+    /// a placed picture, `appearance.backgroundPlacement`), seen from `pageFrame`.
+    public init?(imageFrame image: CGRect, pageFrame: CGRect, zoom: Double) {
+        guard zoom > 0, zoom.isFinite, pageFrame.width > 0, pageFrame.height > 0, image.width > 0, image.height > 0 else { return nil }
         func css(_ points: CGFloat) -> Double { (Double(points) / zoom * 100).rounded() / 100 }
         // Window coordinates grow upward; CSS grows downward from the viewport's top edge.
         self.init(x: css(image.minX - pageFrame.minX), y: css(pageFrame.maxY - image.maxY),

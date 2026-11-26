@@ -11,8 +11,11 @@ where it meets origin/feat-cmux-next or origin/main) and judges what the change 
                         High, the audit's own condition) is ::error and fails; every other new finding is a
                         ::warning. Then the whole repository's totals, report-only.
   ratchet.py gitleaks   gitleaks over the change's commits (each first-parent diff), values redacted. The scope is
-                        the change, so every finding is new and every one fails: a leaked secret. A known
-                        non-secret goes into gitleaks/gitleaks.toml's allowlist; a real one is rotated.
+                        the change, so every finding is new. It fails the change unless it is the shape-only
+                        rule (generic-api-key) in a test file, which is a ::warning: test fixtures are full of
+                        made-up keys. A provider's own token pattern fails anywhere. A known non-secret takes a
+                        `gitleaks:allow` comment on its line or goes into gitleaks/gitleaks.toml's allowlist; a
+                        real one is rotated.
 
 The decision (the interim coordinator, for Leo, 2026-11-22): "make them fail a PR only on findings
 that PR introduces and that are a real security hole: a leaked secret, untrusted input reaching a privileged
@@ -59,6 +62,20 @@ ZIZMOR_HOLES: dict[str, str] = {
 HEAD_REF = r"(pull_request\.head\.(sha|ref)|workflow_run\.head_(sha|branch)|github\.head_ref|refs/pull/)"
 SHELL_HEAD_CHECKOUT = re.compile(r"\b(git\s+(checkout|switch|worktree\s+add)|gh\s+pr\s+checkout)\b.*" + HEAD_REF)
 
+# gitleaks rules that match a shape (a name like "key" next to a random-looking string), not one provider's token
+# format. In a test file they are a warning. Measured on feat-cmux-next pull requests, 2026-11-22 17:00Z to
+# 2026-11-23 03:00Z: 11 of the 17 failed security-holes jobs read failed on gitleaks alone, and all 10 findings
+# whose lines were read were fixtures in test files (a workspace UUID under "key", "sk-test-...", "sk-gw-01...").
+GITLEAKS_SHAPE_RULES = frozenset({"generic-api-key"})
+TEST_FILE = re.compile(
+    r"(^|/)(tests?|Tests|__tests__|fixtures|testdata)/"
+    r"|_tests?\.(rs|go|py)$|(^|/)test_[^/]+\.py$|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.swift$")
+
+
+def gitleaks_fails(finding: dict) -> bool:
+    """A gitleaks finding fails the change unless it is a shape-only rule in a test file."""
+    return not (finding.get("RuleID") in GITLEAKS_SHAPE_RULES and TEST_FILE.search(finding.get("File", "")))
+
 
 class ToolDidNotRun(Exception):
     pass
@@ -97,7 +114,8 @@ def has_commit(rev: str) -> bool:
 def fetch_commit(sha: str) -> None:
     """A depth-1 checkout lacks the base; its trees come now and its blobs on demand (partial clone)."""
     if not has_commit(sha):
-        git("fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none", "origin", sha)
+        shallow = git("rev-parse", "--is-shallow-repository") == "true"
+        git("fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []), "--filter=blob:none", "origin", sha)
 
 
 def resolve_base(head: str) -> str | None:
@@ -305,14 +323,22 @@ def gitleaks(base: str, head: str) -> int:
         return 0
     summary = [f"### gitleaks: {len(findings)} possible secrets in this change's commits (values redacted)", "",
                "| File | Line | Rule | Commit |", "| --- | --- | --- | --- |"]
+    holes = [f for f in findings if gitleaks_fails(f)]
     for f in findings:
-        print(annotate("error" if blocking() else "warning", f["File"],
-                       f"gitleaks {f['RuleID']} in commit {f['Commit'][:12]} (value redacted)", f["StartLine"]))
-        summary.append(f"| `{f['File']}` | {f['StartLine']} | {f['RuleID']} | {f['Commit'][:12]} |")
-    print("ratchet: a real secret: rotate it, then drop it from the commits. A known non-secret: add it to "
-          "scripts/static-analysis/gitleaks/gitleaks.toml's allowlist")
+        fails = gitleaks_fails(f)
+        print(annotate("error" if fails and blocking() else "warning", f["File"],
+                       f"gitleaks {f['RuleID']} in commit {f['Commit'][:12]} (value redacted)"
+                       + ("" if fails else "; a made-up key in a test file is fine, this does not fail the change"),
+                       f["StartLine"]))
+        summary.append(f"| `{f['File']}` | {f['StartLine']} | {f['RuleID']} | {f['Commit'][:12]} |"
+                       + ("" if fails else " warning only: shape rule in a test file"))
+    if holes:
+        print("ratchet: a real secret: rotate it, then drop it from the commits. A known non-secret: put a "
+              "`gitleaks:allow` comment on its line, or add it to scripts/static-analysis/gitleaks/gitleaks.toml's "
+              "allowlist")
     summarize(summary)
-    return verdict(findings, "its fingerprint or path in scripts/static-analysis/gitleaks/gitleaks.toml's allowlist")
+    return verdict(holes, "a `gitleaks:allow` comment on its line, or its fingerprint or path in "
+                          "scripts/static-analysis/gitleaks/gitleaks.toml's allowlist")
 
 
 def main() -> int:

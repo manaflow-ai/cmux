@@ -4,7 +4,8 @@
 # artifact (cmux-next-base-autofix.yml). A run that left its exports to another run's queued or running
 # Mac job (base-autofix-mac-busy.sh) ends green with its "Mac exports deferred" job but exported nothing,
 # and uploads no marker, so the next run reaches past it and its changes stay in range; so does the run of
-# this workflow's own repair push, whose jobs all skip (cmux-next-base-autofix.yml, No loop).
+# this workflow's own repair push, whose jobs all skip (cmux-next-base-autofix.yml, No loop), and the run
+# its batch window job held (Once per window) when the cancel did not take: its autofix job skips.
 #
 # Two listings, the successful runs and the markers: reading each run's jobs instead cost one GITHUB_TOKEN
 # call per run (on 2026-11-22 all 30 listed runs had deferred: 31 calls, twice a run, to print nothing),

@@ -8,8 +8,6 @@ import { SUBAGENTS, awaitsOwnWork, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
-/// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
-export const SUBAGENT_OF = "subagentOf";
 /// The known child has no recorded messages or tool calls yet.
 export const SUBAGENT_EMPTY = "subagentEmpty";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
@@ -50,34 +48,25 @@ function viewGroups(view: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
   return groups;
 }
 
-/// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, or the chat,
-/// `chat`), then its rows with its open groups listed. Undefined when the subagent is unknown.
+/// Subagent `id`'s own view: its rows with its open groups listed, laid out as a chat's are, with no
+/// line about where it came from (Leo, 2026-11-22: "the metadata about provenance or whatever like
+/// subagent of something. we shouldn't have those."). Undefined when the subagent is unknown.
+/// `_chat` is the chat's name, which the view no longer draws.
 export function childView(
   id: string,
   rows: readonly AcpmuxRow[],
   views: Record<string, AcpmuxRow[]> | undefined,
   expanded: Folds,
-  chat: string,
 ): AcpmuxRow[] | undefined {
-  const agents = subagentsIn(rows, views);
-  const agent = agents.get(id);
+  const agent = subagentsIn(rows, views).get(id);
   if (!agent) return undefined;
-  const parent = agent.parent === null ? chat : agents.get(agent.parent)?.name || chat;
-  const pill: AcpmuxRow = {
-    id: `${id}:of`,
-    version: 1,
-    at: agent.startedAt,
-    kind: SUBAGENT_OF,
-    subagents: [agent],
-    text: parent,
-  };
   const own = views?.[id] ?? [];
   const content = withSubagentRows(own, expanded);
   // Views are populated by recorded child events, not a separate fetch. An absent entry does
   // not mean a request is pending; describe the empty transcript without claiming it is loading.
-  if (!content.length) return [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
+  if (!content.length) return [{ id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
   const footer = subagentFooter(agent, own);
-  return footer ? [pill, ...content, footer] : [pill, ...content];
+  return footer ? [...content, footer] : content;
 }
 
 /// The footer (TurnRows.tsx TurnFooter: Copy, Pin, Timeline, Read aloud, More, its time) under a

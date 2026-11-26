@@ -207,7 +207,8 @@ fn value_why(row: &Row, value: &Value) -> Option<String> {
         | Kind::OrderedChoices(_)
         | Kind::NumberList(_) => Some((&["array"], "a list")),
         Kind::StringMap | Kind::SoundRules => Some((&["object"], "an object")),
-        Kind::ChoiceOrUrl(..) | Kind::TimeRange => None,
+        // A json row's shape is its own (accepts checked it above).
+        Kind::ChoiceOrUrl(..) | Kind::TimeRange | Kind::Json(_) => None,
     };
     Some(match holds {
         Some((types, word)) if !types.contains(&json_type(value)) => format!("now {word}"),

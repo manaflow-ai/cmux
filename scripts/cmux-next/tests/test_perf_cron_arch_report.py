@@ -643,6 +643,8 @@ class ArchReportTests(unittest.TestCase):
         # transitive closure of its local `.package(path:)` dependencies, so the one fetch covers a Shared package.
         with open(os.path.join(HERE, "..", "arch_counts.py")) as f:
             self.write(report.COUNTS_SCRIPT, f.read())
+        with open(os.path.join(HERE, "..", "git_batch.py")) as f:
+            self.write(report.COUNTS_HELPER, f.read())
         manifest = 'import PackageDescription\nlet package = Package(name: "{}", dependencies: [{}], targets: [])\n'
         self.write("Packages/macOS/CmuxNext/Package.swift",
                    manifest.format("CmuxNext", '.package(path: "../../Shared/Kit")'))
@@ -657,7 +659,8 @@ class ArchReportTests(unittest.TestCase):
             names = {name for _, name in report.count_files(report.Deadline(60), self.repo, sha)}
         for path in ("Packages/Shared/Kit/Package.swift", "Packages/Shared/Kit/Sources/Kit/Kit.swift",
                      "Packages/Shared/Deep/Package.swift", "Packages/Shared/Deep/Sources/Deep/Deep.swift",
-                     f"{SOURCES}/CmuxNextApp/App.swift", report.COUNTS_SCRIPT, report.RATCHET_PATH):
+                     f"{SOURCES}/CmuxNextApp/App.swift", report.COUNTS_SCRIPT, report.COUNTS_HELPER,
+                     report.RATCHET_PATH):
             self.assertIn(path, names)
         self.assertNotIn("Packages/Shared/Other/Sources/Other/Other.swift", names, "not linked: not read")
 

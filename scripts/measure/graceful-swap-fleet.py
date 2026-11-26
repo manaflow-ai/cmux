@@ -8,7 +8,7 @@ The scenario of the capture-Mac runs (scripts/measure/graceful-swap.py on air-bl
 
 1. A fresh HOME (DIR/scratch/home): cmux-next.json at HOME/.config/cmux/cmux-next.json (CMUX_NEXT_CONFIG_FILE),
    web-dev.json beside it, and the fake ACP agent (cmux-tui/crates/acpmux/tests/fake_agent.py) as a harness
-   profile in HOME/.config/cmux/harnesses/gswfake.toml (and `agent.harness.add`, which the app reads at once).
+   profile in HOME/.config/cmux-next/harnesses/gswfake.toml (and `agent.harness.add`, which the app reads at once).
    The app is launched directly (a fleet step has no LaunchServices session), as bench_memory.launch does.
 2. One window: sidebar | Settings | chat-a (focused: a half-typed draft and an image chip) | chat-b (unfocused: a
    two-line draft), with chat-c (a draft) as a hidden tab behind chat-b. Chats are `cmux agents chat new --harness
@@ -60,6 +60,7 @@ NEXT = ROOT / "scripts" / "cmux-next"
 sys.path.insert(0, str(NEXT))
 import bench_launch as bl  # noqa: E402
 import bench_memory as bm  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def load(name: str, path: Path):
@@ -113,6 +114,8 @@ class Scenario:
         self.scratch = self.out / "scratch"
         self.home = self.scratch / "home"
         self.config = self.home / ".config" / "cmux" / "cmux-next.json"
+        # Harness profiles: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+        self.harnesses = self.home / ".config" / "cmux-next" / "harnesses"
         self.work = self.scratch / "work"
         self.tree = Path(opts.tree).resolve()
         self.cli_path = os.path.join(self.app, "Contents/Resources/bin/cmux")
@@ -153,10 +156,10 @@ class Scenario:
         log(f"GSW-FLEET session: {json.dumps(session, default=str)[:400]}")
         if not session.get("ok"):
             sys.exit(f"graceful-swap-fleet: no GUI session on this host ({bl.no_session_detail(session)})")
-        for d in (self.home / "Library", self.config.parent / "harnesses", self.work, self.scratch / "tmp"):
+        for d in (self.home / "Library", self.config.parent, self.harnesses, self.work, self.scratch / "tmp"):
             d.mkdir(parents=True, exist_ok=True)
         fake = ROOT / "cmux-tui/crates/acpmux/tests/fake_agent.py"
-        (self.config.parent / "harnesses" / f"{HARNESS_ID}.toml").write_text(
+        (self.harnesses / f"{HARNESS_ID}.toml").write_text(
             f'schema = 1\nid = "{HARNESS_ID}"\nname = "GS test agent"\nprotocol = "acp"\n'
             f'command = {json.dumps(sys.executable)}\nargs = [{json.dumps(str(fake))}]\n')
         bm.clear_saved_state(self.app)
@@ -233,9 +236,10 @@ class Scenario:
         self.screen = ((space.get("screens") or [{}])[0]).get("id")
         terminals = {p: [t.get("id") for t in st.settled_tabs(self.workspace, p) if t.get("kind") == "terminal"]
                      for p in self.panes}
-        time.sleep(2)  # the terminals draw, so their window fractions are set
-        fracs = STRESS.wait(lambda: (lambda f: f if all(p in f for p in self.panes) else None)(self.fractions()), 20, step=0.5) \
-            or self.fractions()
+        # The terminals draw, so their window fractions are set: every pane has one and they stopped moving.
+        fracs = STRESS.wait(lambda: (lambda f: f if all(p in f for p in self.panes) else None)(self.fractions()), 20, step=0.5)
+        fracs = wait_stable(self.fractions, "the panes' window fractions", timeout=20, interval=0.25,
+                            raise_on_timeout=False) if fracs else self.fractions()
         frame, screen = self.window_points()
         log(f"GSW-FLEET layout: panes {self.panes} fractions {fracs} window {frame} screen {screen}")
         self.results["setup"].update(panes=self.panes, fractions=fracs, window=frame, screen=screen)
@@ -278,7 +282,9 @@ class Scenario:
         for pane, ids in terminals.items():
             for tab in ids:
                 st.action("closeTab", target=f"tab:{tab}", focus=False)
-        time.sleep(1)
+        closed = {tab for ids in terminals.values() for tab in ids}
+        if not STRESS.wait(lambda: not any(t.get("id") in closed for p in self.panes for t in self.pane_tabs(p)), 15, step=0.1):
+            log(f"GSW-FLEET the terminals did not all close in 15 s: {[self.pane_tabs(p) for p in self.panes]}")
         self.cli("tab", self.chats["b"]["tab"], "show", json_out=False)
         self.cli("tab", self.chats["a"]["tab"], "show", json_out=False)
         # Drafts through acpmux, the chip through the page's file input, then chat-a has the focus.
@@ -297,8 +303,23 @@ class Scenario:
         focus = self.rpc("debug.agent_pane", {"action": "focus_composer", "pane": p1}, 30)
         log(f"GSW-FLEET focus composer: {json.dumps(focus)[:200]}")
         self.results["setup"].update(chats=self.chats, chip=chip)
-        time.sleep(3)  # the pages settle with their drafts
+        # The pages settle with their drafts: each chat in sight shows its composer with the whole draft, then holds.
+        if not wait_until(lambda: all(r.get("composer_visible") and r.get("composer_text_length") == len(DRAFTS[k])
+                                      for k, r in self.chat_pages().items()),
+                          "the chats' composers showing their drafts", timeout=30, interval=0.2, raise_on_timeout=False):
+            log(f"GSW-FLEET the drafts did not all show in 30 s: {self.chat_pages()}")
+        self.settle_pages("the chats with their drafts")
         self.make_regions(fracs)
+
+    def chat_pages(self) -> dict:
+        """{chat key: its pane's debug.agent_pane readiness} for the chats in sight (a and b; c is hidden behind b)."""
+        return {k: self.rpc("debug.agent_pane", {"action": "readiness", "pane": self.chats[k]["pane"]}, 30) or {}
+                for k in ("a", "b") if k in self.chats}
+
+    def settle_pages(self, what: str, timeout: float = 30):
+        """Until the chats' readiness (composer, draft, document) reads the same for about 1.5 s, or `timeout` s."""
+        if wait_stable(self.chat_pages, what, timeout=timeout, interval=0.25, reads=6, raise_on_timeout=False) is None:
+            log(f"GSW-FLEET {what}: the pages did not settle in {timeout:g} s")
 
     def probe_file(self):
         """The in-page probe's journal (webviews swapProbe.ts), once the app has written one."""
@@ -348,7 +369,7 @@ class Scenario:
             raise RuntimeError(f"record_start: {started}")
         if not STRESS.wait(lambda: (self.rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 10, step=0.1):
             raise RuntimeError(f"the recorder never captured: {self.rpc('debug.motion', {'action': 'record_read'})}")
-        time.sleep(pre)
+        time.sleep(pre)  # sleep-ok: the film's lead-in before the trigger, part of what is recorded
         epoch_ms = time.time() * 1000
         t_trigger = host_now()
         if callable(trigger):
@@ -357,7 +378,7 @@ class Scenario:
             done = subprocess.run(["/bin/zsh", "-c", trigger], capture_output=True, text=True, timeout=180, env=self.env())
             said, code, text = (done.stdout + done.stderr)[-1500:], done.returncode, trigger
         t_returned = host_now()
-        time.sleep(post)
+        time.sleep(post)  # sleep-ok: the film's tail after the trigger, the window the change must show in
         self.rpc("debug.motion", {"action": "record_stop"})
         if not STRESS.wait(lambda: (self.rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 30, step=0.2):
             raise RuntimeError(f"the film was not written: {self.rpc('debug.motion', {'action': 'record_read'})}")
@@ -474,7 +495,11 @@ class Scenario:
         log(f"GSW-FLEET dev server: exit {done.returncode}: {(done.stdout + done.stderr).strip()[-800:]}")
         if done.returncode:
             raise RuntimeError("the dev server did not start")
-        time.sleep(10)  # every page reloads onto the dev server (an asked change) and settles
+        # Every page reloads onto the dev server (an asked change): the chats come back with composer and draft, and hold.
+        wait_until(lambda: all(r.get("composer_visible") and r.get("composer_text_length") == len(DRAFTS[k])
+                               for k, r in self.chat_pages().items()),
+                   "the chats back on the dev server", timeout=60, interval=0.25, raise_on_timeout=False)
+        self.settle_pages("the pages on the dev server", timeout=60)
 
     def summary(self, series, surface, watch, others, runs, sample="first_change_ms"):
         rows = [r.get("regions", {}) for r in runs]
@@ -512,7 +537,7 @@ class Scenario:
                 results.append(result)
             time.sleep(0.5)
         if self.edit(edit, False) == "saved":
-            time.sleep(2)
+            self.settle_pages(f"the pages after the {edit} edit was undone")
         return results
 
     def latency(self):
@@ -527,7 +552,9 @@ class Scenario:
 
             def hide_and_save(on):
                 self.cli("tab", b, "show", json_out=False)
-                time.sleep(0.8)
+                if not STRESS.wait(lambda: any(t.get("id") == b and t.get("selected") for t in self.pane_tabs(self.chats["b"]["pane"])),
+                                   10, step=0.05):
+                    log(f"GSW-FLEET chat-b was not shown in 10 s: {self.pane_tabs(self.chats['b']['pane'])}")
                 self.edit("composer", on)
                 time.sleep(2.5)  # the hidden page takes the change while out of sight
             runs = self.series("hidden", self.opts.runs, before=hide_and_save,

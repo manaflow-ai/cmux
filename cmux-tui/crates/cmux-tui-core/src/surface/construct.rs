@@ -122,6 +122,14 @@ impl Surface {
                 crate::launch_credential::LAUNCH_CREDENTIAL_ENV,
                 &credential,
             );
+            // Where its shell saves its state before a park and finds it after
+            // (`shell_state`); set empty without one, like the credential.
+            let shell_state = terminal_public_id
+                .as_ref()
+                .and_then(|terminal| mux.shell_state_prefix(terminal, &opts.extra_env))
+                .map(|prefix| prefix.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            set_env(&mut opts.extra_env, crate::shell_state::SHELL_STATE_ENV, &shell_state);
         }
         let kitty_reservation = mux
             .upgrade()
@@ -497,11 +505,11 @@ impl Surface {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         pty.request_frame(generation);
-        if let Some((offset, at_bottom)) = scroll_changed
+        if scroll_changed.is_some()
             && let Some(mux) = mux.upgrade()
         {
             // Drops a position output deferred, so it cannot follow this one.
-            pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
+            pty.frame_requests.flush_scroll(&mux, surface.id);
         }
     }
 }

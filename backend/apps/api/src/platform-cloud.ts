@@ -6,6 +6,11 @@ import type { ReadResult, SubmitResult } from "./owner-do.ts"
  * The typed client of cmux-platform's CloudDO. NEXT Cloud's machine record lives in cmux-platform; this Worker's
  * CLOUD_DO binding names that class (`script_name: cmux-platform-<env>` in wrangler.jsonc), and these are the
  * only RPCs this Worker calls on it. The class, its drivers and its routes are not in this Worker.
+ *
+ * Callers left (no cmux-platform HTTP route answers them as a server-side caller without the person's bearer): the
+ * default Chief hand (chief-default-hand.ts), automation runs (automation-workflow.ts) and the operator clear
+ * (cloud-admin.ts). A caller that holds the person's or install's bearer uses the platform's HTTP API instead
+ * (platform-api.ts); NEXT Cloud's ops on /v1/ops and /v1/read are forwarded there whole (platform-forward.ts).
  */
 export type CloudReply = { ok: true; value: unknown } | { ok: false; code: string; message: string; details?: unknown }
 
@@ -17,6 +22,8 @@ export interface PlatformCloud {
   mintLinkToken(entity: string, principal: Principal, params: unknown, request: string): Promise<CloudReply>
   /** A VM install's own-machine ops (cloud.vm.*). */
   vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<CloudReply>
+  /** The approved run's answer for the person who approved it, waited for at most `waitMs` (integration.approval.approve). */
+  approvalRun(entity: string, principal: Principal, request: string, waitMs: number): Promise<ReadResult>
   /** A command on one of the team's machines for an automation run or a Chief hand. */
   automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply>
   /** Operator: clear a machine whose provider VM is gone (cloud-admin.ts). */
