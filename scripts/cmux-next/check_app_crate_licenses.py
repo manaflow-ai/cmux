@@ -56,6 +56,7 @@ FIRST_PARTY_GPL = {
     "cmux-bookmarks-core",
     "cmux-cloud-start-core",
     "cmux-tab-discard",
+    "cmux-browser-rules",
     "cmux-cloud-config",
     "cmux-cloud-environment",
     "cmux-build-space",

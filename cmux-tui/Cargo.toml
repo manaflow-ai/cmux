@@ -82,6 +82,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-browser-rules",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-auto-session",
@@ -116,6 +117,7 @@ members = [
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
+    "crates/cmux-no-checkout",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -264,6 +266,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-browser-rules",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-auto-session",
@@ -443,6 +446,7 @@ cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
+cmux-no-checkout = { path = "crates/cmux-no-checkout" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
