@@ -18,7 +18,7 @@ import djson
 import swift_data
 
 SETTINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
-CATALOG = SETTINGS + "/Localizable.xcstrings"
+CATALOG = SETTINGS + "/Localizable.xcstrings.d"
 DESIGN_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Localizable.xcstrings"
 SRC = "schemas/settings/source"
 GEN = "schemas/settings/generator"

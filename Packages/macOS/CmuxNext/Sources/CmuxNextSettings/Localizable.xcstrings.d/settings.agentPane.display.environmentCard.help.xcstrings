@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.environmentCard.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A card at the chat's top right with its changes, branch, commit and pull request."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بطاقة أعلى يمين الدردشة تعرض تغييراتها وفرعها والإيداع وطلب السحب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartica gore desno u razgovoru s njegovim izmjenama, granom, commitom i pull requestom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et kort øverst til højre i chatten med dens ændringer, gren, commit og pull request."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Karte oben rechts im Chat mit seinen Änderungen, dem Branch, Commit und Pull Request."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una tarjeta arriba a la derecha del chat con sus cambios, rama, commit y pull request."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une carte en haut à droite de la discussion avec ses modifications, sa branche, le commit et la pull request."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una scheda in alto a destra nella chat con modifiche, branch, commit e pull request."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットの右上に、変更・ブランチ・コミット・プルリクエストを示すカードを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កាតនៅខាងស្តាំខាងលើនៃការជជែក ដែលមានការផ្លាស់ប្តូរ មែក ការ commit និង pull request។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅 오른쪽 위에 변경 사항, 브랜치, 커밋, 풀 리퀘스트를 보여 주는 카드입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et kort øverst til høyre i chatten med endringer, gren, commit og pull request."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karta w prawym górnym rogu czatu z jego zmianami, gałęzią, commitem i pull requestem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um cartão no canto superior direito do chat com suas alterações, branch, commit e pull request."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Карточка в правом верхнем углу чата с его изменениями, веткой, коммитом и пул-реквестом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การ์ดที่มุมขวาบนของแชต แสดงการเปลี่ยนแปลง สาขา การคอมมิต และพูลรีเควสต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbetin sağ üstünde değişiklikleri, dalı, commit ve pull request’i gösteren bir kart."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картка у правому верхньому куті чату з його змінами, гілкою, комітом і пул-реквестом."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một thẻ ở góc trên bên phải cuộc trò chuyện với các thay đổi, nhánh, commit và pull request."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在聊天右上角显示一张卡片，包含更改、分支、提交和拉取请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在聊天右上角顯示一張卡片，包含變更、分支、提交和提取要求。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

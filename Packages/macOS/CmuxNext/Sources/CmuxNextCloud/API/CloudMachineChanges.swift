@@ -8,8 +8,9 @@ public import Foundation
 /// poll the machine list continuously: reads continue only while an operation is pending.
 /// Successful lists use ``settleDelay``; failed reads back off to at most 30 seconds. A settled
 /// list or ``stop()`` ends the run. There is no client deadline for an unbounded provider operation.
-/// A machine whose state is pushed (``push``, a ``CloudMachineStatePush`` watching the machines each list shows) is
-/// not read at all: its push brings the record, and the reads stay only for machines without a live push.
+/// A machine whose state is pushed (the daemon holds a state socket for each machine a list shows, `apps-machine-state-watch`,
+/// and tells the app with `apps-cloud-machine` events) is not read at all: its push brings the record, and the reads stay
+/// only for machines without a live push.
 /// What holds a Cloud machine's record in the app (its session), for ``CloudMachineChanges/run(_:of:_:)``.
 @MainActor
 public protocol CloudMachineHolder: AnyObject {
@@ -28,34 +29,90 @@ public final class CloudMachineChanges {
     /// The pending overlay (cmux-cloud-machine `changes::Changes`): the mutations accepted by the API but not yet
     /// confirmed by a terminal record, and the highest read ticket handed out. Rust holds its rules; this is its JSON.
     private var state: JSONValue = .object([:])
-    /// The machines' state sockets: each list watches the machines it shows, ``stop()`` closes them.
-    public var push: CloudMachineStatePush?
+    /// Names the machines to watch to the daemon, which holds their state sockets (nil: the classic client, nothing is pushed).
+    private var watch: (@MainActor ([CloudMachine]) async -> Void)?
+    /// The machines whose push is live (a frame reached the Cloud app server), from the daemon's events.
+    public private(set) var live: Set<String> = []
+    private var watched: [CloudMachine] = []
+    private var record: @MainActor (CloudMachine) -> Void = { _ in }
+    /// The watch requests, one after another in the order they were made.
+    private var sending: Task<Void, Never>?
+    /// Bumped by ``stop()``: a watch queued before it is not sent after it.
+    private var watchEpoch: UInt64 = 0
     /// The last list's refresh: what a lost push falls back to.
     private var lastRefresh: (@MainActor () async -> Void)?
     /// The machines the pending settle read is for; nil when it is for no one machine (a create, a lost push).
     private var pendingMachines: Set<String>?
-    /// Takes `push` (nil: the classic client, nothing is pushed) with the daemon connection its frames go to and where
-    /// its records are shown; the next list opens its sockets.
-    public func startPush(_ push: CloudMachineStatePush?, connection: @escaping @MainActor () -> DaemonConnection?,
-                          record: @escaping @MainActor (CloudMachine) -> Void) {
-        guard self.push == nil, let push else { return }
-        push.connection = connection
-        push.onRecord = record
-        // A dead push leaves its machine to the reads again, starting from the last list's refresh.
-        push.onLost = { [weak self] machine in
-            guard let self, let refresh = self.lastRefresh else { return }
-            let others = self.pending ? self.pendingMachines : []
-            self.began(refresh)
-            // The read is for this machine (and any already waiting on one), so its push coming back can end it.
-            self.pendingMachines = others.map { $0.union([machine]) }
+    /// Takes `watch` (see ``CloudAPIClient/stateWatch(baseURL:connection:)``) and where pushed records are shown; the next
+    /// list names its machines.
+    public func startPush(_ watch: (@MainActor ([CloudMachine]) async -> Void)?, record: @escaping @MainActor (CloudMachine) -> Void) {
+        guard self.watch == nil, let watch else { return }
+        self.record = record
+        self.watch = watch
+    }
+
+    /// Queues a watch behind the ones before it. `superseding` (a stop) drops every watch still queued, so none of
+    /// them opens sockets after the stop's empty list closed them; one already sending finishes first.
+    private func send(_ machines: [CloudMachine], superseding: Bool = false) {
+        guard let watch else { return }
+        if superseding { watchEpoch &+= 1 }
+        let previous = sending, epoch = watchEpoch
+        // task-owner: kept in `sending`; each waits for the one before it
+        sending = Task { [weak self] in
+            await previous?.value
+            guard let self, self.watchEpoch == epoch else { return }
+            await watch(machines)
         }
-        // A push that becomes live ends a settle read that only its machines needed.
-        push.onLive = { [weak self] _ in self?.pushWentLive() }
-        self.push = push
+    }
+
+    /// The daemon's connection is new (a restart): it holds no sockets of the last one, so the watched list goes again.
+    public func rewatch() {
+        daemonDisconnected()
+        guard !stopped, !watched.isEmpty else { return }
+        send(watched)
+    }
+
+    /// An `apps-cloud-machine` event: a machine's record, or its push going live or lost.
+    public func machineState(_ event: DaemonEvent) {
+        guard case .unknown("apps-cloud-machine", let payload) = event, !stopped,
+              let machine = payload["machine"]?.stringValue, let kind = payload["kind"]?.stringValue else { return }
+        switch kind {
+        case "record":
+            // The crate's record: timestamps in epoch milliseconds, as every CloudMachineRules reply.
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .millisecondsSince1970
+            guard let value = payload["record"], let data = try? JSONEncoder().encode(value),
+                  let shown = try? decoder.decode(CloudMachine.self, from: data) else { return }
+            record(shown)
+        case "live":
+            live.insert(machine)
+            pushWentLive()
+        case "lost":
+            pushesLost([machine])
+        default:
+            return
+        }
+    }
+
+    /// The daemon's connection closed: it drops every socket of that client without a `lost`, so every live push is lost.
+    public func daemonDisconnected() {
+        pushesLost(live)
+    }
+
+    /// Pushes stopped for `machines`: their reads come back until a socket delivers again, from the last list's refresh.
+    private func pushesLost(_ machines: Set<String>) {
+        let lost = live.intersection(machines)
+        guard !lost.isEmpty else { return }
+        live.subtract(lost)
+        guard let refresh = lastRefresh else { return }
+        let others = pending ? pendingMachines : []
+        began(refresh)
+        // The read is for these machines (and any already waiting on one), so their pushes coming back can end it.
+        pendingMachines = others.map { $0.union(lost) }
     }
 
     /// Whether a machine's record is pushed now; such a machine keeps no settle read going.
-    public func isPushed(_ machineID: String) -> Bool { push?.isLive(machineID) == true }
+    public func isPushed(_ machineID: String) -> Bool { live.contains(machineID) }
     /// Between ``stop()`` and ``start()``: a list read already on its way when the service
     /// stopped still lands in ``listed(_:refresh:)``, and must not schedule another.
     private var stopped = false
@@ -214,7 +271,10 @@ public final class CloudMachineChanges {
         guard !stopped, !Task.isCancelled else { return }
         listRevision += 1
         lastRefresh = refresh
-        push?.watch(list.filter { $0.status != .destroyed })
+        watched = list.filter { $0.status != .destroyed }
+        // The daemon closes the socket of a machine this list no longer watches without a `lost`: it is not pushed now.
+        live.formIntersection(watched.map(\.id))
+        send(watched)
         // CloudService already reconciled these records with their read tickets. Replaying
         // settlement here without tickets could let a rejected stale response clear a mutation.
         delay = Self.settleDelay
@@ -234,7 +294,9 @@ public final class CloudMachineChanges {
     }
 
     public func stop() {
-        push?.stop()
+        watched = []
+        live = []
+        send([], superseding: true)
         lastRefresh = nil
         pendingMachines = nil
         stopped = true
@@ -274,6 +336,25 @@ public final class CloudMachineChanges {
             settle = nil
             delay = Self.nextDelay(delay, listed: listRevision != revision)
             schedule(refresh)
+        }
+    }
+}
+
+extension CloudAPIClient {
+    /// Names machines to the local daemon, which holds their state sockets at `baseURL` (``CloudConfiguration/relayAPIBaseURL(environment:)``,
+    /// the platform origin) as this client's person and team; nil for the classic client, whose Stack session the platform does not take.
+    @MainActor
+    public func stateWatch(baseURL: URL, connection: @escaping @MainActor () -> DaemonConnection?) -> (@MainActor ([CloudMachine]) async -> Void)? {
+        guard !sendsStackSession else { return nil }
+        let teamID = teamID
+        return { machines in
+            // The crate reads timestamps in epoch milliseconds (CloudMachineRules).
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .millisecondsSince1970
+            guard let connection = connection(), let data = try? encoder.encode(machines),
+                  let list = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+            let team = await teamID()
+            _ = try? await connection.request(AppsMachineStateWatchRequest(machines: list, platform: baseURL.absoluteString, team: team))
         }
     }
 }
