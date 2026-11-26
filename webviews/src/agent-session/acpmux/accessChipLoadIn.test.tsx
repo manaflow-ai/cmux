@@ -99,17 +99,35 @@ function snap(
     isWorking: false,
     queue: [],
     canLoadOlder: false,
-    catalog: [{ id: harness.id, name: harness.id, family: harness.family, models: [], ...(harness.modeless ? { modeless: true } : {}) }],
+    catalog: [
+      {
+        id: harness.id,
+        name: harness.id,
+        family: harness.family,
+        models: [],
+        ...(harness.modeless ? { modeless: true } : {}),
+      },
+    ],
     origin: "local",
     ...(sessionId ? { sessionId } : {}),
-    summary: { sessionId, harness: harness.id, family: harness.family, cwd: FOLDER, turnCount: 0, ...(modes ? { modes } : {}) },
+    summary: {
+      sessionId,
+      harness: harness.id,
+      family: harness.family,
+      cwd: FOLDER,
+      turnCount: 0,
+      ...(modes ? { modes } : {}),
+    },
   } as AcpmuxSnapshot;
 }
 
 /// The access chip's text after each snapshot ("-": no chip).
 async function chipFrames(snapshots: AcpmuxSnapshot[]): Promise<string[]> {
   const container = installDom();
-  rememberStartMode(snapshots[0]!.summary!.harness!, FOLDER, { modeId: "bypassPermissions", name: "Bypass permissions" });
+  rememberStartMode(snapshots[0]!.summary!.harness!, FOLDER, {
+    modeId: "bypassPermissions",
+    name: "Bypass permissions",
+  });
   root = createRoot(container);
   const frames: string[] = [];
   for (const snapshot of snapshots) {
