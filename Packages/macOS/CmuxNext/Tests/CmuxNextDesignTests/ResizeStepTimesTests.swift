@@ -41,4 +41,34 @@ import Testing
         #expect(ResizeStepTimes.live.report()["pane_content.none"]?["steps"] as? Int == 1)
         ResizeStepTimes.live.reset()
     }
+
+    /// A divider drag's step is its frame tick and what its turn lays out until the commit: a pane laid out in it is
+    /// timed with no live resize, under `divider.`, and the step ends after the commit. With steps not timed (a Release
+    /// build nobody streams) no step begins and its condition is never read.
+    @Test func aDividerStepTimesItsPartsUntilItsCommit() {
+        ResizeStepTimes.live.reset()
+        ResizeStepLog.reset()
+        defer { ResizeStepTimes.recordingOverride = nil; ResizeStepLog.reset(); ResizeStepTimes.live.reset() }
+        ResizeStepTimes.recordingOverride = false
+        var read = 0
+        #expect(ResizeStepTimes.beginStep(.divider, if: { read += 1; return true }()) == nil)
+        #expect(read == 0)
+        #expect(ResizeStepTimes.startIfLive(false) == nil)
+
+        ResizeStepTimes.recordingOverride = true
+        let tick = ResizeStepTimes.beginStep(.divider)
+        #expect(tick != nil)
+        // A pane's layout inside the tick, the tick, then the commit observer's two marks.
+        ResizeStepTimes.recordLive("pane_layout", since: ResizeStepTimes.startIfLive(false))
+        ResizeStepTimes.recordLive("tick", since: tick)
+        ResizeStepLog.precommit()
+        ResizeStepLog.committed(.beforeWaiting)
+        #expect(ResizeStepLog.step == nil)
+        #expect(ResizeStepTimes.startIfLive(false) == nil, "after its commit nothing more is part of the step")
+        let report = ResizeStepTimes.live.report()
+        for phase in ["divider.pane_layout", "divider.tick", "divider.step_precommit", "divider.step_commit"] {
+            #expect(report[phase]?["steps"] as? Int == 1, "\(phase)")
+        }
+        #expect(report["pane_layout"] == nil, "a divider step's parts are not the window's")
+    }
 }
