@@ -19464,56 +19464,6 @@ fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeGroupEditHeld: FfiConverterRustBuffer {
-    typealias SwiftType = [GroupEditHeld]
-
-    public static func write(_ value: [GroupEditHeld], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeGroupEditHeld.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditHeld] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [GroupEditHeld]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeGroupEditHeld.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeGroupEditRow: FfiConverterRustBuffer {
-    typealias SwiftType = [GroupEditRow]
-
-    public static func write(_ value: [GroupEditRow], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeGroupEditRow.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditRow] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [GroupEditRow]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeGroupEditRow.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeFeedInsertGroup: FfiConverterRustBuffer {
     typealias SwiftType = [FeedInsertGroup]
 
@@ -19581,6 +19531,56 @@ fileprivate struct FfiConverterSequenceTypeFeedStackItem: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFeedStackItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeGroupEditHeld: FfiConverterRustBuffer {
+    typealias SwiftType = [GroupEditHeld]
+
+    public static func write(_ value: [GroupEditHeld], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGroupEditHeld.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditHeld] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GroupEditHeld]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGroupEditHeld.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeGroupEditRow: FfiConverterRustBuffer {
+    typealias SwiftType = [GroupEditRow]
+
+    public static func write(_ value: [GroupEditRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGroupEditRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GroupEditRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGroupEditRow.read(from: &buf))
         }
         return seq
     }
