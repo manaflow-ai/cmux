@@ -1,4 +1,4 @@
-use super::{install_line, install_url, join_line, read_ticket, INSTALL_STATIC_SHA256};
+use super::{INSTALL_STATIC_SHA256, install_line, install_url, join_line, read_ticket};
 
 /// A scratch folder removed at drop.
 struct Dir(std::path::PathBuf);
@@ -151,9 +151,9 @@ fn a_script_off_its_pin_never_runs_and_never_joins() {
 #[test]
 fn the_default_url_is_the_pinned_immutable_copy() {
     assert_eq!(INSTALL_STATIC_SHA256.len(), 64);
-    assert!(INSTALL_STATIC_SHA256
-        .bytes()
-        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+    assert!(
+        INSTALL_STATIC_SHA256.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    );
     assert_eq!(
         install_url(),
         format!("https://cmux.com/tui/install-static/{INSTALL_STATIC_SHA256}.sh")
