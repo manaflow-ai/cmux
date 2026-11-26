@@ -453,6 +453,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
+            files_before = store_files(bundle)
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -505,7 +506,101 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+        result["files_written"] = files_written(files_before, store_files(bundle))
     return result
+
+
+# The launch's scratch HOME (`launch`), whose stores an idle window's writes land in; None for an attached app.
+STORE_HOME: str | None = None
+
+
+def store_roots(bundle: str) -> list[str]:
+    """Where the app and its acpmux keep state: the launch's scratch HOME (all of it: it holds only this launch's
+    files), the bundle's saved daemon state under the account's real home (saved_state_dir: the app reads that home,
+    not HOME), and the real home's cmux folders."""
+    home = os.path.expanduser("~")
+    roots = [STORE_HOME] if STORE_HOME else []
+    saved = saved_state_dir(bundle)
+    if saved:
+        roots.append(saved)
+    roots += [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
+    for parent in ("Library/Application Support", "Library/Caches"):
+        try:
+            roots += [os.path.join(home, parent, name) for name in os.listdir(os.path.join(home, parent))
+                      if "cmux" in name.lower()]
+        except OSError:
+            pass
+    # Nested roots are walked once (the saved state sits under Application Support/cmux-next).
+    roots = sorted({os.path.realpath(r) for r in roots if os.path.isdir(r)})
+    return [r for r in roots if not any(r != o and r.startswith(o + os.sep) for o in roots)]
+
+
+def store_files(bundle: str, limit: int = 200_000) -> dict[str, tuple[int, int]]:
+    """Path -> (size, mtime ns) under store_roots(), at most `limit` files (a busy fleet home has many)."""
+    files = {}
+    for root in store_roots(bundle):
+        for top, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(top, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                files[path] = (st.st_size, st.st_mtime_ns)
+                if len(files) >= limit:
+                    return files
+    return files
+
+
+def files_written(before: dict, after: dict, top: int = 25) -> dict:
+    """Files the window created or modified (mtime moved), largest growth first: which store the idle writes go
+    to. `grew` is the size change (an append's bytes); `bytes` the size now (a rewrite of a 100 KB file reads 100 KB)."""
+    home = os.path.expanduser("~")
+    changed = []
+    for path, (size, mtime) in after.items():
+        old = before.get(path)
+        if old is None or old[1] != mtime:
+            changed.append((path, size, size - (old[0] if old else 0)))
+    changed.sort(key=lambda item: (-item[2], -item[1]))
+    def short(path: str) -> str:
+        if STORE_HOME and path.startswith(os.path.realpath(STORE_HOME)):
+            return "$HOME" + path[len(os.path.realpath(STORE_HOME)):]
+        return path.replace(home, "~", 1)
+    return {"count": len(changed), "bytes": sum(size for _, size, _ in changed),
+            "grew": sum(max(grew, 0) for _, _, grew in changed), "scanned": len(after),
+            "top": [{"path": short(path), "bytes": size, "grew": grew} for path, size, grew in changed[:top]]}
+
+
+def keep_daemon_logs(bundle: str, out: str | None) -> None:
+    """Copies acpmux's daemon.log (scratch HOME and the saved state) beside --out before the scratch goes, and
+    prints how often its sessions hibernated and woke: a wake and hibernate cycle is the idle disk suspect."""
+    if not out:
+        return
+    dest = os.path.join(os.path.dirname(os.path.abspath(out)), "acpmux-logs")
+    counts = {"hibernated": 0, "woke": 0, "causes": {}}
+    for root in store_roots(bundle):
+        if not (STORE_HOME and root.startswith(os.path.realpath(STORE_HOME))) and root != os.path.realpath(saved_state_dir(bundle) or "/nonexistent"):
+            continue
+        for top, _, names in os.walk(root):
+            for name in names:
+                if not name.startswith("daemon.log"):
+                    continue
+                path = os.path.join(top, name)
+                os.makedirs(dest, exist_ok=True)
+                shutil.copy2(path, os.path.join(dest, path.replace(os.sep, "_").strip("_")[-150:]))
+                try:
+                    with open(path, errors="replace") as handle:
+                        for line in handle:
+                            if "hibernated:" in line:
+                                counts["hibernated"] += 1
+                            elif " woke" in line:
+                                counts["woke"] += 1
+                                cause = re.search(r"cause=(\S+)", line)
+                                key = cause.group(1) if cause else "?"
+                                counts["causes"][key] = counts["causes"].get(key, 0) + 1
+                except OSError:
+                    pass
+    print(f"PERF-IDLE-WAKES {json.dumps(counts)} logs={dest}", flush=True)
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
@@ -2277,6 +2372,8 @@ def main():
             config = merged(config, chat_renderer_crash.CONFIG)
         extra.update(pair.split("=", 1) for pair in args.env)
         launched, socket_path, scratch = launch(bundle, config, extra)
+        global STORE_HOME
+        STORE_HOME = os.path.join(scratch, "home")
         if args.relaunch_restored:
             try:
                 launched, socket_path, relaunch = relaunch_restored(bundle, config, extra, socket_path, scratch,
@@ -2523,6 +2620,8 @@ def main():
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
             print(f"bench-memory: wrote {args.out}")
+        if scratch and SAMPLE_GPU:
+            keep_daemon_logs(bundle, args.out)
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
