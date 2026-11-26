@@ -202,7 +202,8 @@ TRUSTED_RUNNER_JOBS = (
 # (a fork outside manaflow-ai may get a hosted one), or the exact CI_TRUSTED_RUNNER
 # selector. #27022 let CI_CONTROL_RUNNER move the overflow watch, which mints
 # GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
-APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
+# .github/actions/app-token-spread takes the keys as route-private-key and bot-private-key.
+APP_KEY_MARKER = re.compile(r"create-github-app-token@|app-token-spread|^\s*(?:route-|bot-)?private-key:", re.MULTILINE)
 # The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
 # when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),

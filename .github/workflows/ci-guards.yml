@@ -845,6 +845,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ci_release_helper_archs.py
 
+      - name: Validate Classic Release compile script with isolated stubs
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_classic_release_compile_script.py
+
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
@@ -1291,6 +1295,14 @@ jobs:
       - name: Validate checkout failure network diagnostics
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
+
+      - name: Validate the nightly-next tick bounds and retries its checkouts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_checkout_retry.py
+
+      - name: Validate the nightly-next tick bounds its promotion request
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_request_bound.py
 
       - name: Validate production drift issue updates are sticky
         if: ${{ matrix.group == 'ci' }}
