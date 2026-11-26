@@ -25,7 +25,7 @@ fn terminal_agent_history_sparse_index_skips_only_proven_misses_and_invalidates_
     assert_eq!(reopened.skip(page.end, &term("xyzzy")), Some(4));
     assert!(reopened.file.metadata().unwrap().len() <= SLOTS * RECORD_BYTES as u64);
     drop(reopened);
-    OpenOptions::new().append(true).open(&path).unwrap().write_all(b"append").unwrap();
+    std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"append").unwrap();
     let mut changed =
         Offsets::open(dir.path(), &path, "claude", &path.metadata().unwrap()).unwrap();
     assert_eq!(changed.skip(page.end, &term("xyzzy")), None);

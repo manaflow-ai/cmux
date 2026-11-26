@@ -64,8 +64,8 @@ struct CatalogListParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Shelf {
-    /// Discover: the first-party apps cmux ships as default apps (Cloud,
-    /// CodeRouter), cmux's own store apps (the `cmux/` packages the build
+    /// Discover: the first-party apps cmux ships as default apps (Cloud),
+    /// cmux's own store apps (the `cmux/` packages the build
     /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
     /// marker: the clock, weather, calendar and to-do widgets), and later a
     /// cloud catalog's listings.

@@ -107,11 +107,16 @@ impl HostedForum {
         let url = var(URL_ENV)
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.to_owned());
+        Self::at(url, team, key)
+    }
+
+    /// The forum at `url` for `team`, signed in with the agent `key`.
+    fn at(url: String, team: String, key: String) -> Slot {
         // reqwest is built without a default TLS provider (as `github_status.rs` does).
         let _ = rustls::crypto::ring::default_provider().install_default();
         let headers = cmux_build_space::headers()
             .map_err(|_| "The hosted forum is off: this build's space is unusable.".to_owned())?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("acpmux::hub::forum_hosted")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

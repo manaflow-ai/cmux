@@ -58,7 +58,6 @@ pub const FAMILIES: &[&str] = &[
     "integration",
     "team",
     "app",
-    "coderouter",
     // Session-host-owned agent environment operations. A host must still
     // register this family through the verified app/provider boundary.
     "agent_cli",

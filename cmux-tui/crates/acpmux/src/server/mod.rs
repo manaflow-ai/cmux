@@ -46,6 +46,7 @@ mod app_reply;
 #[cfg(test)]
 mod attach_latency_bench;
 mod auto_gate;
+mod autocloud_enroll;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -111,6 +112,7 @@ mod in_flight;
 mod inbox_gate_tests;
 pub(crate) mod interest;
 mod inventory_watch;
+pub(crate) mod joined_capacity;
 #[cfg(test)]
 mod key_route_tests;
 mod keys_relay;
@@ -164,9 +166,12 @@ mod outbound;
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
+mod paused_files;
 pub mod peer_auth;
+mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
+mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
@@ -1021,16 +1026,22 @@ impl Conn {
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
-        self.send_as(msg, reply_to, outbound::Row::None);
+        self.send_as(msg, reply_to, outbound::Row::None, false);
+    }
+
+    /// [`Self::send_replying`], kept behind the lines queued before it when its request asked so
+    /// (`in_order`, [`outbound::asks_in_order`]).
+    fn send_reply(&self, msg: &Message, reply_to: Option<&str>, in_order: bool) {
+        self.send_as(msg, reply_to, outbound::Row::None, in_order);
     }
 
     /// [`Self::send`] of a watcher's row of a chat, or of a line that must follow it
     /// (`outbound.rs` [`outbound::Row`]): a newer row replaces one still queued.
     fn send_row(&self, msg: &Message, row: outbound::Row) {
-        self.send_as(msg, None, row);
+        self.send_as(msg, None, row, false);
     }
 
-    fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row) {
+    fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row, in_order: bool) {
         self.raise_gate();
         let redacted = if self.origin == Origin::Peer {
             let mut copy = msg.clone();
@@ -1071,7 +1082,11 @@ impl Conn {
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
-                    self.out.lock().push_row(line, outbound::reply_lane(msg, reply_to), row);
+                    self.out.lock().push_row(
+                        line,
+                        outbound::reply_lane(msg, reply_to, in_order),
+                        row,
+                    );
                 }
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -2597,6 +2612,8 @@ async fn serve_connection_from(
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
                 let mut ticket = conn.in_flight.begin(&id, &m, slot, dual_key);
+                // A pane's stall check: its answer stays behind the records queued before it.
+                let in_order = outbound::asks_in_order(&m, params.as_ref());
                 #[cfg(test)]
                 cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
@@ -2612,7 +2629,11 @@ async fn serve_connection_from(
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
                             }
                             if conn.in_flight.finish(&ticket) {
-                                conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                                conn.send_reply(
+                                    &dual_requests::reply(id, answer),
+                                    Some(&m),
+                                    in_order,
+                                );
                             }
                             return;
                         }
@@ -2622,7 +2643,7 @@ async fn serve_connection_from(
                     if ticket.refused() {
                         let answer = Err(shutdown_drain::restarting_error());
                         dual_requests::finish(first, Some(&answer));
-                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        conn.send_reply(&dual_requests::reply(id, answer), Some(&m), in_order);
                         return;
                     }
                     // One span per request, with the caller's end-to-end trace id
@@ -2651,9 +2672,10 @@ async fn serve_connection_from(
                         // answer here is still owed, and is the cancel's.
                         if conn.in_flight.finish(&ticket) {
                             let cancelled = Err(crate::request_cancel::cancelled_error());
-                            conn.send_replying(
+                            conn.send_reply(
                                 &dual_requests::reply(id.clone(), cancelled),
                                 Some(&m),
+                                in_order,
                             );
                         }
                         tracing::debug!(
@@ -2691,7 +2713,7 @@ async fn serve_connection_from(
                             e
                         });
                         dual_requests::finish(first, Some(&answer));
-                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        conn.send_reply(&dual_requests::reply(id, answer), Some(&m), in_order);
                     } else {
                         dual_requests::finish(first, None);
                     }

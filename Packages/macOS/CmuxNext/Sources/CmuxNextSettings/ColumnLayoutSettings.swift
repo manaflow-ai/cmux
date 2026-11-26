@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`, `layout.scrollAreas`,
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`, `layout.fadeInactivePanes`, `layout.scrollAreas`,
 /// `layout.scrollModifier`, `layout.pagesHandleCommandScroll`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
@@ -95,6 +95,16 @@ public nonisolated enum ColumnLayoutSettings {
             }
         } else {
             snapshot.focusFollowsMouse = focusFollowsMouseDefault
+        }
+        if let value = root.value(at: fadeInactivePanesPath) {
+            if let on = value.boolValue {
+                snapshot.fadeInactivePanes = on
+            } else {
+                snapshot.fadeInactivePanes = fadeInactivePanesDefault
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.fadeInactivePanes", message: "expected true or false"))
+            }
+        } else {
+            snapshot.fadeInactivePanes = fadeInactivePanesDefault
         }
         if let value = root.value(at: scrollAreasPath) {
             if let on = value.boolValue {
