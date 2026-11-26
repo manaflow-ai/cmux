@@ -287,13 +287,11 @@ impl Terminal {
         let end = end.min(total - 1);
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
             start: self.grid_ref(tag, from.1, start).ok_or(MarkerError::Invalid)?,
             end: self.grid_ref(tag, to.1, end).ok_or(MarkerError::Invalid)?,
             rectangle: false,
         };
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: if vt {
                 sys::GHOSTTY_FORMATTER_FORMAT_VT
             } else {
@@ -301,10 +299,7 @@ impl Terminal {
             },
             unwrap: !vt,
             trim: !vt,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                ..Default::default()
-            },
+            extra: FormatterTerminalExtra { ..Default::default() },
             selection: &selection,
         };
         let bytes = self.format(opts).map_err(MarkerError::Vt)?;
