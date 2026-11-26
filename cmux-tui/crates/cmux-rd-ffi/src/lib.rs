@@ -527,3 +527,5 @@ mod tests;
 mod upstream_tests;
 #[cfg(test)]
 mod view_tests;
+#[cfg(test)]
+mod view_transport_tests;
