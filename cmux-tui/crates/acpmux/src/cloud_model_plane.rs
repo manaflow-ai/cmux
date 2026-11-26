@@ -175,32 +175,50 @@ const ANSWER_REUSE: Duration = Duration::from_secs(60);
 /// spawns, not one per spawn.
 const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
 
+/// The last answer [`plane_host_resolves`] kept: the host, until when, and the answer.
+type ResolveCache = Mutex<Option<(String, Instant, bool)>>;
+
 /// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
 /// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
 /// so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
 pub(crate) fn plane_host_resolves(host: &str) -> bool {
-    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
-    let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    static CACHE: ResolveCache = Mutex::new(None);
+    resolves_cached(&CACHE, host, Instant::now(), lookup)
+}
+
+/// The resolver's answer for `host` within [`RESOLVE_WAIT`]: `None` when it gave none.
+fn lookup(host: &str) -> Option<bool> {
+    let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("model-plane-resolve".into())
+        .spawn(move || {
+            let ok = target.to_socket_addrs().is_ok_and(|mut addrs| addrs.next().is_some());
+            let _ = tx.send(ok);
+        })
+        .ok()?;
+    rx.recv_timeout(RESOLVE_WAIT).ok()
+}
+
+/// [`plane_host_resolves`] over `cache` at `now`, asking `lookup` when the cache has no answer.
+fn resolves_cached(
+    cache: &ResolveCache,
+    host: &str,
+    now: Instant,
+    lookup: impl FnOnce(&str) -> Option<bool>,
+) -> bool {
+    let cache = || cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some((cached, until, ok)) = cache().as_ref()
         && cached == host
-        && Instant::now() < *until
+        && now < *until
     {
         return *ok;
     }
-    let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
-    let (tx, rx) = std::sync::mpsc::channel();
-    let lookup = std::thread::Builder::new().name("model-plane-resolve".into()).spawn(move || {
-        let ok = target.to_socket_addrs().is_ok_and(|mut addrs| addrs.next().is_some());
-        let _ = tx.send(ok);
-    });
-    if lookup.is_err() {
-        return false;
-    }
-    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
-        Ok(ok) => (ok, ANSWER_REUSE),
-        Err(_) => (false, NO_ANSWER_REUSE),
+    let (ok, reuse) = match lookup(host) {
+        Some(ok) => (ok, ANSWER_REUSE),
+        None => (false, NO_ANSWER_REUSE),
     };
-    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
+    *cache() = Some((host.to_owned(), now + reuse, ok));
     ok
 }
 
