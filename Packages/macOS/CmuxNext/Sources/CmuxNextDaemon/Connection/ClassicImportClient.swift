@@ -262,6 +262,9 @@ public struct ClassicSessionGroup: Decodable, Sendable, Equatable {
 /// One classic workspace.
 public struct ClassicSessionWorkspace: Decodable, Sendable, Equatable {
     public var name: String
+    /// Whether ``name`` is the one the person gave it in classic (`customTitle`); nil from a daemon before it, read
+    /// as not: a made name (from its tabs or folder) stays automatic.
+    public var named: Bool?
     public var workingDirectory: String
     public var layout: ClassicSessionLayout
     /// The SSH host its terminals ran on; nil for a local workspace.
@@ -280,7 +283,7 @@ public struct ClassicSessionWorkspace: Decodable, Sendable, Equatable {
     public var taskStatus: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, workingDirectory = "working_directory", layout, remote, cloudVM = "cloud_vm",
+        case name, named, workingDirectory = "working_directory", layout, remote, cloudVM = "cloud_vm",
              leftOutPanels = "left_out_panels", key, color, pinned, groupID = "group_id", description,
              taskStatus = "task_status"
     }

@@ -380,14 +380,14 @@ extension AppOnboardingServices {
             return
         }
         do {
-            if let color = saved.color {
+            if let color = saved.color.flatMap(ClassicImportColor.palette) {
                 try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color))
             }
+            if saved.named == true { _ = try await connection.renameWorkspace(key, to: saved.name) } // the person's own: auto-naming keeps it
             if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
-            // The description and task lane the person gave it in classic; a daemon without them keeps neither.
-            let description = local.supports(DaemonCapability.workspaceDescription.rawValue) ? saved.description : nil
+            let description = local.supports(DaemonCapability.workspaceDescription.rawValue) ? saved.description : nil // and its lane: none on a daemon without them
             let status = local.supports(DaemonCapability.workspaceStatus.rawValue) ? saved.taskStatus.flatMap(WorkspaceTaskStatus.init(rawValue:)) : nil
             if description != nil || status != nil, let resource = store.stateResourceID(workspace: key) {
                 try await connection.state.updateWorkspace(resource, description: description.map { .set($0) } ?? .unchanged,

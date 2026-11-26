@@ -99,6 +99,10 @@ pub struct Group {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
     pub name: String,
+    /// Whether `name` is the one the person gave it (`customTitle`): cmux NEXT keeps it as theirs, so its
+    /// automatic naming never renames it after the tab in front. False for a name made from its tabs or folder.
+    #[serde(default)]
+    pub named: bool,
     pub working_directory: String,
     pub layout: Layout,
     /// The SSH host its terminals ran on; none for a local workspace.

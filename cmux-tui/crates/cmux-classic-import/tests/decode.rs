@@ -389,6 +389,27 @@ fn a_workspace_keeps_its_description_and_task_lane() {
 }
 
 #[test]
+fn a_name_the_person_gave_is_marked_theirs_and_a_made_one_is_not() {
+    let given = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj/grid", "customTitle": "Odd grid",
+        "panels": [terminal(PANEL_A, json!({}))],
+    }));
+    let workspace = &given.windows[0].workspaces[0];
+    assert_eq!((workspace.name.as_str(), workspace.named), ("Odd grid", true));
+
+    for title in [None, Some("   ")] {
+        let mut value = json!({"stableId": "w", "currentDirectory": "/proj/grid", "panels": [terminal(PANEL_A, json!({}))]});
+        if let Some(title) = title {
+            value["customTitle"] = json!(title);
+        }
+        let made = decode_one(value);
+        let workspace = &made.windows[0].workspaces[0];
+        assert!(!workspace.named, "{title:?}: a name from its folder stays automatic");
+        assert_eq!(workspace.name, "grid");
+    }
+}
+
+#[test]
 fn a_workspace_without_a_focused_panel_focuses_no_pane() {
     let snapshot = decode_one(json!({
         "stableId": "w", "currentDirectory": "/proj",

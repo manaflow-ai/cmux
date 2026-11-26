@@ -83,7 +83,11 @@ pub fn clues(value: &Map<String, Value>, home: &str) -> Clues {
         _ => UNNAMED.to_string(),
     };
     Clues {
-        custom: non_empty(value, &["customTitle"]).map(str::to_string),
+        // A title of only spaces names nothing: the workspace is named from its tabs or folder.
+        custom: non_empty(value, &["customTitle"])
+            .map(trim_spaces)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string),
         titles,
         agent,
         branch,

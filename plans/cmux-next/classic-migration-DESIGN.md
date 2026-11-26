@@ -50,10 +50,10 @@ upgrade again never duplicate or lose anything.
 | Classic | cmux-next | Notes |
 | --- | --- | --- |
 | Window (`windows[]`) | Window (registry id) | Window 1 lands in the launch window; others open new windows at their saved frame when on a screen. |
-| Workspace (sidebar order) | Workspace, `slot = .bottom` in order | Name = custom title, else process/tab title, agent, folder; unique across windows. |
+| Workspace (sidebar order) | Workspace, `slot = .bottom` in order | Name = custom title, else process/tab title, agent, folder; unique across windows. A custom title (not blank) is the person's (`named`): renamed as theirs, so the automatic naming never swaps it for its front tab's; a made name stays automatic. |
 | `stableId` / `workspaceId` | Ledger key | Fallback: FNV digest of folder + name + panel ids. |
 | `workspaceGroups[]` + `groupId` | Personal group (`workspace_group.create`), member placed with `workspace.place` | Name, color, icon (`workspace-group-icon-v1`), collapsed, pinned (`workspace-group-pin-v1`). A pinned empty group comes over once. Needs state resources. |
-| `customColor` | Workspace color (`workspace.update`) | `#RRGGBB`. |
+| `customColor` | Workspace color (`workspace.update`) | `#RRGGBB` becomes the palette color nearest its hue (`ClassicImportColor`); the sidebar draws only palette names. |
 | `isPinned` | Workspace pin (`workspace-pin-v1`) | |
 | Split tree (`horizontal`/`vertical`, `dividerPosition`) | Split `right`/`down`, ratio | Unchanged from the import (blueprint builder). |
 | Pane `panelIds`, `selectedPanelId` | Pane tabs in order, the selected one selected in every window | 2026-11-24: the selection is kept (it was decoded and dropped before). |

@@ -7,7 +7,8 @@ import Testing
 
 /// What classic cmux showed in each workspace comes over as it was, end to end on the real daemon
 /// (``ClassicUpgradeSimulator``): the tab each pane had selected, its pinned tabs, the pane it focused,
-/// markdown and file preview tabs on their files, and the workspace's description and task lane.
+/// markdown and file preview tabs on their files, and the workspace's description, task lane, color (classic's hex, as the
+/// palette color the sidebar draws) and the name the person gave it (theirs: the automatic naming leaves it alone).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeParityTests {
     /// One workspace in two panes. Left: a terminal, a pinned terminal and a page, the first terminal selected.
@@ -31,7 +32,7 @@ struct ClassicUpgradeParityTests {
             "stableId": UUID().uuidString, "workspaceId": UUID().uuidString,
             "customTitle": "Parity", "customTitleSource": "user", "processTitle": "~",
             "customDescription": "Draft the release notes", "taskStatusOverride": "review", "taskStatusInferredAtOverride": "todo",
-            "currentDirectory": home, "isPinned": false, "focusedPanelId": preview, "panels": panels,
+            "currentDirectory": home, "isPinned": false, "customColor": "#7C3AED", "focusedPanelId": preview, "panels": panels,
             "layoutMode": "splits", "logEntries": [Any](), "statusEntries": [Any](),
             "layout": ["type": "split", "split": [
                 "orientation": "horizontal", "dividerPosition": 0.5,
@@ -65,6 +66,8 @@ struct ClassicUpgradeParityTests {
         let workspace = try #require(store.workspaces.first { $0.name == "Parity" }, "\(store.workspaces.map(\.name))")
         #expect(workspace.workspaceDescription == "Draft the release notes")
         #expect(workspace.taskStatus == .review)
+        #expect(workspace.nameSource == .user, "\(workspace.nameSource)")
+        #expect(workspace.color == "purple", "\(String(describing: workspace.color))")
         let screen = try #require(workspace.screens.first)
         let panes = screen.layout.paneIDs.compactMap { screen.pane($0) }
         try #require(panes.count == 2, "\(panes.map { $0.tabs.map(\.kind) })")

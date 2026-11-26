@@ -333,6 +333,7 @@ fn workspace(
     };
     Workspace {
         key: names::key(value, &name, home),
+        named: non_empty(value, &["customTitle"]).is_some_and(|title| !trim_spaces(title).is_empty()),
         name,
         working_directory: names::directory(value, home),
         layout,
