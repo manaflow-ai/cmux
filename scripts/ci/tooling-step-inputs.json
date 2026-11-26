@@ -30,6 +30,32 @@
         "why": "run-all.sh runs every scripts/measure/tests/*.test.sh and *.test.py by a loop variable; no-unattended-prompts reads every tracked file under scripts/ and .github/",
         "traced": true
       },
+      "tt-test-registry": {
+        "inputs": [
+          ".github/**",
+          "tests/**",
+          "scripts/ci/**",
+          "scripts/cmux-next/safe_log.py",
+          "scripts/verify-local.py",
+          "ci/**"
+        ],
+        "why": "its run text names a checker, not a test, so the walker resolves no test for it; traced, validate_test_execution_registry.py reads every workflow, action and tests/test_*.py, the tests/test-execution.d fragments, scripts/ci, ci/steps.toml and scripts/verify-local.py, and its git reads (diff and log of tests, archive of .github, tests, scripts/ci and scripts/verify-local.py at the base) name only those paths"
+      },
+      "tt-swift-test-coverage": {
+        "inputs": [
+          "scripts/ci/swift_test_coverage.py",
+          "Packages/*/*/Package.swift",
+          "Packages/macOS/CmuxNext/ci-target-graph.json",
+          "Packages/macOS/CmuxNext/Tests/**",
+          ".github/workflows/**",
+          "scripts/ci/swift-test-targets.json",
+          "scripts/ci/swift-linux-packages.txt",
+          "scripts/ci/package-test-lane.sh",
+          "scripts/cmux-next/fast-tier.json",
+          "AGENTS.md"
+        ],
+        "why": "its run text names a checker, not a test, so the walker resolves no test for it; traced, swift_test_coverage.py reads every Packages/*/*/Package.swift, CmuxNext's ci-target-graph.json and test folders, the workflows its registry names, its registry, the Linux package list, package-test-lane.sh and fast-tier.json; its git reads are CmuxNext's Package.swift at the base and the files added under CmuxNext/Tests"
+      },
       "tt-pr-red-checks-comment": {
         "inputs": [
           "scripts/**",
