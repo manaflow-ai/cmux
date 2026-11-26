@@ -96,6 +96,10 @@ impl Schema {
         );
         root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
         root.insert(
+            crate::theme_file::motion::KEY.into(),
+            crate::theme_file::motion::json_schema(),
+        );
+        root.insert(
             "fonts".into(),
             json!({
                 "type": "array",

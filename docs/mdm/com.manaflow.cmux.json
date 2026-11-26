@@ -686,7 +686,7 @@
       "type" : "number"
     },
     "agents.autoRetry.capacityFallbackAfter" : {
-      "default" : 1,
+      "default" : 0,
       "description" : "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
       "maximum" : 12,
       "minimum" : 0,
@@ -3309,6 +3309,12 @@
       "title" : "Suggestions Shown",
       "type" : "number"
     },
+    "browser.omnibar.quietIcons" : {
+      "default" : false,
+      "description" : "Fades the site info icon and the bookmark star until you point at or click into the address bar.",
+      "title" : "Quiet Address Bar Icons",
+      "type" : "boolean"
+    },
     "browser.omnibar.remoteSuggestions" : {
       "default" : true,
       "description" : "Sends what you type to the search engine. Never addresses, files or local hosts.",
@@ -3767,7 +3773,7 @@
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
-      "default" : true,
+      "default" : false,
       "description" : "customize.doctorNotice",
       "title" : "Customization notices",
       "type" : "boolean"

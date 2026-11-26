@@ -20,6 +20,7 @@
 mod colors;
 pub mod contrast;
 pub mod frame_tone;
+pub mod motion;
 pub mod render;
 pub mod slots;
 pub mod two_tone;
@@ -50,8 +51,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 8] =
-    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"];
+pub const RESERVED_KEYS: [&str; 9] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts", "motion"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed and the
@@ -344,6 +345,10 @@ pub struct ThemeFile {
     /// The variant each theme slot draws (`slots`), checked against
     /// schemas/theme/slots.json: unknown slots and variants are left out.
     pub slots: BTreeMap<String, String>,
+    /// The look's `motion` block: named spring presets and design-token spring
+    /// and fade overrides, clamped to `cmux.motion/1`; empty (every timing its
+    /// design-token default) when the file has none.
+    pub motion: cmux_app_host::motion_profile::MotionProfile,
     /// Keys the file names by an older name, rewritten through the
     /// retired-keys table ([`crate::migrations`]): the look applies a renamed
     /// key under its new name and leaves out a removed one.
@@ -373,6 +378,7 @@ impl ThemeFile {
             corrected: Vec::new(),
             is_unparsable: false,
             slots: BTreeMap::new(),
+            motion: Default::default(),
             notices: Vec::new(),
         };
         let is_loaded = reader.read(source, base);
@@ -386,6 +392,7 @@ impl ThemeFile {
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
             slots: reader.slots,
+            motion: reader.motion,
             notices: reader.notices,
         }
     }
@@ -467,6 +474,7 @@ struct Reader<'a> {
     corrected: Vec<String>,
     is_unparsable: bool,
     slots: BTreeMap<String, String>,
+    motion: cmux_app_host::motion_profile::MotionProfile,
     notices: Vec<Notice>,
 }
 
@@ -512,6 +520,7 @@ impl<'a> Reader<'a> {
         }
         colors::read(self, &members, base);
         self.slots = slots::read(self, &members);
+        self.motion = motion::read(self, &members);
         true
     }
 
