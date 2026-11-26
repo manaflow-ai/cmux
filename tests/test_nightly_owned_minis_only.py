@@ -93,6 +93,10 @@ HOSTED_TAIL_JOBS = {
 # 2-89 s in the same runs' tails. It holds the push group as before, so a slow JIT VM start would hold it too: the
 # stated cost.
 HOSTED_LOOP_JOBS = {
+    # #56483: they mint cmux-bot and the CI pool App tokens so a refused dispatch moves to another hour; App keys
+    # take the one-job JIT VM, never the shared persistent cmux-linux pool.
+    "wake-nightly-next-tick": "dispatches main's tick with the CI pool's App tokens (#56483)",
+    "dispatch-published-in": "dispatches the post-publication run with the CI pool's App tokens (#56483)",
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral JIT VM; on the signer it held the whole Mac",
 }
@@ -269,7 +273,9 @@ class EveryJobOnOurMinis(unittest.TestCase):
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
         # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
         # attempt (the fork branch keeps GitHub-hosted Ubuntu).
-        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
+        # #56483's two dispatches hold the CI pool's App keys, not the release key, on the same JIT route.
+        self.assertEqual(set(HOSTED_LOOP_JOBS),
+                         {"publish-nightly-next-github", "wake-nightly-next-tick", "dispatch-published-in"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
             resolved = workflow_jobs.resolve(job, name)
@@ -277,6 +283,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(resolved.runs_on_cells,
                                  ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                   f"'{JIT_LABEL}' }}}}"])
+                if name != "publish-nightly-next-github":
+                    continue
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())

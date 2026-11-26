@@ -7547,7 +7547,8 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, nightly-next-one, early-nightly-webviews]
     if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && (needs.nightly-next-one.result != 'skipped' || needs.early-nightly-webviews.outputs.red_sha != '')"
     # The nightly's Linux label, not the mini: the job holds App keys (below), and they stay off the nightly mini.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The dispatch's App keys (#56483) take the one-job JIT VM on every attempt, never the shared persistent cmux-linux pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     continue-on-error: true
@@ -7827,7 +7828,8 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github, nightly-next-one]
     if: "!cancelled() && (needs.publish-nightly.result == 'success' || needs.nightly-next-one.result == 'success') && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"
     # The nightly's Linux label, not the mini: the job holds App keys (wake-nightly-next-tick's), kept off the mini.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The dispatch's App keys (#56483) take the one-job JIT VM on every attempt, never the shared persistent cmux-linux pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:

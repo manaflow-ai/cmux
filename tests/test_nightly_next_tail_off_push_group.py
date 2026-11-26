@@ -173,7 +173,8 @@ else:
     runs_on = workflow_jobs.single_runs_on(dispatch)
     # Our own runners, never Blacksmith: the nightly mini, or the nightly's Linux label (it holds the dispatch's App
     # keys, which stay off the mini; run 45562645699 slept 18.4 and 12.9 min on github.token's spent hour).
-    if "blacksmith" in runs_on.lower() or not ("CI_NIGHTLY_MINI" in runs_on or "cmux-gcp-nightly-x64" in runs_on):
+    if "blacksmith" in runs_on.lower() or not ("CI_NIGHTLY_MINI" in runs_on or "cmux-gcp-nightly-x64" in runs_on
+                                                  or "cmux-gcp-nightly-jit-x64" in runs_on):
         failures.append("dispatch-published-in runs on our nightly runners (the mini or the nightly Linux label), never Blacksmith")
 if TEXT.count("-f nightly_next_post_publish=") > 1:
     failures.append("only dispatch-published-in dispatches a tail run")

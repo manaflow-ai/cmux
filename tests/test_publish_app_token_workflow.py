@@ -154,6 +154,10 @@ class WorkflowTests(unittest.TestCase):
                                                     "GH_FALLBACK_TOKEN": "${{ github.token }}"}, name)
             # Every step that sends github.token runs after the wrapper is on PATH.
             for i, s in enumerate(steps):
+                # The warm checkout (#57824, #57931) sends it only to git as an http extraheader, which no gh
+                # wrapper wraps; it runs first on a kept slot.
+                if s.get("name") == "Checkout build ref (warm nightly-next builder)":
+                    continue
                 if i != app[0] and "github.token" in str(s.get("env", {})):
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
