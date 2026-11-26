@@ -6,7 +6,6 @@
 // Search covers emoji names, CLDR keywords and shortcodes (English and Japanese) and symbol names
 // and keywords. Keyboard driven from the search field; typing anywhere searches. Hosts: the icon
 // picker page (a native panel around a prewarmed web view) and any React page that embeds it.
-import { keycapLegend } from "../ui/keycapLegend";
 import {
   useRef,
   useState,
@@ -35,6 +34,7 @@ import { DEFAULT_CELL, PickerStore, type CategoryOption, type PickerCell, type P
 import { SYMBOL_MODES, symbolRendering, type SymbolMode } from "./symbols";
 import { GridViewport, VirtualGrid } from "./VirtualGrid";
 import { intl } from "../ui/intl";
+import { KeyHint } from "../ui/KeyHint";
 
 const TONE_SAMPLES = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
 /** The grid's side padding (styles.css .icon-grid-scroll). */
@@ -360,7 +360,7 @@ export function IconPicker({
                 onClick={() => pick(active)}
               >
                 {t("iconPicker.setIcon")}
-                <kbd className="icon-keycap">{keycapLegend("↩")}</kbd>
+                <KeyHint keys="↩" />
               </button>
               <span className="icon-bar-divider" aria-hidden />
             </>
@@ -368,8 +368,7 @@ export function IconPicker({
           <Menu {...menuProps("actions")}>
             <MenuButton className="icon-bar-button icon-bar-actions-button">
               {t("iconPicker.actions")}
-              <kbd className="icon-keycap">⌘</kbd>
-              <kbd className="icon-keycap">K</kbd>
+              <KeyHint keys="⌘K" />
             </MenuButton>
             <MenuPopup side="top" align="end" finalFocus={searchRef} className="icon-actions-menu">
               <MenuItem disabled={!active} shortcut="↩" onSelect={() => pick(active)}>
@@ -436,7 +435,7 @@ function CategoryMenu({
   const symbolCategories = categories.filter((option) => option.kind === "symbol");
   const count = (option: CategoryOption) => intl.NumberFormat(strings.language).format(option.count);
   const item = (option: CategoryOption) => (
-    <MenuRadioItem key={option.id} value={option.id} shortcut={count(option)}>
+    <MenuRadioItem key={option.id} value={option.id} trailing={count(option)}>
       {option.glyph ? (
         <span className="icon-menu-emoji" aria-hidden>
           {option.glyph}
