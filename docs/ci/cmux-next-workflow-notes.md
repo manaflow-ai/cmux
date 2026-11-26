@@ -5230,7 +5230,7 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
 - Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
-  (2026-11-25-fleet-fallback.md). DEV Release (`dev_daily`) compiles are unchanged.
+  (2026-11-25-fleet-fallback.md); unset is null and null != '0' is false, so the `if` reads `(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'`. DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 
