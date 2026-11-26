@@ -37,6 +37,14 @@ class ContinuationJobsWaitThroughRateLimits(unittest.TestCase):
                 missing.append(name)
         self.assertEqual(missing, [], "jobs that give up on a rate limit instead of waiting for its reset")
 
+    def test_no_step_calls_the_github_api_around_the_gh_wrapper(self) -> None:
+        # 2026-11-26 18:12Z: run 45868042226's publish job died in "Reject stale continuation
+        # before publication", which read releases/tags/<tag> with urllib and got HTTP 403 on
+        # a spent budget; gh_budget_wait.sh wraps gh only. Every API read goes through gh.
+        text = WORKFLOW.read_text()
+        self.assertNotIn("urlopen(", text)
+        self.assertNotIn("https://api.github.com/", text)
+
 
 if __name__ == "__main__":
     unittest.main()
