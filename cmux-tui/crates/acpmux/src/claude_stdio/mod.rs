@@ -309,6 +309,7 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+mod dedupe_search;
 mod dedupe_shell;
 #[cfg(test)]
 mod dedupe_tests;
