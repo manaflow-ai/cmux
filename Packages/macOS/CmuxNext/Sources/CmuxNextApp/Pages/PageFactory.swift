@@ -293,7 +293,7 @@ struct PageFactory {
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: WorktreeSetupPageRoute.prefix, provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
-                      PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute { [weak services] in services?.machines.local.connection }),
+                      PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute(apps: services.apps.client) { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
                                 provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in
