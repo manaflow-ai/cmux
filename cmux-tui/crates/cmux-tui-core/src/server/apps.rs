@@ -192,6 +192,17 @@ enum Command {
     /// `team.event` line (`Supervisor::team_event`). Verified app only.
     #[serde(rename = "apps-team-event")]
     TeamEvent { event: String, data: Value },
+    /// The Cloud machines the app shows: the daemon holds each one's state socket and answers
+    /// with `apps-cloud-machine` events (`server/machine_state_push.rs`). Replaces this
+    /// connection's list; an empty one closes its sockets. Verified app only.
+    #[serde(rename = "apps-machine-state-watch")]
+    MachineStateWatch {
+        machines: Vec<cmux_cloud_machine::record::Machine>,
+        #[serde(default)]
+        platform: String,
+        #[serde(default)]
+        team: Option<String>,
+    },
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister {
@@ -449,7 +460,9 @@ pub(super) fn try_handle(
         Command::Set { .. } | Command::ServerCredential { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
-        Command::LinkChanged | Command::TeamEvent { .. } => true,
+        Command::LinkChanged | Command::TeamEvent { .. } | Command::MachineStateWatch { .. } => {
+            true
+        }
         _ => false,
     };
     // The capability manifest is this daemon's own read-only table: no
@@ -514,8 +527,10 @@ pub(super) fn try_handle(
     }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
-    if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
-        && !crate::apps::hosting_app_connection(&origin_claim)
+    if matches!(
+        request.command,
+        Command::LinkChanged | Command::TeamEvent { .. } | Command::MachineStateWatch { .. }
+    ) && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
             writer,
@@ -589,6 +604,29 @@ pub(super) fn try_handle(
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
+        #[cfg(unix)]
+        Command::MachineStateWatch { machines, platform, team } => {
+            let sink: super::machine_state_push::Sink = {
+                let writer = writer.clone();
+                Arc::new(move |event: &Value| writer.send_control(event).is_ok())
+            };
+            let host = Arc::new(super::machine_state_push::MuxHost(Arc::downgrade(mux)));
+            mux.cloud_services()
+                .machine_state
+                .watch(
+                    client,
+                    sink,
+                    host,
+                    super::machine_state_push::Watch { machines, platform, team },
+                )
+                .map(|()| json!({ "ok": true }))
+                .map_err(|why| crate::apps::ApiError::new("validation.invalid", why))
+        }
+        #[cfg(not(unix))]
+        Command::MachineStateWatch { .. } => Err(crate::apps::ApiError::new(
+            "apps.unavailable",
+            "this daemon holds no state sockets",
+        )),
         Command::Set {
             idempotency_key,
             app,
