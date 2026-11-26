@@ -118,10 +118,10 @@ class Pick(unittest.TestCase):
             with contextlib.redirect_stdout(printed):
                 self.assertEqual(picker.main(env, read_runners=broken), 0)
             self.assertNotIn("token-like", printed.getvalue())
-            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\nfallback=\n")
+            self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.0\"]\n")
             Path(out).write_text("")
             self.assertEqual(picker.main(env, read_runners=lambda token, repo: [runner()]), 0)
-            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\nfallback=\n")
+            self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\nfallback=[\"cmux-mac\",\"xcode-27.0\"]\n")
 
 
 class SharedFirstLook(unittest.TestCase):
@@ -210,10 +210,10 @@ class NoCarrierReroutes(unittest.TestCase):
                        CI_RUNNER_STATE=census([]), GITHUB_RUN_ATTEMPT="1")
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(picker.main(env), 0)
-            self.assertEqual(Path(out).read_text(), f"dedicated=\nattempt=1\nfallback={self.FALLBACK}\n")
+            self.assertEqual(Path(out).read_text(), f"dedicated=\nattempt=1\nfallback=[\"{self.FALLBACK}\"]\n")
 
     def test_the_checked_set_is_the_workflows_fleet_fallback(self) -> None:
-        self.assertIn("fromJSON('" + json.dumps(list(picker.FLEET_XCODE), separators=(",", ":")) + "')",
+        self.assertIn("fromJSON(needs.pick-archive-runner.outputs.fallback)",
                       WORKFLOW.read_text(encoding="utf-8"))
 
 
