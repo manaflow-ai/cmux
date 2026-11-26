@@ -111,7 +111,7 @@
     "cmux-next-pr-autofix.yml: Generated files this pull request did not cause": "baseline 2026-11-04",
     "cmux-next-tip-test-compile.yml: Open, update or close the tip's test-compile issue": "baseline 2026-11-04",
     "cmux-next-tip-test-compile.yml: Plan the test targets the change since the last verified commit reaches": "baseline 2026-11-04",
-    "cmux-next.yml: Capture the fleet build's REF": "polls (tests/test_ci_no_github_token_polling.py): calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the whole script); its one jobs read is not in a loop",
+    "cmux-next.yml: Capture the fleet build's REF": "polls (tests/test_ci_no_github_token_polling.py): calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the whole script); its one jobs read, a fallback for the job's start, is one try with a 15 s timeout, not in a loop",
     "cmux-next.yml: Classify pull request paths": "baseline 2026-11-04",
     "cmux-next.yml: Comment on the pull requests in the failing range": "baseline 2026-11-04",
     "cmux-next.yml: Decide the fleet build's REF capture": "polls (tests/test_ci_no_github_token_polling.py): per DEV compile on a mini with CMUX_NEXT_HYBRID_REF_CAPTURE=1: two artifact reads (hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal (Retry-After or the reset) or a 5xx, 600 s in all; a silent rate limit lost run 40428066457's capture",
