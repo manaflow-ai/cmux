@@ -10,13 +10,13 @@ public struct RemoteRdSessionReports {
     private static let sink = Mutex<(@Sendable (String) -> Void)?>(nil)
 
     /// Installs the sink every later session end reports to (the newest call wins).
-    public static func install(_ send: @escaping @Sendable (String) -> Void) {
+    nonisolated public static func install(_ send: @escaping @Sendable (String) -> Void) {
         sink.withLock { $0 = send }
     }
 
     /// Sends one ended session's report to the installed sink. Sessions that never put a frame on
     /// glass are left out (a failed connect has no present time).
-    static func send(_ report: String) {
+    nonisolated static func send(_ report: String) {
         guard !report.contains("\"frames_presented\":0,") else { return }
         let send = sink.withLock { $0 }
         send?(report)
