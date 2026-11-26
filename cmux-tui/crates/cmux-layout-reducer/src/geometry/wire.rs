@@ -6,12 +6,15 @@
 use super::column_strip::{self, EqualizeColumn};
 use super::divider_band::DividerBand;
 use super::dock_strip::{self, Docks, FrameOrientation};
+use super::drop_preview;
 use super::drop_zones::{
     self, Bars, CLASSIC_PANE_PADDING, DropGeometry, DropStyle, DropTarget, PaneDropZone,
 };
+use super::floating_corners::FloatingPaneCorners;
 use super::pane_chrome::{self, ChromeStyle};
 use super::row_stack::{self, Row, RowStack};
 use super::screen::{self, FloatingPane, ScreenGeometry, ScreenLayout, ScreenStyle};
+use super::shown_range::ShownResizeRange;
 use super::split_layout::{self, DividerGeometry, PointerRatio, PushResize, SplitNode, SplitStyle};
 use super::strip_math::{self, StripStart, UniformEdge};
 use super::width_ledger::{self, LedgerColumn, LedgerRecord};
@@ -432,6 +435,86 @@ struct CanvasRequest {
     visible: Rect,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CornersRequest {
+    /// Set: `init(uniform:)`; else the card's size and its edges' distances in from the window's.
+    uniform: Option<f64>,
+    #[serde(default)]
+    size: Size,
+    #[serde(default)]
+    left: f64,
+    #[serde(default)]
+    top: f64,
+    #[serde(default)]
+    right: f64,
+    #[serde(default)]
+    bottom: f64,
+    #[serde(default)]
+    window_radius: f64,
+    #[serde(default)]
+    floor: f64,
+    /// `contentRadius(inset:)`'s inset.
+    #[serde(default)]
+    inset: f64,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DropPreviewRequest {
+    pane: String,
+    zone: PaneDropZone,
+    layout: ScreenLayout,
+    removing: Option<String>,
+    #[serde(default)]
+    even_sizing: bool,
+    #[serde(default = "yes")]
+    equalizes_close: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ShownKind {
+    Ratio,
+    Width,
+    Trade,
+    DockWidth,
+    RowHeights,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShownRangeRequest {
+    /// The screen; its geometry is `compute` of it at `viewport`, with `floating` placed.
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    scale: Option<f64>,
+    strip_offset: Option<f64>,
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+    kind: ShownKind,
+    /// `ratio`: the split.
+    split: Option<String>,
+    /// `width`, `dockWidth`, `rowHeights`, and the left one of a `trade`.
+    column: Option<String>,
+    /// `trade`: the right column.
+    right: Option<String>,
+    /// `rowHeights`: the pane the press is on.
+    pane: Option<String>,
+    #[serde(default)]
+    delta: f64,
+}
+
+fn bounds_value(bounds: Option<crate::shown_resize::Bounds>) -> Value {
+    bounds.map_or(Value::Null, |bounds| json!({"lower": bounds.lower, "upper": bounds.upper}))
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
@@ -818,6 +901,81 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
                 &r.style,
                 r.removing.as_deref(),
             ))
+        }
+        "floating_corners" => {
+            let r: CornersRequest = parse(request)?;
+            let corners = match r.uniform {
+                Some(radius) => FloatingPaneCorners::uniform(radius),
+                None => FloatingPaneCorners::new(
+                    r.size,
+                    r.left,
+                    r.top,
+                    r.right,
+                    r.bottom,
+                    r.window_radius,
+                    r.floor,
+                ),
+            };
+            let mut value = to_value(corners)?;
+            value["largest"] = json!(corners.largest());
+            value["contentRadius"] = json!(corners.content_radius(r.inset));
+            Ok(value)
+        }
+        "drop_preview" => {
+            let r: DropPreviewRequest = parse(request)?;
+            to_value(drop_preview::drop_preview(
+                &r.pane,
+                r.zone,
+                &r.layout,
+                r.removing.as_deref(),
+                r.even_sizing,
+                r.equalizes_close,
+            ))
+        }
+        "shown_range" => {
+            let r: ShownRangeRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = ScreenGeometry::compute(&r.layout, r.viewport, &r.style, scale)
+                .placing_floating(&r.floating, scale);
+            let range = ShownResizeRange {
+                geometry: &geometry,
+                style: &r.style,
+                scale,
+                strip_offset: r.strip_offset,
+            };
+            let columns: &[screen::Column] = match &r.layout {
+                ScreenLayout::Columns(columns) => columns,
+                ScreenLayout::Splits(_) => &[],
+            };
+            let column = |id: &Option<String>| {
+                id.as_ref().and_then(|id| columns.iter().find(|column| &column.id == id))
+            };
+            Ok(match r.kind {
+                ShownKind::Ratio => bounds_value(r.split.and_then(|split| range.ratio(&split))),
+                ShownKind::Width => bounds_value(column(&r.column).and_then(|c| range.width(c))),
+                ShownKind::DockWidth => {
+                    bounds_value(column(&r.column).and_then(|c| range.dock_width(c)))
+                }
+                ShownKind::Trade => match (column(&r.column), column(&r.right)) {
+                    (Some(left), Some(right)) => range
+                        .trade(left, right, r.delta, &r.layout)
+                        .map_or(Value::Null, |(left, right)| json!({"left": left, "right": right})),
+                    _ => Value::Null,
+                },
+                ShownKind::RowHeights => match (column(&r.column), r.pane) {
+                    (Some(c), Some(pane)) => {
+                        range.row_heights(&pane, c, r.delta).map_or(Value::Null, |heights| {
+                            Value::Array(
+                                heights
+                                    .into_iter()
+                                    .map(|(row, height)| json!({"row": row, "height": height}))
+                                    .collect(),
+                            )
+                        })
+                    }
+                    _ => Value::Null,
+                },
+            })
         }
         _ => Err(format!("unknown operation {operation}")),
     }

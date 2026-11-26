@@ -78,6 +78,31 @@ impl Column {
         self.rows.iter().find(|row| row.root.contains(pane))
     }
 
+    /// `trees`: the rows' trees with two or more rows, else the column's own.
+    pub fn trees(&self) -> Vec<&SplitNode> {
+        if self.has_rows() {
+            self.rows.iter().map(|row| &row.root).collect()
+        } else {
+            vec![&self.root]
+        }
+    }
+
+    /// `tree(containing:)`: the tree holding `pane`, its row's or the column's own.
+    pub fn tree_containing(&self, pane: &str) -> Option<&SplitNode> {
+        self.trees().into_iter().find(|tree| tree.contains(pane))
+    }
+
+    /// `settingRatio(_:for:)`: `split`'s ratio replaced in the tree and in every row.
+    #[must_use]
+    pub fn setting_ratio(&self, ratio: f64, split: &str) -> Column {
+        let mut column = self.clone();
+        column.root = self.root.setting_ratio(ratio, split);
+        for row in &mut column.rows {
+            row.root = row.root.setting_ratio(ratio, split);
+        }
+        column
+    }
+
     /// `minimumSize(style:)`: the panes' minimum, one pane wide with scroll areas on, widened for a
     /// docked agent chat.
     pub fn minimum_size(&self, style: &ScreenStyle) -> Size {
@@ -101,6 +126,49 @@ impl Column {
 pub enum ScreenLayout {
     Splits(SplitNode),
     Columns(Vec<Column>),
+}
+
+impl ScreenLayout {
+    /// `column(containing:)`: the first column whose tree holds `pane`; none for a splits screen.
+    pub fn column_containing(&self, pane: &str) -> Option<&Column> {
+        match self {
+            ScreenLayout::Splits(_) => None,
+            ScreenLayout::Columns(columns) => {
+                columns.iter().find(|column| column.root.contains(pane))
+            }
+        }
+    }
+
+    /// `settingRatio(_:for:)`.
+    #[must_use]
+    pub fn setting_ratio(&self, ratio: f64, split: &str) -> ScreenLayout {
+        match self {
+            ScreenLayout::Splits(root) => ScreenLayout::Splits(root.setting_ratio(ratio, split)),
+            ScreenLayout::Columns(columns) => ScreenLayout::Columns(
+                columns.iter().map(|column| column.setting_ratio(ratio, split)).collect(),
+            ),
+        }
+    }
+
+    /// `settingWidth(_:for:)`: `column`'s width share replaced; a splits screen is unchanged.
+    #[must_use]
+    pub fn setting_width(&self, width: f64, column: &str) -> ScreenLayout {
+        match self {
+            ScreenLayout::Splits(_) => self.clone(),
+            ScreenLayout::Columns(columns) => ScreenLayout::Columns(
+                columns
+                    .iter()
+                    .map(|entry| {
+                        let mut entry = entry.clone();
+                        if entry.id == column {
+                            entry.width = width;
+                        }
+                        entry
+                    })
+                    .collect(),
+            ),
+        }
+    }
 }
 
 /// `LayoutPrototypeModel`.

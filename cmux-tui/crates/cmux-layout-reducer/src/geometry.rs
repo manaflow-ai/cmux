@@ -25,10 +25,13 @@
 pub mod column_strip;
 pub mod divider_band;
 pub mod dock_strip;
+pub mod drop_preview;
 pub mod drop_zones;
+pub mod floating_corners;
 pub mod pane_chrome;
 pub mod row_stack;
 pub mod screen;
+pub mod shown_range;
 pub mod split_layout;
 pub mod strip_math;
 pub mod width_ledger;
@@ -37,6 +40,8 @@ pub mod wire;
 
 #[cfg(test)]
 mod screen_tests;
+#[cfg(test)]
+mod slice5_tests;
 #[cfg(test)]
 mod split_tests;
 #[cfg(test)]
