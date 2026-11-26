@@ -95,7 +95,9 @@ pub(crate) fn read(folder: &Path) -> Vec<Value> {
         let Some(fields) = saved.held.get(&id) else { continue };
         for field in fields.iter().filter(|f| CONTENTS.contains(&f.as_str())) {
             if let Ok(contents) = std::fs::read_to_string(folder.join(file_name(&id, field))) {
-                chip[field.as_str()] = Value::String(contents);
+                if let Some(object) = chip.as_object_mut() {
+                    object.insert(field.to_owned(), Value::String(contents));
+                }
             }
         }
     }
@@ -208,7 +210,9 @@ impl Hub {
                             if chip.get(field).is_none()
                                 && let Some(v) = old.get(field)
                             {
-                                chip[field] = v.clone();
+                                if let Some(object) = chip.as_object_mut() {
+                                    object.insert(field.to_owned(), v.clone());
+                                }
                             }
                         }
                     }

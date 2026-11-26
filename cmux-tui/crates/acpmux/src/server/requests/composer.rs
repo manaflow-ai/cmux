@@ -84,7 +84,10 @@ pub(super) async fn handle(
         // The draft's attachments, asked for (`hub/draft_attachments.rs`): an older page never
         // asks, and an older daemon never answers them, so the page knows to keep its own.
         if params.get("attachments").and_then(Value::as_bool) == Some(true) {
-            answer["attachments"] = Value::Array(hub.draft_attachments(&s).await);
+            let attachments = Value::Array(hub.draft_attachments(&s).await);
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("attachments".to_owned(), attachments);
+            }
         }
         return Ok(answer);
     }
@@ -101,10 +104,14 @@ pub(super) async fn handle(
         let mut answer = json!({"sessionId": s.id});
         if let Some(chips) = chips {
             let held = hub.set_draft_attachments(&s, chips).await?;
-            answer["held"] = json!(held);
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("held".to_owned(), json!(held));
+            }
         }
         if let Some(text) = text {
-            answer["draft"] = json!(hub.set_composer_draft(&s, text)?);
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("draft".to_owned(), json!(hub.set_composer_draft(&s, text)?));
+            }
         }
         return Ok(answer);
     }
