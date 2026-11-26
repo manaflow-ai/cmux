@@ -78,6 +78,7 @@ jobs:
             scripts/cmux-next/fast-tier-seed-due.py
             scripts/cmux-next/fast-tier-cache-key.sh
             scripts/ci/r2_cache_census.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check each pool's newest seed's age
@@ -186,6 +187,7 @@ jobs:
             scripts/ci/toolchain-r2.sh
             scripts/ci/toolchain-archives.sha256
             cmux-tui/rust-toolchain.toml
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Save the pinned Node, Bun and Rust
@@ -222,6 +224,7 @@ jobs:
             scripts/ci/playwright-apt-deps.sh
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Save this week's Playwright apt packages

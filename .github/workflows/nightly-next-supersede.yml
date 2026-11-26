@@ -57,6 +57,7 @@ jobs:
           path: .supersede-tooling
           sparse-checkout: |
             scripts/ci/nightly_next_supersede.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The stale rule's one definition (LIGHT_JOBS, build_started) is main's, which the queue janitor
@@ -68,6 +69,7 @@ jobs:
           path: .main-rules
           sparse-checkout: |
             scripts/ci/delivery_workflows.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Drop an older nightly-next run that holds the tip's group and never started
