@@ -38,6 +38,9 @@ impl Peer {
             .clone()
             .or_else(|| carrier.route(&self.name))
             .ok_or_else(|| "no hub route".to_owned())?;
+        if super::runtime_io::REPLACING_ON_RESUME.try_with(|()| ()).is_ok() {
+            return carrier.dial_own_circuit(&daemon, "a link resuming after silence").await;
+        }
         match super::runtime_io::REPLACING_SILENT.try_with(|silent| *silent) {
             Ok(silent) => carrier.dial_past_silent(&daemon, silent).await,
             Err(_) => carrier.dial(&daemon).await,

@@ -1601,9 +1601,16 @@ impl HubCarrier {
             "hub carrier: a replacement for a link silent {}ms; its kept circuit heard nothing either, so the replacement opens a circuit of its own",
             silent.as_millis()
         );
+        self.dial_own_circuit(daemon, "plain past a silent kept circuit").await
+    }
+
+    /// A stream to `daemon` on a circuit of its own, never a kept one: a replacement for a link
+    /// whose kept circuit's transport is the stalled one (`dial_past_silent`, and a link
+    /// resuming after silence, `LinkTimings::replace_on_resume`).
+    pub async fn dial_own_circuit(&self, daemon: &str, why: &str) -> Result<HubStream, String> {
         crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
-        stages.log(daemon, "plain past a silent kept circuit");
+        stages.log(daemon, why);
         record_call(CircuitLane::of(CircuitService::Acpmux), false);
         Ok(self.carry_plain(secure))
     }

@@ -8,6 +8,11 @@ tokio::task_local! {
     /// (`HubCarrier::dial_past_silent`, `peer_hub.rs`). `open_first` races its paths in this
     /// task, so the hub dial sees it.
     pub(super) static REPLACING_SILENT: Duration;
+    /// Set while a link dials its replacement on the first frame after a silence
+    /// (`LinkTimings::replace_on_resume`): the hub dial opens a circuit of its own
+    /// (`HubCarrier::dial_own_circuit`). The kept circuit just carried that frame, so it no
+    /// longer reads as silent, but it is the one whose transport holds the backlog.
+    pub(super) static REPLACING_ON_RESUME: ();
 }
 
 impl Peer {
@@ -691,6 +696,22 @@ impl Peer {
                 heard_while_replacing = false;
             }};
         }
+        // The first frame after `$quiet` with nothing read, with `replace_on_resume` set (off by
+        // default): dial the replacement now, on a circuit of its own. The frame is the oldest
+        // of the backlog the peer wrote into the silence; on lossy-3 the content behind it came
+        // about 1.6 s after the first frame (stage_link 1.4 s, resume 3.1 s; #59028), while a
+        // replacement opened and replayed by 1.3 s (job ce049556). Dropped as any other: by a
+        // pong for a ping sent after the dial began.
+        macro_rules! dial_on_resume {
+            ($quiet:expr) => {{
+                let quiet: Duration = $quiet;
+                tracing::info!(peer = %self.name, "a frame after {}ms with nothing read; dialing a replacement on a connection of its own while this link carries the backlog", quiet.as_millis());
+                let gate = crate::peer_dial_gate::global();
+                replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), REPLACING_ON_RESUME.scope((), REPLACING_SILENT.scope(quiet, self.open_first())))));
+                replacing_since = Some(std::time::Instant::now());
+                heard_while_replacing = false;
+            }};
+        }
         // `replace_after` (off by default) passed, the budget not yet: dial the replacement now;
         // the budget still decides the drop.
         macro_rules! replace_early {
@@ -1116,9 +1137,17 @@ impl Peer {
                     if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
                         break Err(self.deadline_passed(timed_out(handshake_started)));
                     }
+                    let quiet = last_frame.elapsed().min(reader.reading());
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
                     heard_while_replacing |= replacing.is_some();
+                    if replacing.is_none()
+                        && self.link().is_ready()
+                        && timings.replace_on_resume_after(quiet)
+                        && self.may_replace()
+                    {
+                        dial_on_resume!(quiet);
+                    }
                     wake_probe = None;
                     request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));

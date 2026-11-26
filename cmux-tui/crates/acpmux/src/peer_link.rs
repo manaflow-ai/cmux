@@ -36,6 +36,13 @@ pub struct LinkTimings {
     /// default: the replacement dials when the budget runs out. The link is still dropped at
     /// twice the budget, as without it.
     pub replace_after: Option<Duration>,
+    /// `ACPMUX_PEER_REPLACE_ON_RESUME_MS`: a link that heard nothing for at least this long
+    /// dials its replacement when the first frame after that silence comes, on a circuit of its
+    /// own. That frame is the oldest of the backlog the peer wrote into the silence, and the
+    /// content sent after it waits behind the rest on the transport's retransmission ladder;
+    /// a fresh connection made now is up in a round trip and replays it. Off (`None`) by
+    /// default: a frame after silence only resets the silence, as before.
+    pub replace_on_resume: Option<Duration>,
     /// The link is dropped when one send cannot go out for this long (a peer that stops
     /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
     // timeout: a peer that never reads would hold every queued write; a dead transport is
@@ -71,6 +78,7 @@ impl Default for LinkTimings {
             ping_misses: 3,
             fixed_silence: false,
             replace_after: None,
+            replace_on_resume: None,
             send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
@@ -100,6 +108,13 @@ impl LinkTimings {
         {
             t.replace_after = Some(Duration::from_secs_f64(n));
         }
+        if let Some(n) = std::env::var("ACPMUX_PEER_REPLACE_ON_RESUME_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .filter(|n| *n > 0)
+        {
+            t.replace_on_resume = Some(Duration::from_millis(n));
+        }
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
         }
@@ -119,6 +134,12 @@ impl LinkTimings {
     /// `silence` budget: `replace_after` when set and shorter, else the budget itself.
     pub fn replace_at(&self, silence: Duration) -> Duration {
         self.replace_after.map_or(silence, |after| after.min(silence))
+    }
+
+    /// Whether a frame that ends `quiet` with nothing read dials a replacement
+    /// (`replace_on_resume`, off by default).
+    pub fn replace_on_resume_after(&self, quiet: Duration) -> bool {
+        self.replace_on_resume.is_some_and(|at| quiet >= at)
     }
 }
 
@@ -1489,6 +1510,17 @@ mod tests {
         let early = LinkTimings { replace_after: Some(Duration::from_secs(5)), ..t };
         assert_eq!(early.replace_at(Duration::from_secs(6)), Duration::from_secs(5));
         assert_eq!(early.replace_at(Duration::from_secs(4)), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn the_resume_dial_is_off_by_default_and_needs_its_whole_quiet() {
+        let t = LinkTimings::default();
+        assert_eq!(t.replace_on_resume, None);
+        assert!(!t.replace_on_resume_after(Duration::from_secs(60)), "off: no frame dials");
+        let on = LinkTimings { replace_on_resume: Some(Duration::from_millis(1500)), ..t };
+        assert!(!on.replace_on_resume_after(Duration::from_millis(1499)));
+        assert!(on.replace_on_resume_after(Duration::from_millis(1500)));
+        assert!(on.replace_on_resume_after(Duration::from_secs(5)));
     }
 
     #[test]
