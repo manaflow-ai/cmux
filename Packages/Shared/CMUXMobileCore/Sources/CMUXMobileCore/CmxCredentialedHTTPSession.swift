@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum CmxCredentialedHTTPSessionError: Error, Equatable, Sendable {
     case responseTooLarge
@@ -37,6 +40,17 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
     }
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        #if canImport(FoundationNetworking)
+        // swift-corelibs-foundation has no `URLSession.bytes(for:)`; the body
+        // arrives whole, and the cap still refuses an oversized one.
+        let (data, response) = try await session.data(for: request)
+        guard response.expectedContentLength <= maximumResponseByteCount,
+              data.count <= maximumResponseByteCount
+        else {
+            throw CmxCredentialedHTTPSessionError.responseTooLarge
+        }
+        return (data, response)
+        #else
         let (bytes, response) = try await session.bytes(for: request)
         if response.expectedContentLength > maximumResponseByteCount {
             bytes.task.cancel()
@@ -56,6 +70,7 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
             data.append(byte)
         }
         return (data, response)
+        #endif
     }
 
     deinit {

@@ -1,3 +1,4 @@
+#if canImport(CoreImage)
 import CoreGraphics
 import Foundation
 import Testing
@@ -146,3 +147,4 @@ import Testing
         return stride(from: 0, to: rgba.count, by: 4).map { rgba[$0] }
     }
 }
+#endif

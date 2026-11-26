@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(os)
 internal import os
+#endif
 
 /// A fixed-capacity ring of recent ``DiagnosticEvent`` values with a
 /// non-blocking hot-path recorder.
