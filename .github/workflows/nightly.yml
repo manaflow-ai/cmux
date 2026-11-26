@@ -461,12 +461,15 @@ jobs:
             // build instead of three, after Apple's queue held all three past the wait in
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // The main-track NIGHTLY is arm64 only too (Leo, 2026-11-25: "i thought we were already skipping
+            // intel"; 2026-11-12: "WHY DO WE KEEP F***ING BUILDING INTEL MACS ALL THE F***ING TIME"). Only the
+            // RC channel still ships the three variants. Intel and universal ship from the stable release workflow.
+            const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
             // Compile only the slices these variants consume. nightly-next
             // ships arm64 only; compiling Intel here still paid for a second
             // whole-module Swift compile and both slices of the Rust helpers.
             const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
-            const feeds = track === 'nightly-next'
+            const feeds = track !== 'rc'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
@@ -1283,7 +1286,7 @@ jobs:
       - name: Build in-tree acpmux for the compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         env:
-          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+          CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: bash scripts/ci/nightly-steps/refresh-build-in-tree-acpmux.sh
 
       - name: Cache Swift packages

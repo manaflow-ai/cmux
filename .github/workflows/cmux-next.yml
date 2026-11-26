@@ -4180,7 +4180,7 @@ jobs:
       - name: Install Rust targets (sidebar layout reducer)
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         working-directory: cmux-tui
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: rustup target add aarch64-apple-darwin
 
       - name: Test sidebar layout reducer
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
