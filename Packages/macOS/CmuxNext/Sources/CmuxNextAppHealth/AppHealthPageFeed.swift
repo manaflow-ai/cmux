@@ -336,8 +336,7 @@ final class AppHealthPageFeed: PageHealthFeed {
             // it, so edits in any of them refuse it. Pages in other renderers lose nothing.
             let renderer = page.rendererClientID
             guard !PageRegistry.pages().contains(where: { $0.holdsEdits && (renderer == nil || $0.rendererClientID == renderer) }) else { return false }
-            page.restartRenderer()
-            return true
+            return page.restartRenderer()
         default:
             return false
         }

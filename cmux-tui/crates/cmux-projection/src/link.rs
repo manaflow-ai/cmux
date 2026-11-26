@@ -13,6 +13,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::listing_patch::Patch;
 use crate::lower::Ext;
 use crate::wire::{self, Ask, Part};
 use crate::{Fetch, FetchError};
@@ -259,6 +260,22 @@ impl Link {
         Ok((epoch, files))
     }
 
+    /// What changed in the folder's listing since journal sequence `since` (RFD 0065, piece 7):
+    /// the patch to apply to a kept listing ([`crate::manifest::Manifest::patched`]), or `None`
+    /// when the Mac cannot say (its journal does not reach back, or it keeps none) and the whole
+    /// listing must be taken. Asked only of a Mac that advertised patches (an older Mac ends a
+    /// stream on an ask it does not know).
+    pub fn listing_since(&self, since: u64) -> Result<Option<Patch>, FetchError> {
+        let parts = self.ask(&|ask| Ask::Listing { ask, since })?;
+        match parts.into_iter().next() {
+            Some(Part { status: wire::OK, bytes }) => {
+                Patch::decode(&bytes).map(Some).map_err(|_| FetchError::Failed)
+            }
+            Some(Part { status: wire::CHANGED | wire::REFUSED, .. }) | None => Ok(None),
+            Some(_) => Err(FetchError::Failed),
+        }
+    }
+
     /// Asks the Mac whether it is there; true on an answer.
     pub fn ping(&self) -> bool {
         self.ask(&|ask| Ask::Ping { ask }).is_ok()
@@ -326,6 +343,7 @@ fn answer_asks_as(
             }
             Ask::Ping { .. } => Vec::new(),
             Ask::Stored { since, .. } => source.stored(*since),
+            Ask::Listing { since, .. } => vec![source.listing(*since)],
         };
         if packed {
             wire::write_packed_answer(&mut writer, ask.number(), &parts)?;
@@ -349,6 +367,13 @@ pub trait Source {
     fn stored(&self, since: u32) -> Vec<Part> {
         let _ = since;
         Vec::new()
+    }
+    /// The answer to [`Ask::Listing`]: the encoded patch since journal sequence `since`
+    /// ([`Part::ok`]), or [`wire::CHANGED`] when this Mac keeps no journal or it no longer reaches
+    /// back that far (the machine then takes the whole listing).
+    fn listing(&self, since: u64) -> Part {
+        let _ = since;
+        Part::status(wire::CHANGED)
     }
 }
 
