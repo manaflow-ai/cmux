@@ -468,40 +468,6 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
-  "plan-checklist": () => {
-    const b = sim(
-      "plan-checklist",
-      "A turn writes a checklist, ticks it off between commands, and the next turn clears it.",
-    );
-    b.prompt("Migrate the three services.");
-    b.plan([
-      ["Migrate auth", "in_progress"],
-      ["Migrate billing", "pending"],
-      ["Migrate mail", "pending"],
-    ]);
-    b.tool("bun run migrate auth", { ms: 800 });
-    b.plan([
-      ["Migrate auth", "completed"],
-      ["Migrate billing", "in_progress"],
-      ["Migrate mail", "pending"],
-    ]);
-    b.say("Auth is done.");
-    b.tool("bun run migrate billing", { ms: 800 });
-    b.tool("bun run migrate mail", { ms: 800 });
-    b.plan([
-      ["Migrate auth", "completed"],
-      ["Migrate billing", "completed"],
-      ["Migrate mail", "completed"],
-    ]);
-    b.say("All three migrated.");
-    b.turnEnd();
-    b.prompt("Now the docs.", 5_000);
-    b.plan([]);
-    b.tool("rg -n migrate docs", { ms: 500 });
-    b.say("Docs updated.");
-    return b.turnEnd().build();
-  },
-
   "long-output": () => {
     const b = sim(
       "long-output",

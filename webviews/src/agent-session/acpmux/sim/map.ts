@@ -49,7 +49,7 @@ const still = (steps: StepTrace[], what: string): string[] => {
     .filter((step) => settled(rowsOf(step)).join(" ") !== first)
     .map((step) => `${what}: rows changed at "${step.label}"`);
 };
-/** Each row that landed above a row already drawn while its turn ran (the checklist and the live line stay last, so
+/** Each row that landed above a row already drawn while its turn ran (the live line stays last, so
  *  landing over them is no landing). A reader's own step (opening a fold) is theirs. */
 const landings = (run: SimResult): { label: string; id: string; kind: string; above: string }[] => {
   const out: { label: string; id: string; kind: string; above: string }[] = [];
@@ -59,7 +59,7 @@ const landings = (run: SimResult): { label: string; id: string; kind: string; ab
     before = step;
     if (!was?.rows || !step.rows || !was.working || !step.working || was.turn !== step.turn) continue;
     if (step.label.startsWith("reader ")) continue;
-    const pinned = (row: RowProbe) => row.live || row.kind === "plan";
+    const pinned = (row: RowProbe) => row.live;
     const old = new Set(was.rows.filter((row) => !pinned(row)).map((row) => row.id));
     const now = step.rows.filter((row) => !pinned(row));
     const lastOld = now.reduce((found, row, at) => (old.has(row.id) ? at : found), -1);
@@ -144,7 +144,7 @@ export const EVERYWHERE: {
   {
     id: "rows-only-append",
     expected:
-      "While a turn runs, a new row lands under the rows already drawn (over the checklist and the live line, which stay last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
+      "While a turn runs, a new row lands under the rows already drawn (over the live line, which stays last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "received-sent-as-activity": "received-drawn-late",
@@ -445,41 +445,7 @@ export const MAP: MapEntry[] = [
       ...want(!last(run).some((row) => row.running), "a command reads as running after the turn ended"),
     ],
   },
-  {
-    id: "checklist",
-    when: "A turn writes a checklist, ticks it off between commands, and the next turn clears it.",
-    wrong: "Each update drew another checklist, or the list jumped about the turn as rows came.",
-    expected:
-      "One checklist a turn, always the last row over the live line while the turn runs; it stays in its turn after, and a cleared list draws none in the next.",
-    scenario: "plan-checklist",
-    check: (run) => {
-      const out: string[] = [];
-      for (const step of run.traces) {
-        const rows = rowsOf(step).filter((row) => row.turn === step.turn);
-        const plans = rows.filter((row) => row.kind === "plan");
-        if (plans.length > 1) out.push(`${step.label}: ${plans.length} checklists in one turn`);
-        if (
-          step.turn === 1 &&
-          step.working &&
-          plans.length === 1 &&
-          rows.filter((row) => !row.live).at(-1) !== plans[0]
-        )
-          out.push(`${step.label}: the checklist is not the last row over the live line`);
-      }
-      const rows = last(run);
-      return [
-        ...out,
-        ...want(
-          rows.filter((row) => row.kind === "plan" && row.turn === 1).length === 1,
-          "the first turn lost its checklist",
-        ),
-        ...want(
-          !rows.some((row) => row.kind === "plan" && row.turn === 2),
-          "the cleared checklist is drawn in the next turn",
-        ),
-      ];
-    },
-  },
+
   {
     id: "incoming-burst",
     when: "Five notices and messages from other agents in a row: some answered in a line, one with a command.",
