@@ -1491,8 +1491,10 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
                         details.entry("machine_name").or_insert_with(|| json!(name));
                     }
                 }
-                // A failure after this run made its machine names it, so the caller can delete it.
-                if let Some(id) = &progress.made {
+                // A failure names its new machine for caller cleanup only when rollback has not deleted it.
+                let deleted =
+                    details.get("cleanup").and_then(|c| c.get("deleted")) == Some(&json!(true));
+                if let Some(id) = progress.made.as_ref().filter(|_| !deleted) {
                     details.insert("machine_id".to_owned(), json!(id));
                     details.insert("new_machine".to_owned(), json!(true));
                 }
@@ -1855,11 +1857,17 @@ fn steps(
     let started = match step_result(&ran) {
         Ok(started) => started,
         Err(error) => {
+            let asked = at(&error, "message").clone();
             let error = match &fresh {
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
+            let no_machine = progress.made.is_none() && at(&error, "message") != &asked;
             let refused = start_refused(error, &listed, request);
+            // The rewritten retry already proves no machine has this run's fresh name.
+            if no_machine {
+                return refused;
+            }
             return fresh::release_refused(
                 runner,
                 fresh.as_deref(),

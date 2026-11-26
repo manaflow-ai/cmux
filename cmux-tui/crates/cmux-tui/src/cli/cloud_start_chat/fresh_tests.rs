@@ -525,3 +525,48 @@ fn a_machine_that_never_finishes_booting_is_given_up_at_the_cold_bound() {
     let spent = fake.clock.saturating_duration_since(began);
     assert_eq!(spent, Duration::from_secs(5) + COLD_BOUND + Duration::from_secs(20), "{spent:?}");
 }
+
+/// cmux#47002 review, 2026-11-22: the app refused before any machine was made (no Cloud connection serves
+/// claude, `agent_session.harness_missing`). The run already read the list and found no machine of its fresh
+/// name, so nothing is deleted, no second list is read, and the answer keeps this run's own retry: it never
+/// says a machine "was deleted" that never existed.
+#[test]
+fn a_refusal_before_any_machine_reports_no_deletion_and_keeps_its_retry() {
+    let setup = "No Cloud connection serves claude yet (agent_session.harness_missing). Add one in Settings > \
+                 Cloud, then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![signed_in(), refused, signed_in(), signed_in()]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    let message = error["message"].as_str().unwrap();
+    assert!(!message.contains("was deleted"), "{message}");
+    assert!(message.contains("cmux cloud start-chat --prompt TEXT --wait --json"), "{message}");
+    assert!(error["details"]["cleanup"].is_null(), "{error}");
+    let lists = fake.ran.iter().filter(|step| step[1] == "list-machines").count();
+    assert_eq!(lists, 2, "one list before the start, one to prove no machine: {:?}", fake.ran);
+}
+
+/// cmux#47002 review, 2026-11-22: a machine the rollback deleted is not handed to the caller to delete again.
+#[test]
+fn a_rolled_back_machine_is_not_named_for_the_caller_to_delete() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--agent", "codex", "--environment", "env_1"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert!(error["details"]["new_machine"].is_null(), "{error}");
+    assert!(error["details"]["machine_id"].is_null(), "{error}");
+}
