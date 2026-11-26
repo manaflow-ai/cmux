@@ -41,7 +41,7 @@ struct CloudStartKeepsOnePageTests {
         tabs.views[mac] = page
         defer { tabs.views[cloud] = nil; tabs.views[mac] = nil }
 
-        #expect(CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: true, killSwitch: nil))
+        #expect(CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: true, onePane: nil))
         // The Cloud start that ran from this page holds it (AgentPaneHandOff `held`): no start or open goes.
         #expect(page.model.transport.replacements.beginSandbox(replacingOpened: true))
         #expect(!page.model.transport.replacements.sending(method: "session/new", connection: 1))
@@ -62,7 +62,7 @@ struct CloudStartKeepsOnePageTests {
     }
 
     @Test func theKillSwitchSwapsPagesAsBefore() {
-        #expect(!CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: true, killSwitch: "0"))
+        #expect(!CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: true, onePane: "0"))
         #expect(!CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: false, killSwitch: nil))
     }
 
