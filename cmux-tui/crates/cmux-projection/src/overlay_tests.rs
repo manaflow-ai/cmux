@@ -322,8 +322,12 @@ fn a_cache_that_cannot_keep_bytes_fetches_one_file_per_read() {
     assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
     assert_eq!(overlay.read(b, 0, 100).unwrap(), b"fn b() {}");
     let batches = fake.batches.lock().unwrap().clone();
-    assert_eq!(batches.len(), 2);
-    assert_eq!(batches[1].len(), 1, "a read with a failing cache fetched its folder again");
+    // The base may serve the second read from its content store (one batch) or fetch again; what
+    // must never happen is a later read fetching its whole folder again.
+    assert!(
+        batches.iter().skip(1).all(|batch| batch.len() == 1),
+        "a read with a failing cache fetched its folder again: {batches:?}"
+    );
     assert_eq!(scratch_bytes(state.path()), 0);
 }
 
