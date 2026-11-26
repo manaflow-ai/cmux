@@ -13,7 +13,7 @@
 //! comes from its saved health check (`harness-health.json`).
 #![cfg(unix)]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::io::{BufRead as _, BufReader, Write as _};

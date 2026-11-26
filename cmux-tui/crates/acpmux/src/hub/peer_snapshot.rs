@@ -85,6 +85,9 @@ pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 }
 /// one coord-sim fan-in run); at 64 MB that run read none back (cmux#49864). The cost is up to
 /// 48 MB more resident memory, only while that many copies are live.
 const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
+/// Copies a bound evicted whose generation the store remembers, so the read-ahead does not read
+/// such a chat again (`Store::covers`).
+const EVICTED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Sessions and peers removed before the disk reads that are remembered one by one; past it,
@@ -108,6 +111,14 @@ const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 /// Row fields a copy never repeats: a countdown (`retry.nextAt`) from a peer that is not
 /// answering may already have fired.
 const VOLATILE_ROW_FIELDS: &[&str] = &["retry"];
+/// Row fields a copy leaves out, as a census row does (`views::CENSUS_LEAVES_OUT`, a list
+/// without tools): detail no reader of a copy uses (`read.rs`, `session_move_snapshot.rs`), and
+/// most of a row. A fleet host's rows came to 45 KB a copy on average, 134 KB at most, 83 KB of
+/// it `timeBreakdown` and 55 KB `tools` (a developer Mac, 2026-11-23): 74 copies' heads alone filled
+/// 80% of [`KEPT_TOTAL`], so each chat read ahead (`warm.rs`) evicted another, file and all,
+/// and the next round read and wrote it again: about 1,200-1,400 fseventsd events a minute under
+/// `peer-snapshots/`, and 61 copies gone and 44 new in 90 s.
+const LEFT_OUT_ROW_FIELDS: &[&str] = &[views::CENSUS_LEAVES_OUT, "tools", "toolsMutable"];
 /// What every op costs in the queue on top of its records, so empty ones are bounded too.
 const OP_BYTES: u64 = 256;
 /// What every copy costs in memory on top of its records and its head (its key, its retry
@@ -237,7 +248,7 @@ enum Op {
     /// What each copy of a peer covers (`warm.rs`).
     Covers {
         peer: String,
-        reply: mpsc::SyncSender<HashMap<String, (Option<u64>, u64)>>,
+        reply: mpsc::SyncSender<warm::Covers>,
     },
     Flush {
         peer: Option<String>,
@@ -581,6 +592,7 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
 }
 
 fn snapshot_row(mut row: Value) -> Value {
+    trim_row(&mut row);
     if let Some(obj) = row.as_object_mut() {
         for f in VOLATILE_ROW_FIELDS {
             obj.remove(*f);
@@ -588,6 +600,15 @@ fn snapshot_row(mut row: Value) -> Value {
         obj.insert("stale".into(), Value::Bool(true));
     }
     row
+}
+
+/// Leaves [`LEFT_OUT_ROW_FIELDS`] out of a kept row: one taken now, or one an older run wrote.
+fn trim_row(row: &mut Value) {
+    if let Some(obj) = row.as_object_mut() {
+        for f in LEFT_OUT_ROW_FIELDS {
+            obj.remove(*f);
+        }
+    }
 }
 
 /// Whether `record` is of session `key` (its `sessionId`): a page or a file holding another
@@ -645,6 +666,9 @@ struct Kept {
     fresh: BTreeSet<u64>,
     /// The newest link `fresh`'s records came on.
     fresh_link: Option<Link>,
+    /// [`disk::content_hash`] of the file this run last wrote for it: a write with the same
+    /// content (only `capturedAt` moved) leaves the file as it is. None: not written this run.
+    written: Option<u64>,
     /// The `since` the hook last took ([`Written`]); this run's only.
     told_since: u64,
 }
@@ -669,6 +693,7 @@ impl Kept {
             fresh,
             fresh_link: None,
             told_since: 0,
+            written: None,
         }
     }
 }
@@ -718,6 +743,13 @@ struct Store {
     /// Peers whose full list came this run: a session they do not list is not theirs any more.
     full_listed: HashSet<String>,
     barred: HashMap<Key, Option<u64>>,
+    /// Copies a bound evicted ([`Store::trim_kept`], [`Store::evict_disk`]): their generation, at
+    /// most [`EVICTED_KEYS`]. The read-ahead (`warm.rs`) does not read them again, so a chat is
+    /// not read and written again every round only to be evicted again: on the owner's Mac, with
+    /// every agent VM's chats read ahead (#52790), that loop rewrote copies at 14 MB/s for hours
+    /// (137 GB, 2026-11-25) and the Mac beachballed. #55956 read one again once it moved, and a
+    /// fleet's chats all move: the loop went on at 3-4 MB/s.
+    evicted: HashMap<Key, u64>,
     /// Peers removed before the disk was read (or whose ops were lost then): their files go
     /// when it is.
     forgotten: HashSet<String>,
@@ -774,6 +806,7 @@ impl Store {
             listed: HashMap::new(),
             full_listed: HashSet::new(),
             barred: HashMap::new(),
+            evicted: HashMap::new(),
             forgotten: HashSet::new(),
             unread: HashSet::new(),
             unread_all: false,
@@ -849,6 +882,7 @@ impl Store {
                 if !self.listed.get(&key).is_some_and(|l| newer(*l)) {
                     self.listed.remove(&key);
                 }
+                self.evicted.remove(&key);
                 // One that names none over a bar of a generation is that purge told again (the
                 // hub's own purge first, then the peer's notice once the row is gone), so it keeps
                 // the bar: a session recreated since is listed again.
@@ -978,6 +1012,7 @@ impl Store {
             self.remove(&key);
         }
         self.listed.retain(|k, _| k.0 != peer);
+        self.evicted.retain(|k, _| k.0 != peer);
         self.full_listed.remove(&peer);
         self.forget_unread(peer);
     }
@@ -989,6 +1024,7 @@ impl Store {
         }
         self.listed.retain(|k, _| k.0 != peer);
         self.barred.retain(|k, _| k.0 != peer);
+        self.evicted.retain(|k, _| k.0 != peer);
         self.full_listed.remove(peer);
         self.links.remove(peer);
         if self.scanned {
@@ -1395,13 +1431,14 @@ impl Store {
             if unwritten {
                 tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot: unwritten copies past their bound; this one goes");
             }
-            self.remove(&key);
+            self.evict(&key);
         }
     }
 
     /// Starts `key`'s copy (one already there goes), counting what it costs itself.
     fn insert(&mut self, key: Key, copy: Kept) {
         self.discard(&key);
+        self.evicted.remove(&key);
         self.copies.insert(key.clone(), copy);
         self.charge(&key);
     }
@@ -1573,6 +1610,20 @@ impl Store {
         true
     }
 
+    /// Removes `key`'s copy as a bound does ([`Store::remove`]), remembering how far it covered
+    /// ([`Store::evicted`]), within [`EVICTED_KEYS`].
+    fn evict(&mut self, key: &Key) {
+        let covered = self.copies.get(key).and_then(|c| c.head.generation);
+        self.remove(key);
+        let Some(covered) = covered else { return };
+        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
+            if let Some(old) = self.evicted.keys().next().cloned() {
+                self.evicted.remove(&old);
+            }
+        }
+        self.evicted.insert(key.clone(), covered);
+    }
+
     /// Removes `key`'s copy and its file, and, before the disk reads, what an earlier run kept
     /// of it.
     fn remove(&mut self, key: &Key) {
@@ -1659,7 +1710,7 @@ impl Store {
             if unwritten {
                 tracing::warn!(peer = %victim.0, session = %victim.1, "peer snapshot: unwritten copies past the disk bound; this one goes");
             }
-            self.remove(&victim);
+            self.evict(&victim);
         }
         true
     }
@@ -1723,6 +1774,7 @@ impl Store {
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
+        let (hash, last) = (disk::content_hash(&c.head, &bytes), (c.written, c.disk));
         // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
         let head = match bytes.iter().position(|b| *b == b'\n') {
             Some(0) | None => u64::MAX,
@@ -1737,13 +1789,28 @@ impl Store {
         if !self.evict_disk(Some(key), bytes.len() as u64) {
             anyhow::bail!("no room within the peer snapshots' total bound");
         }
-        let written = disk::write(self.write, &self.root, key, &bytes)?;
-        if let Some(path) = disk::path(&self.root, key) {
-            // The write took the place of a file whose removal was refused.
-            self.dead.remove(&path);
-        }
+        // The same content as the file this run wrote, but for its capture time: nothing on
+        // disk is touched (no temporary file, no rename), while that file is still there whole
+        // (a stat, no read; a file gone or cut from under the store is written again).
+        let path = disk::path(&self.root, key);
+        let size = bytes.len() as u64;
+        let same = last == (Some(hash), size)
+            && path.as_deref().is_some_and(|p| {
+                std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file() && m.len() == size)
+            });
+        let written = if same {
+            last.1
+        } else {
+            let written = disk::write(self.write, &self.root, key, &bytes)?;
+            if let Some(path) = path {
+                // The write took the place of a file whose removal was refused.
+                self.dead.remove(&path);
+            }
+            written
+        };
         if let Some(c) = self.copies.get_mut(key) {
             c.disk = written;
+            c.written = Some(hash);
             (c.due, c.retry, c.failures) = (None, None, 0);
         }
         if crate::hub::journal_restore::rules_of_a088() {
@@ -1862,11 +1929,11 @@ impl Hub {
         {
             hook.pause();
         }
-        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
+        // The rows fence, then the registry with no lock (`peer_table.rs`).
+        let _rows = self.remote_sessions.fence();
+        let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
             return;
         };
-        let _rows = self.remote_sessions.fence();
         if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }
@@ -1964,7 +2031,9 @@ impl Hub {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
         // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
-        let leaves_out = params.get("subagent").is_some_and(|v| !v.is_null())
+        // A recap starts at a reader-specific cursor, not at the start of the shared journal.
+        let leaves_out = params.get("sinceSeen") == Some(&Value::Bool(true))
+            || params.get("subagent").is_some_and(|v| !v.is_null())
             || match params.get("kinds") {
                 None | Some(Value::Null) => false,
                 Some(Value::Array(kinds)) => !kinds.iter().any(transcript),

@@ -144,10 +144,35 @@ class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", True, False),
                 ("workflow_dispatch", "refs/heads/feat-cmux-next", True, False)]:
             for hit in ["true", "false", ""]:
-                with self.subTest(event=event, ref=ref, job_succeeded=succeeded, cache_hit=hit):
-                    context = {"github.event_name": event, "github.ref": ref, "job_succeeded": succeeded,
-                               "steps.build_cache.outputs.cache-hit": hit}
-                    self.assertIs(WithJobStatus(condition, context).evaluate(), expected and hit != "true")
+                # A run whose failures went to the Mac fallback (steps.handoff) passed only by handing them off;
+                # a run whose suites ran as fleet requests (steps.fleet-suites) built nothing here to save.
+                for handed in ["", "1"]:
+                    for fleet in ["", "success", "failure"]:
+                        with self.subTest(event=event, ref=ref, job_succeeded=succeeded, cache_hit=hit, handed=handed,
+                                          fleet=fleet):
+                            context = {"github.event_name": event, "github.ref": ref, "job_succeeded": succeeded,
+                                       "steps.build_cache.outputs.cache-hit": hit, "steps.handoff.outputs.handed": handed,
+                                       "steps.fleet-suites.outcome": fleet}
+                            self.assertIs(WithJobStatus(condition, context).evaluate(),
+                                          expected and hit != "true" and handed != "1" and fleet != "success")
+
+    def test_our_listed_suites_are_one_linux_then_mac_fleet_request_each(self):
+        steps = self.steps()
+        fetch = next(s for s in steps if s.get("id") == "fleet")
+        fleet = next(s for s in steps if s.get("id") == "fleet-suites")
+        local = next(s for s in steps if s.get("name") == "package-test-lane.sh suite, every listed package")
+        # Only our own runs (MAC_FALLBACK) ask the fleet; a fetch that fails keeps the run on this container.
+        self.assertIn("env.MAC_FALLBACK == '1'", fetch["if"])
+        self.assertTrue(fetch.get("continue-on-error"))
+        self.assertIn("--kinds", fetch["run"])
+        self.assertIn("steps.fleet.outputs.client != ''", fleet["if"])
+        self.assertIn("steps.fleet.outputs.client == ''", local["if"])
+        for needed in ("--kinds linux,mac", "--spill-after", "scripts/ci/package-test-lane.sh", "--arg=suite",
+                       "scripts/ci/swift-linux-packages.txt", 'exit "$status"'):
+            self.assertIn(needed, fleet["run"])
+        # The controller owns this path's Mac fallback: nothing from it goes to the handoff.
+        self.assertNotIn("linux-failed.tsv", fleet["run"])
+        self.assertIn("linux-failed.tsv", local["run"])
 
     def test_push_runs_are_not_cancelled_before_they_seed(self):
         cancel = load_yaml(self.LISTED)["concurrency"]["cancel-in-progress"]
@@ -159,7 +184,7 @@ class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
 
 
 class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
-    def run_packages(self, packages, test_filter="", timed_out=""):
+    def run_packages(self, packages, test_filter="", timed_out="", mac_fallback=""):
         job = load_yaml(WORKFLOW)["jobs"][JOB]
         step = next(s for s in job["steps"] if s.get("name") == "Build and test")
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,9 +208,12 @@ class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
             calls, summary = root / "calls", root / "summary"
             env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                    "PACKAGES": " ".join(packages), "TEST_FILTER": test_filter,
-                   "TIMED_OUT": timed_out, "CALLS": str(calls), "GITHUB_STEP_SUMMARY": str(summary)}
+                   "TIMED_OUT": timed_out, "CALLS": str(calls), "GITHUB_STEP_SUMMARY": str(summary),
+                   "RUNNER_TEMP": str(root), "MAC_FALLBACK": mac_fallback}
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]],
                                     cwd=root, env=env, text=True, capture_output=True, timeout=10)
+            handed = (root / "linux-failed.tsv").read_text() if (root / "linux-failed.tsv").exists() else ""
+            self.handed = handed
             return result, [json.loads(line) for line in calls.read_text().splitlines()], summary.read_text()
 
     def test_sdk_matrix_runs_only_the_credential_free_fixture_suites(self):
@@ -207,6 +235,27 @@ class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
         self.assertIn("::error title=Packages/Slow::tests failed or timed out", result.stdout)
         self.assertIn("| `Packages/Healthy` | pass |", summary)
         self.assertTrue(any(call[0] == "test" and "Packages/Healthy" in call for call in calls))
+        self.assertEqual(self.handed, "whole\tPackages/Slow\t\n")
+
+    def test_a_failure_goes_to_the_mac_fallback_on_our_runs(self):
+        result, _, summary = self.run_packages(["Packages/Slow", "Packages/Healthy"], test_filter="Fresh",
+                                               timed_out="Packages/Slow", mac_fallback="1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("::error title=Packages/Slow::tests failed or timed out", result.stdout)
+        self.assertEqual(self.handed, "whole\tPackages/Slow\tFresh\n")
+
+    def test_the_mac_fallback_reruns_only_what_linux_handed_and_logs_it(self):
+        jobs = load_yaml(WORKFLOW)["jobs"]
+        plan, mac = jobs["fallback-plan"], jobs["mac-fallback"]
+        self.assertEqual(plan["needs"], JOB)
+        self.assertIn("needs.fallback-plan.outputs.needed == '1'", mac["if"])
+        self.assertIn("macos_15", mac["runs-on"])
+        handoff = next(s for s in jobs[JOB]["steps"] if s.get("id") == "handoff")
+        self.assertIn("env.MAC_FALLBACK == '1'", handoff["if"])
+        self.assertIn("::warning title=linux-fallback::", handoff["run"])
+        rerun = next(s for s in mac["steps"] if s.get("name") == "Rerun the Linux failures on the Mac")
+        self.assertIn("::warning title=linux-fallback::", rerun["run"])
+        self.assertIn('exit "$status"', rerun["run"])
 
 
 if __name__ == "__main__":

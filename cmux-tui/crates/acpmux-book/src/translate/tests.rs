@@ -853,6 +853,22 @@ fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     assert!(state.turn.is_some_and(|id| id > before.last_id));
 }
 
+/// The hub names the subagent a `SendMessage` goes to (`_meta.acpmux.recipient`); its tool row
+/// carries the name, so a page whose window starts after the Agent call still reads "Sent to
+/// <name>", never a raw agent id (Leo, 2026-11-22).
+#[test]
+fn a_send_message_row_carries_its_recipient() {
+    let line = r#"{"seq":1,"at":1000,"dir":"in","kind":"session/update","msg":{"method":"session/update","params":{"_meta":{"acpmux":{"recipient":"Watch the cmux-ci run"}},"update":{"sessionUpdate":"tool_call","toolCallId":"t","status":"pending","title":"SendMessage","_meta":{"claude":{"tool":"SendMessage"}},"rawInput":{"to":"a6c31b7ee45d67550","message":"Queued"}}}}}"#;
+    let mut state = State::default();
+    let ops = t(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let recipient = ops.iter().find_map(|op| match &op.change {
+        Change::Row(row) | Change::Patch(row) => row.fields.get("recipient").cloned(),
+        _ => None,
+    });
+    // A row field holds its JSON value, as the body the page reads gets it.
+    assert_eq!(recipient.as_deref(), Some(r#""Watch the cmux-ci run""#));
+}
+
 #[test]
 fn long_metadata_is_cut_without_a_late_line_error() {
     let long = "x".repeat(64 * 1024);
@@ -1735,7 +1751,7 @@ fn a_claude_image_row_names_its_size_from_its_header() {
                 Change::Row(row) if row.kind == RowKind::Image && !row.open => Some(row),
                 _ => None,
             })
-            .last()
+            .next_back()
             .expect("a settled image row")
     };
     // A real 1x1 PNG.
@@ -1749,6 +1765,6 @@ fn a_claude_image_row_names_its_size_from_its_header() {
     assert_eq!(one.head(), r#"{"h":1,"w":1}"#);
     // A header acpmux does not read names no size, and the row is as before.
     let unknown = image("AAAA");
-    assert!(unknown.fields.get("w").is_none() && unknown.fields.get("h").is_none());
+    assert!(!unknown.fields.contains_key("w") && !unknown.fields.contains_key("h"));
     assert_eq!(unknown.head(), "{}");
 }

@@ -15,7 +15,10 @@ nonisolated extension SidebarLayout {
     ///   - insertion: The set that added the row (its section as the set left it, and the row's node index).
     ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with; the layout was made with the same ones.
-    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
+    ///   - pending: Later nodes of the section a batch (`SidebarLooseEdits`) splices in after this one, in node order: no
+    ///     row has them yet, so the row goes before the first later node that has one.
+    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions,
+                              pending: Set<Int> = []) -> Bool {
         let section = insertion.section, k = insertion.node
         guard let ws = insertion.workspace, o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil,
               o.excludedItem == nil, !o.excludedWorkspaces.contains(ws.id), !o.grouping.isGrouped, !o.hidesWorkspaces,
@@ -27,15 +30,16 @@ nonisolated extension SidebarLayout {
         // or a group drawn as its one member) and drawn in node order (not behind a "Done" or "Archived" row).
         let nodes = section.nodes
         var at: Int?, y: CGFloat = 0, sibling = 0
-        if k + 1 < nodes.count, !Self.folds(nodes[k + 1], o), let next = position(of: Self.rowKey(nodes[k + 1])),
+        var after = k + 1
+        while pending.contains(after) { after += 1 }
+        if after < nodes.count, !Self.folds(nodes[after], o), let next = position(of: Self.rowKey(nodes[after])),
            Self.isOwnTopRow(rows[next], in: section) {
             (at, y, sibling) = (next, rows[next].y, rows[next].siblingIndex)
         } else if k > 0, !Self.folds(nodes[k - 1], o), Self.isLoose(nodes[k - 1]), let previous = position(of: Self.rowKey(nodes[k - 1])),
                   Self.isOwnTopRow(rows[previous], in: section) {
             (at, y, sibling) = (previous + 1, rows[previous].maxY + rowSpacing, rows[previous].siblingIndex + 1)
         }
-        // An anchor under "Archive (N)" is an archived group's row there (`appendArchive`), not its node's place.
-        guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
+        guard let at else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
         let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))

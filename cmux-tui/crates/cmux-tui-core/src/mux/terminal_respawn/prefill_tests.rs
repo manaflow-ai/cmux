@@ -22,7 +22,11 @@ fn known_harnesses_resume_valid_sessions_only() {
 
 #[test]
 fn a_muse_resume_starts_the_cli_with_its_flags() {
-    let launch = AgentLaunch { args: strings(&["--model", "muse-wonder-1.0"]), env: vec![] };
+    let launch = AgentLaunch {
+        args: strings(&["--model", "muse-wonder-1.0"]),
+        env: vec![],
+        wrapper: vec![],
+    };
     assert_eq!(
         resume_command("muse", "s1", Some(&launch)).as_deref(),
         Some("muse resume s1 --model muse-wonder-1.0")
@@ -34,6 +38,7 @@ fn a_resume_starts_the_cli_with_its_flags_and_account() {
     let launch = |args: &[&str], env: &[(&str, &str)]| AgentLaunch {
         args: strings(args),
         env: env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect(),
+        wrapper: vec![],
     };
     let claude = launch(
         &["--dangerously-skip-permissions", "--model", "claude-sonnet-5-5"],
@@ -53,55 +58,42 @@ fn a_resume_starts_the_cli_with_its_flags_and_account() {
     );
 }
 
-/// #22292: a respawn never starts an agent with its approvals off by itself.
+/// https://github.com/manaflow-ai/cmux/issues/55601: an `sr2 claude` terminal
+/// resumes through `sr2`, with its flags, and runs by itself, approvals off
+/// included: the person started it that way.
 #[test]
-fn flags_that_turn_approvals_off_are_known() {
-    for flags in [
-        &["--dangerously-skip-permissions"][..],
-        &["--model", "opus", "--permission-mode", "bypassPermissions"],
-        &["--permission-mode=bypassPermissions"],
-        &["--settings", "yolo.json"],
-        &["--agent=reviewer"],
-    ] {
-        assert!(turns_approvals_off("claude", &strings(flags)), "{flags:?}");
-    }
-    for flags in [&["--model", "opus"][..], &["--permission-mode", "acceptEdits"], &[]] {
-        assert!(!turns_approvals_off("claude", &strings(flags)), "{flags:?}");
-    }
-    for flags in [
-        &["--yolo"][..],
-        &["--dangerously-bypass-approvals-and-sandbox"],
-        &["-s", "danger-full-access"],
-        &["--sandbox=danger-full-access"],
-        &["-a", "never"],
-        &["-p", "work"],
-        &["-pwork"],
-        &["-sdanger-full-access"],
-        &["-anever"],
-        &["--profile=work"],
-    ] {
-        assert!(turns_approvals_off("codex", &strings(flags)), "{flags:?}");
-    }
-    for flags in
-        [&["-m", "gpt-5.5"][..], &["--full-auto"], &["-a", "on-request"], &["-aon-request"]]
-    {
-        assert!(!turns_approvals_off("codex", &strings(flags)), "{flags:?}");
-    }
-    for flags in [
-        &["--yolo"][..],
-        &["--disable-approval"],
-        &["--disable-sandbox"],
-        &["--approval-mode", "never"],
-        &["--approval-mode=never"],
-        &["--permission-profile", "open"],
-        &["--preset", "empty"],
-        &["-c", "approval.mode=\"never\""],
-    ] {
-        assert!(turns_approvals_off("muse", &strings(flags)), "{flags:?}");
-    }
-    for flags in [&["--model", "muse-wonder-1.0"][..], &["--approval-mode", "on-request"], &[]] {
-        assert!(!turns_approvals_off("muse", &strings(flags)), "{flags:?}");
-    }
+fn a_wrapped_agent_resumes_through_its_launcher_and_runs() {
+    let launch = AgentLaunch {
+        args: strings(&["--dangerously-skip-permissions"]),
+        env: vec![],
+        wrapper: strings(&["sr2"]),
+    };
+    assert_eq!(
+        resume_command("claude", "abc-123", Some(&launch)).as_deref(),
+        Some("sr2 claude --resume abc-123 --dangerously-skip-permissions")
+    );
+    let codex = AgentLaunch { args: strings(&["--yolo"]), env: vec![], wrapper: strings(&["sr2"]) };
+    assert_eq!(
+        resume_command("codex", "s1", Some(&codex)).as_deref(),
+        Some("sr2 codex resume s1 --yolo")
+    );
+    let record = StoredRelaunch {
+        cwd: None,
+        kind: RelaunchKind::Shell,
+        shell_path: Some("/bin/zsh".into()),
+        program: None,
+        argv: None,
+        env: vec![],
+        agent: Some(("claude".into(), "abc-123".into())),
+        agent_launch: Some(launch),
+    };
+    let prefill = agent_prefill(&record, true).expect("a known agent resumes");
+    assert!(prefill.run, "it runs, with no Return to type");
+    assert_eq!(
+        prefill.input(&mut screen(PROMPT), true).as_deref(),
+        Some("sr2 claude --resume abc-123 --dangerously-skip-permissions\r")
+    );
+    assert_eq!(agent_prefill(&record, false), None, "Resume Agents After Restart off");
 }
 
 /// A 60-column screen that received `bytes`.
@@ -134,15 +126,6 @@ fn a_resume_runs_only_at_an_empty_marked_prompt_of_the_shell_itself() {
 
 #[test]
 fn what_does_not_run_by_itself_is_typed_without_return() {
-    let bypass = Prefill {
-        kind: Prefilled::Harness,
-        text: "claude --resume a --dangerously-skip-permissions".into(),
-        run: false,
-    };
-    assert_eq!(
-        bypass.input(&mut screen(PROMPT), true).as_deref(),
-        Some("claude --resume a --dangerously-skip-permissions")
-    );
     let resume = Prefill { kind: Prefilled::Resume, text: "npm run dev".into(), run: false };
     assert_eq!(
         resume.input(&mut screen(PROMPT), true).as_deref(),

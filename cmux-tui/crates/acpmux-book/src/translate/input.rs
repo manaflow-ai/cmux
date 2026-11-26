@@ -129,6 +129,9 @@ pub(super) struct Acpmux<'a> {
     pub subagent: Option<&'a RawValue>,
     #[serde(borrow)]
     pub segment: Cow<'a, str>,
+    /// The name of the subagent a `SendMessage` call names (acpmux subagents.rs `recipient`).
+    #[serde(borrow)]
+    pub recipient: Cow<'a, str>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]

@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 /// Reads this Mac's numbers the way the host budget does: the performance
@@ -55,6 +59,7 @@ public struct HostSampler: Sendable {
 
     /// Bytes swapped out since boot (vm_stat's Swapouts, in bytes).
     public func swappedOutBytes() -> UInt64? {
+        #if canImport(Darwin)
         var stats = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &stats) { pointer in
@@ -64,8 +69,13 @@ public struct HostSampler: Sendable {
         }
         guard result == KERN_SUCCESS else { return nil }
         return stats.swapouts &* UInt64(getpagesize())
+        #else
+        // No mach host statistics: no swap rate, as on a first sample.
+        return nil
+        #endif
     }
 
+    #if canImport(Darwin)
     /// One send right for the process's life: each `mach_host_self()` adds a
     /// user reference that is never released.
     private static let hostPort = mach_host_self()
@@ -83,6 +93,18 @@ public struct HostSampler: Sendable {
         guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
         return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
+    #else
+    /// No sysctlbyname here: every Mac-named read is unreadable, so the sampler
+    /// counts logical cores and reports no RAM fraction.
+    private static func sysctlInt32(_ name: String) -> Int32? { nil }
+
+    private static func sysctlString(_ name: String) -> String? {
+        guard name == "kern.hostname" else { return nil }
+        var bytes = [CChar](repeating: 0, count: 256)
+        guard gethostname(&bytes, bytes.count) == 0 else { return nil }
+        return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+    #endif
 }
 
 /// The swap-out rate between two reads of the counter.

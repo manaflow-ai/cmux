@@ -227,8 +227,14 @@ pub fn call<D: Daemon>(caller: &Caller<D>, params: &Value) -> Value {
     }
     let name = params["name"].as_str().unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-    // A locked Mac answers as one typed state, not a generic tool error ([`super::locked`]).
-    super::locked::to_mcp(caller.call(name, &arguments, &super::client::new_call_id()))
+    let machine =
+        arguments.get("machine").and_then(Value::as_str).map(str::trim).map(str::to_owned);
+    // A locked Mac answers as one typed state, not a generic tool error ([`super::locked`]), and
+    // names the person's machines that can take the call instead (read only when it was locked).
+    let outcome = caller.call(name, &arguments, &super::client::new_call_id());
+    super::locked::to_mcp_routed(outcome, || {
+        caller.routable_machines(machine.as_deref().filter(|m| !m.is_empty()))
+    })
 }
 
 #[cfg(test)]

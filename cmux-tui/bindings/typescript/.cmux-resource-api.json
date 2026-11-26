@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2a0000fa7213b10d5408bf9e6f9c061a6ad97e832dc33868bb30a9e0954ee39a",
+  "catalog_sha256": "3bf344fbe42f6640b98797fc94186f17e6070d25bf7e7655a7d9e6f44087b185",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -377,6 +377,9 @@
       "class": "mutation"
     },
     "diff.comments.send": {
+      "class": "mutation"
+    },
+    "diff.comments.thread": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -790,6 +793,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -797,6 +803,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -807,6 +819,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
@@ -1040,6 +1055,9 @@
       "class": "read"
     },
     "theme.scheme.from_image": {
+      "class": "read"
+    },
+    "theme.slots.resolve": {
       "class": "read"
     },
     "window_record.delete": {

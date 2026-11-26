@@ -134,6 +134,7 @@ export function adaptRow(
         {
           ...head,
           kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
           items: [{ kind: "thought", text: String(body.text ?? "") }],
           streaming: row.open,
         },
@@ -151,6 +152,7 @@ export function adaptRow(
           ...head,
           at: body.activityAt ?? head.at,
           kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
           toolCount: 1,
           items: [item],
           streaming: row.open,
