@@ -187,9 +187,9 @@ class ChecksJobStructure(unittest.TestCase):
         for step in checks:
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
-        verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
-        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
-        verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
+        # The verdict is executed from the commit blob, so a prior step cannot rewrite the checkout copy.
+        self.assertIn('cat-file blob "$GITHUB_SHA:scripts/ci/cmux_next_checks_verdict.sh"', aggregate["run"])
+        verdict = (ROOT / "scripts/ci/cmux_next_checks_verdict.sh").read_text(encoding="utf-8")
         self.assertIn("GITHUB_STEP_SUMMARY", verdict)
         self.assertIn("exit 1", verdict)
 
@@ -198,7 +198,8 @@ class ChecksJobStructure(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as summary:
             return subprocess.run(
                 ["bash", "-c", aggregate["run"]],
-                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name},
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name, "GITHUB_SHA": "HEAD"},
+                cwd=ROOT,
                 capture_output=True,
                 text=True,
             )
@@ -377,6 +378,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
         shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        shutil.copy(ROOT / "scripts/ci/cmux_next_checks_verdict.sh", self.repo / "scripts/ci/cmux_next_checks_verdict.sh")
         crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
         (crate / "src").mkdir(parents=True)
         (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
@@ -495,6 +497,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         planted.write_text("echo planted; exit 0\n")
         summary = self.tmp / "summary"
         env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   GITHUB_SHA=self.merge,
                    OUTCOMES="failure|Check the app FFI pin\n")
         result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
                                 text=True, timeout=60)
