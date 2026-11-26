@@ -29,7 +29,7 @@ import PackageDescription
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextAgentPane -> CmuxNextAgentPanePlacement (pure right-column placement, no dependency; re-exported)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
-//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
+//   CmuxNextSettings -> Design, Actions, CCmuxAppFFI (cmux.json load/watch/apply, SettingsSchema; the reads in Rust)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
@@ -2758,7 +2758,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettings",
+            // CCmuxAppFFI: cmux-next.json's reads in Rust (cmux-config's app_ops, module
+            // CCmuxSettingsFFI, SettingsRust).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
