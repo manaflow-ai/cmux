@@ -124,16 +124,20 @@ pub fn free_emulator_port<'a>(serials: impl IntoIterator<Item = &'a str>) -> Opt
     (5554..=5682).step_by(2).find(|port| !taken.contains(&i64::from(*port)))
 }
 
-/// A phone's hardware button.
+/// A phone's hardware button. Swift's `PhoneButton` raw values ("volume-up")
+/// read too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PhoneButton {
     Home,
     Lock,
+    #[serde(alias = "volume-up")]
     VolumeUp,
+    #[serde(alias = "volume-down")]
     VolumeDown,
     Siri,
     Back,
+    #[serde(alias = "app-switch")]
     AppSwitch,
 }
 

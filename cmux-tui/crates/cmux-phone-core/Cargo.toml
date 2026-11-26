@@ -12,5 +12,6 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
+# float_roundtrip: a tap point or screen size from Swift reads as the very `f64` sent.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 unicode-segmentation.workspace = true

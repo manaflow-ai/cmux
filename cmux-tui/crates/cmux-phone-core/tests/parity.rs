@@ -184,12 +184,13 @@ fn typed_text_is_quoted_for_the_device_shell() {
 
 #[test]
 fn buttons_are_key_events() {
-    let keys: Vec<String> = ["home", "back", "lock", "volumeUp", "appSwitch"]
-        .iter()
-        .map(|button| {
-            calls(json!({"kind": "button", "button": button}), true)[0].last().unwrap().clone()
-        })
-        .collect();
+    let keys: Vec<String> =
+        ["home", "back", "lock", "volumeUp", "appSwitch", "volume-down", "app-switch"]
+            .iter()
+            .map(|button| {
+                calls(json!({"kind": "button", "button": button}), true)[0].last().unwrap().clone()
+            })
+            .collect();
     assert_eq!(
         keys,
         [
@@ -197,6 +198,8 @@ fn buttons_are_key_events() {
             "KEYCODE_BACK",
             "KEYCODE_POWER",
             "KEYCODE_VOLUME_UP",
+            "KEYCODE_APP_SWITCH",
+            "KEYCODE_VOLUME_DOWN",
             "KEYCODE_APP_SWITCH"
         ]
     );
