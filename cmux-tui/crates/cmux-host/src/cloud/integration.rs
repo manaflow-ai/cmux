@@ -32,6 +32,7 @@ fn valid_atom(value: &str, max: usize) -> bool {
 
 fn valid_provider(value: &str) -> bool {
     !value.is_empty()
+        && !matches!(value, "." | "..")
         && value.len() <= MAX_PROVIDER
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
 }
