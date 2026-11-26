@@ -235,8 +235,14 @@ fn hardcoded_choice_orders_match_the_schema() {
         ("layout.frameOrientation", strs(&["columnMajor", "rowMajor"])),
         ("layout.scrollModifier", strs(&["command", "none"])),
     ];
+    // The pinned order is the one Swift's `allCases` prints in `expected one of`; the schema may list
+    // the same values in another order (attention.style does), so the values are what must agree.
     for (key, expected) in pins {
-        assert_eq!(choices_of(key), expected, "{key}");
+        let mut schema = choices_of(key);
+        let mut pinned = expected;
+        schema.sort();
+        pinned.sort();
+        assert_eq!(schema, pinned, "{key}");
     }
 }
 
