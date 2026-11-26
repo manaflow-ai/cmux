@@ -186,7 +186,6 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
         "progress",
         "subagents",
         "tasks",
-        "alsoHere",
         "outputs",
       ])
         state.setSessionInfoSection(id, true);
