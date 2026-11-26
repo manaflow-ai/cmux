@@ -170,10 +170,11 @@ impl Source {
 const ACPMUX_PANIC_LOG: &str = "panics.jsonl";
 
 /// The acpmux daemon's panic log: in the home `cmux acp` uses (`ACPMUX_HOME`, else this build's
-/// home, else `~/.acpmux`), else acpmux's own default.
+/// home), else acpmux's own default (`~/.acpmux`). Read without `cmux acp`'s one-time adoption
+/// of a pre-isolation home, so forwarding moves nothing.
 pub(super) fn acpmux_panic_log() -> PathBuf {
     #[cfg(unix)]
-    if let Some(home) = crate::acp::daemon_acpmux_home() {
+    if let Some(home) = crate::acp::key_lock_home() {
         return home.join(ACPMUX_PANIC_LOG);
     }
     acpmux::config::panic_log_path()
