@@ -3,7 +3,7 @@
 // thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
-import { memo, useContext, useState, type ReactElement, type ReactNode } from "react";
+import { memo, useContext, useState, type ReactNode, type ReactElement } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
 import { MessageAttachments } from "./AttachmentViews";
@@ -73,7 +73,8 @@ export const MessageRow = memo(function MessageRow({
   onDiscard,
 }: MessageRowProps) {
   const { t, format } = strings;
-  const transcript = useContext(RunsContext)?.presentation === "transcript";
+  const detail = useContext(RunsContext)?.detail;
+  const transcript = detail !== undefined && detail !== "messages";
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -139,6 +140,7 @@ export const MessageRow = memo(function MessageRow({
         {pending === "failed" && (
           <p className="lg-pending failed" role="alert">
             <span>{t("pending.failed")}</span>
+            {/* retry-prompt-ok: re-sends the person's failed message (same idempotency key) */}
             <button type="button" className="lg-link-button" onClick={onRetry}>
               {t("pending.retry")}
             </button>

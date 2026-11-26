@@ -8,6 +8,10 @@ public struct CloudMoveStrings {
     public static var moving: String {
         String(localized: "cloud.move.moving", defaultValue: "Moving this chat to Cloud…", table: "Cloud", bundle: .localizedModule)
     }
+    /// A moving chat's sidebar row before the move's first step line (``ChatMoves``).
+    public static var movingRow: String {
+        String(localized: "cloud.move.movingRow", defaultValue: "Moving…", table: "Cloud", bundle: .localizedModule)
+    }
     public static func moved(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .localizedModule), machine)
     }

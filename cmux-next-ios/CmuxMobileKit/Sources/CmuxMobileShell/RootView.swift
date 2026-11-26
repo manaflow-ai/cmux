@@ -100,6 +100,8 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
     @State private var machineInvite: MachineInvite?
+    /// A chat share page the phone opened (`ChatShareOpener`), in a Safari view signed in as this account.
+    @State private var chatSharePage: ChatShareOpener.Page?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
     /// App Store plans (Settings → Plan), built once for the process so its
@@ -327,6 +329,9 @@ public struct RootView: View {
                 MachineInviteSheet(invite: invite) { machineInvite = nil }
             }
         }
+        .sheet(item: $chatSharePage) { page in
+            ChatShareSafariView(url: page.url).ignoresSafeArea()
+        }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
@@ -348,6 +353,12 @@ public struct RootView: View {
             machineInvite = invite
         case .link(let link):
             NotificationRouter.shared.open(link: link)
+        case .chatShare(let share):
+            log.info("opening a chat share \(share.page.rawValue, privacy: .public) link")
+            Task { @MainActor in
+                let token = auth.isSignedIn && !auth.isMock ? try? await auth.accessToken() : nil
+                chatSharePage = await ChatShareOpener.page(for: share, token: token)
+            }
         }
     }
 

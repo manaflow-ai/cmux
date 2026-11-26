@@ -286,7 +286,7 @@ import Testing
         let opened = Opened()
         let inApp = Opened()
         let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { _ in false },
-                                          openSignInPage: { url in inApp.urls.append(url); return {} })
+                                          openSignInPage: { url, _ in inApp.urls.append(url); return {} })
         let models = make(daemon: daemon, opened: opened, harnesses: harnesses)
         _ = try await models.run(["action": "connectChatGPT"], context: click)
         #expect(inApp.urls.map(\.host) == ["auth.openai.com"])
