@@ -50,6 +50,9 @@
 # swiftpm_purge_build_outputs SCRATCH
 #   Removes every build output in SCRATCH (keeps checkouts, repositories,
 #   artifacts and the resolution state). Also the backstop of the suite build.
+#   It keeps app-ffi-linux too: CmuxNext's Linux libcmux_app_ffi.a and its
+#   cargo state (scripts/ci/app_ffi_linux.py), which cargo keeps current and
+#   the lane builds before any purge here.
 #
 # swiftpm_stale_module_failure LOG
 #   Exit 0 when LOG has a stale explicit-module failure
@@ -116,9 +119,11 @@ swiftpm_binary_module_digest() {
 # A resolve's output (FILE) shows a network fetch failure: git, curl or a release download lost the connection
 # or got a server error (5xx), not the commit's own manifest, pins, a 404 or a checksum mismatch (those are the
 # commit's defects and stay a red). Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a
-# partial file".
+# partial file". GitHub's 403 and 429 are its refusal of the worker's address (a rate limit or block), not of the
+# commit: step 0787f5e4 (ultra2, 2026-11-26) got 403 on every github.com fetch, public swift-crypto and release
+# zips alike, and its kit suite went red (exit 1) with no test run; it is a fetch failure (75, rerun elsewhere).
 swiftpm__network_fetch_failure() {
-  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: 5[0-9][0-9]|badResponseStatusCode[(]5[0-9][0-9]|The network connection was lost|The request timed out' "$1"
+  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: (5[0-9][0-9]|403|429)|badResponseStatusCode[(](5[0-9][0-9]|403|429)|The network connection was lost|The request timed out' "$1"
 }
 
 # `swift package resolve` of PKGDIR (ARGS go after --package-path), its output in the step log. A failure on
@@ -188,10 +193,14 @@ github_git_auth_env() {
   export GIT_CONFIG_COUNT=$((n + 1))
 }
 
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source "$(dirname "${BASH_SOURCE[0]}")/github-egress-direct.sh"
+
 swiftpm_resolve_package() {
   local pkgdir="$1" log delays tries try=1 delay code
   shift
   github_git_auth_env
+  github_egress_probe
   swiftpm_seed_binary_artifacts "$pkgdir" "$@"
   read -r -a delays <<< "${CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS-5 20}"
   tries=$((${#delays[@]} + 1))
@@ -205,6 +214,10 @@ swiftpm_resolve_package() {
     fi
     echo "ci-phase swift package resolve failed in $pkgdir (try $try of $tries, exit $code); its last lines:"
     tail -n 20 "$log" | sed 's/^/  | /' || true
+    # A dead or half-dead github.com proxy: once more at once, direct (github-egress-direct.sh).
+    if github_egress_retry_direct "$log"; then
+      continue
+    fi
     if ! swiftpm__network_fetch_failure "$log" && ! swiftpm__github_refused "$log"; then
       rm -f "$log"
       return 1
@@ -277,6 +290,7 @@ xcode_binary_module_guard() {
   resolve_log="$(mktemp)"
   xcode_binary_module_guard_offline=0
   github_git_auth_env
+  github_egress_probe
   # Kept packages first, with no fetch: a plain resolve asks github.com for
   # updates of every cached package repository, anonymously, from the fleet's
   # shared address. On 2026-11-26 00:00-08:00Z GitHub answered those with 403
@@ -304,6 +318,9 @@ xcode_binary_module_guard() {
       (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
         -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1) || resolved=1
       [ "$resolved" -ne 0 ] || break
+      if github_egress_retry_direct "$resolve_log"; then
+        continue
+      fi
       if ! swiftpm__network_fetch_failure "$resolve_log" && ! swiftpm__github_refused "$resolve_log"; then
         break
       fi
@@ -380,7 +397,7 @@ swiftpm_purge_build_outputs() {
   for entry in "$scratch"/* "$scratch"/.[!.]*; do
     [ -e "$entry" ] || continue
     case "${entry##*/}" in
-      artifacts|checkouts|repositories|workspace-state.json|Package.resolved) ;;
+      artifacts|checkouts|repositories|workspace-state.json|Package.resolved|app-ffi-linux) ;;
       *) rm -rf -- "$entry" ;;
     esac
   done

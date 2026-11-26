@@ -37,6 +37,8 @@ on:
       - web/services/vms/drivers/linuxRelease.ts
       - web/services/vms/drivers/types.ts
       - web/services/vms/clientGrant.ts
+      - web/services/vms/identity.ts
+      - web/services/vms/workUser.ts
       - web/services/vms/guest*.ts
       - web/services/vms/guestCliDistribution.json
       - web/services/vms/networkPolicy.ts
@@ -47,6 +49,8 @@ on:
       - web/scripts/devbox-image-common.ts
       - web/scripts/cmux-vm-image/machine-health.ts
       - web/scripts/cmux-vm-image/dns.ts
+      - web/scripts/cmux-vm-image/machine-commands.ts
+      - web/scripts/cmux-vm-image/metadata-guard.ts
       - images/cmux-vm/machine-health/**
       - "!web/services/vms/images/**/*.md"
       - web/scripts/devbox-rebake.ts
@@ -116,6 +120,13 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Every later gh call waits out an installation rate limit instead of
+      # failing the job: run 45834104567 (11-26) planned needed=true, then died
+      # on the open-PR lookup's "API rate limit exceeded" before baking, and a
+      # push run is not rerun by lanes, so the bake waited for the next input push.
+      - name: Make gh wait out a rate limit
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/gh_budget_wait.sh" --install
 
       # Read-only, for the open-PR lookup; the job's own token stays contents: read.
       - name: Mint the lookup token

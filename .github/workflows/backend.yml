@@ -32,6 +32,8 @@ on:
       # The production link keyset mint (test-node/link-keyset-mint.test.ts).
       - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
+      # The api-workerd shards' input-tree key (a green result is reused only for the same key).
+      - scripts/ci/paths_tree_key.py
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
       # The journey's login copy (read from the Mac's installer) and its model stub.
@@ -59,6 +61,8 @@ on:
       # The production link keyset mint (test-node/link-keyset-mint.test.ts).
       - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
+      # The api-workerd shards' input-tree key (a green result is reused only for the same key).
+      - scripts/ci/paths_tree_key.py
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
       # The journey's login copy (read from the Mac's installer) and its model stub.
@@ -89,11 +93,17 @@ permissions:
 # never started a job, so prod-promote.ts's G1 reads it as no evidence (no deploy-staging), never a red deploy.
 # The `-push` key keeps a dispatch (staging, promote, rollback) out of the pushes' group.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
+# Retain pending jobs: a slower older test run must not replace a newer pending deployment.
+# A pull request's opened, synchronize and reopened runs share one group (`run`; `closed` keeps its own, so the
+# preview cleanup always runs), and a newer head cancels the run of the head it replaced: a superseded head's
+# shards measured 644 runner-min a day still running after the next push (11-23T22..11-24T22), and its pending
+# successor waited for them. Not while the preview broker is on: its jobs write the shared development branch and
+# the PR's preview, and a cancel must not cut one short. Pushes keep the shared `-push` group above (never cancelled).
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && (github.event.action == 'closed' && 'closed' || 'run') || github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
-  # every superseded head); a started push run on a base branch finishes (a cancelled deploy-staging is a red deploy).
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # every superseded head); pushes to the base branches each finish. A label that runs nothing gets its own group.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED != '1' }}
 
 env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
@@ -143,9 +153,53 @@ jobs:
           echo "API Worker suite needed: $run"
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
+  # ci500k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request whose API Worker
+  # test inputs (scripts/ci/api_workerd_key.py) match a head whose twelve shards already passed has nothing new to
+  # prove: the shards skip, and `test` still runs and passes (its last step accepts a skipped shard only on a hit).
+  # Only on a pull_request without the full-ci label: a push, a dispatch and every deploy always run the shards.
+  api-workerd-scope:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.reuse.outputs.hit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/api_workerd_key.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Hash the API Worker test inputs
+        id: key
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: echo "key=$(python3 scripts/ci/api_workerd_key.py)" >> "$GITHUB_OUTPUT"
+      - name: Look up a green marker for these inputs
+        id: green
+        if: ${{ steps.key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Decide whether the shards skip
+        id: reuse
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          HIT: ${{ steps.green.outputs.cache-hit }}
+        run: |
+          if [ -n "$KEY" ] && [ "$HIT" = true ]; then
+            echo "api-workerd: the inputs already passed (key $KEY); the shards skip"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
   api-workerd:
-    needs: workerd-changes
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [workerd-changes, api-workerd-scope]
+    if: ${{ (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.workerd-changes.result == 'success' || needs.workerd-changes.result == 'skipped') && needs.api-workerd-scope.outputs.hit != 'true' }}
     name: api-workerd (${{ matrix.shard }}/12)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 45
@@ -158,16 +212,34 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A later push of a pull request that leaves every path this workflow runs on (`pull_request.paths`, this file
+      # among them) as an earlier green run of this shard had them reuses that verdict (.github/actions/tree-result,
+      # scripts/ci/paths_tree_key.py): on 11-23T22..11-24T22, 55 of 333 backend PR runs tested inputs identical to an
+      # earlier head of the same PR with no backend change on the base between. Only pull requests reuse; a push to
+      # the base runs every shard.
+      - name: This shard's input tree
+        id: inputs
+        working-directory: ${{ github.workspace }}
+        run: echo "key=$(python3 scripts/ci/paths_tree_key.py --workflow .github/workflows/backend.yml --job api-workerd-${{ matrix.shard }})" >> "$GITHUB_OUTPUT"
+      - name: Reuse a green result of this shard for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         timeout-minutes: 5
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -181,6 +253,7 @@ jobs:
       # version manifest (refused when the installation's hour runs dry) nor copies a fresh download into the tool
       # cache, which on a packed cmux-linux host ran past this step's 5 min (5 shards of run 45606215566, cmux#56511).
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         timeout-minutes: 3
         continue-on-error: true
@@ -188,11 +261,14 @@ jobs:
           TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         timeout-minutes: 5
         with:
           node-version: "24.22.1"
       - run: bun install --frozen-lockfile
+        if: ${{ steps.tree.outputs.hit != 'true' }}
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: backend/apps/api
         # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
         # runs the same script for a shard whose job died before this step answered (cmux#56511).
@@ -204,18 +280,20 @@ jobs:
       # and the gate reruns it (scripts/ci/api_workerd_infra_shards.py). An artifact, not a REST read of the run's
       # jobs, which the repository's GITHUB_TOKEN hour refuses when CI is busiest.
       - name: Record the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.tree.outputs.hit == 'true' || steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         working-directory: backend
         # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
         # attempt's answer from an older one's.
         # The shard script marks "every test passed, errors outside them" as no verdict: nothing is recorded, and the
-        # gate reruns the shard.
+        # gate reruns the shard. A tree-result hit skipped the tests because this input tree already passed them, so it
+        # records `success`: no verdict would make the gate rerun a shard that is already green.
         run: |
           mkdir -p "$RUNNER_TEMP/api-workerd-verdict"
           if [ -e "$RUNNER_TEMP/api-workerd-no-verdict" ]; then echo "no test verdict (see the test step); the gate reruns this shard"; exit 0; fi
-          echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+          outcome="${{ steps.shard.outcome }}"; [ "${{ steps.tree.outputs.hit }}" = true ] && outcome=success
+          echo "$outcome ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
       - name: Upload the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.tree.outputs.hit == 'true' || steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -225,11 +303,18 @@ jobs:
           retention-days: 30
           overwrite: true
           if-no-files-found: ignore
+      - name: Record this shard's green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
-    needs: [api-workerd, workerd-changes]
+    needs: [api-workerd, workerd-changes, api-workerd-scope]
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && github.event.action != 'closed') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
@@ -415,12 +500,27 @@ jobs:
           done
           echo "verdict=pass" >> "$GITHUB_OUTPUT"
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
+        # A skipped shard is fine only on a path-gate miss (workerd-changes) or a green-marker hit (api-workerd-scope).
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && (needs.workerd-changes.outputs.run == 'false' || (needs.api-workerd-scope.result == 'success' && needs.api-workerd-scope.outputs.hit == 'true'))) }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |
           echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs and the rerun step above."
           exit 1
+
+      # Save the marker once all 12 shards passed in a run that ran them (not on a hit), and the rest of `test` passed.
+      # A cache key holding a date, no secrets; only for a pull request from this repository, never a fork.
+      - name: Mark these API Worker inputs green
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/api-workerd-green-marker" && date -u > "$RUNNER_TEMP/api-workerd-green-marker/passed"
+      - name: Save the API Worker green marker (cache)
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ needs.api-workerd-scope.outputs.key }}
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.
@@ -720,10 +820,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -739,7 +835,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
@@ -914,10 +1010,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -933,7 +1025,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
@@ -1029,6 +1121,11 @@ jobs:
       deployment: false
     timeout-minutes: 50
     steps:
+      # The journey's deadline, from the job's own start: 47 of its 50 min, whatever the build took. The journey
+      # step stops each run before it and retries only when another run fits (cloud-journey-ci.sh), so a slow
+      # run ends red with its verdict and summary instead of being killed by a step timeout with neither.
+      - name: Set the journey's deadline
+        run: echo "JOURNEY_DEADLINE_EPOCH=$(( $(date +%s) + 47 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -1065,15 +1162,37 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
-      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
-      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
-      # as cloud-journey-prod.yml's identical build.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Without a warm build every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339) and
+      # 36 min on run 45835919245 (job 140006782447), which left the journey under 15 of this job's 50 and
+      # cancelled it, so no promote reached production all of 2026-11-26. Its own rust-cache never filled: a
+      # cancelled job skips the post-step save (no v0-rust-journey-staging-* entry exists). So it reuses the
+      # build cmux-tui-headless-debug.yml saves on every feat-cmux-next cmux-tui push, the same key, path and
+      # build env as cmux-tui-sdks.yml's conformance job: the exact binary when the tree matches, else
+      # feat-cmux-next's shared target dir and an incremental build.
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+      - name: Restore the headless cmux-tui build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          workspaces: cmux-tui
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          cache-workspace-crates: "true"
+          # cmux-tui-headless-debug.yml owns this key; read-only here.
+          save-if: false
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1082,10 +1201,19 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # As cmux-tui-headless-debug.yml builds it, so the shared target dir's fingerprints match and the
+          # binary is the portable one (a build-host-native libghostty-vt dies with SIGILL on other hosts).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          HEADLESS_HIT: ${{ steps.headless-cache.outputs.cache-hit }}
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          if [[ "$HEADLESS_HIT" == "true" && -x "target/debug/cmux-tui" ]]; then
+            binary="target/debug/cmux-tui"
+            echo "restored the headless debug cmux-tui for this tree; no build"
+          else
+            cargo build -p cmux-tui --bin cmux-tui --locked
+          fi
           test -x "$binary"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
@@ -1104,6 +1232,9 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
+        # A backstop past JOURNEY_DEADLINE_EPOCH (the script ends by it) and under the job's 50, so the post steps
+        # still run. 32 cut run 45874526877's retry 3 min in: a 28 min first pass left no room for one.
+        timeout-minutes: 48
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -1143,10 +1274,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -1162,7 +1289,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"

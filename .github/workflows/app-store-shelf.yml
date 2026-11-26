@@ -13,22 +13,9 @@
 # a_command_only_store_listing_has_nothing_to_open_after_install).
 name: App Store shelf
 
+# A pull request into feat-cmux-next runs the shelf check as ci/steps.toml's app-store-shelf step in
+# pr-pipeline.yml's linux job; this workflow keeps the feat-cmux-next push and dispatch runs.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    branches: [feat-cmux-next]
-    paths:
-      - ".github/workflows/app-store-shelf.yml"
-      - "first-party-apps/**"
-      - "samples/apps/**"
-      - "scripts/cmux-next/sync-app-runtime.sh"
-      - "scripts/cmux-next/store-package-sign.py"
-      - "scripts/ci/app-store-shelf-check.sh"
-      - "cmux-tui/crates/cmux-tui-core/src/apps/**"
-      - "cmux-tui/crates/cmux-app-host/**"
-      - "cmux-tui/crates/cmux-app-manifest/**"
-      - "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*"
-      - "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
   push:
     branches: [feat-cmux-next]
     paths:

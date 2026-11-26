@@ -56,7 +56,7 @@ def run(version: str, fake: str | None = None, fleet_tree: str | None = None) ->
                "ZIG_INDEX_URL": UNREACHABLE, "ZIG_MIRROR_URL": UNREACHABLE, "ZIG_SECONDARY_MIRROR_URL": UNREACHABLE,
                "ZIG_TERTIARY_MIRROR_URL": UNREACHABLE, "ZIG_OFFICIAL_URL": UNREACHABLE,
                "ZIG_REUSE_CANDIDATES": "", "ZIG_DOWNLOAD_ATTEMPTS": "1", "ZIG_DOWNLOAD_RETRY_DELAY": "0", "ZIG_FORCE_LOCAL_INSTALL": "0",
-               "ZIG_FLEET_TOOLS_DIR": str(fleet_tools),
+               "ZIG_FLEET_TOOLS_DIR": str(fleet_tools), "ZIG_TREE_R2_URL": "",
                "RUNNER_TEMP": str(tmp / "runner"), "GITHUB_PATH": "", "GITHUB_ENV": ""}
         result = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
         if fleet_tree is not None:

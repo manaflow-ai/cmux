@@ -40,9 +40,11 @@ name: cmux-next fast gates
 # the status from resolve's outputs and those jobs' results, never from anything
 # they wrote.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  # A feat-cmux-next pull request runs this from pr-router.yml (scripts/ci/pr_router.json, the same types): a head
+  # the router starts nothing for (an idle or green-head base merge, head_tier's "none") starts none of these jobs,
+  # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
+  # that finds none dispatches this workflow as before.
+  workflow_call:
   workflow_dispatch:
     inputs:
       pr:
@@ -110,6 +112,9 @@ jobs:
             /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
+            /scripts/ci/detect_linux_guard_changes.py
+            /scripts/ci/workflow_guard_groups.py
+            /scripts/ci/workload_entrypoints.py
             /scripts/ci/fast-check-inputs.json
 
       - name: "Pool mirror: checkout the merge ref"
@@ -372,7 +377,7 @@ jobs:
       # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -402,6 +407,11 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
+            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
+            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            /tests/test_egress_gate.py
+            /tests/test_outbound_hosts.py
+            /tests/test_classic_cloud_routes.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
@@ -410,7 +420,7 @@ jobs:
 
       - name: "Pool mirror: checkout"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         env:
           SHA: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -452,6 +462,21 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
@@ -466,7 +491,7 @@ jobs:
       # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
       - name: Restore the Bun package cache from R2
         id: bun-r2
-        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -484,7 +509,7 @@ jobs:
       # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
       - name: Restore the Bun package cache
         id: bun-cache
-        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 2
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -639,8 +664,9 @@ jobs:
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
     # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # 12: the post may wait up to POST_WAIT_SECONDS (8 min) for a spent budget's reset, only when both tokens are spent.
-    timeout-minutes: 12
+    # 15 (the light jobs' limit): the post may wait up to POST_WAIT_SECONDS (14 min) for a spent budget's reset, only
+    # when every token is spent.
+    timeout-minutes: 15
     permissions:
       statuses: write
     steps:
@@ -664,7 +690,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           APP_TOKEN: ${{ steps.status-token.outputs.token }}
-          POST_WAIT_SECONDS: '480'
+          # The CI pool's quota-goblin tokens (scripts/ci/ci_pool_tokens.py), each its own installation hour. A pool
+          # token that cannot post (expired, or no statuses grant) is passed over, never a red.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          # 2026-11-26 12:39Z and 12:43Z (jobs 139914769975, 139917024944): both tokens spent, the reset 457 s away
+          # and past the 8-minute bound once the first gap was spent, so the job failed and a rerun posted green; a
+          # false red. The pool tokens make a spent budget rarer, and 14 min covers such a reset.
+          POST_WAIT_SECONDS: '840'
           CONTEXT: cmux-next/fast-gates
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
@@ -715,17 +747,19 @@ jobs:
           fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict, but a missing status is no
           # verdict either: nothing dispatched a fresh gate for it (cmux#46179 waited 5.3 h on one). So the post
-          # goes out on the cmux-bot App's token, then on GITHUB_TOKEN, each its own budget; when both refuse for
-          # the rate limit it waits for the soonest reset (a refused request spends nothing, and reading
-          # rate_limit is free), within POST_WAIT_SECONDS. Past that the job fails, named, so a re-run of the
-          # failed job posts it instead of a green run that posted nothing. Other API failures stay red at once.
+          # goes out on the cmux-bot App's token, then the CI pool's tokens, then GITHUB_TOKEN, each its own budget;
+          # when all refuse for the rate limit it waits for the soonest reset (a refused request spends nothing, and
+          # reading rate_limit is free), within POST_WAIT_SECONDS. Past that the job fails, named, so a re-run of the
+          # failed job posts it instead of a green run that posted nothing. Other API failures stay red at once,
+          # except on a pool token, which is passed over.
           throttled='rate limit exceeded|secondary rate limit|too many requests|HTTP 429'
           deadline=$((SECONDS + ${POST_WAIT_SECONDS:-480}))
           tries=0
           while :; do
             tries=$((tries + 1))
             soonest=""
-            for token in "${APP_TOKEN:-}" "$GH_TOKEN"; do
+            read -r -a pool <<<"${POOL_TOKENS:-}"
+            for token in "${APP_TOKEN:-}" "${pool[@]}" "$GH_TOKEN"; do
               [[ -n "$token" ]] || continue
               if response="$(GH_TOKEN="$token" gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
                 -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
@@ -733,6 +767,12 @@ jobs:
                 exit 0
               fi
               if ! grep -qiE "$throttled" <<<"$response"; then
+                is_pool=false
+                for t in "${pool[@]}"; do [[ "$t" == "$token" ]] && is_pool=true; done
+                if [[ "$is_pool" == true ]]; then
+                  echo "::warning title=GitHub API budget::a CI pool token could not post $CONTEXT ($(head -c 160 <<<"$response" | tr '\n' ' ')); passing it over"
+                  continue
+                fi
                 printf '%s\n' "$response" >&2
                 exit 1
               fi
@@ -758,7 +798,7 @@ jobs:
   fast-gates-fail-fast:
     name: head fail-fast after fast gates
     needs: fast-gates
-    if: ${{ failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next-fast-gates.yml
