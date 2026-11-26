@@ -1,3 +1,4 @@
+/** @jsxImportSource ../../../../kit/closed */
 // Session Info drawn by the App (NativeSessionInfo.tsx) loads out of the chat page's first script: a
 // page only needs it once the host says it draws the panel (`sessionInfoHost`, a Debug Settings toggle
 // that is off by default), and then its chunk starts loading at that event (host.ts), before the

@@ -88,7 +88,21 @@ pub struct Ran {
 
 /// Runs `cmd` to its end on a blocking thread: `input` on its stdin, stdout and stderr read
 /// beside it (so neither pipe can fill and stall it), killed past `limit`.
-pub async fn run(mut cmd: Command, input: Option<Vec<u8>>, limit: Duration) -> Result<Ran, String> {
+pub async fn run(cmd: Command, input: Option<Vec<u8>>, limit: Duration) -> Result<Ran, String> {
+    run_watched(cmd, input, limit, None).await
+}
+
+/// What a watched git checks every `WATCH_EVERY`: `Some(why)` stops it.
+type Watch = Box<dyn Fn() -> Option<String> + Send>;
+const WATCH_EVERY: Duration = Duration::from_secs(2);
+
+/// `run`, also killed as soon as `watch` answers why (the disk floor, `crate::room`).
+async fn run_watched(
+    mut cmd: Command,
+    input: Option<Vec<u8>>,
+    limit: Duration,
+    watch: Option<Watch>,
+) -> Result<Ran, String> {
     let blocking = tokio::task::spawn_blocking(move || -> Result<Ran, String> {
         if input.is_some() {
             cmd.stdin(Stdio::piped());
@@ -106,14 +120,23 @@ pub async fn run(mut cmd: Command, input: Option<Vec<u8>>, limit: Duration) -> R
             });
             let out = threads.spawn(move || drain(stdout));
             let err = threads.spawn(move || drain(stderr));
-            let status = match child.wait_timeout(limit) {
-                Ok(Some(status)) => Some(status),
-                Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    None
+            let deadline = std::time::Instant::now() + limit;
+            let mut stopped = None;
+            let status = loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                let step = if watch.is_some() { left.min(WATCH_EVERY) } else { left };
+                match child.wait_timeout(step) {
+                    Ok(Some(status)) => break Some(status),
+                    Ok(None) => {
+                        stopped = watch.as_ref().and_then(|w| w());
+                        if stopped.is_some() || left <= step {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break None;
+                        }
+                    }
+                    Err(_) => break None,
                 }
-                Err(_) => None,
             };
             let _ = writer.join();
             let stdout = out.join().unwrap_or_default();
@@ -125,7 +148,7 @@ pub async fn run(mut cmd: Command, input: Option<Vec<u8>>, limit: Duration) -> R
                     stdout,
                     stderr,
                 }),
-                None => Err("timed out".to_owned()),
+                None => Err(stopped.unwrap_or_else(|| "timed out".to_owned())),
             }
         })
     });
@@ -141,7 +164,16 @@ fn drain<R: Read>(pipe: Option<R>) -> Vec<u8> {
 }
 
 async fn status_ok(cmd: Command, what: &str, limit: Duration) -> bool {
-    match run(cmd, None, limit).await {
+    status_ok_watched(cmd, what, limit, None).await
+}
+
+async fn status_ok_watched(
+    cmd: Command,
+    what: &str,
+    limit: Duration,
+    watch: Option<Watch>,
+) -> bool {
+    match run_watched(cmd, None, limit, watch).await {
         Ok(ran) if ran.success => true,
         Ok(ran) => {
             // git redacts credentials in its own messages; the header never appears in stderr.
@@ -160,6 +192,40 @@ async fn status_ok(cmd: Command, what: &str, limit: Duration) -> bool {
     }
 }
 
+/// The disk floor as a watch on `dir`'s filesystem (`crate::room`).
+fn floor_watch(dir: &Path) -> Watch {
+    let dir = dir.to_owned();
+    Box::new(move || (!crate::room::has_room(&dir)).then(|| crate::room::why_not(&dir)))
+}
+
+/// What a git stopped mid-write leaves in the mirror (`objects/pack/tmp_*`, `.tmp-*` packs of a
+/// repack, `objects/incoming-*` quarantines): removed, so a stopped write keeps no space.
+fn clear_partial_writes(dir: &Path) {
+    let objects = dir.join("objects");
+    for (at, prefixes) in
+        [(objects.join("pack"), &["tmp_", ".tmp-"][..]), (objects.clone(), &["incoming-"][..])]
+    {
+        let Ok(entries) = std::fs::read_dir(&at) else { continue };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !prefixes.iter().any(|p| name.starts_with(p)) {
+                continue;
+            }
+            let path = entry.path();
+            let _ = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+        }
+    }
+}
+
+/// How long a mirror the floor stopped waits before another fill is tried: the disk seldom
+/// frees itself, and each try downloads again what the last one cleared.
+const NO_ROOM_RETRY: Duration = Duration::from_secs(6 * 60 * 60);
+
 /// The marker a finished full fill leaves in a mirror: from then on a missing want is a short
 /// incremental fetch away, so it is fetched before the clone is served.
 const FILLED: &str = "cmux-filled";
@@ -174,12 +240,16 @@ pub const KEEP_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Where a kept pack's wants are named, so the next fill negotiates from them (deleted once a
 /// fill holds the same tips under `refs/heads` and `refs/tags`).
 const KEPT_REFS: &str = "refs/cmux-kept/";
+/// How many bytes of a kept pack go by between two looks at the disk floor.
+const KEEP_CHECK_BYTES: usize = 64 << 20;
 
 /// Fill state of one mirror: when its last fill started, and whether it still runs.
 #[derive(Clone, Copy)]
 struct Fill {
     started: std::time::Instant,
     running: bool,
+    /// The last fill was refused or stopped by the disk floor.
+    no_room: bool,
 }
 
 impl Mirrors {
@@ -273,7 +343,15 @@ impl Mirrors {
         with_auth(&mut cmd, authorization);
         cmd.arg("-C").arg(dir).args(["fetch", "--quiet", "--no-write-fetch-head", "--prune"]);
         cmd.arg(url).args(REFSPECS);
-        status_ok(cmd, what, limit).await
+        if !crate::room::has_room(dir) {
+            eprintln!("git-cache: {what}: not started: {}", crate::room::why_not(dir));
+            return false;
+        }
+        let ok = status_ok_watched(cmd, what, limit, Some(floor_watch(dir))).await;
+        if !ok {
+            clear_partial_writes(dir);
+        }
+        ok
     }
 
     /// Makes the mirror hold `wants` without a whole download in the clone's way: from the
@@ -317,6 +395,10 @@ impl Mirrors {
 
     /// The right to write this answer into the mirror: one clone's pack at a time per mirror.
     pub fn try_keep(&self, dir: &Path) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        if !crate::room::has_room(dir) {
+            eprintln!("git-cache: {} keeps no pack: {}", dir.display(), crate::room::why_not(dir));
+            return None;
+        }
         self.keep_lock(dir).try_lock_owned().ok()
     }
 
@@ -354,7 +436,16 @@ impl Mirrors {
         let stderr = child.stderr.take();
         let mut demux = crate::pkt::PackDemux::new(v2);
         let mut failed = None;
+        let mut since_check = 0usize;
         while let Some(chunk) = chunks.recv().await {
+            since_check += chunk.len();
+            if since_check >= KEEP_CHECK_BYTES {
+                since_check = 0;
+                if !crate::room::has_room(dir) {
+                    failed = Some(crate::room::why_not(dir));
+                    break;
+                }
+            }
             match demux.feed(&chunk) {
                 Ok(pack) if pack.is_empty() => {}
                 Ok(pack) => {
@@ -386,6 +477,9 @@ impl Mirrors {
         })
         .await
         .map_err(|e| e.to_string())?;
+        if !matches!(&status, (None, Ok(Some(s)), _) if s.success()) {
+            clear_partial_writes(dir);
+        }
         match status {
             (Some(why), _, _) => return Err(why),
             (None, Ok(Some(s)), _) if s.success() => {}
@@ -418,11 +512,22 @@ impl Mirrors {
         {
             let mut fills = self.fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(f) = fills.get(&dir)
-                && (f.running || now.duration_since(f.started) < FILL_RETRY)
+                && (f.running
+                    || now.duration_since(f.started)
+                        < if f.no_room { NO_ROOM_RETRY } else { FILL_RETRY })
             {
                 return;
             }
-            fills.insert(dir.clone(), Fill { started: now, running: true });
+            let room = crate::room::has_room(&dir);
+            fills.insert(dir.clone(), Fill { started: now, running: room, no_room: !room });
+            if !room {
+                eprintln!(
+                    "git-cache: fill {} not started: {}",
+                    dir.display(),
+                    crate::room::why_not(&dir)
+                );
+                return;
+            }
         }
         let lock = self.lock(&dir);
         let fills = self.fills.clone();
@@ -456,9 +561,11 @@ impl Mirrors {
                 if ok { "done" } else { "stopped (resumes on the next miss)" },
                 now.elapsed().as_secs_f64()
             );
+            let no_room = !ok && !crate::room::has_room(&dir);
             let mut fills = fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(f) = fills.get_mut(&dir) {
                 f.running = false;
+                f.no_room = no_room;
             }
         });
     }
@@ -484,9 +591,15 @@ impl Mirrors {
     /// instead of counting objects. Beside serving (git swaps packs atomically), at low priority.
     fn bitmap_later(scope: &cmux_scope::Scope, dir: PathBuf) {
         scope.spawn_until_cancelled("repack with bitmap", async move {
+            if !crate::room::has_room(&dir) {
+                eprintln!("git-cache: repack not started: {}", crate::room::why_not(&dir));
+                return;
+            }
             let mut cmd = low_priority_git();
             cmd.arg("-C").arg(&dir).args(["repack", "-a", "-d", "-q", "--write-bitmap-index"]);
-            status_ok(cmd, "repack", FILL_TIMEOUT).await;
+            if !status_ok_watched(cmd, "repack", FILL_TIMEOUT, Some(floor_watch(&dir))).await {
+                clear_partial_writes(&dir);
+            }
         });
     }
 }
@@ -502,5 +615,42 @@ mod tests {
         assert_ne!(m.dir("team-1", "o/r"), m.dir("team-2", "o/r"));
         let odd = m.dir("../x", "o/r");
         assert!(odd.starts_with("/c/") && !odd.to_string_lossy().contains(".."));
+    }
+
+    #[test]
+    fn a_stopped_write_leaves_no_partial_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::create_dir_all(dir.path().join("objects/incoming-abc/pack")).unwrap();
+        for name in
+            ["tmp_pack_X1", "tmp_idx_X1", ".tmp-123-pack-a.pack", "pack-keep.pack", "pack-keep.idx"]
+        {
+            std::fs::write(pack.join(name), b"x").unwrap();
+        }
+        clear_partial_writes(dir.path());
+        let mut left: Vec<String> = std::fs::read_dir(&pack)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["pack-keep.idx", "pack-keep.pack"]);
+        assert!(!dir.path().join("objects/incoming-abc").exists());
+    }
+
+    #[tokio::test]
+    async fn a_watch_stops_a_running_git_and_says_why() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30");
+        let started = std::time::Instant::now();
+        let got = run_watched(
+            cmd,
+            None,
+            Duration::from_secs(60),
+            Some(Box::new(|| Some("under the floor".to_owned()))),
+        )
+        .await;
+        assert_eq!(got.err().as_deref(), Some("under the floor"));
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }
