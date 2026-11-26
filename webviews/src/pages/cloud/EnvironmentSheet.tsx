@@ -30,6 +30,7 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   vaultText: L.envVaultNotPlainText,
   vaultUnreadable: L.envVaultUnreadable,
   vaultRefused: L.envVaultRefused,
+  click: L.envSaveNeedsClick,
 };
 const sections = {
   overview: L.envTitle,

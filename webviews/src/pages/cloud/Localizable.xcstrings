@@ -7921,6 +7921,138 @@
         }
       }
     },
+    "environment.saveNeedsClick": {
+      "comment": "Cloud environment editor: Save was refused because the click was not the person's own (transport.gesture_required)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاحتفاظ بتعديلاتك لكن لم تُحفظ: الحفظ يحتاج إلى نقرتك أنت. انقر على حفظ التغييرات مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaše izmjene su sačuvane, ali nisu spremljene: spremanje traži vaš vlastiti klik. Ponovo kliknite Spremi izmjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine ændringer er bevaret, men ikke gemt: at gemme kræver dit eget klik. Klik på Gem ændringer igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Änderungen bleiben erhalten, sind aber nicht gespeichert: Speichern braucht deinen eigenen Klick. Klicke noch einmal auf Änderungen speichern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Your edits are kept but not saved: saving needs your own click. Click Save changes again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus cambios se conservan, pero no se guardaron: guardar requiere tu propio clic. Vuelve a hacer clic en Guardar cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos modifications sont conservées mais pas enregistrées : l’enregistrement demande votre propre clic. Cliquez à nouveau sur Enregistrer les modifications."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modifiche sono conservate ma non salvate: il salvataggio richiede un tuo clic. Fai di nuovo clic su Salva modifiche."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編集内容は保持されていますが、保存されていません。保存にはご自身のクリックが必要です。もう一度「変更を保存」をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែសម្រួលរបស់អ្នកត្រូវបានរក្សាទុក ប៉ុន្តែមិនទាន់បានរក្សាទុកទេ៖ ការរក្សាទុកត្រូវការការចុចផ្ទាល់ខ្លួនរបស់អ្នក។ ចុច រក្សាទុកការផ្លាស់ប្តូរ ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집 내용은 유지되지만 저장되지 않았습니다. 저장하려면 직접 클릭해야 합니다. 변경 사항 저장을 다시 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringene dine er beholdt, men ikke lagret: lagring krever ditt eget klikk. Klikk Lagre endringer igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje zmiany są zachowane, ale niezapisane: zapis wymaga Twojego własnego kliknięcia. Kliknij ponownie Zapisz zmiany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suas edições foram mantidas, mas não salvas: salvar exige o seu próprio clique. Clique em Salvar alterações novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши правки сохранены в редакторе, но не записаны: для сохранения нужен ваш собственный щелчок. Нажмите «Сохранить изменения» ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไขของคุณยังอยู่แต่ยังไม่ได้บันทึก: การบันทึกต้องใช้การคลิกของคุณเอง คลิก บันทึกการเปลี่ยนแปลง อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenlemeleriniz korundu ancak kaydedilmedi: kaydetmek için kendi tıklamanız gerekir. Değişiklikleri kaydet'e yeniden tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші правки збережено в редакторі, але не записано: для збереження потрібне ваше власне клацання. Натисніть «Зберегти зміни» ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các chỉnh sửa của bạn vẫn được giữ nhưng chưa được lưu: việc lưu cần chính cú nhấp của bạn. Hãy nhấp Lưu thay đổi lần nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的编辑已保留但尚未保存：保存需要你本人点击。请再次点击“保存更改”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的編輯已保留但尚未儲存：儲存需要你本人點按。請再次點按「儲存變更」。"
+          }
+        }
+      }
+    },
     "environment.saving": {
       "comment": "Cloud environment editor",
       "extractionState": "manual",
