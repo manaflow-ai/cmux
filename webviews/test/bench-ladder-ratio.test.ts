@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { cycleRate, interpolate, majorGcEnds, marginalRatio, marginals, ratioInterval } from "../bench/ladderRatio";
+import {
+  cycleBounds,
+  cycleRate,
+  interpolate,
+  majorGcEnds,
+  marginalRatio,
+  marginals,
+  ratioInterval,
+} from "../bench/ladderRatio";
 
 describe("sim-ladder marginal ratio", () => {
   test("a constant cost per item reads flat", () => {
@@ -113,5 +121,21 @@ describe("sim-ladder whole collection cycles", () => {
     ]);
     expect(ends.pid).toBe(1);
     expect(ends.ends).toEqual([370, 6_800_000, 12_100_000]);
+  });
+  test("a cap that cuts a long cycle counts its open tail, so short closed cycles do not stand alone", () => {
+    // x100 as traced: collections (6 s of CPU each, 70 ms/s between) end at 22 and 58 s, the next not by the cap at 170 s.
+    const times = [0, 16, 22, 52, 58, 164, 170];
+    const values = [0, 1120, 7120, 9220, 15220, 22640, 23060];
+    const closed = cycleRate([22, 58], times, values)!.rate;
+    const { bounds, capped } = cycleBounds([22, 58], 170, 4);
+    expect(capped).toBe(true);
+    expect(bounds).toEqual([22, 58, 170]);
+    const withTail = cycleRate(bounds, times, values)!.rate;
+    expect(closed).toBeCloseTo(8100 / 36, 6);
+    expect(withTail).toBeCloseTo(15940 / 148, 6);
+    expect(withTail).toBeLessThan(closed);
+    // Enough cycles closed, or none at all: the ends stand as they are.
+    expect(cycleBounds([1, 2, 3, 4, 5], 9, 4)).toEqual({ bounds: [1, 2, 3, 4, 5], capped: false });
+    expect(cycleBounds([], 9, 4)).toEqual({ bounds: [], capped: false });
   });
 });

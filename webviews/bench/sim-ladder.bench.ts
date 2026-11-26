@@ -22,7 +22,7 @@
 //                    ThreadPoolForeg 1137, while the least read flat). Tabs: over CPU_WINDOWS x WINDOW (45 s). Chats:
 //                    over whole collection cycles of their shared heap, from the end of one major collection to the end
 //                    of the GC_CYCLES-th after it (traced, ladderRatio.ts cycleRate), so no rung holds a collection
-//                    more or less by phase
+//                    more or less by phase; a cycle the cap cuts off counts as open to the run's end (cycleBounds)
 //   heap_mb          the renderers' JS heap after a full collection (the chats share one isolate), MB
 //   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s,
 //                    over the same span as cpu_window_ms_per_s
@@ -54,6 +54,7 @@ import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
+  cycleBounds,
   cycleRate,
   FLOOR,
   interpolate,
@@ -640,8 +641,14 @@ async function measure(
   if (cycles) {
     // Whole cycles: from the end of the first major collection seen to the end of the last, every collection between
     // counted once. Under one whole cycle in the cap, the whole run's mean stands, with its windows' error.
-    const cpu = cycleRate(gc.ends, cpuT, cpuV);
-    const scr = cycleRate(gc.ends, scriptT, scriptV);
+    // When the cap ends the trace before GC_CYCLES cycles close, the cycles that did close are the short ones (x100's
+    // collections came 35 s apart, then none in the next 112 s: closed cycles alone read 353 ms/s against 143 at x10),
+    // so the open tail from the last collection to the run's end counts as one more cycle whose collection has not come
+    // yet. Both rates print: closed cycles only (short-biased, high) and with the open tail (one collection short, low).
+    const { bounds, capped } = cycleBounds(gc.ends, end, GC_CYCLES);
+    const closed = capped ? cycleRate(gc.ends, cpuT, cpuV) : null;
+    const cpu = cycleRate(bounds, cpuT, cpuV);
+    const scr = cycleRate(bounds, scriptT, scriptV);
     lastCycles = cpu?.cycles ?? 0;
     if (cpu && scr) {
       cpuRate = cpu.rate * 1e6;
@@ -652,7 +659,7 @@ async function measure(
         ...(scr.se === null ? {} : { script_ms_per_s: scr.se * 1e6 }),
       };
       console.log(
-        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s): cpu ${cpuRate.toFixed(1)} +- ${(cpu.se === null ? windowSe : cpu.se * 1e6).toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}), script ${scriptRate.toFixed(1)} +- ${scr.se === null ? "?" : (scr.se * 1e6).toFixed(1)} ms/s`,
+        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s${capped ? `, the last ${((end - gc.ends[gc.ends.length - 1]!) / 1e6).toFixed(1)} s open at the cap` : ""}): cpu ${cpuRate.toFixed(1)} +- ${(cpu.se === null ? windowSe : cpu.se * 1e6).toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}${closed ? `; closed cycles only ${(closed.rate * 1e6).toFixed(1)}` : ""}), script ${scriptRate.toFixed(1)} +- ${scr.se === null ? "?" : (scr.se * 1e6).toFixed(1)} ms/s`,
       );
     } else
       console.log(

@@ -95,6 +95,14 @@ export function cycleRate(bounds: number[], times: number[], values: number[]) {
   return { rate, se, cycles, span: sumSpan, perCycle: cost.map((c, i) => c / span[i]!) };
 }
 
+/// Where the cycles of a run end: at each major collection episode's end, and, when the run stopped (`end`) before
+/// `want` cycles closed, at the run's end too. A cap cuts off the long cycles and keeps the short ones, so closed cycles
+/// alone read high; the open tail counts as one more cycle whose collection has not come yet (one collection short).
+export function cycleBounds(ends: number[], end: number, want: number) {
+  const capped = ends.length > 0 && ends.length < want + 1 && end > ends[ends.length - 1]!;
+  return { bounds: capped ? [...ends, end] : ends, capped };
+}
+
 /// Two major collections less than this apart (microseconds) are one episode, and a cycle ends at the episode's last:
 /// V8 often follows a collection with another within a second (chats x10: ends at 6.1 and 6.8 s), and a 0.7 s "cycle"
 /// between them, read alone, is all collection (1194 ms/s against 77 for the next). The span between episodes still
