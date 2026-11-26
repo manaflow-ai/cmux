@@ -298,7 +298,7 @@ precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.c
 precheck_reason=""
 # fleet_verdict <sha>: pass, fail, pending, none (no usable record) or down.
 fleet_verdict() { # <sha>
-  local cache="" body code word
+  local cache="" body code word curl_rc=0
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
     cache="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-next-precheck-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
     mkdir -p "$cache" 2>/dev/null || cache=""
@@ -311,7 +311,7 @@ fleet_verdict() { # <sha>
   # scripts/ci/fleet_compile_result.py so a valid verdict is not mistaken for
   # an outage and an unchecked nightly is not promoted.
   code="$(curl -sS -A 'cmux-ci-fleet-compile-result/1' -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
-    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || code="${code:-000}"
+    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || { curl_rc=$?; code="${code:-000}"; }
   case "$code" in
     200) word="$(python3 -I -c '
 import json, sys
@@ -334,7 +334,9 @@ else:
     # this tick. Wait for the next tick instead of treating them as a cache
     # outage and promoting an unchecked commit.
     429|503) word=pending ;;
-    *) word=down ;;
+    # Named in the log so a refusal (a 403 from the CDN) is told from an outage (curl exit 6, 7 or 28).
+    *) word=down
+       echo "nightly-next precheck: the results read for ${1:0:12} answered HTTP $code (curl exit $curl_rc)" >&2 ;;
   esac
   rm -f "$body"
   # Only a verdict is kept: a pending or missing one may be there on the next read.

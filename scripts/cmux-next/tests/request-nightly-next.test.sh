@@ -287,6 +287,7 @@ echo down > "$TMP/precheck/$changed"
 RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+grep -q "answered HTTP 000 (curl exit 7)" <<<"$out" || fail "the outage warning must name the HTTP code and curl exit:" "$out"
 
 echo fail > "$TMP/precheck/$changed"
 RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
