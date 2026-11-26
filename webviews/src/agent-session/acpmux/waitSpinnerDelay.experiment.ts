@@ -16,7 +16,8 @@ export const waitSpinnerDelay = defineExperiment({
     },
     delayed: {
       label: "Past 300 ms",
-      description: "A wait's spinner shows only once the wait runs past 300 ms; until then the control keeps its own icon.",
+      description:
+        "A wait's spinner shows only once the wait runs past 300 ms; until then the control keeps its own icon.",
     },
   },
   defaultArm: "at-once",
