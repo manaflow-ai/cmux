@@ -103,6 +103,11 @@ final class FeedShiftProbe {
     private func start() {
         guard let table, !started else { return }
         started = true
+        // A test may place the list a few points below the top (`CMUX_MOBILE_FEED_SHIFT_OFFSET=PT`):
+        // a gesture that short reads as a tap on a row (green-43 RestJustBelowTop opened one).
+        if let points = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHIFT_OFFSET"].flatMap(Double.init) {
+            table.setContentOffset(CGPoint(x: 0, y: -table.adjustedContentInset.top + CGFloat(points)), animated: false)
+        }
         for body in onStart { body() }
         onStart = []
         measuring = true
@@ -133,6 +138,15 @@ final class FeedShiftProbe {
         isCorrecting = false
         guard let table else { return }
         lastOffset = table.contentOffset.y
+    }
+
+    /// A drag begins (`scrollViewWillBeginDragging`): the pan's translation starts again from 0.
+    /// Without this, the last drag's translation carried over when nothing scrolled between two
+    /// drags (a drag that ends at rest, the held rows applied as a correction): the next drag's first
+    /// move read as the whole last drag undone, about 290 pt (green-43 01d52643 Drag: 3 shifted
+    /// frames, one per drag after the first, while its video shows no frame moving over 2 pt).
+    func dragBegan() {
+        lastTranslation = nil
     }
 
     /// The offset moved (`scrollViewDidScroll`).

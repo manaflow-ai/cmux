@@ -1348,6 +1348,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         trace("drag at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
+        #if DEBUG
+        FeedShiftProbe.shared.dragBegan()
+        #endif
         // The person took over: a jump to the top in flight ends where they caught it.
         jumpingToTop = false
         #if DEBUG
@@ -1405,6 +1408,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func releaseHeld() {
         restTimer?.invalidate()
         restTimer = nil
+        if !heldWebHeights.isEmpty {
+            let held = heldWebHeights
+            heldWebHeights = [:]
+            for (id, height) in held { states[id, default: FeedRowState()].webHeight = Double(height) }
+            refreshRows(Array(held.keys), animated: false)
+        }
         if let partChanged = headerHeld {
             headerHeld = nil
             releasing = true
@@ -1668,8 +1677,30 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     func rowWebHeight(_ id: String, _ height: CGFloat) {
         guard let current = states[id]?.webHeight.map({ CGFloat($0) }) ?? Optional(layout(for: id).map { $0.body.fullHeight } ?? 0),
-              abs(current - height) > 0.5 else { return }
+              abs(current - height) > 0.5 else {
+            heldWebHeights[id] = nil
+            return
+        }
+        // A row whose top is above the screen resizing moves every row below it, so the reader's row is
+        // kept by setting the offset; while the finger drags or the list decelerates, UIKit's next
+        // frame sets the offset back from the gesture's own start (FEED-15: green-43's fling video,
+        // the rows jumped down 64 pt twice mid-fling). It waits for rest, as the arrivals do.
+        if let view = collectionView, holdsForScroll(view), startsAboveScreen(id, in: view) {
+            heldWebHeights[id] = height
+            watchForRest()
+            return
+        }
+        heldWebHeights[id] = nil
         mutateState(id, animated: false) { $0.webHeight = Double(height) }
+    }
+
+    /// Web heights that wait for rest (`rowWebHeight`).
+    private var heldWebHeights: [String: CGFloat] = [:]
+
+    /// The row's top is above the visible top (its resize would need the offset set).
+    private func startsAboveScreen(_ id: String, in view: UITableView) -> Bool {
+        guard let indexPath = dataSource?.indexPath(for: id) else { return false }
+        return view.rectForRow(at: indexPath).minY < view.contentOffset.y + view.adjustedContentInset.top - 0.5
     }
 
     func rowMenu(_ id: String) -> UIMenu {
