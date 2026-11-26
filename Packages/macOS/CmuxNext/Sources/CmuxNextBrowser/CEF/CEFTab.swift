@@ -150,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
+    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
+    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
