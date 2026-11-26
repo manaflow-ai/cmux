@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.showLoadingBar.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A thin line under the address bar while a page loads."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ページの読み込み中、アドレスバーの下に細い線を表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "خط رفيع أسفل شريط العنوان أثناء تحميل الصفحة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tanka linija ispod adresne trake dok se stranica učitava."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En tynd linje under adresselinjen, mens en side indlæses."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine dünne Linie unter der Adressleiste, während eine Seite lädt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una línea fina bajo la barra de direcciones mientras se carga una página."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une fine ligne sous la barre d’adresse pendant le chargement d’une page."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una sottile linea sotto la barra degli indirizzi mentre una pagina si carica."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាត់ស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 선을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En tynn linje under adressefeltet mens en side lastes inn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cienka linia pod paskiem adresu podczas ładowania strony."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma linha fina abaixo da barra de endereço enquanto a página carrega."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Тонкая линия под адресной строкой во время загрузки страницы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เส้นบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sayfa yüklenirken adres çubuğunun altında ince bir çizgi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Тонка лінія під адресним рядком під час завантаження сторінки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một vạch mỏng dưới thanh địa chỉ khi trang đang tải."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "页面加载时在地址栏下方显示一条细线。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "頁面載入時在網址列下方顯示一條細線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

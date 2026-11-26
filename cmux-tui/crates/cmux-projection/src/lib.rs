@@ -11,6 +11,7 @@
 //! listing and writes no files.
 
 pub mod away;
+pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
 pub mod git_swap;
@@ -29,6 +30,8 @@ pub mod peers;
 pub mod reap;
 pub mod revision;
 pub mod s3;
+#[cfg(unix)]
+pub mod share;
 #[cfg(any(target_os = "linux", test))]
 pub mod sparse;
 #[cfg(unix)]

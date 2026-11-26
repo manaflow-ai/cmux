@@ -17,9 +17,12 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+#[doc(hidden)]
+pub mod bundle;
 mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
+mod cloud_wake;
 mod composer_outbox;
 mod follow_camera;
 mod lan;
@@ -30,6 +33,7 @@ pub mod local_link;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
+mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
@@ -54,6 +58,10 @@ pub use chat_prompt_outbox::{
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
 };
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use cloud_wake::{
+    CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
+    cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
+};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -62,6 +70,10 @@ pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlac
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use pane_filter::{
+    PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
+    pane_filter_default, pane_filter_encode, pane_filter_shows,
+};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
@@ -351,6 +363,8 @@ pub struct LinkHandle {
     /// The phone end of viewport sync (cmux_mobile_link::viewport): what
     /// daemon channels ask for, and the link's datagram receivers.
     viewport: PhoneViewport,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -1106,6 +1120,7 @@ async fn finish_link(
         tunnel_keys: connected.tunnel_keys,
         media,
         viewport,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 
@@ -1642,6 +1657,35 @@ pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
     cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
 }
 
+/// A typed key's echo was painted `paint_ms` after its tap (the terminal's
+/// first frame showing the Mac's echo of it, `TerminalViewController`).
+/// Counted in the key-to-paint histogram under the current network and route.
+#[uniffi::export]
+pub fn record_key_paint(paint_ms: u32) {
+    cmux_mobile_link::key_paint::record(paint_ms);
+}
+
+/// The device's network now, `wifi`, `lte` (any cellular), `wired` or
+/// `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+#[uniffi::export]
+pub fn set_network_kind(kind: String) {
+    cmux_mobile_link::key_paint::set_network(&kind);
+}
+
+/// The key-to-paint histogram as JSON: per network and route p50/p95/p99,
+/// max and bucket counts; the newest spikes, the gaps between them and the
+/// period they share, if any (named by the link timer it matches).
+#[uniffi::export]
+pub fn key_paint_snapshot() -> String {
+    cmux_mobile_link::key_paint::snapshot_json()
+}
+
+/// Empty the key-to-paint histogram.
+#[uniffi::export]
+pub fn reset_key_paint() {
+    cmux_mobile_link::key_paint::reset();
+}
+
 /// This process's build space (`set_build_space`); nil: none (no header).
 static BUILD_SPACE: Mutex<Option<BuildSpace>> = Mutex::new(None);
 
@@ -2134,12 +2178,19 @@ async fn dial_service(
         }
         Ok::<_, CmuxMobileError>((socket, reused))
     };
-    let (ice_servers, socket) =
-        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
+    // Once ICE answers, a WireGuard dial's TURN allocation starts
+    // (`EarlyTurn`, as a redial's does beside its reconnect), beside the rest
+    // of the socket's open, instead of after it inside the dial.
+    let ice = async {
+        let ice_servers =
+            without_turn_if_asked(pool.ice_servers(&request.base_url, &request.token, timeline).await);
+        let options = dial_options(request, ice_servers, timeline);
+        let early = cmux_mobile_link::dial::EarlyTurn::for_dial(request.transport.into(), &options);
+        (options, early)
+    };
+    let ((options, early), socket) = tokio::join!(ice, socket);
     let (socket, reused) = socket?;
-    let ice_servers = without_turn_if_asked(ice_servers);
-    let options = dial_options(request, ice_servers, timeline);
-    let attempt = dial_on(&socket, request, &options, reused).await;
+    let attempt = dial_on(&socket, request, &options, reused, early).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -2242,21 +2293,24 @@ async fn fail(pool: &Warm, socket: &Arc<WarmSocket>, error: DialError) -> CmuxMo
     error.into()
 }
 
-/// Dial on `socket`. A reused socket is probed while the dial runs: when it
-/// does not answer within `STALE_PROBE`, the dial is abandoned as stale
-/// instead of waiting out its whole timeout.
+/// Dial on `socket`, taking `early`, the TURN allocation started when ICE
+/// answered. A reused socket is probed while the dial runs: when it does not
+/// answer within `STALE_PROBE`, the dial is abandoned as stale instead of
+/// waiting out its whole timeout.
 async fn dial_on(
     socket: &Arc<WarmSocket>,
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    early: Option<cmux_mobile_link::dial::EarlyTurn>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_with_early_turn(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        early,
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);

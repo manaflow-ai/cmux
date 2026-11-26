@@ -132,6 +132,45 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::HistoryDelete(args) => {
+            let client = connect(true).await?;
+            let export = args.export.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_HISTORY_DELETE,
+                    json!({"dryRun": args.dry_run, "olderThanDays": args.older_than_days, "export": export}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_history_report(
+                    &v,
+                    if args.dry_run { "would be deleted (preview)" } else { "deleted" },
+                    "deleted",
+                );
+            }
+            Ok(())
+        }
+        Command::HistoryOffload(args) => {
+            let client = connect(true).await?;
+            let v = client
+                .request(
+                    method::MUX_HISTORY_OFFLOAD,
+                    json!({"dryRun": args.dry_run, "olderThanDays": args.older_than_days}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_history_report(
+                    &v,
+                    if args.dry_run { "would be offloaded (dry run)" } else { "offloaded" },
+                    "offloaded",
+                );
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
@@ -198,6 +237,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::PlaceSession(args) => place_session(args, json_out).await,
         Command::WakeAgent { session } => {
             let client = connect(true).await?;
             unsupported_pause(&client)?;
@@ -806,6 +846,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let to = v["to"].as_str().unwrap_or("?");
                 match v["status"].as_str() {
                     Some("moved") => println!("moved {id} to {to}"),
+                    Some("moving") => println!("moving {id} to {to}"),
                     Some("already") => println!("{id} already runs {to}"),
                     _ => println!(
                         "not moved: {}\nthe person runs: {}",
@@ -1420,6 +1461,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
+        Command::Host(PeerCmd::Hypervisor { cmd }) => {
+            crate::cli::machine_hypervisor::run(cmd, json_out).await
+        }
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, signed_in_machines, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant {
@@ -1793,6 +1837,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
+                | PeerCmd::Hypervisor { .. }
                 | PeerCmd::Key { .. }
                 | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
@@ -1943,6 +1988,84 @@ async fn print_start_modes() {
     println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
 }
 
+/// `acpmux session place-set`: `_acpmux/place_set`, `place_undo` or `place_get`, and what each chat
+/// answered. A refused or unconfirmed chat ends the command non-zero.
+async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bool) -> Result<()> {
+    use crate::cli::errors::{AppError, Code};
+    let client = connect(true).await?;
+    let mut ids = Vec::new();
+    for s in &args.sessions {
+        ids.push(resolve_id(&client, s).await?);
+    }
+    let v = if args.undo {
+        let mut chats = Vec::new();
+        for id in &ids {
+            let one = client
+                .request("_acpmux/place_undo", json!({"sessionId": id, "confirm": args.yes}))
+                .await?;
+            chats.extend(one["chats"].as_array().cloned().unwrap_or_default());
+        }
+        json!({"chats": chats})
+    } else if args.status {
+        client.request("_acpmux/place_get", json!({"sessionIds": ids})).await?
+    } else {
+        let mut place = match args.mode.as_deref() {
+            Some("cloud") => json!({"mode": "cloud"}),
+            Some("machine") => {
+                let Some(machine) = args.machine.as_deref() else {
+                    return Err(AppError::usage("--mode machine needs --machine NAME").into());
+                };
+                json!({"mode": "machine", "machine": machine})
+            }
+            _ => json!({"mode": "auto"}),
+        };
+        if let Some(cwd) = &args.cwd {
+            cmux_json::JsonSet::set(&mut place, "cwd", json!(cwd));
+        }
+        let mut params = json!({"sessionIds": ids, "place": place, "confirm": args.yes});
+        if let Some(why) = &args.why {
+            cmux_json::JsonSet::set(&mut params, "why", json!(why));
+        }
+        client.request("_acpmux/place_set", params).await?
+    };
+    let chats = v["chats"].as_array().cloned().unwrap_or_default();
+    if json_out {
+        print_json(&v);
+    } else {
+        for c in &chats {
+            let reason = c["reason"].as_str().map(|r| format!(": {r}")).unwrap_or_default();
+            println!(
+                "{}: {}{reason}",
+                c["sessionId"].as_str().unwrap_or("?"),
+                c["state"].as_str().unwrap_or("?")
+            );
+            for l in c["leftBehind"].as_array().into_iter().flatten() {
+                println!("  stays here: {}", l["detail"].as_str().unwrap_or("?"));
+            }
+            if c["state"] == "needs_confirm" {
+                println!("  pass --yes to move anyway");
+            }
+        }
+    }
+    let bad =
+        chats.iter().find(|c| matches!(c["state"].as_str(), Some("refused" | "needs_confirm")));
+    match bad {
+        Some(c) if c["state"] == "refused" => Err(AppError::new(
+            Code::Refused,
+            "place_refused",
+            c["reason"].as_str().unwrap_or("refused"),
+        )
+        .into()),
+        Some(_) => Err(AppError::new(
+            Code::Refused,
+            "place_needs_confirm",
+            "the move leaves things behind: nothing moved; pass --yes to move anyway",
+        )
+        .into()),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{not_resumed_line, peer_add_params, resume_moves_off};
@@ -1999,5 +2122,30 @@ mod tests {
         assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
         assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
         assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
+    }
+}
+
+/// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
+fn print_history_report(v: &Value, verb: &str, key: &str) {
+    let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
+    println!(
+        "{} chats unchanged for over {} days {verb}: {:.1} MB",
+        count.and_then(Value::as_u64).unwrap_or(0),
+        v["olderThanDays"],
+        v["bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0,
+    );
+    for chat in v["chats"].as_array().into_iter().flatten() {
+        let bytes = chat.get("bytes").or_else(|| chat.get("archiveBytes")).and_then(Value::as_u64);
+        println!(
+            "  {}  {}d  {:.1} MB  {}",
+            chat["sessionId"].as_str().unwrap_or("?"),
+            chat["idleDays"],
+            bytes.unwrap_or(0) as f64 / 1_048_576.0,
+            chat["name"].as_str().unwrap_or(""),
+        );
+    }
+    println!("skipped: {}", v["skipped"]);
+    if let Some(to) = v.get("export").and_then(Value::as_str) {
+        println!("exported to {to}");
     }
 }

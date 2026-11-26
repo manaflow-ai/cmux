@@ -410,7 +410,7 @@ fn fifty_edits(folder: &Path, files: usize) {
 }
 
 #[test]
-#[ignore = "a bench: CMUX_WAY_BACK_FILES=100000 cargo test --test link_project_back -- --ignored --nocapture"]
+#[ignore = "a bench: CMUX_WAY_BACK_FILES=100000 cargo test --test it -- link_project_back:: --ignored --nocapture"]
 fn a_bench_of_bring_back() {
     if !fuse_here() {
         eprintln!("skipping: no FUSE here");
