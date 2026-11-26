@@ -716,7 +716,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.minContextTokens" : {
-      "default" : 60000,
+      "default" : 20000,
       "description" : "Chats with at least this much context are compacted, whatever their window.",
       "maximum" : 500000,
       "minimum" : 10000,

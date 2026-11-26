@@ -20584,7 +20584,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 60000,
+      "default" : 20000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentCache",

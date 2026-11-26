@@ -136,7 +136,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `models.spreadUsage` | boolean | `true` |  | Spread Usage Across My Subscriptions. When one subscription runs out, a chat moves to another with the same model. |
 | `agents.cacheCompact.enabled` | boolean | `true` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
 | `agents.cacheCompact.minContextPercent` | real | `30` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
-| `agents.cacheCompact.minContextTokens` | real | `60000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
+| `agents.cacheCompact.minContextTokens` | real | `20000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
 | `agents.coldWake.enabled` | boolean | `true` |  | Batch Wakes of Cold Chats. Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once. |
 | `agents.coldWake.compact` | boolean | `true` |  | Compact Cold Chats Before Waking. A large chat whose cache expired is compacted before batched messages arrive. |
 | `agents.coldWake.compactAboveTokens` | real | `100000` | 10000 to 500000 | Compact Cold Chats Above (Tokens). Cold chats with less context than this are woken without compacting. |
