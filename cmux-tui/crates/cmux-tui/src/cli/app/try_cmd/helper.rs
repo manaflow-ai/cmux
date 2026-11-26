@@ -33,16 +33,10 @@ pub(super) const KEY: &str = "screen_sharing_helper";
 pub(super) const ZIP: &str = "cmux-screen-sharing-helper-aarch64-apple-darwin.zip";
 /// The app's folder that holds the helper.
 pub(super) const LIBRARY: &str = "Contents/Library";
-/// Every channel's helper bundle ends with this (`cmux NIGHTLY Helper.app`;
-/// bundle-screen-sharing-helper.sh `SUFFIX`).
-pub(super) const SUFFIX: &str = " Helper.app";
-/// What an app built before the rename calls it (`cmux NIGHTLY Screen Sharing.app`; the script's
-/// `LEGACY_SUFFIX`). A try keeps whichever name the installed app has.
-pub(super) const LEGACY_SUFFIX: &str = " Screen Sharing.app";
-
-/// Whether `name` is a helper bundle's folder name, new or legacy.
+/// Whether a bundle name is a channel's helper: `cmux NIGHTLY Helper.app` since the rename
+/// (cmux#50850), `cmux NIGHTLY Screen Sharing.app` before it and in CI's published zip.
 pub(super) fn is_helper_name(name: &str) -> bool {
-    name.ends_with(SUFFIX) || name.ends_with(LEGACY_SUFFIX)
+    cmux_signed_bundle::HELPER_BUNDLE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
 /// The helper's executable (bundle-screen-sharing-helper.sh `EXECUTABLE`).
 pub(super) const EXECUTABLE: &str = "cmux-screen-sharing";
@@ -264,8 +258,8 @@ impl Prepared {
 /// installed one; the installed one kept aside in the staging folder until the try holds.
 #[derive(Debug)]
 pub(super) struct Swap {
-    /// Removed with whatever is still in it when the swap is dropped.
-    staging: tempfile::TempDir,
+    /// Held only to be dropped: removed with whatever is still in it when the swap is dropped.
+    _staging: tempfile::TempDir,
     pub installed: PathBuf,
     staged: PathBuf,
     aside: PathBuf,
@@ -283,30 +277,21 @@ impl Swap {
         let from = digest(&installed)?;
         let to = digest(&staged)?;
         let aside = staging.path().join("prior.app");
-        Ok(Self { staging, installed, staged, aside, from, to })
+        Ok(Self { _staging: staging, installed, staged, aside, from, to })
     }
 
-    /// Renames the installed bundle aside and the staged one into its place; on a failure
-    /// the installed one goes back.
+    /// Exchanges the staged bundle with the installed one in one step (`renamex_np(RENAME_SWAP)`
+    /// on macOS, so the app never holds no helper), then moves the prior one aside.
     pub(super) fn swap(&self) -> Result<(), String> {
-        fs::rename(&self.installed, &self.aside)
+        cmux_signed_bundle::swap_into(&self.staged, &self.installed)
             .map_err(|e| format!("{}: {e}", self.installed.display()))?;
-        if let Err(error) = fs::rename(&self.staged, &self.installed) {
-            let path = self.installed.display();
-            return Err(match fs::rename(&self.aside, &self.installed) {
-                Ok(()) => format!("{path}: {error}"),
-                Err(back) => format!("{path}: {error}; putting the helper back failed too: {back}"),
-            });
-        }
-        Ok(())
+        fs::rename(&self.staged, &self.aside).map_err(|e| format!("{}: {e}", self.staged.display()))
     }
 
     /// Puts the installed bundle from before the swap back (a later check failed).
     pub(super) fn put_back(&self) -> Result<(), String> {
-        let rejected = self.staging.path().join("rejected.app");
-        fs::rename(&self.installed, &rejected)
-            .map_err(|e| format!("{}: {e}", self.installed.display()))?;
-        fs::rename(&self.aside, &self.installed)
+        // One exchange as in `swap`: `aside` then holds the rejected bundle, removed with the staging.
+        cmux_signed_bundle::swap_into(&self.aside, &self.installed)
             .map_err(|e| format!("{}: {e}", self.installed.display()))
     }
 

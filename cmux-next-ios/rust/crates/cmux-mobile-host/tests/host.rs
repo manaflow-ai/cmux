@@ -10,7 +10,8 @@ use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::control::Event;
 use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_host::pairing::{
-    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, challenge_message, mac_proof_message,
+    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, TunnelKeys, challenge_message,
+    challenge_message_v2, mac_proof_message, mac_proof_message_v2,
 };
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::{
@@ -73,6 +74,26 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
                     recorded.lock().unwrap().push(request.clone());
+                    // A scripted terminal: an attach gets its vt-state (40x8, a prompt), then
+                    // `scripted` output lines, enough to scroll, then the socket stays open.
+                    if request["cmd"] == "attach-surface"
+                        && let Some(count) = request["scripted"].as_u64()
+                    {
+                        let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
+                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        let surface = request["surface"].clone();
+                        let state = serde_json::json!({"event": "vt-state", "surface": surface, "cols": 40,
+                            "rows": 8, "data": b64(SCRIPTED_PROMPT)});
+                        write.write_all(format!("{state}\n").as_bytes()).await.unwrap();
+                        for i in 0..count {
+                            let data = b64(scripted_line(i).as_bytes());
+                            let event =
+                                serde_json::json!({"event": "output", "surface": surface, "data": data});
+                            write.write_all(format!("{event}\n").as_bytes()).await.unwrap();
+                            tokio::time::sleep(Duration::from_millis(5)).await;
+                        }
+                        continue;
+                    }
                     // A busy terminal: an attach streams output until the socket closes.
                     if request["cmd"] == "attach-surface" && request["busy"] == true {
                         let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
@@ -194,6 +215,16 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
 
 /// `loaded`: whether the app already sent its (empty) `devices` list.
 async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixture {
+    fixture_viewport(fake, pairing, loaded, None).await
+}
+
+/// `viewport_sync`: the host's viewport sync gate (`ServiceConfig::viewport_sync`).
+async fn fixture_viewport(
+    fake: FakeOptions,
+    pairing: bool,
+    loaded: bool,
+    viewport_sync: Option<cmux_mobile_host::viewport_sync::SelectorConfig>,
+) -> Fixture {
     let server = FakeSignaling::start(fake).await;
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -225,6 +256,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))),
             4,
         ),
+        viewport_sync,
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -332,9 +364,14 @@ fn phone_rb(body: serde_json::Value) -> Bytes {
 }
 
 async fn drain(channel: &mut Channel) -> (Vec<u8>, String) {
+    drain_within(channel, Duration::from_secs(10)).await
+}
+
+/// `drain`, with a longer wait per message for replies that follow heavy disk work.
+async fn drain_within(channel: &mut Channel, wait: Duration) -> (Vec<u8>, String) {
     let mut bytes = Vec::new();
     loop {
-        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
+        match tokio::time::timeout(wait, channel.recv()).await.expect("in time") {
             Some(ChannelEvent::Data(data)) => bytes.extend_from_slice(&data),
             Some(ChannelEvent::Closed(info)) => return (bytes, info.code),
             None => return (bytes, "none".into()),
@@ -476,6 +513,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "pair-requests-v1",
             "phone-frames-v1",
             "tab-snapshots-v1",
+            "mailbox-send-v1",
+            "bundle-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -1016,7 +1055,8 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
         }
         sent += take as u64;
     }
-    let (reply, code) = drain(&mut upload).await;
+    // The host writes and syncs 100 MiB before it answers; a loaded CI runner can take well over 10 s.
+    let (reply, code) = drain_within(&mut upload, Duration::from_secs(90)).await;
     assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
     assert_eq!(sent, size);
     let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
@@ -1332,6 +1372,7 @@ async fn resumable_upload_stall_keeps_part_and_refuses() {
         session_exposure: None,
         route: None,
         path: None,
+        viewport: None,
     };
     let host = tokio::spawn(async move {
         let incoming = mac.accept().await.unwrap();
@@ -1417,6 +1458,7 @@ async fn a_new_phone_device_and_link_resumes_an_earlier_part() {
         session_exposure: None,
         route: None,
         path: None,
+        viewport: None,
     };
     let host = tokio::spawn(async move {
         let incoming = mac.accept().await.unwrap();
@@ -2056,6 +2098,122 @@ async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() 
 /// by the Mac before the daemon socket closes, so the daemon never takes the
 /// close for a dropped link and holds the grid (PROTOCOL.md "Terminal size
 /// claims").
+/// A v2 `auth` (`proofVersion` 2) on a WireGuard link: the challenge says v2, and the Mac's
+/// proof covers the tunnel's two static keys as both ends of the real tunnel see them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_identity_proofs_cover_the_wireguard_keys() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let tunnel = connected.tunnel_keys.clone().expect("a WireGuard link has tunnel keys");
+    assert_ne!(tunnel.dialer, tunnel.answerer);
+    let phone_nonce = "pinnonce0123456789abcdef";
+    let (mut channel, challenge) = open_v2(&connected.link, &keys, phone_nonce).await;
+    assert_eq!(challenge["proofVersion"], "2");
+    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
+    let mac_key = fixture.mac_key.as_deref().unwrap();
+    let mac_signature = challenge["macSignature"].as_str().unwrap();
+    // The proof holds over this phone's own tunnel keys (so the Mac's tunnel has the same ones),
+    // and neither over v1's message nor over other keys.
+    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &tunnel);
+    assert!(cmux_mobile_host::pairing::verify(mac_key, &proof, mac_signature));
+    let v1 = mac_proof_message(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce);
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &v1, mac_signature));
+    let swapped = TunnelKeys { dialer: tunnel.answerer.clone(), answerer: tunnel.dialer.clone() };
+    let other = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &swapped);
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &other, mac_signature));
+    sign_v2(&mut channel, &fixture, &keys, &nonce, &tunnel).await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+}
+
+/// A hub in the signaling path that ran its own tunnel to each side and relayed `auth` between
+/// them: the phone's tunnel then has the hub's key as its answerer, the Mac's the hub's as its
+/// dialer. The phone signs the keys it handshook with; the Mac, checking the keys it handshook
+/// with, refuses, and its proof does not hold for the phone's keys either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_relayed_auth_with_other_wireguard_keys_is_refused() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    // The hub's tunnel to the Mac: the real link, whose dialer key is the hub's.
+    let hub_to_mac = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mac_side = hub_to_mac.tunnel_keys.clone().unwrap();
+    // The phone's tunnel to the hub: the phone's own key, and the hub's other key as answerer.
+    let hub_key = |seed: u8| {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode([seed; 32])
+    };
+    let phone_side = TunnelKeys { dialer: hub_key(1), answerer: hub_key(2) };
+    assert_ne!(phone_side, mac_side);
+    let phone_nonce = "pinnonce0123456789abcdef";
+    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
+    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
+    // The phone checks the Mac's proof over its own tunnel's keys: it does not hold.
+    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &phone_side);
+    let mac_key = fixture.mac_key.as_deref().unwrap();
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &proof, challenge["macSignature"].as_str().unwrap()));
+    // Relayed anyway, the phone's signature over its keys is refused by the Mac.
+    sign_v2(&mut channel, &fixture, &keys, &nonce, &phone_side).await;
+    let (code, _) = close_reason(&mut channel).await;
+    assert_eq!(code, "unpaired");
+    // A v1 signature on a link that asked for v2 is refused too (no downgrade inside the Mac).
+    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
+    let nonce = challenge["challenge"].as_str().unwrap();
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        nonce,
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    let (code, _) = close_reason(&mut channel).await;
+    assert_eq!(code, "unpaired");
+}
+
+/// Opens a v2 `auth` with the phone's nonce and returns the channel and its challenge.
+async fn open_v2(
+    link: &cmux_mobile_link::Link,
+    keys: &PhoneKeys,
+    phone_nonce: &str,
+) -> (Channel, serde_json::Value) {
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair", "macNonce": phone_nonce,
+                               "proofVersion": "2"}),
+        )
+        .await
+        .unwrap();
+    let challenge = json_frame(channel.recv().await);
+    (channel, challenge)
+}
+
+/// Signs a v2 challenge over `tunnel` and sends the signature.
+async fn sign_v2(
+    channel: &mut Channel,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    nonce: &str,
+    tunnel: &TunnelKeys,
+) {
+    let message = challenge_message_v2(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        nonce,
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+        tunnel,
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
     let fixture = fixture(FakeOptions::default()).await;
@@ -2751,4 +2909,197 @@ async fn this_mac_lists_and_allows_its_own_waiting_request_over_its_link_socket(
         }]
     );
     server.abort();
+}
+
+/// The scripted terminal's first screen and its `i`th output batch (`fake_daemon`).
+const SCRIPTED_PROMPT: &[u8] = b"$ ";
+
+fn scripted_line(i: u64) -> String {
+    format!("line {i}\r\n")
+}
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn unb64(line: &serde_json::Value, field: &str) -> Vec<u8> {
+    use base64::Engine as _;
+    line[field]
+        .as_str()
+        .map_or_else(Vec::new, |data| base64::engine::general_purpose::STANDARD.decode(data).unwrap())
+}
+
+/// A screen's visible text, row by row (wide tails and blanks are "").
+fn screen_text(screen: &cmux_terminal_projection::sync::ScreenState) -> String {
+    (0..screen.rows)
+        .map(|row| screen.row(row).iter().map(|cell| cell.text.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn history_text(term: &cmux_terminal_projection::Terminal) -> String {
+    let rows =
+        term.history.iter().map(|row| row.cells.iter().map(|&cell| term.cell_text(cell)).collect::<String>());
+    rows.collect::<Vec<_>>().join("\n")
+}
+
+/// The phone's projection of one surface: `vt-state` resets it, `output` feeds it.
+struct PhoneScreen {
+    term: Option<cmux_terminal_projection::Terminal>,
+    outputs: usize,
+}
+
+impl PhoneScreen {
+    fn take(&mut self, line: &serde_json::Value) {
+        match line["event"].as_str() {
+            Some("vt-state") => {
+                let cols = line["cols"].as_u64().unwrap() as usize;
+                let rows = line["rows"].as_u64().unwrap() as usize;
+                let mut term = cmux_terminal_projection::Terminal::new(
+                    cols,
+                    rows,
+                    cmux_terminal_projection::DEFAULT_HISTORY_LIMIT,
+                );
+                for byte in unb64(line, "data").into_iter().chain(unb64(line, "pending")) {
+                    term.advance(byte);
+                }
+                self.term = Some(term);
+            }
+            Some("output") => {
+                self.outputs += 1;
+                let term = self.term.as_mut().expect("an output after the vt-state");
+                for byte in unb64(line, "data") {
+                    term.advance(byte);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The screen and scrollback the scripted terminal ends on (the host's model of it).
+fn scripted_terminal(count: u64) -> cmux_terminal_projection::Terminal {
+    let mut term =
+        cmux_terminal_projection::Terminal::new(40, 8, cmux_terminal_projection::DEFAULT_HISTORY_LIMIT);
+    let script = (0..count).flat_map(|i| scripted_line(i).into_bytes());
+    for byte in SCRIPTED_PROMPT.iter().copied().chain(script) {
+        term.advance(byte);
+    }
+    term
+}
+
+const SCRIPTED: u64 = 30;
+
+fn scripted_attach() -> Bytes {
+    let attach = serde_json::json!({"id": 1, "cmd": "attach-surface", "surface": 7, "cols": 40, "rows": 8,
+        "scripted": SCRIPTED});
+    Bytes::from(format!("{attach}\n"))
+}
+
+/// Viewport sync end to end over WireGuard (the datagram path forced): the phone's projection,
+/// fed only `output`/`vt-state` lines from its wrapped receiver, ends on the host's screen,
+/// injected outputs carried it, and the rows that scrolled off reached its scrollback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn viewport_sync_brings_the_phone_to_the_hosts_screen_over_wireguard() {
+    let selector = cmux_mobile_host::viewport_sync::SelectorConfig::datagram_first();
+    let fixture = fixture_viewport(FakeOptions::default(), false, true, Some(selector)).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    assert!(connected.overlay.is_some(), "a WireGuard link rides an overlay");
+    let daemon =
+        connected.link.open("daemon", serde_json::json!({"pseq": true, "viewport_sync": 1})).await.unwrap();
+    let (sender, receiver) = daemon.split();
+    let mut phone =
+        cmux_mobile_link::viewport::PhoneViewport::new(connected.overlay.as_ref(), true).wrap(receiver);
+    sender.send(scripted_attach()).await.unwrap();
+    let expected = scripted_terminal(SCRIPTED);
+    let expected_screen = cmux_terminal_projection::sync::ScreenState::capture(&expected);
+    let mut screen = PhoneScreen { term: None, outputs: 0 };
+    let mut buffer = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let shown = screen.term.as_ref().map(cmux_terminal_projection::sync::ScreenState::capture);
+        if let Some(shown) = &shown
+            && shown.cells == expected_screen.cells
+            && shown.cursor == expected_screen.cursor
+        {
+            break;
+        }
+        let event = tokio::time::timeout_at(deadline, phone.recv()).await;
+        let data = match event {
+            Ok(Some(ChannelEvent::Data(data))) => data,
+            other => {
+                let shown = shown.as_ref().map(screen_text).unwrap_or_default();
+                let expected = screen_text(&expected_screen);
+                panic!(
+                    "the phone never showed the host's screen: {other:?}\nshown:\n{shown}\nexpected:\n{expected}"
+                );
+            }
+        };
+        buffer.extend_from_slice(&data);
+        while let Some(newline) = buffer.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = buffer.drain(..=newline).collect();
+            let line: serde_json::Value = serde_json::from_slice(&line).unwrap();
+            let event = line["event"].as_str().unwrap_or_default();
+            assert!(!event.starts_with("viewport-"), "the wrapper swallows viewport lines: {line}");
+            screen.take(&line);
+        }
+    }
+    // On the datagram path the host forwards no output line: every one the phone fed came from
+    // the wrapper (its datagrams and the history lines).
+    assert!(screen.outputs > 0, "an injected output");
+    let history = history_text(screen.term.as_ref().unwrap());
+    assert!(history.contains("$ line 0") && history.contains("line 20"), "the scrolled rows: {history:?}");
+}
+
+/// Reads `daemon`'s lines until `count` outputs passed; every line read, in order.
+async fn read_outputs(daemon: &mut Channel, count: u64) -> Vec<serde_json::Value> {
+    let mut buffer = Vec::new();
+    let mut lines = Vec::new();
+    let mut outputs = 0;
+    while outputs < count {
+        let line = next_line(daemon, &mut buffer).await;
+        outputs += u64::from(line["event"] == "output");
+        lines.push(line);
+    }
+    lines
+}
+
+/// An old phone (no args) on a host with the gate on: the plain stream, unstamped, and no
+/// viewport line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn viewport_sync_an_old_phone_gets_the_plain_stream() {
+    let selector = cmux_mobile_host::viewport_sync::SelectorConfig::datagram_first();
+    let fixture = fixture_viewport(FakeOptions::default(), false, true, Some(selector)).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    daemon.send(scripted_attach()).await.unwrap();
+    let lines = read_outputs(&mut daemon, SCRIPTED).await;
+    assert!(
+        lines.iter().all(|line| !line["event"].as_str().unwrap_or_default().starts_with("viewport-")),
+        "{lines:?}"
+    );
+    assert!(lines.iter().all(|line| line.get("pseq").is_none()), "no pseq without the arg: {lines:?}");
+    let outputs: Vec<Vec<u8>> =
+        lines.iter().filter(|line| line["event"] == "output").map(|line| unb64(line, "data")).collect();
+    assert_eq!(outputs, (0..SCRIPTED).map(|i| scripted_line(i).into_bytes()).collect::<Vec<_>>());
+}
+
+/// A new phone (both args) on a host with the gate off: the plain stream, stamped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn viewport_sync_off_on_the_host_gives_the_plain_stream() {
+    let fixture = fixture_viewport(FakeOptions::default(), false, true, None).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut daemon =
+        connected.link.open("daemon", serde_json::json!({"pseq": true, "viewport_sync": 1})).await.unwrap();
+    daemon.send(scripted_attach()).await.unwrap();
+    let lines = read_outputs(&mut daemon, SCRIPTED).await;
+    assert!(
+        lines.iter().all(|line| !line["event"].as_str().unwrap_or_default().starts_with("viewport-")),
+        "{lines:?}"
+    );
+    let outputs: Vec<&serde_json::Value> = lines.iter().filter(|line| line["event"] == "output").collect();
+    assert!(outputs.iter().all(|line| line["pseq"].is_u64()), "pseq with the arg: {outputs:?}");
+    let bytes: Vec<Vec<u8>> = outputs.iter().map(|line| unb64(line, "data")).collect();
+    assert_eq!(bytes, (0..SCRIPTED).map(|i| scripted_line(i).into_bytes()).collect::<Vec<_>>());
 }

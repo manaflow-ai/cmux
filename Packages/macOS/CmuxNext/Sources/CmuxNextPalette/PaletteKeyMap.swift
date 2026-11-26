@@ -82,6 +82,14 @@ public struct PaletteKeyMap {
             && event.charactersIgnoringModifiers?.lowercased() == "k"
     }
 
+    /// Cmd-1, Cmd-2 or Cmd-3: the v2 scope bar's segment of that place (`PaletteScopeSegment`), taken only while
+    /// the bar shows (Tab and Shift-Tab already enter and leave scopes).
+    public static func scopeSegment(for event: NSEvent) -> PaletteScopeSegment? {
+        guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+              let key = event.charactersIgnoringModifiers, let number = Int(key) else { return nil }
+        return PaletteScopeSegment(rawValue: number - 1)
+    }
+
     public static func isCloseItem(_ event: NSEvent) -> Bool {
         event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
             && event.charactersIgnoringModifiers?.lowercased() == "w"

@@ -50,7 +50,9 @@ on:
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-disk/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
@@ -63,8 +65,11 @@ on:
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-launch-image/**"
+      - "cmux-tui/crates/cmux-pane-pictures/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-keymap/**"
+      - "schemas/keymap/key-styles.json"
       - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-launch-shell/**"
       - "cmux-tui/crates/cmux-layout-cache/**"
@@ -75,8 +80,10 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-interactivity/**"
       - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-engine/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
@@ -189,7 +196,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Mint the owned-pool read token
@@ -238,11 +247,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/ffi_build_supersede.py
 
+  portable-tests:
+    name: app FFI unit tests (Linux)
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui/crates/cmux-app-ffi -> target
+          key: app-ffi-unit-tests
+
+      - name: Test the reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Test the remote desktop FFI
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: cargo test --locked
+
+      - name: Test the palette ranker
+        working-directory: cmux-tui
+        run: cargo test -p cmux-palette-ranker --locked
+
   build:
     name: build xcframework
-    needs: placement
-    # Runs whatever the placement did (it only picks the runner); not on a cancelled run.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
+    needs: [placement, portable-tests]
+    # Placement may fail open; portable tests must pass before taking a Mac for the xcframework.
+    if: ${{ !cancelled() && needs.portable-tests.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
     # The placement's route (above) when it placed this attempt. Without one
     # (no placement, or a busy promote pool and no free Blacksmith slot),
     # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
@@ -366,18 +412,6 @@ jobs:
         working-directory: cmux-tui
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Test the reducer
-        working-directory: cmux-tui
-        run: cargo test -p cmux-layout-reducer --locked
-
-      - name: Test the remote desktop FFI
-        working-directory: cmux-tui/crates/cmux-rd-ffi
-        run: cargo test --locked
-
-      - name: Test the palette ranker
-        working-directory: cmux-tui
-        run: cargo test -p cmux-palette-ranker --locked
-
       # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
       - name: Build universal xcframework
         working-directory: cmux-tui
@@ -488,6 +522,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/app_ffi_rescue.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Watch the build and rescue it
         env:
@@ -556,7 +591,17 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache the pinned cctools-port ld64
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Cache the pinned cctools-port ld64 (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ runner.temp }}/macos-cross/cctools

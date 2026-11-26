@@ -75,6 +75,8 @@ import Testing
         for _ in 0..<2000 where !until() { await Task.yield() }
     }
 
+    // The hold is the Rust prompt outbox's (`ChatPromptOutbox`), in the iOS build only.
+    #if canImport(CmuxMobileLinkFFI)
     @Test func messagesSentDuringABlipGoInOrderOnceTheLinkIsBack() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
@@ -107,7 +109,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
         await settle { store.returnedDraft != nil }
         #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        #expect(store.clientError == "Not sent: mini is offline.")
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.
@@ -115,74 +117,7 @@ import Testing
         for _ in 0..<300 { await Task.yield() }
         #expect(mac.prompts.isEmpty)
     }
-
-    /// Leo, 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good
-    /// progress, it shiukd be allowed to keep going?" A prompt held while the way to the Mac keeps
-    /// moving stays held past the window; one with nothing moving for the window comes back.
-    @Test func aHeldMessageWaitsWhileTheLinkMakesProgress() async throws {
-        let mac = Mac()
-        let (hub, _, source, store) = try await openChat(mac)
-        defer { withExtendedLifetime(hub) {} }
-        let clock = TestClock()
-        source.now = { clock.instant }
-        source.uploadAdvancedAt = { nil }
-        await hub.bind(nil)
-        store.send(prompt: "keep going")
-        await settle { source.heldPrompts.count == 1 }
-
-        // 25 s held, progress every 3 s: still held, nothing said.
-        for _ in 0..<8 {
-            clock.advance(.seconds(3))
-            source.noteProgress()
-            #expect(!source.expireHeldPrompts())
-        }
-        clock.advance(.seconds(1))
-        #expect(!source.expireHeldPrompts())
-        #expect(source.heldPrompts.map(\.text) == ["keep going"])
-        #expect(store.returnedDraft == nil)
-    }
-
-    @Test func aHeldMessageComesBackAfterTheWindowWithNoProgress() async throws {
-        let mac = Mac()
-        let (hub, _, source, store) = try await openChat(mac)
-        defer { withExtendedLifetime(hub) {} }
-        let clock = TestClock()
-        source.now = { clock.instant }
-        source.uploadAdvancedAt = { nil }
-        await hub.bind(nil)
-        store.send(prompt: "run the tests")
-        await settle { source.heldPrompts.count == 1 }
-
-        clock.advance(.seconds(11))
-        #expect(source.expireHeldPrompts())
-        await settle { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(source.heldPrompts.isEmpty)
-    }
-
-    /// An upload's acked bytes advancing counts as progress too.
-    @Test func aHeldMessageWaitsWhileAnUploadAdvances() async throws {
-        let mac = Mac()
-        let (hub, _, source, store) = try await openChat(mac)
-        defer { withExtendedLifetime(hub) {} }
-        let clock = TestClock()
-        var advanced: ContinuousClock.Instant?
-        source.now = { clock.instant }
-        source.uploadAdvancedAt = { advanced }
-        await hub.bind(nil)
-        store.send(prompt: "look at this")
-        await settle { source.heldPrompts.count == 1 }
-
-        for _ in 0..<8 {
-            clock.advance(.seconds(3))
-            advanced = clock.instant
-            #expect(!source.expireHeldPrompts())
-        }
-        clock.advance(.seconds(11))
-        #expect(source.expireHeldPrompts())
-        await settle { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "look at this")
-    }
+    #endif
 
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
     /// message to one is refused, truly. The draft comes back with what to change; a reconnect
@@ -210,10 +145,4 @@ import Testing
         await settle { store.clientError == nil }
         #expect(store.clientError == nil)
     }
-}
-
-/// A clock the held-prompt tests move by hand.
-final class TestClock {
-    private(set) var instant = ContinuousClock.now
-    func advance(_ by: Duration) { instant += by }
 }

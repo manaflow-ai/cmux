@@ -178,7 +178,8 @@ CELLS = [
 
 
 class MatrixReportTest(unittest.TestCase):
-    def run_main(self, rust: str | None, ios: str | None, cells: list[dict] = CELLS) -> tuple[int, list[dict]]:
+    def run_main(self, rust: str | None, ios: str | None, cells: list[dict] = CELLS,
+                 tick: str | None = None) -> tuple[int, list[dict]]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "cells.json").write_text(json.dumps({"cells": cells}))
@@ -189,6 +190,9 @@ class MatrixReportTest(unittest.TestCase):
             if ios is not None:
                 (root / "ios.log").write_text(ios)
                 argv += ["--ios", str(root / "ios.log")]
+            if tick is not None:
+                (root / "tick.log").write_text(tick)
+                argv += ["--tick", str(root / "tick.log")]
             code = matrix.main(argv)
             return code, json.loads((root / "out.json").read_text())
 
@@ -313,15 +317,44 @@ class MatrixReportTest(unittest.TestCase):
         rows = matrix.build([cell("memory", "ios", "cellAppMemoryWarning", False)], {"ios": IOS_CRASH_LOG})
         self.assertIn("| **crashed** |", matrix.table(rows))
 
+    def test_tick_cells_read_their_own_log(self) -> None:
+        cells = [
+            cell("offline", "ios", "cellNetworkOfflineThenBack", True),
+            cell("reconnects", "tick", "cellTickTenThousandReconnects", False),
+            cell("deltas", "tick", "cellTickTenThousandDeltas", False),
+        ]
+        # A PR run gives no tick log: the tick cells read not run, and gate nothing.
+        code, rows = self.run_main(None, IOS_LOG, cells)
+        self.assertEqual({row["id"]: row["status"] for row in rows},
+                         {"offline": "pass", "reconnects": "not run", "deltas": "not run"})
+        self.assertEqual(code, 0)
+        # The nightly's tick log: one passes, one fails; a crash of the ios run does not reach them.
+        tick = (
+            "◇ Test run started.\n"
+            "◇ Suite TickHarnessCellsTests started.\n"
+            "◇ Test cellTickTenThousandReconnects() started.\n"
+            "Test case 'TickHarnessCellsTests/cellTickTenThousandReconnects()' passed on 'iPhone 17 Pro' (4.200 seconds)\n"
+            "◇ Test cellTickTenThousandDeltas() started.\n"
+            "Test case 'TickHarnessCellsTests/cellTickTenThousandDeltas()' failed on 'iPhone 17 Pro' (3.100 seconds)\n"
+            "✘ Test run with 2 tests in 1 suite failed after 7.300 seconds with 1 issue.\n"
+            "** TEST FAILED **\n"
+        )
+        code, rows = self.run_main(None, IOS_CRASH_LOG, cells, tick=tick)
+        status = {row["id"]: row["status"] for row in rows}
+        self.assertEqual(status["reconnects"], "pass")
+        self.assertEqual(status["deltas"], "fail")
+
     def test_the_real_catalog_parses_and_names_known_suites(self) -> None:
         cells = json.loads(matrix.CELLS.read_text())["cells"]
         self.assertTrue(cells)
         ids = [c["id"] for c in cells]
         self.assertEqual(len(ids), len(set(ids)), "cell ids are unique")
         for c in cells:
-            self.assertIn(c["suite"], {"rust", "ios", "cloud"}, c["id"])
+            self.assertIn(c["suite"], {"rust", "ios", "tick", "cloud"}, c["id"])
             for key in ("axis", "case", "test", "asserts", "gate"):
                 self.assertIn(key, c, c["id"])
+            if c["suite"] == "tick":
+                self.assertFalse(c["gate"], f"{c['id']}: new cells add no CI gate")
 
 
 if __name__ == "__main__":

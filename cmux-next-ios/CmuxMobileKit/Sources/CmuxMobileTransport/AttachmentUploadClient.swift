@@ -150,7 +150,7 @@ public final class AttachmentUploadClient {
     }
 
     fileprivate func apply(_ update: UploadProgress) {
-        if update.ackedBytes > (progress[update.uploadId]?.ackedBytes ?? 0) { UploadActivity.lastAdvance = .now }
+        if update.ackedBytes > (progress[update.uploadId]?.ackedBytes ?? 0) { UploadActivity.advanced() }
         progress[update.uploadId] = update
         switch update.stage {
         case .done, .failed, .cancelled: release(update.uploadId)

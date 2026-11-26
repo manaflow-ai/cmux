@@ -426,6 +426,7 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
     params = urllib.parse.urlencode({"project": project, "query": query, "statsPeriod": "14d", "limit": 25})
     request = urllib.request.Request(f"https://sentry.io/api/0/organizations/{org}/issues/?{params}",
                                      headers={"Authorization": f"Bearer {token}"})
+    # user-agent: sentry.io's API, no CDN of ours
     _, body, _ = deadline_http.request(request, 60, raise_errors=True)
     return json.loads(body)
 

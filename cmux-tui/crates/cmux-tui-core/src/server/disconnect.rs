@@ -146,11 +146,15 @@ fn disconnect_client_with_notice(
         mux.settle_idle_stop_fence();
     }
     mux.activity.disconnect(client);
+    // The app's window records are in: a relaunch draws them (launch_snapshot.rs).
+    mux.launch_snapshot_client_left(client);
     mux.unbind_conversation_principal(client);
     #[cfg(unix)]
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
     mux.feed_connection_closed(client);
+    #[cfg(unix)]
+    mux.cloud_services().machine_state.stop(client);
     mux.forget_tab_creations(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can

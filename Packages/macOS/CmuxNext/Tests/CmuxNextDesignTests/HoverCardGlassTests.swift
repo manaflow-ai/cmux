@@ -34,4 +34,23 @@ import Testing
         let effect = try #require(surface.subviews.compactMap { $0 as? NSVisualEffectView }.first)
         #expect(effect.blendingMode == .withinWindow)
     }
+
+    /// Leo 2026-11-22, the tab hover card: "has a black border... no cohesiveness/theme synchronizing";
+    /// "doubled up glass/wack looking glass all over the place". Liquid Glass casts its own soft shadow, so
+    /// the popup host's black one under it was a second shadow that read as a dark ring: the host lays none
+    /// under real Liquid Glass and keeps its shadow under the blur and the solid card, which cast none.
+    @Test func theHostCastsNoSecondShadowUnderLiquidGlass() throws {
+        let panel = HoverCardPanel()
+        let host = try #require(panel.contentView as? PopupHostView)
+        host.setFrameSize(NSSize(width: 320, height: 200))
+        for material in [OverlayMaterial.liquidGlass, .vibrancy, .opaque] {
+            panel.glass.materialOverride = material
+            host.layoutSubtreeIfNeeded()
+            host.layout()
+            let systemShadow = panel.glass.castsSystemGlassShadow
+            #expect(host.shadowLayer.opacity == (systemShadow ? 0 : 1), "\(material)")
+            if material != .liquidGlass { #expect(!systemShadow, "\(material) casts no shadow of its own") }
+        }
+        panel.glass.materialOverride = nil
+    }
 }

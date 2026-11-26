@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 /// Maximum encoded bytes in one presence replacement operation.
 pub const MAX_PRESENCE_BYTES: usize = 4 * 1024;
 /// Maximum distinct people other than the owner in a presence set.
+/// Measured: the whole set goes in one replacement of at most MAX_PRESENCE_BYTES (4 KiB), about
+/// 100 bytes a person; the hub's MAX_PEOPLE is the same 32.
 pub const MAX_PRESENCE_PEOPLE: usize = 32;
 /// An `on` typing state expires unless renewed.
 pub const TYPING_EXPIRY: Duration = Duration::from_secs(8);

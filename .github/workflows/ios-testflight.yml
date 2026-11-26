@@ -1,17 +1,9 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
-  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
-  # iOS-relevant commits are pending or the oldest is
-  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
-  # Manual dispatch remains available for intentional rebuilds.
-  schedule:
-    # Check current main for a cmux INTERNAL upload every 20 minutes.
-    - cron: "7,27,47 * * * *"
-    # Twice-daily (every 12 hours) cmux DEMO upload of current main.
-    - cron: "37 5,17 * * *"
+  # Manual dispatch only. The 20-minute INTERNAL poll and the twice-daily DEMO
+  # crons were dropped (ci-v2 step 3, R13): GitHub fires schedule only from the
+  # default branch's copy, and main retired this file in #42751, so they never ran.
   workflow_dispatch:
     inputs:
       build_number:
@@ -462,6 +454,7 @@ jobs:
             .github/workflows/ios-testflight.yml
             ios/scripts/fetch-testflight-notes-history.sh
             scripts/ci/ios_upload_batch_decision.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Batch INTERNAL uploads by iOS commit count and age

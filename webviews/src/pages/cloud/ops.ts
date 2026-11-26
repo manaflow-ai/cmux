@@ -44,6 +44,12 @@ export const CloudOps = {
   snapshotRestore: "cmux.cloud.snapshot.restore",
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
+  /**
+   * The team's Cloud usage this month and its price (cmux-platform metering, through the Cloud app server):
+   * awake vCPU and memory seconds, disk held while paused, `usd` per meter and in total, uncounted `gaps`,
+   * whether a card is on file and whether payments run in test mode. The page shows `usd`; it prices nothing.
+   */
+  usageCurrent: "cmux.cloud.usage.current",
   billingCheckout: "cmux.cloud.billing.checkout",
   /**
    * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
@@ -341,6 +347,28 @@ export interface CloudDiskHealth {
   readonly floor_mb: number;
   readonly top_users: ReadonlyArray<{ readonly path: string; readonly used_mb: number }>;
   readonly observed_at: number;
+  /** The disk bar the Cloud app server computes from this report (cmux-cloud-disk); older servers omit it. */
+  readonly bar?: CloudDiskBar;
+}
+
+/**
+ * The disk bar as cmux-cloud-disk's `DiskView` serializes it: GB to one place, the segments left to
+ * right with their widths in parts of 1000. The page draws it as it is; it computes nothing.
+ */
+export interface CloudDiskBar {
+  readonly state: "allocated" | "ok" | "almost_full";
+  readonly total_gb: number;
+  readonly used_gb?: number;
+  readonly free_gb?: number;
+  readonly segments: ReadonlyArray<{
+    readonly kind: "system" | "project" | "caches" | "used" | "free";
+    readonly bytes: number;
+    readonly gb: number;
+    readonly width: number;
+  }>;
+  /** English, for the CLI and tests; the page writes its own words from the numbers. */
+  readonly label: string;
+  readonly text: string;
 }
 
 /**
@@ -352,7 +380,31 @@ export type CloudMachine = Omit<Wire.CloudMachine, "status"> & {
   readonly status: MachineStatus;
   /** Optional until the Cloud projection receives a VM health report. */
   readonly disk_health?: CloudDiskHealth | null;
+  /** Who started it, as its create said (cmux-platform `MachineOrigin`); a surge slot is `{kind: "person", label: "Surge"}`. */
+  readonly origin?: { readonly kind?: string; readonly label: string } | null;
 };
+
+/**
+ * The latest surge (cmux-platform RFD 0025), as the Cloud app server computes it from its machine
+ * projection (first-party-apps/cloud/server/src/ops/surge.rs) and adds to the list's last page.
+ */
+export interface CloudSurge {
+  /** When the surge's first machine was created (ms). */
+  readonly started_at: number;
+  /** Its machines still listed. */
+  readonly count: number;
+  /** Machines that came up (running, or paused after running). */
+  readonly ready: number;
+  /** Machines still provisioning or starting: the surge's queue. */
+  readonly starting: number;
+  readonly failed: number;
+  /** No machine is still provisioning or starting. */
+  readonly drained: boolean;
+  /** From the start to the last machine running (ms); absent until it is known. */
+  readonly last_ready_ms?: number;
+  /** Its machine ids, newest first. */
+  readonly machines: readonly string[];
+}
 
 export interface MachineListResult {
   machines: CloudMachine[];
@@ -360,6 +412,8 @@ export interface MachineListResult {
   next_cursor?: string | null;
   /** The projection revision; watch events at or below it are already in the page. */
   revision: number;
+  /** The last page only: the latest surge, when one is listed (an older server sends none). */
+  surge?: CloudSurge;
 }
 
 /** One event of `cmux.cloud.machine.watch`. Events of one projection change share its revision. */
@@ -405,6 +459,9 @@ export type DeleteReason = Wire.CloudDeleteReason;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
 export type CheckoutResult = Result<"cloud.billing.checkout">;
+
+/** `cloud.usage.current`: this month's usage, its price and the payment method on file. */
+export type CloudUsage = Result<"cloud.usage.current">;
 
 /** `cloud.migration.status` (contract 4). */
 export type MigrationStatus = Result<"cloud.migration.status">;
