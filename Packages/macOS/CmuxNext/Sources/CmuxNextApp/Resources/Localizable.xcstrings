@@ -1,138 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "classicImport.toast.sshScrollbackStays": {
-      "comment": "Added to the Import Workspaces from Classic cmux toast when SSH terminals of classic cmux (the older app) had saved scrollback: they open on their host without it.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH terminals open without their old scrollback."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH-Terminals öffnen sich ohne ihren bisherigen Verlauf."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les terminaux SSH s’ouvrent sans leur ancien historique de défilement."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تُفتح طرفيات SSH بدون سجل التمرير القديم."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las terminales SSH se abren sin su historial de desplazamiento anterior."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 終端機開啟時不含先前的捲動記錄。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 终端打开时不含之前的回滚记录。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 터미널은 이전 스크롤백 없이 열립니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH ターミナルは以前のスクロールバックなしで開きます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH terminali se otvaraju bez svoje stare historije pomicanja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-terminaler åbnes uden deres gamle rullehistorik."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I terminali SSH si aprono senza la loro vecchia cronologia di scorrimento."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្ថានីយ SSH បើកដោយគ្មានប្រវត្តិរំកិលចាស់របស់វា។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-terminaler åpnes uten den gamle rullehistorikken."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminale SSH otwierają się bez dawnej historii przewijania."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminais SSH abrem sem o histórico de rolagem antigo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Терминалы SSH открываются без прежней истории прокрутки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เทอร์มินัล SSH เปิดขึ้นโดยไม่มีประวัติการเลื่อนเดิม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH terminalleri eski kaydırma geçmişleri olmadan açılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Термінали SSH відкриваються без попередньої історії прокручування."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các terminal SSH mở ra mà không có lịch sử cuộn cũ."
-          }
-        }
-      }
-    },
     "classicImport.toast.otherTabsStay": {
       "comment": "Added to the Import Workspaces from Classic cmux toast when classic cmux (the older app) had tabs cmux-next does not open: simulator or project tabs, or markdown and file preview tabs whose file no longer exists. Markdown and file preview tabs whose file exists do come over.",
       "extractionState": "manual",
@@ -261,6 +129,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Các thẻ trình mô phỏng và dự án, cùng các thẻ có tệp không còn nữa, vẫn ở lại cmux cổ điển."
+          }
+        }
+      }
+    },
+    "classicImport.toast.settingsComplete": {
+      "comment": "Shown when the accepted Classic import finishes with settings and no saved workspaces.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic settings import complete."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Import der Classic-Einstellungen ist abgeschlossen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importation des réglages de cmux classique terminée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتمل استيراد إعدادات cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ha completado la importación de los ajustes de cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成匯入 Classic 設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic 设置导入完成。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic 설정 가져오기가 완료되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic の設定の読み込みが完了しました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz postavki iz klasičnog cmux-a je završen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importen af indstillinger fra cmux Classic er fuldført."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importazione delle impostazioni di cmux Classic completata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការនាំចូលការកំណត់ពី cmux Classic បានបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importen av innstillinger fra cmux Classic er fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończono import ustawień z cmux Classic."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A importação dos ajustes do cmux Classic foi concluída."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт настроек cmux Classic завершён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าการตั้งค่าจาก cmux Classic เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Classic ayarlarının içe aktarılması tamamlandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт налаштувань cmux Classic завершено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã hoàn tất nhập cài đặt từ cmux Classic."
+          }
+        }
+      }
+    },
+    "classicImport.toast.sshScrollbackStays": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when SSH terminals of classic cmux (the older app) had saved scrollback: they open on their host without it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminals open without their old scrollback."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Terminals öffnen sich ohne ihren bisherigen Verlauf."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les terminaux SSH s’ouvrent sans leur ancien historique de défilement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح طرفيات SSH بدون سجل التمرير القديم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las terminales SSH se abren sin su historial de desplazamiento anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 終端機開啟時不含先前的捲動記錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 终端打开时不含之前的回滚记录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 터미널은 이전 스크롤백 없이 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルは以前のスクロールバックなしで開きます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH terminali se otvaraju bez svoje stare historije pomicanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-terminaler åbnes uden deres gamle rullehistorik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I terminali SSH si aprono senza la loro vecchia cronologia di scorrimento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានីយ SSH បើកដោយគ្មានប្រវត្តិរំកិលចាស់របស់វា។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-terminaler åpnes uten den gamle rullehistorikken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale SSH otwierają się bez dawnej historii przewijania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminais SSH abrem sem o histórico de rolagem antigo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминалы SSH открываются без прежней истории прокрутки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัล SSH เปิดขึ้นโดยไม่มีประวัติการเลื่อนเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH terminalleri eski kaydırma geçmişleri olmadan açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінали SSH відкриваються без попередньої історії прокручування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các terminal SSH mở ra mà không có lịch sử cuộn cũ."
           }
         }
       }
@@ -12842,138 +12974,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "較早的歷史記錄"
-          }
-        }
-      }
-    },
-    "classicImport.toast.settingsComplete": {
-      "comment": "Shown when the accepted Classic import finishes with settings and no saved workspaces.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic settings import complete."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Import der Classic-Einstellungen ist abgeschlossen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importation des réglages de cmux classique terminée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اكتمل استيراد إعدادات cmux الكلاسيكي."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ha completado la importación de los ajustes de cmux clásico."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已完成匯入 Classic 設定。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic 设置导入完成。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic 설정 가져오기가 완료되었습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic の設定の読み込みが完了しました。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uvoz postavki iz klasičnog cmux-a je završen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importen af indstillinger fra cmux Classic er fuldført."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importazione delle impostazioni di cmux Classic completata."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការនាំចូលការកំណត់ពី cmux Classic បានបញ្ចប់។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importen av innstillinger fra cmux Classic er fullført."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zakończono import ustawień z cmux Classic."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A importação dos ajustes do cmux Classic foi concluída."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Импорт настроек cmux Classic завершён."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "นำเข้าการตั้งค่าจาก cmux Classic เสร็จแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Classic ayarlarının içe aktarılması tamamlandı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Імпорт налаштувань cmux Classic завершено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã hoàn tất nhập cài đặt từ cmux Classic."
           }
         }
       }

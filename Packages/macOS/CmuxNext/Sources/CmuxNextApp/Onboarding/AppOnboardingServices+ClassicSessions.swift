@@ -232,24 +232,11 @@ extension AppOnboardingServices {
     private func replayFile(_ scrollback: String?) -> String? {
         guard let scrollback, !scrollback.isEmpty else { return nil }
         do {
-            return try Self.writeReplay(scrollback).path
+            return try ClassicScrollbackReplay.write(scrollback).path
         } catch {
             services.daemon.logger.error("classic scrollback not written: \(String(describing: error), privacy: .public)")
             return nil
         }
-    }
-
-    /// Writes `text` to a new file only this user can read, in a folder only this user can open,
-    /// under `directory` (the user's temporary folder).
-    nonisolated static func writeReplay(_ text: String, in directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
-        let folder = directory.appendingPathComponent("cmux-next-scrollback", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        let file = folder.appendingPathComponent(UUID().uuidString.lowercased())
-        guard FileManager.default.createFile(atPath: file.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
-        }
-        return file
     }
 
     /// Names each tab as classic did and returns where each one landed (read from the store, never the whole tree).
@@ -296,13 +283,9 @@ extension AppOnboardingServices {
             }
         }
     }
-}
 
-extension AppOnboardingServices {
-    /// Replaces each classic markdown tab, and each file preview of a text file, with its file's markdown or code
-    /// editor page, at the page's place in its pane (as ``openClassicChats(_:on:connection:)`` does for agents). A
-    /// file the browser previews (an image, a PDF, media) keeps its page. The page stays when its replacement
-    /// does not open within ten seconds.
+    /// Replaces each classic markdown tab, and each text file's preview, with its markdown or editor page in its place
+    /// (as ``openClassicChats(_:on:connection:)`` does); an image, PDF or media file, or one not open in 10 s, keeps its page.
     func openClassicFiles(_ placed: [ClassicPlacedTab], on daemon: DaemonService, connection: DaemonConnection) async {
         let services = services
         guard let window = services.windows.active ?? services.windows.controllersActingFirst.first else { return }
@@ -313,10 +296,8 @@ extension AppOnboardingServices {
             let made = FirstOutcome<SurfaceID?>()
             guard pages.open(file.url, parkedIn: model, of: daemon, window: window, userChose: false,
                              created: { made.resolve($0) }) else { continue }
-            let bound = DemandTimer(owner: "ClassicImport.filePage")
-            bound.schedule(after: .seconds(10)) { made.resolve(nil) }
-            let surface = await made.value()
-            bound.cancel()
+            let bound = DemandTimer(owner: "ClassicImport.filePage"); bound.schedule(after: .seconds(10)) { made.resolve(nil) }
+            let surface = await made.value(); bound.cancel()
             // A page that did not open, or did not move, leaves the file's preview in its place.
             guard let surface, (try? await connection.moveTab(surface, to: slot.pane, index: slot.index)) != nil else { continue }
             try? await connection.closeTab(slot.surface)
@@ -340,9 +321,7 @@ extension AppOnboardingServices {
             }
         }
     }
-}
 
-extension AppOnboardingServices {
     /// What this Mac's acpmux would do with `adopt` (Open Chat's plan); nil
     /// when acpmux is not available.
     fileprivate func classicChatPlan(_ adopt: AgentPaneAdopt, cwd: String?) async throws -> AcpmuxChatOpenPlan? {
