@@ -44,15 +44,26 @@ import Foundation
     /// nothing, as in tests).
     private let defaults: UserDefaults?
     static let keptWidthKey = "agentPane.tabRowToolsWidth"
+    /// The shipped chat header's tools need in a pane's row at 100% zoom, CSS pixels, for a launch with no kept width:
+    /// the launch capture's strip gave up 137 pt for the tools and the pane bar's trailing gap together. A page that
+    /// reports another width moves the strip's edge by the difference once, never the chat's top by the row.
+    public static let firstLaunchWidth: CGFloat = 128
 
     /// A new chat view's row. With a width kept from an earlier launch, the row starts as a reloaded page's does
     /// (``sharedWidth(zoom:)``): the pane lays the chat under the strip from its first layout. A row that waited for
     /// the page's first report laid the chat below the strip, then under it once the page reported, after every
     /// launch: the header grew by 6 and the composer dropped by the row's 34 just after the chat drew (relaunch-shift
     /// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
-    init(defaults: UserDefaults? = nil) {
+    /// With none kept (a first launch, a fresh profile), `firstLaunchWidth` (CSS pixels; 0: none) stands in for it the
+    /// same way: the chat starts under the strip with its tools' room reserved, and the page's first report replaces it
+    /// and is kept. A row that waited laid the chat below the strip and the tabs full width, then, when the page reported,
+    /// grew the chat 40 pt up under the strip and narrowed the tabs by the tools' room, 120 ms after the chat showed
+    /// (NIGHTLY 4557245517201 launch capture, frame 320; Leo, 2026-11-24: "layout shifted things are bad tho, so those
+    /// all need to be prefetched/prerendered and all computed out properly").
+    init(defaults: UserDefaults? = nil, firstLaunchWidth: CGFloat = 0) {
         self.defaults = defaults
-        let kept = CGFloat(defaults?.double(forKey: Self.keptWidthKey) ?? 0)
+        let stored = CGFloat(defaults?.double(forKey: Self.keptWidthKey) ?? 0)
+        let kept = stored > 0 ? stored : firstLaunchWidth
         if kept > 0 {
             neededWidth = kept
             awaitingReport = true
