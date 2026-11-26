@@ -103,6 +103,7 @@ cmux-tui/crates/cmux-cloud-environment/src/client_config.rs	com.cmuxterm.app"	1	
 cmux-tui/crates/cmux-cloud-environment/src/lib.rs	com.cmuxterm.app"	6	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/state_root.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/platform/linux/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-computer-use/src/platform/macos/roles.rs	com.cmuxterm.app"	1	keep	bundle-id matcher, no read or write: the com.cmuxterm.app family prefix covers NEXT's own ids (com.cmuxterm.app.nightly.cmux-next, .debug.<tag>), asserted in platform/macos/tests.rs
 cmux-tui/crates/cmux-computer-use/src/policy.rs	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-config/src/managed/mod.rs	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain
 cmux-tui/crates/cmux-config/src/managed/policy.rs	com.cmuxterm.app 	1	keep	MDM forced prefs from the legacy domain
@@ -458,6 +459,7 @@ scripts/cmux-next/terminal-keys-e2e.py	/tmp/cmux-debug-{TAG}.sock	1	keep	dev har
 scripts/cmux-next/terminal-path-links-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/terminal-program-status-conformance-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/terminal-program-status-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
+scripts/cmux-next/terminal-scroll-integrity-live.py	/tmp/cmux-debug-{args.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/terminal-throughput-bench.py	join(self.app, "Contents", "Resources", "bin", "cmux")	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/text-weight-e2e.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/tips-mute-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
