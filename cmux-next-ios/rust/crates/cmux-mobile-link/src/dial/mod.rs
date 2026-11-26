@@ -23,6 +23,7 @@ pub(crate) mod turn;
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub mod tailnet;
 pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;
@@ -32,6 +33,10 @@ pub mod wireguard;
 pub enum TransportKind {
     WebRtc,
     WireGuard,
+    /// Tailscale only (PROTOCOL.md "Tailscale-only links"): plain TCP between
+    /// the two sides' tailnet addresses, through the Tailscale app's tunnel;
+    /// nothing of the built-in transport runs.
+    Tailnet,
 }
 
 impl TransportKind {
@@ -43,6 +48,7 @@ impl TransportKind {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
             SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
+            SignalPayload::TailnetInit { .. } => Some(Self::Tailnet),
             _ => None,
         }
     }
@@ -51,6 +57,7 @@ impl TransportKind {
         match self {
             Self::WebRtc => Box::new(webrtc::WebRtcDialer),
             Self::WireGuard => Box::new(wireguard::WireGuardDialer),
+            Self::Tailnet => Box::new(tailnet::TailnetDialer),
         }
     }
 }
@@ -102,11 +109,12 @@ impl LinkPath {
 }
 
 impl TransportKind {
-    /// The transport's wire name (`link_stat`): `webrtc` or `wireguard`.
+    /// The transport's wire name (`link_stat`): `webrtc`, `wireguard` or `tailnet`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WebRtc => "webrtc",
             Self::WireGuard => "wireguard",
+            Self::Tailnet => "tailnet",
         }
     }
 }

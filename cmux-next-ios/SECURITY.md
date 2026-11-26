@@ -610,6 +610,50 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
 | Mutates or destroys objects the session does not own? | No. A join admits only the session's two devices, and a `wg-relay` signal is admitted only within its session. |
 | Reads local state the remote should not see? | No. The Worker sees ciphertext, sizes and the two device ids, as TURN sees ciphertext and addresses. |
 
+## Link transport: Tailscale only (`feat-cnx-ios-tailscale-only`)
+
+Settings → Transport → **Tailscale only** carries the link over the person's own
+tailnet (PROTOCOL.md "Tailscale-only links"): one plain TCP connection from the
+phone's tailnet address to a one-session listener on the Mac's, through the
+Tailscale app's VPN. cmux's own WireGuard, STUN, TURN and ICE never run. Neither
+cmux mode installs a VPN configuration (the built-in WireGuard is userspace); this
+mode only keeps cmux's own tunnel off.
+
+- **Who may connect.** The dial is still admitted by the hub and hostd like any
+  other (`fromUserId` is the Mac's own user, else `bye not_admitted`). The Mac
+  opens the listener only for that admitted session, on its tailnet addresses
+  only (100.64.0.0/10, fd7a:115c:a1e0::/48), with an OS-chosen port, for at most
+  30 s, and closes it once the link and its input lane are taken. A connection
+  must come from a tailnet address and present the session's 32-byte random
+  token (sent phone → Mac through the hub, never shown) within 5 s; a wrong one
+  is closed, and 16 bad ones close the listener. A token is good for one session.
+- **What the link may do is unchanged.** The first channel is still `auth`
+  (pairing, Mac identity pin): a connection that passes the token but is not a
+  paired phone gets `unpaired` on every channel, exactly as on WireGuard.
+- **Confidentiality and integrity come from Tailscale.** The TCP bytes are not
+  encrypted by cmux; Tailscale's WireGuard encrypts them between the two
+  devices' nodes. Anyone the person lets onto their tailnet can reach the
+  listener's port during those 30 s, but not without the token, and not past
+  `auth`. The hub sees the token (as it sees `wg-init` keys today): a hub that
+  also sat on the person's tailnet could connect, and still not pass `auth`.
+- **Fall back to WireGuard** (off by default) dials the built-in transport when
+  Tailscale is off on either side; it is the same WireGuard path as the default,
+  nothing new.
+- **Debug `CMUX_MOBILE_DEV_TAILSCALE=on|off`** only changes what the phone
+  believes about its own Tailscale state (Settings row, dial refusal); it is
+  compiled out of Release.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It changes how the link's bytes travel, not what the link may do; `auth` still gates every channel. |
+| Mutates or destroys objects the session does not own? | No. The listener serves one admitted session and closes. |
+| Reads local state the remote should not see? | No. The hub sees a random token and `ip:port` tailnet addresses, which reveal no more than `wg-init` endpoints do. |
+
+Decision for the person (Leo, `tbd-leo`): whether a link may rely on Tailscale's
+encryption instead of cmux's own. Recommendation: yes, as an opt-in mode the
+person picks, since Tailscale's WireGuard gives the same guarantees between the
+two nodes and pairing still authenticates the phone.
+
 ## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
 
 The media lane (PROTOCOL.md "Media lane") adds a way for bytes to travel, not

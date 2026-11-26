@@ -191,6 +191,26 @@ describe("TeamHub signaling", () => {
     for (const s of [p, m]) s.ws.close()
   })
 
+  it("forwards a Tailscale-only dial's tailnet-init and tailnet-resp, stamped with the sender", async () => {
+    const alice = await token("alice")
+    const phone = await register(alice, "phone", "team-a")
+    const mac = await register(alice, "mac", "team-a")
+    const p = await connect(alice, "team-a", phone)
+    const m = await connect(alice, "team-a", mac)
+    for (const s of [p, m]) await s.until((x) => x.frames.some((f) => f.type === "hello"))
+    const sessionId = crypto.randomUUID()
+    const init = { kind: "tailnet-init", token: "ab".repeat(32), lanes: ["input"] }
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: init })
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(m.frames.find((f) => f.type === "signal")).toMatchObject({ from: phone, sessionId, payload: init })
+    const resp = { kind: "tailnet-resp", endpoints: ["100.101.102.103:49152"], lanes: ["input"] }
+    m.send({ type: "signal", to: phone, from: mac, sessionId, payload: resp })
+    await p.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(p.frames.find((f) => f.type === "signal")).toMatchObject({ from: mac, sessionId, payload: resp })
+    expect(p.frames.some((f) => f.type === "error")).toBe(false)
+    for (const s of [p, m]) s.ws.close()
+  })
+
   it("reports where a team's hub runs", async () => {
     const alice = await token("alice")
     const r = await call("GET", "/v1/teams/team-a/hub", alice)

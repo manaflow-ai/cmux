@@ -110,6 +110,8 @@ public struct RootView: View {
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
+        // Settings → Transport's Tailscale row asks the link core whether this iPhone is on a tailnet.
+        TailscaleStatus.probe = { TailscaleOnly.isConnected() }
         _auth = State(initialValue: auth)
         // Live auth: teams, Macs and workspaces come only from Stack and the
         // Mac (the sample data stays only for mock mode).
@@ -944,7 +946,13 @@ extension ShellView {
 
 extension CmuxMobileModel.TransportKind {
     /// The link layer's transport for the Settings choice.
-    var link: CmuxMobileTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
+    var link: CmuxMobileTransport.TransportKind {
+        switch self {
+        case .webrtc: .webRTC
+        case .wireguard: .wireGuard
+        case .tailscale: .tailnet
+        }
+    }
 }
 
 /// The live Chief call over the signed-in shell: the full-screen call, the

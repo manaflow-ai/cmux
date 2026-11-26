@@ -157,6 +157,23 @@ pub enum SignalPayload {
         #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
         mapped_by: Option<String>,
     },
+    /// A Tailscale-only dial (PROTOCOL.md "Tailscale-only links"): the
+    /// phone's one-session token (32 bytes, hex) that the Mac checks on the
+    /// TCP connection's hello. Older Macs ignore it (an unknown kind).
+    #[serde(rename = "tailnet-init")]
+    TailnetInit {
+        token: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
+    /// The Mac's answer to `tailnet-init`: `ip:port` of the one-session TCP
+    /// listener on each of its tailnet addresses.
+    #[serde(rename = "tailnet-resp")]
+    TailnetResp {
+        endpoints: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
     /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
     /// "WebSocket relay"): its datagrams no longer reach the peer any other
     /// way, so the peer joins too. Sent only to a peer that offered the
@@ -1017,7 +1034,7 @@ impl Shared {
                 }
                 if !matches!(
                     envelope.payload,
-                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. } | SignalPayload::TailnetInit { .. }
                 ) {
                     tracing::debug!(
                         session = envelope.session_id,

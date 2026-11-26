@@ -34,7 +34,7 @@ import Testing
     }
 
     @Test func thePickerListsWireGuardFirstAsRecommended() {
-        #expect(TransportKind.allCases == [.wireguard, .webrtc])
+        #expect(TransportKind.allCases == [.wireguard, .webrtc, .tailscale])
         #expect(TransportKind.wireguard.pickerTitle == "WireGuard (recommended)")
         #expect(TransportKind.webrtc.pickerTitle == "WebRTC only")
         #expect(TransportKind.webrtc.title == "WebRTC only")

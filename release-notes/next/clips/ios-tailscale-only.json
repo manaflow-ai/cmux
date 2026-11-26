@@ -1,0 +1,10 @@
+{
+  "app": "iphone",
+  "caption": "Pick Tailscale only in Settings > Transport, and the iPhone reaches your Macs over your tailnet.",
+  "launch_args": ["-cmux-mobile-demo", "tailscale-tour"],
+  "steps": [
+    {"title": "Settings > Transport opens on WireGuard", "wait": 1},
+    {"title": "Tailscale only is picked, then the fallback turns on", "wait": 7, "clip": true}
+  ],
+  "crop": [0, 0, 1, 0.75]
+}

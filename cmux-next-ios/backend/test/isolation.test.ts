@@ -111,7 +111,7 @@ describe("per-user hub isolation (two users on one team)", () => {
     await um.until((s) => s.frames.some((f) => f.type === "signal"))
 
     // Vic's phone to uma's online Mac: refused as not_owner (never "offline", which would tell it exists).
-    for (const kind of ["webrtc-offer", "wg-init", "wg-endpoints", "webrtc-ice", "bye"]) vp.send(offer(vicPhone, umaMac, crypto.randomUUID(), kind))
+    for (const kind of ["webrtc-offer", "wg-init", "wg-endpoints", "webrtc-ice", "tailnet-init", "bye"]) vp.send(offer(vicPhone, umaMac, crypto.randomUUID(), kind))
     // Riding uma's session, in either direction, from vic's phone and vic's Mac.
     vp.send(offer(vicPhone, umaMac, sessionId, "wg-endpoints"))
     vm.send(offer(vicMac, umaPhone, sessionId, "wg-resp"))
@@ -119,17 +119,17 @@ describe("per-user hub isolation (two users on one team)", () => {
     vm.send(offer(vicMac, umaPhone))
     // A spoofed from.
     vp.send(offer(umaPhone, umaMac))
-    await vp.until((s) => errors(s).length === 7)
+    await vp.until((s) => errors(s).length === 8)
     await vm.until((s) => errors(s).length === 2)
-    expect(errors(vp).slice(0, 6).every((e) => e.code === "not_owner")).toBe(true)
-    expect(errors(vp)[6]).toMatchObject({ code: "bad_request" })
+    expect(errors(vp).slice(0, 7).every((e) => e.code === "not_owner")).toBe(true)
+    expect(errors(vp)[7]).toMatchObject({ code: "bad_request" })
     expect(errors(vm).every((e) => e.code === "not_owner")).toBe(true)
     // Uma's own Mac (also offline) is equally unknown to vic: same refusal.
     um.ws.close(1000, "done")
     await up.until((s) => s.frames.some((f) => f.type === "presence" && f.mac.deviceId === umaMac && !f.mac.online))
     vp.send(offer(vicPhone, umaMac))
-    await vp.until((s) => errors(s).length === 8)
-    expect(errors(vp)[7]).toMatchObject({ code: "not_owner" })
+    await vp.until((s) => errors(s).length === 9)
+    expect(errors(vp)[8]).toMatchObject({ code: "not_owner" })
 
     // Retired relay frames addressed to uma's devices are never forwarded either.
     const frame = new Uint8Array(36)

@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
+    nonisolated static let names: Set<String> = Set(["tailscale-phone-off", "tailscale-mac-off", "tailscale-unreachable", "tailscale-no-answer", "tailscale-fallback", "tailscale-tour", "drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -132,6 +132,40 @@ struct DemoDriver {
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
+        case "tailscale-phone-off", "tailscale-mac-off", "tailscale-unreachable", "tailscale-no-answer":
+            // Tailscale only (PROTOCOL.md "Tailscale-only links"): the Mac's view says why the tailnet
+            // could not carry the dial and what to do, with Retry (mock store, no link dialed).
+            let problem: TailscaleProblem = switch name {
+            case "tailscale-phone-off": .phoneOff
+            case "tailscale-mac-off": .macOff
+            case "tailscale-unreachable": .unreachable
+            default: .noAnswer
+            }
+            shell.settings.transport = .tailscale
+            MacHomeFeed.shared.seedStressRows(count: 0, macID: "mac-studio")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .failed("Offline")
+            shell.store.macFailure["mac-studio"] = .tailscale(problem)
+            if let team = shell.store.activeTeam { shell.macFilter.select(.mac("mac-studio"), in: team.id) }
+            shell.tab = .workspaces
+        case "tailscale-fallback":
+            // Tailscale only with Fall back to WireGuard: Tailscale is off, the Mac still connects.
+            shell.settings.transport = .tailscale
+            shell.settings.tailscaleFallback = true
+            shell.settingsPath = [.transport]
+            shell.tab = .settings
+        case "tailscale-tour":
+            // The What's New clip: Settings > Transport switches from WireGuard to Tailscale only,
+            // shows whether Tailscale is connected, then turns on Fall back to WireGuard.
+            shell.settings.transport = .wireguard
+            shell.settings.tailscaleFallback = false
+            shell.settingsPath = [.transport]
+            shell.tab = .settings
+            await pause(1.5)
+            shell.settings.transport = .tailscale
+            await pause(2.5)
+            shell.settings.tailscaleFallback = true
+            await pause(2)
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
             shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")

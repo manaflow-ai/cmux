@@ -647,6 +647,10 @@ struct TransportPage: View {
     let store: AppStore
     /// Whether the service has a relay (nil: not known yet).
     let relayAvailable: Bool?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    /// Whether this iPhone is on a tailnet now (``TailscaleStatus``), checked while the page shows.
+    @State private var tailscaleUp = TailscaleStatus.isConnected
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
@@ -667,7 +671,15 @@ struct TransportPage: View {
                         theme.haptics.selection()
                     } label: {
                         HStack(spacing: 12) {
-                            UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
+                            VStack(alignment: .leading, spacing: 2) {
+                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
+                                if let detail = kind.pickerDetail {
+                                    Text(detail)
+                                        .font(theme.type.meta)
+                                        .foregroundStyle(theme.colors.label2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
                             Spacer(minLength: 8)
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
@@ -687,6 +699,9 @@ struct TransportPage: View {
                 } else {
                     Text("Switching reconnects to your Macs.")
                 }
+            }
+            if settings.transport == .tailscale {
+                tailscaleSection(fallback: $settings.tailscaleFallback)
             }
             Section {
                 Picker(selection: $settings.ultra) {
@@ -782,6 +797,55 @@ struct TransportPage: View {
             #endif
         }
         .settingsPage("Transport")
+        .task(id: settings.transport) {
+            // The Tailscale app connects and disconnects outside cmux: keep the row current.
+            guard settings.transport == .tailscale else { return }
+            while !Task.isCancelled {
+                tailscaleUp = TailscaleStatus.isConnected
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { tailscaleUp = TailscaleStatus.isConnected }
+        }
+    }
+
+    /// Tailscale only: whether this iPhone is on a tailnet, a way to fix it, and the fallback.
+    @ViewBuilder
+    private func tailscaleSection(fallback: Binding<Bool>) -> some View {
+        Section {
+            HStack(spacing: 12) {
+                Text("Tailscale")
+                    .foregroundStyle(theme.colors.label)
+                Spacer(minLength: 8)
+                Text(tailscaleUp ? "Connected" : "Not connected")
+                    .foregroundStyle(tailscaleUp ? theme.colors.label2 : theme.colors.danger)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.transport.tailscale.status")
+            if !tailscaleUp {
+                Button {
+                    openURL(TailscaleStatus.appURL) { opened in
+                        if !opened { openURL(TailscaleStatus.appStoreURL) }
+                    }
+                } label: {
+                    Text("Open Tailscale")
+                }
+                .accessibilityIdentifier("settings.transport.tailscale.open")
+            }
+            Toggle(isOn: fallback) {
+                Text("Fall back to WireGuard")
+            }
+            .accessibilityIdentifier("settings.transport.tailscale.fallback")
+        } header: {
+            Text("Tailscale")
+        } footer: {
+            if tailscaleUp {
+                Text("Your Macs are reached at their tailnet addresses. Tailscale must also be running on each Mac. With Fall back to WireGuard on, a Mac that isn't on your tailnet is reached the built-in way instead.")
+            } else {
+                Text("Connect Tailscale on this iPhone to reach your Macs. Until then they show as offline, unless Fall back to WireGuard is on.")
+            }
+        }
     }
 
 }
