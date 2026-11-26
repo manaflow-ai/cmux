@@ -605,7 +605,37 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
+    let mut registry: Value =
+        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
+    fold_role_holders(&mut registry);
+    Some(registry)
+}
+
+/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
+/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
+/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
+/// machine is ignored. Idempotent.
+pub fn fold_role_holders(registry: &mut Value) {
+    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut roles: Vec<&String> = holders.keys().collect();
+    roles.sort();
+    for role in roles {
+        let Some(list) = holders[role].as_array() else { continue };
+        for host in list.iter().filter_map(Value::as_str) {
+            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
+            let entry = m.entry("roles").or_insert_with(|| json!([]));
+            if let Some(arr) = entry.as_array_mut() {
+                if !arr.iter().any(|r| r.as_str() == Some(role)) {
+                    arr.push(json!(role));
+                }
+            }
+        }
+    }
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.
