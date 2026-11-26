@@ -212,6 +212,9 @@ key = "cmux.acpmux.modelCatalog"
 key = "cmux.acpmux.modelChipIcon"
 
 [[storage_key]]
+key = "cmux.acpmux.modelPickerOrder"
+
+[[storage_key]]
 key = "cmux.acpmux.newTab.chats"
 
 [[storage_key]]
