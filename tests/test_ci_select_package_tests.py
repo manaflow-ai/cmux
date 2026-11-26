@@ -151,6 +151,7 @@ def main() -> int:
         check(root, ["vendor/splitter"], ["Splitter"], "a submodule revision bump is the bare directory path")
         check(root, ["Packages/macOS/Unlisted/Sources/A.swift"], [], "a package outside the list selects nothing")
         check(root, [".github/workflows/ci.yml"], PACKAGES, "the job's own workflow runs everything")
+        check(root, ["scripts/ci/package-test-lane/swift_suite_outcomes.py"], PACKAGES, "suite outcome changes run the package lane")
         check(root, [".github/workflows/nightly.yml", "scripts/reload.sh"], [], "other workflows and scripts run nothing")
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
         check(root, ["Loner.swift", "Resources/Info.plist"], PACKAGES, "an unknown path runs everything")
