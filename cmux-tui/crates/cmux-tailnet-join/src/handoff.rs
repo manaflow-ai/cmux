@@ -62,7 +62,15 @@ else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/t
 /// through WireGuard but around the packet filter, so it works where the policy refuses this
 /// node dialing the user's devices. A disco ping alone starts no handshake (it did not help);
 /// disco pings before the TSMP ping delayed the handshake past its use (measured worse).
-const PEER_KICK: &str = "( tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
+///
+/// The kick runs twice. The first goes at `Running`; on about 1 in 20 moves the laptop still waited
+/// ~7 s, because the first map request had gone out without endpoints and the peers' 5 s handshake
+/// retry was already armed. Control echoes this node's endpoints back in its own netmap
+/// (`tailscale debug netmap`, `SelfNode.Endpoints`, read above `Peers`) once it has published them, so the
+/// second kick waits for that (0.1 s polls, 6 s at most) and starts the handshakes again, now
+/// toward peers that know where this machine is.
+const PEER_KICK: &str = "( kick() { tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait; }; kick & \
+i=0; until tailscale debug netmap 2>/dev/null | sed '/\"Peers\"/,$d' | tr -d ' \\n' | grep -q '\"Endpoints\":\\[\"'; do i=$((i+1)); [ $i -gt 60 ] && break; sleep 0.1; done; kick; wait ) </dev/null >/dev/null 2>&1 &";
 
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
 /// machine's clock at the stop. The state file stays on the machine until [`forget_command`], so

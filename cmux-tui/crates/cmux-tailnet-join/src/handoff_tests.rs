@@ -89,6 +89,9 @@ fn adopt_starts_a_handshake_with_every_online_peer_once_running() {
     let kick = s.find("tailscale ping --tsmp").expect("kicks the peers");
     let joined = s.find("printf 'cmux-tailnet-joined '").expect("result line");
     assert!(online < kick && kick < joined, "after Running, before the result line");
+    let again = s.find("tailscale debug netmap").expect("waits for its own endpoints");
+    assert!(kick < again && again < joined, "second kick after the first, still detached");
+    assert!(s.contains("sed '/\"Peers\"/,$d'"), "reads SelfNode's endpoints, not a peer's");
     // Through WireGuard (a disco ping starts no handshake), detached, bounded, skipping offline peers.
     assert!(s.contains("--self=false") && s.contains("!~ / offline/") && s.contains("head -n 64"));
     assert!(s.contains(" -c 1 --timeout 3s"));
