@@ -940,18 +940,11 @@ class PipelineTest(unittest.TestCase):
         table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
+        # No gateway head start for the ios job: its request key is per runner, so it never shared a build.
+        self.assertNotIn("ios-ffi-fleet", wf["jobs"])
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
-            if name == "ios-ffi-fleet":
-                # The ios job's build fleet head start: no step, no checkout, only when the ios job runs, and
-                # never a verdict (each failure path is a warning and exit 0).
-                with self.subTest(helper=name):
-                    self.assertTrue(job["if"].startswith("${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && "))
-                    self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "") or "uses" in s])
-                    self.assertNotIn(name, wf["jobs"]["ios"]["needs"], "the ios job never waits for it")
-                    self.assertIn("exit 0", job["steps"][0]["run"])
-                continue
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
@@ -1245,6 +1238,41 @@ class PipelineTest(unittest.TestCase):
                 runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
                 self.assertEqual(runs, [steps[step].run])
                 self.assertEqual(steps[step].job, "linux")
+        # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
+        # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
+        autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
+        self.assertTrue(autofix["generated-drift"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        drift = steps["generated-drift"]
+        self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
+        self.assertLessEqual(drift.timeout, 360)
+        self.assertIn("git show 'HEAD^1:scripts/cmux-next/generated_outputs.py'", drift.run)
+        self.assertIn("generated-drift-ok", drift.run)
+        self.assertIn('generated_outputs.py" drift --changed', drift.run)
+        # test-ios.yml's package-conventions-lint job keeps its push, dispatch and other-base runs; a pull request
+        # into feat-cmux-next runs its tests and its gate as two steps, routed by detect-ios-changes' should_lint list.
+        ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text())["jobs"]
+        self.assertTrue(ios["package-conventions-lint"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        lint_run = next(s["run"] for s in ios["package-conventions-lint"]["steps"] if "run" in s)
+        tests_step, gate = steps["package-conventions-tests"], steps["package-conventions-gate"]
+        for line in tests_step.run.strip().splitlines():
+            self.assertIn(line, lint_run)
+        self.assertIn("scripts/ci/package-conventions-gate.sh", gate.run)
+        self.assertIn("python3 scripts/ci/pr_added_namespace_types.py || exit 1", gate.run)
+        self.assertIn("namespace-lint-override", gate.run)
+        # --namespace-fix rewrites files: the gate runs alone, in a worktree of its own.
+        self.assertTrue(gate.alone)
+        self.assertIn('git worktree add --detach "$tree" HEAD', gate.run)
+        self.assertEqual(tests_step.inputs, gate.inputs)
+        for step in (tests_step, gate):
+            self.assertEqual(step.job, "linux")
+            self.assertLessEqual(step.timeout, 360)
+            for path in ("Packages/iOS/CmuxKit/Sources/A.swift", "ios/App.swift", "scripts/lint_swift_namespaces.py",
+                         "scripts/ci/pr_owned_findings.py", "scripts/lint-namespace-types-ratchet.txt"):
+                self.assertTrue(ci_steps.routed(step, [path]), (step.name, path))
+            for path in ("web/app/page.tsx", "cmux-tui/src/main.rs", "scripts/ci/pr_router.py"):
+                self.assertFalse(ci_steps.routed(step, [path]), (step.name, path))
 
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
