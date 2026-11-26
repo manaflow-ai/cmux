@@ -205,6 +205,8 @@ class Client : public CefClient,
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return PermissionHandler(); }
+  // Off-screen pages draw through it (shim_offscreen.mm); null while they are off.
+  CefRefPtr<CefRenderHandler> GetRenderHandler() override { return OffscreenRenderHandlerInstance(); }
 
   // MARK: Focus
 
@@ -526,6 +528,7 @@ class Client : public CefClient,
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     browsers()[id] = browser;
+    if (browser->GetHost()->IsWindowRenderingDisabled()) NoteOffscreenBrowser(id, true);
     registrations_[id] = browser->GetHost()->AddDevToolsMessageObserver(this);
     int request = request_;
     request_ = 0;
@@ -548,6 +551,13 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
+    // An off-screen page's popup is off-screen too (an Alloy opener cannot
+    // put a tab in a Chrome window): the host adopts it as a page of the
+    // opener's pane.
+    if (IsOffscreenBrowser(browser->GetIdentifier())) {
+      MakeOffscreenWindowInfo(window_info, browser->GetHost()->GetWindowHandle());
+      settings.windowless_frame_rate = OffscreenFrameRate();
+    }
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
@@ -593,6 +603,7 @@ class Client : public CefClient,
     registrations_.erase(id);
     ForgetDevToolsProtocol(id);
     browsers().erase(id);
+    NoteOffscreenBrowser(id, false);
     ForgetOwnBackground(id);
     ForgetDevTools(id);
     ForgetPopups(id);
@@ -620,6 +631,13 @@ class Client : public CefClient,
   // the page area of the tab's pane.
   void OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) override {
     Emit(CMUX_SHIM_STATUS_MESSAGE, browser->GetIdentifier(), 0, 0, 0, value.ToString());
+  }
+
+  // An off-screen page has no view of Chromium's to set the cursor on: the
+  // host sets it over its page view (CefCursorHandle is an NSCursor*).
+  bool OnCursorChange(CefRefPtr<CefBrowser> browser, CefCursorHandle cursor, cef_cursor_type_t,
+                      const CefCursorInfo&) override {
+    return OffscreenCursorChanged(browser->GetIdentifier(), cursor);
   }
 
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {

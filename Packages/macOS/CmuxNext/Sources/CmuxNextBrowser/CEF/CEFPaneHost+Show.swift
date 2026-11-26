@@ -10,6 +10,13 @@ extension CEFPaneHost {
     /// the window's first tab), so one activation, and one echo of it, reaches Chromium.
     func showBrowser(of tab: CEFTab, activate: Bool = true) {
         guard let browser = tab.browserID else { return }
+        // An off-screen page has no Chromium tab strip to activate in: its page view shows, the pane's others hide.
+        if CEFOffscreenPages.shared.calls?.isOffscreen(browser) == 1 {
+            lastActivated = browser
+            hostView.offscreen.pageShown(browser: browser)
+            tab.sidePanel.scheduleRefresh()
+            return
+        }
         if activate {
             lastActivated = browser
             tabSwitchMark("activate")
@@ -39,6 +46,23 @@ extension CEFPaneHost {
         let windowInWindow = tab.pageWindowHasTheKeys || (shownWithWindowOut !== tab && tab.pageWindow != nil)
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
         hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
+    }
+
+    /// A tab's own off-screen browser came up (`CEFOffscreenPages.createTab`): it registers, gets its page view, and
+    /// shows when it is the pane's shown tab.
+    func offscreenTabCreated(_ tab: CEFTab, browser: Int32) {
+        runtime.register(tab, browser: browser)
+        hostView.offscreen.pageCreated(browser: browser)
+        guard visibleTab === tab, !tab.awaitsWindowMove else { return }
+        showBrowser(of: tab, activate: false)
+        tab.grantPendingFocusIfShown()
+    }
+
+    /// A page an off-screen page opened (target=_blank, window.open): an off-screen browser of its own, over this
+    /// host's view, adopted as a tab of the opener's pane (Alloy pages have no tab strip for Chromium to put it in).
+    func adoptOffscreenPopup(browser: Int32, created: CEFCreatedBy) {
+        let disposition: BrowserNewTabDisposition = created.disposition == .newBackgroundTab ? .backgroundTab : .foregroundTab
+        adoptChromiumTab(browser: browser, disposition: disposition)
     }
 
     /// `windowCreated`'s show of the tab shown now, already Chromium's active tab.

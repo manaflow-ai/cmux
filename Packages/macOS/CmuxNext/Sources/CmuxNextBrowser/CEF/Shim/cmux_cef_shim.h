@@ -1055,7 +1055,7 @@ typedef struct {
   int source_width;       // the page's own size in pixels (frame metadata), 0 unknown
   int source_height;
   int letterboxed;        // 1: the capture was scaled into an older capture size
-                          // (not shown; the shim asked for a refresh)
+                          // (no pixels: io_surface is null; the host keeps its last frame)
   uint64_t capture_counter;
   int64_t timestamp_us;
 } cmux_shim_osr_frame;
@@ -1077,7 +1077,9 @@ typedef struct {
 } cmux_shim_osr_handlers;
 
 // Before cmux_shim_initialize: CefSettings.windowless_rendering_enabled.
-CMUX_SHIM_EXPORT void cmux_shim_osr_enable(int enabled);
+// flags bit 0: external begin frames (every off-screen browser draws a frame
+// only when the host calls cmux_shim_osr_begin_frame, from its display link).
+CMUX_SHIM_EXPORT void cmux_shim_osr_enable(int enabled, int flags);
 CMUX_SHIM_EXPORT void cmux_shim_osr_set_handlers(const cmux_shim_osr_handlers* handlers, void* ctx);
 // As cmux_shim_create_window, but a windowless browser with shared textures
 // at frame_rate (1-240) frames a second; parent_view is for dialogs only.
@@ -1089,6 +1091,8 @@ CMUX_SHIM_EXPORT void cmux_shim_osr_was_hidden(int browser_id, int hidden);
 CMUX_SHIM_EXPORT void cmux_shim_osr_screen_info_changed(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_osr_invalidate(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_osr_set_frame_rate(int browser_id, int frame_rate);
+// External begin frames only (cmux_shim_osr_enable flags bit 0): one frame now.
+CMUX_SHIM_EXPORT void cmux_shim_osr_begin_frame(int browser_id);
 // kind: 0 move, 1 leave, 2 press, 3 release. button: 0 left, 1 middle, 2 right.
 // x, y: DIP in the view, top-left origin. modifiers: cef_event_flags_t.
 CMUX_SHIM_EXPORT void cmux_shim_osr_mouse(int browser_id, int kind, int x, int y, uint32_t modifiers, int button,
@@ -1106,7 +1110,13 @@ CMUX_SHIM_EXPORT void cmux_shim_osr_ime_finish(int browser_id, int keep_selectio
 CMUX_SHIM_EXPORT void cmux_shim_osr_ime_cancel(int browser_id);
 // 0 undo, 1 redo, 2 cut, 3 copy, 4 paste, 5 delete, 6 select all, 7 paste as plain text.
 CMUX_SHIM_EXPORT void cmux_shim_osr_edit(int browser_id, int command);
-// Counters since launch: frames, frames_letterboxed, blit_us_total, refreshes, popup_frames.
+// Files dragged onto the page from another app: kind 0 enter (with `paths`),
+// 1 over, 2 leave, 3 drop. allowed_ops and the result: cef_drag_operations_mask_t;
+// returns the operation the page takes now (its last UpdateDragCursor), 0 none.
+CMUX_SHIM_EXPORT int cmux_shim_osr_drag(int browser_id, int kind, int x, int y, uint32_t modifiers,
+                                        const char* const* paths, int count, int allowed_ops);
+// Counters since launch: frames, frames_letterboxed, blit_us_total, refreshes,
+// popup_frames, blit_failures, surfaces_made, off-screen browsers now.
 CMUX_SHIM_EXPORT void cmux_shim_osr_counters(uint64_t* out, int capacity);
 
 #ifdef __cplusplus

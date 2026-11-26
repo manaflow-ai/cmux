@@ -278,8 +278,14 @@ final class CEFPaneHost {
             let initialURL = tab.takeInitialURLString()
             let create = {
                 CEFStartSteps.shared.createWindow {
-                    shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
-                                      max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+                    // Off-screen pages (approach 5 prototype): a windowless browser over the host view, no Chromium window.
+                    if let offscreen = CEFOffscreenPages.shared.calls {
+                        return offscreen.create(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
+                                                max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
+                                                initialURL, contextKey, 0)
+                    }
+                    return shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
+                                             max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
                 }
             }
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -310,6 +316,16 @@ final class CEFPaneHost {
     private func addToWindow(_ tab: CEFTab, takesSparePage: Bool = true) -> Bool {
         guard runtime.shim != nil, let anchor = tabs.lazy.compactMap(\.browserID).first else {
             window = .none
+            return false
+        }
+        // Off-screen pages have no tab strip: each tab is a windowless browser of its own over this host view, which
+        // comes up asynchronously (`CEFRuntime.browserCreated`, `offscreenTabCreated`).
+        if CEFOffscreenPages.shared.isOn {
+            tab.isCreationPending = true
+            let url = tab.takeInitialURLString()
+            if !CEFOffscreenPages.shared.createTab(tab, in: self, url: url, contextKey: runtime.contextKey(for: key)) {
+                tab.creationFailed()
+            }
             return false
         }
         tab.isCreationPending = true
@@ -439,6 +455,7 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.inTree.stop()
+            hostView.offscreen.stop()
             hostView.removeFromSuperview()
             if runtime.hosts[key] === self, holdsOwnTab || isOwnTabHost || isDroppable { runtime.hosts[key] = nil }
         }

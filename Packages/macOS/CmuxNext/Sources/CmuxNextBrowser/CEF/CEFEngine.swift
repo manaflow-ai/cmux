@@ -294,6 +294,10 @@ public final class CEFEngine: BrowserEngine {
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
+    /// Off-screen pages' counters (for `debug.cef` `offscreen`; approach 5 prototype).
+    @MainActor public var offscreenNumbers: [String: Double] { CEFOffscreenPages.shared.debugNumbers }
+    @MainActor public func resetOffscreenStats() { CEFOffscreenPages.shared.resetStats() }
+
     /// What the fork's page tracker read from host views (for `debug.cef`).
     @MainActor public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 

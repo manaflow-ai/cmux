@@ -52,6 +52,8 @@ final class CEFHostView: NSView {
     let layerHosting = CEFLayerHosting()
     /// In-tree hosting (fork API 36) of the page over this view: its own view in this view, no page window.
     let inTree = CEFInTreeHosting()
+    /// Off-screen pages over this view (approach 5 prototype): windowless browsers whose frames this host shows.
+    let offscreen = CEFOffscreenHosting()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -60,6 +62,7 @@ final class CEFHostView: NSView {
         fileDrag.view = self
         layerHosting.view = self
         inTree.view = self
+        offscreen.view = self
         #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif

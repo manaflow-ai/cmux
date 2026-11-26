@@ -73,6 +73,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetInTreeHosting: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
     let browserInTreeContentView: (@convention(c) (Int32) -> UnsafeMutableRawPointer?)?
     let browserInTreeWidgetDrawing: (@convention(c) (Int32) -> Int32)?
+    /// Off-screen pages (approach 5 prototype, ``CEFOffscreenShim``): nil in a shim without them.
+    let offscreen: CEFOffscreenShim?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -394,6 +396,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetInTreeHosting = r.optional(CEFInTreeCalls.Symbol.setInTreeHosting)
         browserInTreeContentView = r.optional(CEFInTreeCalls.Symbol.contentView)
         browserInTreeWidgetDrawing = r.optional(CEFInTreeCalls.Symbol.widgetDrawing)
+        offscreen = CEFOffscreenShim { name in r.optional(name) as UnsafeMutableRawPointer? }
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

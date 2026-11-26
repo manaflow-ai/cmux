@@ -385,6 +385,8 @@ extension CEFHostView {
     /// are on and the engine has the calls (no layer hosting, detached hosting or resize sync for it), else hosted in
     /// the window's layers as before. A page the fork refuses twice goes back to layer hosting.
     func pageWindowCreated(browser: Int32, shim: CEFShimLibrary?, apiVersion: Int32) {
+        // An off-screen page has no page window: this host shows its frames (no layer hosting, no tree).
+        if offscreen.pageCreated(browser: browser) { return layerHosting.pageWindowCreated(browser: browser, fork: nil) }
         let fork = CEFLayerHosting.Fork(shim: shim, apiVersion: apiVersion)
         guard inTree.pageWindowCreated(browser: browser, calls: CEFInTreeCalls(shim: shim, apiVersion: apiVersion)) else {
             return layerHosting.pageWindowCreated(browser: browser, fork: fork)

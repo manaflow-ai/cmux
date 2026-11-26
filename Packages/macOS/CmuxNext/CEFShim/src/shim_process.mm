@@ -487,6 +487,9 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   settings.external_message_pump = true;
   settings.no_sandbox = false;  // helpers enter the sandbox themselves
   settings.persist_session_cookies = false;  // see RequestContextFor
+  // Off-screen pages (shim_offscreen.mm): CEF makes no windowless browser
+  // without it; a process that never asked keeps today's windowed pages only.
+  settings.windowless_rendering_enabled = OffscreenEnabled();
   if (log_severity) {
     settings.log_severity = static_cast<cef_log_severity_t>(log_severity);
   }

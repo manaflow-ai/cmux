@@ -113,6 +113,12 @@ extension CEFTab {
         }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
+        // Off-screen pages (approach 5 prototype): the page view becomes the cmux window's first responder inside
+        // cmux's grant, and Chromium focuses the page; no window is made key.
+        if host.hostView.offscreen.page(of: browser) != nil {
+            host.hostView.offscreen.grantFocus(browser: browser) { runtime.shim?.setFocus(browser, 1) }
+            return
+        }
         // In-tree pages: the cmux window stays key; the page view becomes its first responder inside cmux's grant,
         // which the window's gate lets through (InTreePageFocus). No page window is made key.
         if presentation == .inTree {

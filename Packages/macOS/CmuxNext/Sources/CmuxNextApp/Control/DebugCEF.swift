@@ -54,6 +54,10 @@ enum DebugCEF {
         object["tracker"] = .object(services.cache.cef.trackerStats.reportFields.mapValues { .number($0) })
         // In-tree pages: "off", "pending" (engine not ready), "on", or "unsupported_fork: <why>".
         object["in_tree"] = .string(InTreePages.shared.status)
+        // Off-screen pages (approach 5 prototype): frames, resize waits and the shim's copies.
+        if InTreePages.shared.isOffscreenRequested {
+            object["offscreen"] = .object(services.cache.cef.offscreenNumbers.mapValues { .number($0) })
+        }
         object["file_dialogs"] = .object(services.cache.cef.fileDialogReport.mapValues { .string($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }

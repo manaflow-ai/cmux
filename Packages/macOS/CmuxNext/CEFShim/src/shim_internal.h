@@ -13,6 +13,7 @@
 #include "include/cef_dialog_handler.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_jsdialog_handler.h"
+#include "include/cef_render_handler.h"
 #include "include/cef_request_context.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
@@ -367,5 +368,21 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
                           CefBrowserSettings& settings, bool* use_default_window);
 // The page closed: drop its DevTools placement.
 void ForgetDevTools(int inspected);
+
+// Off-screen pages (shim_offscreen.mm): CEF windowless rendering, Alloy style.
+// On only when the host asked before cmux_shim_initialize (cmux_shim_osr_enable).
+bool OffscreenEnabled();
+// The render handler every page client returns; null while off-screen pages
+// are off (CEF makes a browser windowless only with windowless_rendering_enabled
+// in its window info and a render handler, CefBrowserCreateParams::IsWindowless).
+CefRefPtr<CefRenderHandler> OffscreenRenderHandlerInstance();
+bool IsOffscreenBrowser(int browser_id);
+// OnAfterCreated / OnBeforeClose of a windowless browser.
+void NoteOffscreenBrowser(int browser_id, bool offscreen);
+// OnCursorChange of an off-screen browser goes to the host; true when it took it.
+bool OffscreenCursorChanged(int browser_id, void* cursor);
+int OffscreenFrameRate();
+// Window info of a windowless browser over `parent_view` (shared textures on).
+void MakeOffscreenWindowInfo(CefWindowInfo& info, void* parent_view);
 
 }  // namespace cmux_shim

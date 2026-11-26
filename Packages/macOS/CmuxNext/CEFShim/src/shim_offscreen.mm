@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "include/cef_drag_data.h"
 #include "include/cef_render_handler.h"
 #include "shim_internal.h"
 
@@ -33,6 +34,7 @@ namespace cmux_shim {
 namespace {
 
 bool g_enabled = false;
+int g_flags = 0;  // bit 0: external begin frames
 cmux_shim_osr_handlers g_handlers = {};
 void* g_ctx = nullptr;
 
@@ -50,6 +52,12 @@ Counters g_counters;
 std::set<int>& offscreen_browsers() {
   static std::set<int> set;
   return set;
+}
+
+// The operation each browser's page takes for the drag over it (UpdateDragCursor).
+std::map<int, int>& drag_operations() {
+  static std::map<int, int> map;
+  return map;
 }
 
 uint64_t NowMicros() {
@@ -234,12 +242,17 @@ class OffscreenRenderHandler : public CefRenderHandler {
     CefRect visible(extra.visible_rect.x, extra.visible_rect.y, extra.visible_rect.width, extra.visible_rect.height);
     if (visible.IsEmpty()) visible = CefRect(0, 0, IOSurfaceGetWidth(source), IOSurfaceGetHeight(source));
     // The capturer keeps its resolution until the page's first frame at a new
-    // size activated (CefVideoConsumerOSR::SizeChanged): a frame between is
-    // the page scaled into the old size, which must never show. It is dropped
-    // and a refresh asked for, so the next capture is at the page's size.
+    // size activated (CefVideoConsumerOSR::SizeChanged, fixed aspect ratio):
+    // a frame between is the page scaled into the old size (letterboxed, or
+    // scaled whole when the aspect matched), which must never show. It goes
+    // to the host marked, without pixels; the host keeps its last frame and
+    // may ask for a refresh (cmux_shim_osr_invalidate).
     const CefRect content(extra.content_rect.x, extra.content_rect.y, extra.content_rect.width,
                           extra.content_rect.height);
-    const bool letterboxed = !content.IsEmpty() && (content.width != visible.width || content.height != visible.height);
+    const bool scaled = extra.has_source_size &&
+                        (extra.source_size.width != visible.width || extra.source_size.height != visible.height);
+    const bool letterboxed =
+        scaled || (!content.IsEmpty() && (content.width != visible.width || content.height != visible.height));
     cmux_shim_osr_frame frame = {};
     frame.type = type == PET_POPUP ? 1 : 0;
     frame.source_width = extra.has_source_size ? extra.source_size.width : 0;
@@ -290,6 +303,10 @@ class OffscreenRenderHandler : public CefRenderHandler {
     return false;
   }
 
+  void UpdateDragCursor(CefRefPtr<CefBrowser> browser, DragOperation operation) override {
+    drag_operations()[browser->GetIdentifier()] = static_cast<int>(operation);
+  }
+
  private:
   IMPLEMENT_REFCOUNTING(OffscreenRenderHandler);
 };
@@ -326,6 +343,7 @@ void NoteOffscreenBrowser(int browser_id, bool offscreen) {
     offscreen_browsers().insert(browser_id);
   } else {
     offscreen_browsers().erase(browser_id);
+    drag_operations().erase(browser_id);
     DropRings(browser_id);
   }
 }
@@ -347,16 +365,18 @@ int OffscreenFrameRate() {
 
 void MakeOffscreenWindowInfo(CefWindowInfo& info, void* parent_view) {
   info = CefWindowInfo();
-  info.SetAsWindowless((__bridge CefWindowHandle)(__bridge NSView*)parent_view);
+  info.SetAsWindowless(static_cast<CefWindowHandle>(parent_view));
   info.shared_texture_enabled = 1;
+  info.external_begin_frame_enabled = (g_flags & 1) ? 1 : 0;
 }
 
 }  // namespace cmux_shim
 
 extern "C" {
 
-void cmux_shim_osr_enable(int enabled) {
+void cmux_shim_osr_enable(int enabled, int flags) {
   g_enabled = enabled != 0;
+  g_flags = flags;
 }
 
 void cmux_shim_osr_set_handlers(const cmux_shim_osr_handlers* handlers, void* ctx) {
@@ -403,6 +423,49 @@ void cmux_shim_osr_invalidate(int browser_id) {
 
 void cmux_shim_osr_set_frame_rate(int browser_id, int frame_rate) {
   if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) host->SetWindowlessFrameRate(frame_rate);
+}
+
+void cmux_shim_osr_begin_frame(int browser_id) {
+  if (!(g_flags & 1)) return;
+  if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) host->SendExternalBeginFrame();
+}
+
+int cmux_shim_osr_drag(int browser_id, int kind, int x, int y, uint32_t modifiers, const char* const* paths,
+                       int count, int allowed_ops) {
+  CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id);
+  if (!host) return 0;
+  CefMouseEvent event;
+  event.x = x;
+  event.y = y;
+  event.modifiers = modifiers;
+  const auto ops = static_cast<cef_drag_operations_mask_t>(allowed_ops);
+  switch (kind) {
+    case 0: {
+      drag_operations()[browser_id] = 0;
+      CefRefPtr<CefDragData> data = CefDragData::Create();
+      for (int i = 0; paths && i < count; ++i) {
+        if (!paths[i]) continue;
+        const std::string path = paths[i];
+        const size_t slash = path.find_last_of('/');
+        data->AddFile(path, slash == std::string::npos ? path : path.substr(slash + 1));
+      }
+      host->DragTargetDragEnter(data, event, ops);
+      break;
+    }
+    case 1:
+      host->DragTargetDragOver(event, ops);
+      break;
+    case 2:
+      host->DragTargetDragLeave();
+      break;
+    case 3:
+      host->DragTargetDrop(event);
+      break;
+    default:
+      break;
+  }
+  auto it = drag_operations().find(browser_id);
+  return it == drag_operations().end() ? 0 : it->second;
 }
 
 void cmux_shim_osr_mouse(int browser_id, int kind, int x, int y, uint32_t modifiers, int button, int click_count) {

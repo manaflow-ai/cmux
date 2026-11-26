@@ -56,6 +56,24 @@ public final class InTreePages {
     /// A dev build whose tag starts with this has the switch on unless its Debug Settings file turns it off.
     public nonisolated static let defaultOnTagPrefix = "in-tree-pages"
 
+    /// Off-screen pages (approach 5 prototype, cmuxterm-hq artifacts/in-tree-pages/approaches/osr): Chromium draws
+    /// each page windowless and cmux shows its frames in the pane's own layer. `CMUX_OFFSCREEN_PAGES` (`1` or `0`),
+    /// else on for a dev build tagged `osr…`. It implies in-tree pages for the window side (in-window overlays, the
+    /// responder gate, cmux's own dialogs), with the browser's pages off screen instead of in tree.
+    public nonisolated static let offscreenEnvironmentKey = "CMUX_OFFSCREEN_PAGES"
+    public nonisolated static let offscreenTagPrefix = "osr"
+    /// Whether this launch asked for off-screen pages (latched with the switch).
+    public private(set) var isOffscreenRequested = false
+
+    /// The off-screen decision ``latch(fileOverride:tag:environment:)`` makes.
+    public nonisolated static func decideOffscreen(tag: String?, environment: [String: String]) -> Bool {
+        switch environment[Self.offscreenEnvironmentKey] {
+        case "1", "true", "on": return true
+        case "0", "false", "off": return false
+        default: return tag?.hasPrefix(Self.offscreenTagPrefix) ?? false
+        }
+    }
+
     /// The latched switch; nil until ``latch(fileOverride:tag:environment:)`` (or the first read) ran.
     private var latched: Bool?
     /// What this build decides with no file override (the environment, then the tag): the switch row's default.
@@ -77,6 +95,13 @@ public final class InTreePages {
     public func latch(fileOverride: Bool?, tag: String?,
                              environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard latched == nil else { return }
+        isOffscreenRequested = Self.decideOffscreen(tag: tag, environment: environment)
+        if isOffscreenRequested {
+            buildDefault = true
+            latched = true
+            source = "offscreen"
+            return
+        }
         buildDefault = Self.decide(fileOverride: nil, tag: tag, environment: environment).0
         let (value, from) = Self.decide(fileOverride: fileOverride, tag: tag, environment: environment)
         latched = value
@@ -124,7 +149,7 @@ public final class InTreePages {
         guard isRequested else { return "off" }
         switch engine {
         case .unknown: return "pending"
-        case .supported: return "on"
+        case .supported: return isOffscreenRequested ? "offscreen" : "on"
         case .unsupported(let reason): return "unsupported_fork: \(reason)"
         }
     }
@@ -133,6 +158,7 @@ public final class InTreePages {
     /// Tests set the mode directly (the latch keeps the first value otherwise).
     public func setForTesting(requested: Bool?, engine: Engine = .unknown) {
         latched = requested
+        isOffscreenRequested = false
         buildDefault = false
         source = "test"
         self.engine = engine

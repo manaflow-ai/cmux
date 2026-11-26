@@ -258,6 +258,15 @@ extension CEFRuntime {
             keepUntilCreationEnds(host)
             return
         }
+        // Off-screen pages (approach 5 prototype): a tab's own windowless browser, or one an off-screen page opened.
+        if let tab = CEFOffscreenPages.shared.takePendingTab(request: request) {
+            tab.host.offscreenTabCreated(tab, browser: browser)
+            return
+        }
+        if CEFOffscreenPages.shared.calls?.isOffscreen(browser) == 1, let opener = tabsByBrowser[created.opener] {
+            opener.host.adoptOffscreenPopup(browser: browser, created: created)
+            return
+        }
         if let tab = tabBeingAdded {
             // cmux_tab_add runs OnAfterCreated before it returns.
             tabBeingAdded = nil
@@ -302,6 +311,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.forget(opener: browser)
         drawOnInput.closed(browser: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            tab.host.hostView.offscreen.pageClosed(browser: browser)
             // Read before the close: a closed tab's state is not this page's any more.
             let cmuxPage = CEFPageRendererGC.isCmuxPage(tab.state.url)
             tab.browserDidClose(closesTab: shutdownSequence == nil)

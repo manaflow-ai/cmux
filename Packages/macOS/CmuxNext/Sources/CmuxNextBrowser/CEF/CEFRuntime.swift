@@ -726,6 +726,8 @@ final class CEFRuntime {
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
+        // Off-screen pages (approach 5 prototype): windowless rendering is a CefInitialize setting.
+        CEFOffscreenPages.shared.enable(shim: shim)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
