@@ -206,7 +206,9 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
         if record:
             message = " ".join(record["message"])
             path = record["path"]
-            found = f"{unroot(path, root)}: {message}" if path else message
+            # The message is unrooted too: a type error naming a node_modules type prints the checkout's root in it
+            # (fast gates 45874767698 charged the base's bench/browsers.ts TS2345 to cmux#57053).
+            found = unroot(f"{path}: {message}" if path else message, root)
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
