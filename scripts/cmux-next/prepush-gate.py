@@ -192,6 +192,7 @@ import contextlib
 import fcntl
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import platform
@@ -203,6 +204,7 @@ import stat
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import tempfile
 import time
 import urllib.request
@@ -253,6 +255,7 @@ DATA_SUFFIXES = (".tsv", ".json")
 # manifest-only push).
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
+SPAWN_OWNER_CHECK = "Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)"
 DEPS_CHECK = "Package dependency lists sorted"
 VISIBLE_ONLY_CHECK = "Lists draw only visible rows (check-visible-only.py, visible-only-baseline.tsv)"
 # The ast-grep rules whose hits that scanner counts per file against its baseline: the ast-grep layer leaves them out,
@@ -314,7 +317,7 @@ SCANNERS = (
       "scripts/cmux-next/check-keychain-no-prompt.py", "scripts/cmux-next/keychain-no-prompt-baseline.tsv")),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
-    ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
+    (SPAWN_OWNER_CHECK,
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
     # Lawrence 2026-11-16: "think of root cause fixes ... that make focus stealers easier to audit in central place".
     ("Keyboard moves go through the focus route (plans/cmux-next/focus-loss-AUDIT.md)",
@@ -2410,6 +2413,56 @@ def job_bounds_drift(repo: Path, base: str, head: str) -> list[str]:
     return problems
 
 
+# A local reusable call whose callee (any of its jobs, even one its `if` skips) asks for a scope the calling job does
+# not grant fails the caller at startup: no job runs. 2026-11-25: #55503 gave base-coalesce's coalesce job actions:
+# read, and every feat-cmux-next run of cmux-next.yml and cmux-tui-artifacts.yml ended startup_failure. The detector
+# (scripts/ci/check_reusable_workflow_permissions.py) ran only in ci.yml's guard group, which a feat-cmux-next pull
+# request without full-ci never starts. Local only, like the job-bounds check; git objects only, about a second, only when a workflow changes.
+REUSABLE_PERMS_CHECK = "Reusable-workflow calls stay within the caller's permissions (else startup_failure)"
+
+
+def reusable_perms_drift(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to REUSABLE_PERMS_CHECK: a local `uses: ./.github/workflows/...` call that GitHub would reject at
+    startup, when base..head changes a workflow file. A failure base already had is not the push's. The reader is the
+    trusted hook copy beside this gate (install-git-hooks.sh), else scripts/ci's; a push passes when neither is there."""
+    here = Path(__file__).resolve()
+    module_path = next((p for p in (here.with_name("check_reusable_workflow_permissions.py"),
+                                    here.parent.parent / "ci" / "check_reusable_workflow_permissions.py")
+                        if p.is_file()), None)
+    if module_path is None:
+        return []
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+    spec = importlib.util.spec_from_file_location("cmux_reusable_workflow_permissions", module_path)
+    perms = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = perms  # its @dataclass reads its own module from sys.modules
+    spec.loader.exec_module(perms)
+
+    def failures(rev: str) -> list[str] | None:
+        with tempfile.TemporaryDirectory(prefix="cmux-reusable-perms-") as tmp:
+            # One archive of the directory (about 0.1 s), not a `git show` per file (about 1.5 s for ~100 workflows).
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, MAIN_TWIN_DIR],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return None
+            with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+                tar.extractall(tmp, filter="data")
+            workflows = Path(tmp) / MAIN_TWIN_DIR
+            try:
+                return perms.check_workflows_dir(workflows, "write")[1]
+            except Exception:  # a workflow its YAML-subset reader cannot parse: the workflow parse check names it
+                return None
+
+    ours = failures(head)
+    if not ours:
+        return []
+    theirs = set(failures(base) or [])
+    return [f for f in ours if f not in theirs]
+
+
 def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
     no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
@@ -2571,17 +2624,24 @@ def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path |
 def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """`<export>: ...` per settings export the range leaves without a key the base's export had and the head's sources
     declare, or with a key no head source declares (SETTINGS_KEYS_CHECK). Git objects only, and only when the range
-    changes a settings source or export."""
+    changes a settings source or export. Compared with HEAD's merge base with feat-cmux-next, like xcstrings_rewrites:
+    a base merge that takes the base's export (CI's generated-drift check demands that copy) brings back keys the
+    branch's previous push removed, and those are the base's, not this push's (cmux#55721)."""
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
     if not any(p.startswith(SETTINGS_KEYS_PATHS) for p in names.split("\0") if p):
         return []
+    # When BASE already descends from the merge base (no base merge in the range), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
     script = check_script(repo, head, SETTINGS_KEYS_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-settings-keys-") as tmp:
         check = absolute(Path(tmp)) / "settings-export-key-drift.py"
         check.write_bytes(script)
-        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", fork, "--head", head],
                         absolute(Path(tmp)), timeout=120)
     found = [line.removeprefix("drift: ") for line in out.splitlines() if line.startswith("drift: ")]
     stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)
@@ -3572,6 +3632,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         unbounded = job_bounds_drift(repo, base, head)
         if unbounded:
             reserved.append((JOB_BOUNDS_CHECK, unbounded))
+    # Local only, like the job-bounds check.
+    if (highlights_layer if only is None else "reusable-perms" in only) and restrict is None and want(REUSABLE_PERMS_CHECK):
+        rejected = reusable_perms_drift(repo, base, head)
+        if rejected:
+            reserved.append((REUSABLE_PERMS_CHECK, rejected))
     if (only is None or "sidebar" in only) and want(SIDEBAR_CHECK):
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -3726,6 +3791,20 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
                 base_code, base_out, base_s = futures[(name, 0)].result()
                 head_code, head_out, head_s = futures[(name, 1)].result()
+                if name == SPAWN_OWNER_CHECK and head_code == 1 and crates:
+                    # A sparse tree can omit the unchanged #[cfg(test)] declaration of a reported
+                    # spawn, including a #[path] in a sibling module. Confirm the finding with each
+                    # affected crate's actual module declarations on both sides.
+                    roots = sorted({"/".join(path.split("/", 3)[:3]) for path in crates})
+                    sources = sorted({path for rev in (base, head) for root in roots
+                                      for path in ls_tree(repo, rev, root) if path.endswith(".rs")})
+                    name_base, name_head = build_trees(repo, base, head, sources, absolute(Path(tmp)) / "spawn-owner",
+                                                       trusted_scripts, index=False)
+                    sides = [pool.submit(side, jobs[name], tree) for tree in (name_base, name_head)]
+                    base_code, base_out, base_elapsed = sides[0].result()
+                    head_code, head_out, head_elapsed = sides[1].result()
+                    base_s += base_elapsed
+                    head_s += head_elapsed
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
                 if BROKEN.search(head_out):
@@ -4383,7 +4462,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh,xcstrings")
+                                       "settings-export-keys,main-twin,job-bounds,reusable-perms,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--defer-ci-layers", action="store_true",
                         help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "

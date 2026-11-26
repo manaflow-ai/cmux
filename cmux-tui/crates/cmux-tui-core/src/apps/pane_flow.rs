@@ -157,16 +157,16 @@ impl Supervisor {
                     .by_app
                     .get(&key.app)
                     .is_some_and(|o| o.mounts.contains(&mount));
-                if bound {
-                    let open = inner.pane_opens.by_app.remove(&key.app).expect("open");
+                let open = if bound { inner.pane_opens.by_app.remove(&key.app) } else { None };
+                open.is_some_and(|open| {
                     resolve(
                         inner,
                         &key.app,
                         open.waiter,
                         json!({ "result": result, "dismissed": false }),
                     );
-                }
-                bound
+                    true
+                })
             }
             Some(_) => {
                 reply(false, error("validation.invalid", "mount must be a string"));
@@ -202,7 +202,7 @@ impl Supervisor {
             .filter(|h| matches!(h.state, HostState::Starting | HostState::Running))
             .and_then(|h| h.process.clone());
         for mount_key in &showing {
-            let mount = inner.mounts.get_mut(mount_key).expect("mount");
+            let Some(mount) = inner.mounts.get_mut(mount_key) else { continue };
             if let Some(fields) = mount.context.as_object_mut() {
                 fields.insert("args".into(), args.clone());
             }
@@ -258,7 +258,7 @@ impl Supervisor {
         if !open.mounts.remove(key) || !open.mounts.is_empty() {
             return;
         }
-        let open = inner.pane_opens.by_app.remove(app).expect("open");
+        let Some(open) = inner.pane_opens.by_app.remove(app) else { return };
         resolve(inner, app, open.waiter, json!({ "result": null, "dismissed": true }));
     }
 }
