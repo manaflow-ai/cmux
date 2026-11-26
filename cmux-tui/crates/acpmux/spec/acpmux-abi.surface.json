@@ -9609,6 +9609,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/inOrder": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/kinds": {
         "ty": "untagged_union|string|array",
         "nullable": true
@@ -12635,6 +12639,18 @@
       }
     },
     "request:_acpmux/history": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_offload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33252,6 +33268,18 @@
       }
     },
     "response:_acpmux/history": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
