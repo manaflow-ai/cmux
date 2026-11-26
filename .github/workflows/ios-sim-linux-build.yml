@@ -165,6 +165,8 @@ jobs:
           set -euo pipefail
           tar -C "$DERIVED/Build" -czf "$OUT/ios-sim-build.tar.gz" Products
           plat="$(xcode-select -p)/Platforms/iPhoneSimulator.platform/Developer"
+          # One tar argument per directory found (a Mac's /bin/bash 3.2 has no mapfile).
+          # shellcheck disable=SC2046
           tar -C "$plat" -czf "$OUT/ios-sim-xctest-platform.tar.gz" \
             $(cd "$plat" && ls -d Library/Frameworks Library/PrivateFrameworks Library/Xcode/Agents usr/lib 2>/dev/null)
           xcodebuild -version > "$OUT/xcode-version.txt"

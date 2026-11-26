@@ -109,7 +109,7 @@ jobs:
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -326,7 +326,7 @@ jobs:
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -415,7 +415,7 @@ jobs:
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
