@@ -26007,7 +26007,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelwritewatch_cancel() != 17976) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelwritewatch_take_progress() != 60674) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelwritewatch_take_progress() != 45961) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {
