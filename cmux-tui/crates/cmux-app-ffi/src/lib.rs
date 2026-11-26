@@ -36,6 +36,8 @@
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
+//! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
+//! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
 //! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
 //! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
 //! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
@@ -44,6 +46,8 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
+//! person touches, read the QoS of a class of work.
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
@@ -53,6 +57,8 @@
 pub mod files_lister;
 pub mod goo;
 pub mod hover;
+/// cbindgen:ignore
+pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
@@ -71,6 +77,7 @@ pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_health_core::ffi as health;
+pub use cmux_keymap::ffi as keymap;
 pub use cmux_launch_image::ffi as launch_image;
 pub use cmux_launch_record;
 pub use cmux_launch_shell::ffi as launch_shell;

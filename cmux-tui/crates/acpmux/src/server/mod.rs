@@ -28,9 +28,238 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+// One module per line, in alphabetical order (with its attributes above it), so two pull
+// requests that each add a module touch different lines and merge without a conflict.
+mod account_sign_in;
+mod accounts;
+#[cfg(test)]
+#[path = "ack_latency_bench.rs"]
+mod ack_latency_bench;
+#[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
+mod agent_home;
+mod agent_login;
+mod agent_messages;
 mod app_assets;
+mod app_reply;
+#[cfg(test)]
+mod attach_latency_bench;
+mod auto_gate;
+mod bg_tasks;
 pub(crate) mod browser_workspaces;
+#[cfg(test)]
+#[path = "cancel_classes_tests.rs"]
+mod cancel_classes_tests;
+#[cfg(test)]
+#[path = "cancel_prompt_tests.rs"]
+mod cancel_prompt_tests;
+pub mod carrier;
+mod change_kind;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
+mod chat_place;
+#[cfg(test)]
+#[path = "chat_window_activity_tests.rs"]
+mod chat_window_activity_tests;
+mod chat_windows;
+#[cfg(test)]
+#[path = "chatgpt_import_tests.rs"]
+mod chatgpt_import_tests;
+mod chats;
+mod chunk_deltas;
+pub(crate) mod client_features;
+mod client_request;
+#[cfg(test)]
+#[path = "compressed_link_tests.rs"]
+mod compressed_link_tests;
+pub(crate) mod computer_use_relay;
+pub mod conn_auth;
+#[cfg(test)]
+#[path = "connection_token_tests.rs"]
+mod connection_token_tests;
+mod connections;
+pub(crate) mod controls;
 pub(crate) mod dual_requests;
+mod durable_gate;
+mod ephemeral;
+mod fanout;
+#[cfg(test)]
+#[path = "fanout_encode_tests.rs"]
+mod fanout_encode_tests;
+// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+#[cfg(test)]
+#[path = "fanout_interest_tests.rs"]
+mod fanout_interest_tests;
+mod felt;
+mod fill;
+mod fix_from_link;
+mod follow;
+mod fork_through;
+mod forum;
+mod github_lane;
+mod github_prs;
+mod goal;
+mod harness_admin;
+mod harness_enable;
+mod held_rows;
+pub(crate) mod host_notice;
+pub(crate) mod host_power;
+mod in_flight;
+#[cfg(test)]
+#[path = "inbox_gate_tests.rs"]
+mod inbox_gate_tests;
+pub(crate) mod interest;
+mod inventory_watch;
+#[cfg(test)]
+mod key_route_tests;
+mod keys_relay;
+mod lane_parent;
+#[cfg(test)]
+#[path = "latency_gauges_tests.rs"]
+mod latency_gauges_tests;
+mod link_v2_serve;
+#[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
+#[cfg(test)]
+#[path = "list_follow_link_tests.rs"]
+mod list_follow_link_tests;
+#[cfg(test)]
+#[path = "list_pending_tests.rs"]
+mod list_pending_tests;
+mod list_reply;
+#[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
+pub mod local_app;
+pub(crate) mod machine_enroll;
+mod machine_files_relay;
+pub(crate) mod machine_health;
+mod machine_join_ssh;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
+mod machine_tunnel;
+mod mcp_connect;
+mod media_forward;
+mod memory_inbox;
+mod mesh_control_send;
+pub mod mesh_relay;
+pub(super) mod mesh_send;
+#[cfg(test)]
+mod message_notice_tests;
+#[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
+mod models_fanout;
+mod move_targets;
+mod new_worktree;
+#[cfg(test)]
+mod nodelay_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;
+mod outbound;
+#[cfg(test)]
+mod outbound_queue_tests;
+pub(crate) mod outbox;
+mod pairing;
+mod paused_files;
+pub mod peer_auth;
+mod peer_forward;
+pub(crate) mod peer_status;
+pub mod peer_text;
+mod pending;
+#[cfg(test)]
+#[path = "person_prove_tests.rs"]
+mod person_prove_tests;
+mod place;
+mod place_set;
+mod plan_build;
+mod processes;
+mod project_new;
+mod prompt_cancel;
+mod prompt_coach;
+pub(crate) mod queue_gauge;
+mod races;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "reader_bound_bench.rs"]
+mod reader_bound_bench;
+mod redact;
+pub(crate) mod remote_guard;
+#[cfg(test)]
+#[path = "reply_size_tests.rs"]
+mod reply_size_tests;
+#[cfg(test)]
+mod request_admission_tests;
+mod requests;
+mod review_queue;
+mod routes;
+mod run_elsewhere;
+mod secrets;
+mod send_check;
+mod session_auth;
+mod session_files;
+#[cfg(test)]
+#[path = "session_list_pages_tests.rs"]
+mod session_list_pages_tests;
+pub(crate) mod session_patch;
+#[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
+mod share_host;
+pub(crate) mod shutdown_drain;
+#[cfg(test)]
+#[path = "shutdown_drain_tests.rs"]
+mod shutdown_drain_tests;
+mod sign_in_follow;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "socket_access_tests.rs"]
+mod socket_access_tests;
+pub(crate) mod ssh_carry;
+mod stream;
+mod stream_cursor;
+#[cfg(test)]
+#[path = "stream_cursor_tests.rs"]
+mod stream_cursor_tests;
+mod subsessions;
+mod surgery;
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
+/// Owner-only TLS ingress from the embedded tailnet node.
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod tailnet_ingress;
+/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
+/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
+/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
+#[cfg(all(unix, feature = "tailnet"))]
+#[path = "../tailnet/embedded_service.rs"]
+pub(crate) mod tailnet_service;
+mod team;
+mod trigger_authority;
+mod trigger_chat;
+pub(crate) mod trust_gate;
+// What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;
+pub mod upload_frames;
+mod vault;
+mod view;
+mod vm_host;
+pub(crate) mod wait;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "wake_held_tests.rs"]
+mod wake_held_tests;
+mod web_device;
+#[cfg(windows)]
+mod windows_socket;
+mod workflow_activity;
+mod workflow_runs;
+mod worktrees;
 mod ws_peek;
 mod ws_read_ahead;
 mod ws_shutdown;
@@ -56,6 +285,26 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// Attached with `omitTimeBreakdown: true` (the phone, which draws no breakdown): the chat's
+    /// `_acpmux/session_changed` rows to this connection leave `timeBreakdown` out too, as the
+    /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
+    /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
+    pub omit_time_breakdown: bool,
+    /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
+    /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
+    /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
+    pub quiet_hidden: bool,
+    /// Stream records left out since the chat was last shown here (`quiet_hidden`).
+    pub left_out: u64,
+    /// The cursor before the first of them (its seq less one): the show's `_acpmux/lagged` names it
+    /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
+    /// own cursor past the chunks it never got (`view.rs`).
+    pub left_from: u64,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -202,6 +451,9 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The rows of an attached chat's turn-opening records, held so the turn's first output is
+    /// not queued behind them (`held_rows.rs`).
+    held_rows: held_rows::HeldRows,
     /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
     follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
@@ -234,6 +486,11 @@ pub struct Conn {
     /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
     /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
     omit_time_breakdown: AtomicBool,
+    /// Other chats' `session_changed` rows left out while every chat this connection attached was
+    /// hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, `leaves_out_row`).
+    /// Changed under `subs`' lock, so the show that ends it (`view.rs`) sends one `_acpmux/lagged`
+    /// with `watch: true` that covers every row left out, and the page reads the list again.
+    rows_left_out: AtomicU64,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -915,6 +1172,49 @@ impl Conn {
 
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
+    }
+
+    /// Whether a live stream record of `session_id` is left out here: its attachment draws nothing
+    /// while hidden (`SubOpts::quiet_hidden`) and is hidden now. Counted under the lock
+    /// `_acpmux/view` shows it under, so the `_acpmux/lagged` of that show covers every record
+    /// left out, and every record after it goes out (`view.rs` `view`).
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per hidden quiet attachment)
+    fn leaves_out_hidden(&self, session_id: &str, seq: u64) -> bool {
+        let mut subs = self.subs.lock_or_recover();
+        match subs.get_mut(session_id) {
+            Some(sub) if sub.quiet_hidden && sub.hidden && !sub.remote => {
+                if sub.left_out == 0 {
+                    sub.left_from = seq.saturating_sub(1);
+                }
+                sub.left_out += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+    /// Whether another chat's `session_changed` row is left out here: every chat this connection
+    /// attached is hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, the
+    /// app's pane). The app already holds every list notice from a page out of sight
+    /// (`AcpmuxPaneShedding.listNotices`, `setAsleep`), so these rows crossed the socket for
+    /// nothing: 205 kB/s with 8 chats streaming and 6 panes hidden (app-stream-bytes, stream
+    /// duress). Counted under the lock `_acpmux/view` shows a chat under (`rows_left_out`).
+    // perf-hot: 1us acpmux-row-fanout (every row change, per watching connection)
+    fn leaves_out_row(&self) -> bool {
+        let subs = self.subs.lock_or_recover();
+        let mut local = subs.values().filter(|sub| !sub.remote).peekable();
+        if local.peek().is_none() || !local.all(|sub| sub.quiet_hidden && sub.hidden) {
+            // Out of hiding by a detach or a new attach, not a show (`view.rs` covers a show):
+            // the rows left out are owed before this one.
+            let rows = self.rows_left_out.swap(0, Ordering::SeqCst);
+            if rows > 0 {
+                let notice =
+                    json!({"dropped": rows, "reason": "hidden", "watch": true, "sessionIds": []});
+                self.send(&Message::notification("_acpmux/lagged", notice));
+            }
+            return false;
+        }
+        self.rows_left_out.fetch_add(1, Ordering::SeqCst);
+        true
     }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
@@ -2064,6 +2364,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        held_rows: Default::default(),
         follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -2078,6 +2379,7 @@ async fn serve_connection_from(
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         omit_time_breakdown: AtomicBool::new(false),
+        rows_left_out: AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2096,13 +2398,7 @@ async fn serve_connection_from(
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
         preparation_cancels: StdMutex::new(HashMap::new()),
-        // A peer daemon's link carries all its clients' reads, which it caps one by one
-        // (`media_forward.rs`).
-        media: if auth.peer_daemon() {
-            crate::hub::media_handles::Handles::for_peer_link()
-        } else {
-            crate::hub::media_handles::Handles::default()
-        },
+        media: crate::hub::media_handles::Handles::default(),
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
@@ -2142,6 +2438,9 @@ async fn serve_connection_from(
     };
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
+    // A channel's frames, one at a time in the order they came (`channels.rs`): the worker above
+    // runs notifications side by side, which would reorder a byte stream.
+    let (channel_tx, channel_worker) = channels::spawn_worker(hub.clone(), conn.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
     let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
@@ -2247,8 +2546,9 @@ async fn serve_connection_from(
                                 "retryable": true,
                             }));
                         // In the lane of its method's answer: a busy refusal of a cheap read (the
-                        // pane's liveness probe) proves the daemon alive only if it arrives.
-                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        // pane's liveness probe) proves the daemon alive only if it arrives, and
+                        // a tool call's refusal is its answer.
+                        let reply_to = outbound::reads_ahead(&m).then_some(m.as_str());
                         conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
@@ -2326,6 +2626,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                         return;
                     }
+                    // One span per request, with the caller's end-to-end trace id
+                    // (`params._meta.traceId`), for the Perfetto trace (`perf_trace.rs`).
+                    let rpc_span = crate::perf_trace::request_span(&m, params.as_ref());
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -2337,6 +2640,7 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
+                    let serve = tracing::Instrument::instrument(serve, rpc_span);
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
                     let served = crate::request_cancel::until_either(cancel, also, serve).await;
@@ -2446,6 +2750,13 @@ async fn serve_connection_from(
                     requests::cancel_on_connection(&hub, &conn, params.as_ref());
                 }
             }
+            // A full channel queue holds this reader: backpressure on the sender, never a
+            // dropped or reordered frame.
+            Message::Notification { method: m, params } if channels::takes(&m) => {
+                if channel_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -2489,6 +2800,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // Its listeners go and its channels close on their other side (`channels.rs`).
+    channels::conn_ended(&hub, &conn).await;
     // The link's v2 connection ends with it.
     drop(link_v2);
     let preparations: Vec<_> =
@@ -2507,6 +2820,8 @@ async fn serve_connection_from(
     }
     drop(cancel_tx);
     let _ = cancel_worker.await;
+    drop(channel_tx);
+    let _ = channel_worker.await;
 
     let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
     let mut waiters = notification_waits.into_iter();
@@ -2614,6 +2929,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
+        held_rows::flush(hub, conn);
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
@@ -2621,7 +2937,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
             let mut session =
                 if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
-            if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+            if conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id))
+            {
                 requests::without_time_breakdown(&mut session);
             }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
@@ -2685,8 +3003,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
         // that did not by its seq alone (`MUX_UNSENT`).
         let mut sent = repeat || sub.event_stream;
-        if repeat {
-            // Sent by the replay.
+        // The agent's stream to a client that draws nothing of the chat while hidden: left out,
+        // and read again from its cursor once shown (`SubOpts::quiet_hidden`). Every other record
+        // (status, turn ends, asks, the queue) still goes, so its row and its asks stay current.
+        let quiet = sub.quiet_hidden
+            && sub.hidden
+            && rec.dir == "in"
+            && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && (!sub.event_stream || sub.filter.matches_live(rec))
+            && conn.leaves_out_hidden(&ev.session_id, rec.seq);
+        if repeat || quiet {
+            // Sent by the replay, or left out while hidden.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
                 let params = routed(event_value(&ev.session_id, rec));
@@ -2763,6 +3090,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
         if let Some(following) = &sub.rows
+            && !quiet
             && ev.remote.is_none()
             && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
         {
@@ -2796,6 +3124,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let batched =
                 ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
             if rec.dir == "peer" && !view::a_link(conn) && !batched {
+                held_rows::flush(hub, conn);
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2805,6 +3134,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     requests::without_time_breakdown(&mut session);
                 }
                 let qualified = remote.qualified_id(&ev.session_id);
+                if !attached && conn.leaves_out_row() {
+                    // Read again with the list once a chat here shows (`leaves_out_row`).
+                    session_patch::forget(conn, &qualified);
+                    return;
+                }
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
                 } else if session.is_object() {
@@ -2826,7 +3160,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            held_rows::flush(hub, conn);
             session_patch::forget(conn, &ev.session_id);
+            if !attached && conn.leaves_out_row() {
+                return;
+            }
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2845,12 +3183,42 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        // A chat's command list still wakes its read (above); its asks still go (below).
+        let row_left_out =
+            !attached && rec.kind != "available_commands_update" && conn.leaves_out_row();
+        // A watcher that is not attached still learns a permission is waiting, after the row
+        // that recorded it.
+        let ask_pending = || {
+            if is_permission_ask(&rec.kind) && !attached {
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
+                    ),
+                    outbound::Row::After(row_key()),
+                );
+            }
+        };
+        if row_left_out {
+            session_patch::forget(conn, &ev.session_id);
+            ask_pending();
+            return;
+        }
+        // The row of a record that opens a turn waits behind the turn's first output
+        // (`held_rows.rs`); any other row goes after the ones held, in row order.
+        if attached && held_rows::opens_a_turn(&rec.kind) {
+            conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
+            return;
+        }
+        held_rows::flush(hub, conn);
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
         // on every record of a running turn; a client that draws none shares a row without it.
-        let lean = full && conn.omit_time_breakdown.load(Ordering::SeqCst);
+        let lean = full
+            && (conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id)));
         let [list_row, full_row, lean_row] = &ev.row.cells;
         let row = if lean {
             lean_row
@@ -2862,7 +3230,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
             Some(if full {
-                let mut summary = hub.session_summary(&s);
+                let mut summary = hub.session_change_summary(&s);
                 if lean {
                     requests::without_time_breakdown(&mut summary);
                 }
@@ -2885,17 +3253,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 );
             }
         }
-        // A watcher that is not attached still learns a permission is waiting, after the row
-        // that recorded it.
-        if is_permission_ask(&rec.kind) && !attached {
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
-                ),
-                outbound::Row::After(row_key()),
-            );
-        }
+        ask_pending();
     }
 }
 
@@ -2914,255 +3272,21 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
-mod agent_login;
-mod agent_messages;
-mod app_reply;
-#[cfg(test)]
-#[path = "cancel_classes_tests.rs"]
-mod cancel_classes_tests;
-#[cfg(test)]
-#[path = "cancel_prompt_tests.rs"]
-mod cancel_prompt_tests;
-#[cfg(test)]
-#[path = "chatgpt_import_tests.rs"]
-mod chatgpt_import_tests;
-pub(crate) mod client_features;
-mod client_request;
-pub(crate) mod computer_use_relay;
-#[cfg(test)]
-#[path = "connection_token_tests.rs"]
-mod connection_token_tests;
-pub(crate) mod controls;
-mod in_flight;
-mod keys_relay;
-#[cfg(test)]
-#[path = "latency_gauges_tests.rs"]
-mod latency_gauges_tests;
-#[cfg(test)]
-#[path = "person_prove_tests.rs"]
-mod person_prove_tests;
-pub(crate) mod shutdown_drain;
-#[cfg(test)]
-#[path = "shutdown_drain_tests.rs"]
-mod shutdown_drain_tests;
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "socket_access_tests.rs"]
-mod socket_access_tests;
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "wake_held_tests.rs"]
-mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
-pub(crate) use change_kind::session_change_kind;
-mod change_kind;
-mod chat_windows;
-mod chunk_deltas;
-mod felt;
-pub(crate) mod session_patch;
-pub use chat_windows::live_tasks as live_chat_window_tasks;
-pub mod carrier;
-mod chats;
-pub(crate) use chats::usage_upload_loop;
-pub mod conn_auth;
-mod durable_gate;
-mod ephemeral;
-mod fanout;
-mod fix_from_link;
-mod follow;
-mod forum;
-mod github_lane;
-mod link_v2_serve;
-mod media_forward;
-mod mesh_control_send;
-pub mod mesh_relay;
-pub(super) mod mesh_send;
-mod stream_cursor;
-#[cfg(test)]
-#[path = "stream_cursor_tests.rs"]
-mod stream_cursor_tests;
-mod team;
-mod trigger_authority;
-mod trigger_chat;
-pub use conn_auth::ConnAuth;
-mod fork_through;
-mod harness_admin;
-mod harness_enable;
-pub(crate) mod host_notice;
-mod inventory_watch;
-mod lane_parent;
-mod list_reply;
-use lane_parent::lane_parent;
-mod agent_home;
-mod bg_tasks;
-mod github_prs;
-mod goal;
-pub mod local_app;
-pub(crate) mod machine_enroll;
-mod machine_files_relay;
-pub(crate) mod machine_health;
-mod machine_join_ssh;
-#[cfg(feature = "hub-carrier")]
-mod machine_routes;
-mod machine_tunnel;
-mod memory_inbox;
-mod models_fanout;
-mod new_worktree;
-mod outbound;
-pub(crate) use outbound::is_cheap_read;
-pub(crate) mod outbox;
-mod pairing;
-mod plan_build;
-mod project_new;
-mod prompt_coach;
-pub(crate) mod queue_gauge;
-mod review_queue;
-mod run_elsewhere;
-mod sign_in_follow;
-pub(crate) mod ssh_carry;
-mod surgery;
-mod task_list;
-pub use pairing::serve_connection_device;
-mod chat_place;
-pub(crate) mod host_power;
-pub(crate) mod interest;
-mod move_targets;
-pub mod peer_auth;
-mod peer_forward;
-pub(crate) mod peer_status;
-pub mod peer_text;
-mod pending;
-mod place;
-mod processes;
-mod prompt_cancel;
-mod workflow_activity;
-mod workflow_runs;
-mod worktrees;
 use crate::hub::is_permission_ask;
 pub use crate::ws_auth;
+pub(crate) use change_kind::session_change_kind;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
+pub(crate) use chats::usage_upload_loop;
+pub use conn_auth::ConnAuth;
+use lane_parent::lane_parent;
+pub(crate) use outbound::is_cheap_read;
+pub use pairing::serve_connection_device;
+pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
-pub(crate) use workflow_activity::owner_call as workflow_owner_call;
-mod redact;
-pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
-pub(crate) mod remote_guard;
-mod requests;
-pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
-mod account_sign_in;
-mod accounts;
-#[cfg(test)]
-mod attach_latency_bench;
-mod connections;
-mod mcp_connect;
-mod routes;
-mod secrets;
-mod share_host;
-mod vault;
-mod web_device;
-pub(crate) use vault::reply as vault_reply;
-mod races;
-mod session_auth;
-mod session_files;
-mod stream;
-mod subsessions;
-pub(crate) mod trust_gate;
-pub mod upload_frames;
-mod view;
-mod vm_host;
-pub(crate) mod wait;
-#[cfg(windows)]
-mod windows_socket;
 use requests::handle_notification;
-
-#[cfg(test)]
-#[path = "mirror_relay_tests.rs"]
-mod mirror_relay_tests;
-
-#[cfg(test)]
-mod request_admission_tests;
-
-#[cfg(test)]
-#[path = "acp_list_tests.rs"]
-mod acp_list_tests;
-
-#[cfg(test)]
-#[path = "list_fit_tests.rs"]
-mod list_fit_tests;
-
-#[cfg(test)]
-#[path = "list_pending_tests.rs"]
-mod list_pending_tests;
-
-#[cfg(test)]
-#[path = "list_web_page_tests.rs"]
-mod list_web_page_tests;
-
-#[cfg(test)]
-#[path = "inbox_gate_tests.rs"]
-mod inbox_gate_tests;
-
-#[cfg(test)]
-#[path = "ack_latency_bench.rs"]
-mod ack_latency_bench;
-
-#[cfg(all(test, target_os = "linux"))]
-#[path = "reader_bound_bench.rs"]
-mod reader_bound_bench;
-
-#[cfg(test)]
-#[path = "reply_size_tests.rs"]
-mod reply_size_tests;
-
-#[cfg(test)]
-#[path = "session_list_pages_tests.rs"]
-mod session_list_pages_tests;
-
-#[cfg(test)]
-#[path = "list_follow_link_tests.rs"]
-mod list_follow_link_tests;
-
-#[cfg(test)]
-#[path = "compressed_link_tests.rs"]
-mod compressed_link_tests;
-
-#[cfg(test)]
-mod key_route_tests;
-
-#[cfg(test)]
-mod nodelay_tests;
-
-#[cfg(test)]
-mod outbound_queue_tests;
-
-/// Owner-only TLS ingress from the embedded tailnet node.
-#[cfg(all(unix, feature = "tailnet"))]
-pub mod tailnet_ingress;
-
-/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
-/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
-/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
-#[cfg(all(unix, feature = "tailnet"))]
-#[path = "../tailnet/embedded_service.rs"]
-pub(crate) mod tailnet_service;
-
-#[cfg(test)]
-mod message_notice_tests;
-
-#[cfg(test)]
-#[path = "fanout_encode_tests.rs"]
-mod fanout_encode_tests;
-
-// What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
-#[cfg(test)]
-#[path = "update_cost_bench.rs"]
-mod update_cost_bench;
-
-#[cfg(test)]
-#[path = "chat_window_activity_tests.rs"]
-mod chat_window_activity_tests;
-
-// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
-#[cfg(test)]
-#[path = "fanout_interest_tests.rs"]
-mod fanout_interest_tests;
+pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+pub(crate) use vault::reply as vault_reply;
+pub(crate) use workflow_activity::owner_call as workflow_owner_call;

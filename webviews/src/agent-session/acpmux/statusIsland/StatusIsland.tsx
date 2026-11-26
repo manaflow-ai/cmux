@@ -7,7 +7,7 @@
 // with its error and Open chat. A press on the pill expands or collapses it; Escape collapses it.
 //
 // It replaces nothing: the permission cards, Needs you and the sidebar dots stay as they are.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import type { NeedsYouAnswer, NeedsYouItem } from "../needsYou/model";
 import { askText } from "../needsYou/needsYouModel";
@@ -22,13 +22,14 @@ import "./statusIsland.css";
 export type StatusIslandActions = {
   /// Sends a one-click answer (useNeedsYou's `actions.answer`); rejects when acpmux refused it.
   answer(item: NeedsYouItem, choice: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the ask at its source (useNeedsYou's `actions.goTo`).
+  /// Opens the ask at its source (useNeedsYou's `actions.goTo`), which goes nowhere for another
+  /// computer's chat: the card offers it only where `canOpen` says it can go.
   goTo(item: NeedsYouItem): void;
   /// Opens a chat by id: beside this one (the host's `chat.asks.open`), or for the chat on screen,
   /// shows its failure where it is.
   openSession(sessionId: string): void;
   /// Whether Open Chat can go anywhere for this chat (the host refuses another computer's chat and
-  /// any open from New Tab). Absent: it can.
+  /// any open from New Tab), for a failure and for an ask with no one-click answer. Absent: it can.
   canOpen?(sessionId: string): boolean;
 };
 
@@ -95,6 +96,24 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
   // permission card's document capture, and a prevented key is one it ignores). A composer with a
   // draft, another field, a menu or a dialog keeps its own Escape.
   const island = useRef<HTMLElement>(null);
+  // The room under the island's top in the pane it floats over (its offset parent, the chat shell):
+  // the card is never taller (statusIsland.css) and scrolls inside it, so a short split pane still
+  // reaches every answer. Measured, as the shell's height is the pane's, not the window's.
+  const [room, setRoom] = useState<number>();
+  useLayoutEffect(() => {
+    const box = island.current;
+    const pane = box?.offsetParent;
+    if (!box || !(pane instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = Math.max(0, pane.clientHeight - box.offsetTop);
+      setRoom((last) => (last === next ? last : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, []);
   const focusKey = state.focus;
   useEffect(() => {
     if (!expanded || !focusKey) return;
@@ -155,7 +174,12 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
       aria-label={t("statusIsland.label")}
       data-tone={state.tone}
       data-expanded={expanded ? "" : undefined}
-      style={size ? { width: size.width, height: size.height } : undefined}
+      style={
+        {
+          ...(size ? { width: size.width, height: size.height } : {}),
+          ...(room === undefined ? {} : { "--acpmux-status-island-room": `${room}px` }),
+        } as CSSProperties
+      }
     >
       <div ref={content} className="acpmux-status-island__content" key={expanded ? "card" : "pill"}>
         {!expanded ? (
@@ -181,7 +205,17 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
             sending={sending === state.attention.id}
             failed={failedFocus === state.focus}
             onAnswer={answer}
-            onOpen={actions.goTo}
+            // An ask with no one-click answer opens at its source: a marked tab, or a chat the host
+            // can go to. Another computer's chat waits there (goTo goes nowhere): no Open Chat.
+            onOpen={
+              (
+                state.attention.kind === "tab"
+                  ? Boolean(state.attention.tabId)
+                  : (actions.canOpen?.(state.attention.sessionId) ?? true)
+              )
+                ? actions.goTo
+                : undefined
+            }
             onCollapse={collapse}
           />
         ) : state.failure ? (
@@ -288,7 +322,8 @@ function IslandAsk({
   sending: boolean;
   failed: boolean;
   onAnswer(item: NeedsYouItem, choice: NeedsYouAnswer): void;
-  onOpen(item: NeedsYouItem): void;
+  /// Absent where Open Chat could go nowhere: the card then offers no Open Chat.
+  onOpen?(item: NeedsYouItem): void;
   onCollapse(): void;
 }) {
   const t = useT();
@@ -314,28 +349,35 @@ function IslandAsk({
         )
       )}
       {failed && <p className="acpmux-status-island__error">{t("needsYou.answerFailed")}</p>}
-      <div
-        className="acpmux-status-island__actions"
-        data-choices={answers.some((choice) => choice.tone === "choice") ? "" : undefined}
-      >
-        {answers.map((choice) => (
-          <button
-            key={choice.id}
-            type="button"
-            className="acpmux-status-island__action"
-            data-tone={choice.tone}
-            disabled={sending}
-            onClick={() => onAnswer(item, choice)}
-          >
-            {choice.label}
-          </button>
-        ))}
-        {answers.length === 0 && (
-          <button type="button" className="acpmux-status-island__action" data-tone="allow" onClick={() => onOpen(item)}>
-            {t("statusIsland.open")}
-          </button>
-        )}
-      </div>
+      {(answers.length > 0 || onOpen) && (
+        <div
+          className="acpmux-status-island__actions"
+          data-choices={answers.some((choice) => choice.tone === "choice") ? "" : undefined}
+        >
+          {answers.map((choice) => (
+            <button
+              key={choice.id}
+              type="button"
+              className="acpmux-status-island__action"
+              data-tone={choice.tone}
+              disabled={sending}
+              onClick={() => onAnswer(item, choice)}
+            >
+              {choice.label}
+            </button>
+          ))}
+          {answers.length === 0 && onOpen && (
+            <button
+              type="button"
+              className="acpmux-status-island__action"
+              data-tone="allow"
+              onClick={() => onOpen(item)}
+            >
+              {t("statusIsland.open")}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

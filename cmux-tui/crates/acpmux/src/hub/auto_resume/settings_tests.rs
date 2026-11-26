@@ -62,3 +62,20 @@ fn config_json_comes_before_the_settings() {
     assert_eq!(effective_delays(Some(vec![])), Vec::<u64>::new());
     assert_eq!(effective_delays(Some(vec![5_000])), vec![5_000]);
 }
+
+#[test]
+fn capacity_fallback_reads_its_key_held_to_its_range() {
+    assert_eq!(settings_fallback_after(&json!({})), DEFAULT_CAPACITY_FALLBACK_AFTER);
+    let off = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 0}}});
+    assert_eq!(settings_fallback_after(&off), 0);
+    let dotted = json!({"agents.autoRetry.capacityFallbackAfter": 5.7});
+    assert_eq!(settings_fallback_after(&dotted), 5);
+    let high = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 99}}});
+    assert_eq!(settings_fallback_after(&high), MAX_CONFIGURED_ATTEMPTS);
+    let junk = json!({"agents": {"autoRetry": {"capacityFallbackAfter": "x"}}});
+    assert_eq!(settings_fallback_after(&junk), DEFAULT_CAPACITY_FALLBACK_AFTER);
+    // config.json's comes first.
+    assert_eq!(capacity_fallback_after(Some(0)), 0);
+    assert_eq!(capacity_fallback_after(Some(2)), 2);
+    assert_eq!(capacity_fallback_after(Some(500)), MAX_CONFIGURED_ATTEMPTS);
+}

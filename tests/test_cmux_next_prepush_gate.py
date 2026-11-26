@@ -234,6 +234,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -2019,11 +2020,22 @@ let package = Package(
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("must update plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("must add its entry under plans/cmux-next/sidebar-owner/", output)
 
     def test_a_visual_sidebar_change_with_the_note_passes(self):
         self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
         self.write("plans/cmux-next/sidebar-owner.md", "# owner\n- titles at the inset (Lawrence 11405)\n")
+        self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_visual_sidebar_change_with_an_entry_file_passes(self):
+        # One file per entry (scripts/ci/entry_logs.py): two PRs logging looks never share a line of the note.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md",
+                   "- 2026-11-25 (lane/x): Sidebar-Look: Lawrence 11405: titles at the inset\n")
         self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
 
         result = self.push()
@@ -2069,6 +2081,23 @@ let package = Package(
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_sidebar_change_logged_in_an_entry_file_passes_in_the_ci_sweep(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(sweep().returncode, 0)
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-scrollers.md",
+                   f"- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
     def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
         # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
         # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
@@ -2092,7 +2121,7 @@ let package = Package(
         self.assertNotIn("::error", output)
         self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
         self.assertIn(on_base[:11], output)
-        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("plans/cmux-next/sidebar-owner/", output)
         self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
 
         # The branch's push sweep (no --own-range) still fails on the same base commit.
@@ -2556,7 +2585,25 @@ pub fn reset(snapshot: &Snapshot) {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
-            "keychain-no-prompt-baseline.tsv"})
+            "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
+
+    def test_classic_ids_baseline_takes_a_deleted_row(self):
+        # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:
+        # delete its row" (the installed copy kept the row): now each tree reads its own lower row.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.commit("pushed classic ids: b.rs moved off Classic's cache, a.rs kept")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("a.rs\t.config/cmux/\t1\tmove\tx\nb.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.assertEqual(taken, [f'{name}: b.rs join("cmux") 1 -> 0 (row deleted)'])
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
@@ -3774,7 +3821,7 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 class MergeUpstreamRunTests(unittest.TestCase):
-    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    """2026-11-21: a merge push's gate took 798 s on a Linux workstation (the hook's 600 s limit): gate_own's run over the range
     the merge does not own ran every check again, whole-package dependency and surface material trees among them
     (293 s), though only the checks the push's own run found something in are ever read from it."""
 

@@ -445,6 +445,9 @@ pub enum Call {
         /// answer without it (every Move to Cloud) interrupts, as before.
         #[serde(default = "interrupts")]
         interrupt: bool,
+        /// The owner's agent login comes on stdin ([`super::login`]): `--login-stdin`.
+        #[serde(default)]
+        login: bool,
     },
     /// `link machine update`: `--to-bundled`, and with `--if-older` only onto an older build.
     MachineUpdate {
@@ -691,6 +694,7 @@ pub fn invocation(call: &Call) -> Invocation {
             vm_kind,
             to_pid,
             interrupt,
+            login,
         } => {
             let surface = surface.to_string();
             let mut args = words(&[
@@ -709,6 +713,9 @@ pub fn invocation(call: &Call) -> Invocation {
             let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
             let flags = if *interrupt { agent_move_flags } else { agent_move_flags_at_boundary };
             args.extend(flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            if *login {
+                args.push(super::login::FLAG.to_owned());
+            }
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {

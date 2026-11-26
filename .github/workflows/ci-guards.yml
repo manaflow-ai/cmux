@@ -185,6 +185,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Fleet-built test products a Mac unpacks: archive member checks and the same-length path mapping.
+      - name: Test the fleet test products fetcher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_test_products.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -206,6 +211,10 @@ jobs:
       - name: Validate the step table
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_step_table.py
+
+      - name: Validate CDN readers name their client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cdn_user_agent.py
 
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -284,6 +293,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py
 
+      # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
+      # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      - name: Validate NEXT's connectivity hosts are in the network allowlist
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_network_allowlist.py
+
       # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
       # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
       - name: Validate NEXT's outbound sites go through the egress gate
@@ -323,6 +338,10 @@ jobs:
       - name: Validate the base-red skip of PR jobs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
+
+      - name: Validate the kit's base-red notice
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_kit_base_red.py
 
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -366,7 +385,7 @@ jobs:
       - name: Validate the VM image qcow2 export
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
-          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get -o DPkg::Lock::Timeout=100 install -y -qq qemu-utils >/dev/null 2>&1 || true
           python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
@@ -503,6 +522,25 @@ jobs:
             ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
           else
             echo "No base revision for this event; conventions diff skipped."
+          fi
+
+      # Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them".
+      # Fails a change that adds a spinner, skeleton or "Loading…" line to the iPhone app;
+      # only added lines count (cmux-next-ios/design/placeholder-inventory.md lists the rest).
+      - name: Validate no new iOS loading placeholders
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_loading_placeholders.py
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            python3 scripts/ci/check-ios-loading-placeholders.py "$BASE_SHA"
+          else
+            echo "No base revision for this event; placeholder check skipped."
           fi
 
       - name: Validate reload shared DerivedData default
@@ -661,12 +699,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Set up Bun for guard tests
         if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -708,7 +752,7 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts
+        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
@@ -859,6 +903,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the Cargo.lock merge driver
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_merge_cargo_lock.py
+
+      # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
+      - name: Validate string catalogs are edited in place
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_xcstrings_diff.py
+
       - name: Validate the advisory post-edit checks
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_post_edit_checks.py
@@ -924,6 +977,10 @@ jobs:
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
+
+      - name: Validate the Team-signed tree's on-branch check spends no REST call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_team_signed_on_branch_check.py
 
       - name: Validate every build-fleet client call checks the client is installed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1235,6 +1292,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate every non-cone sparse checkout keeps .gitmodules
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
+
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -1302,6 +1363,10 @@ jobs:
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
+
+      - name: Validate every push- or PR-started workflow has a concurrency group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
 
       - name: Validate pull_request tailnet joins are opt-in and same-repo only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1396,6 +1461,10 @@ jobs:
       - name: Validate the submodule init cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_init_submodule.sh
+
+      - name: Validate ios-live person slots and supervision
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_person_slot.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1680,6 +1749,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
 
+      - name: Validate the Node, Bun and Rust restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_toolchain_r2.sh
+
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh
@@ -1792,6 +1865,16 @@ jobs:
       - name: Validate when the cmux-next tour runs (merges, dispatches, adding media-tour)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      # The Mac tour job checks the tours first; a key it refuses (frameInterval, #54149) failed every
+      # nightly tour in minutes after merging green, so the same check runs here on Linux.
+      - name: Validate the cmux-next tour files
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
+
+      - name: Validate that a nightly tour starts from the last toured tip
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_last_toured.py
 
       - name: Validate that a pull request tours once, when media-tour is added
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+NOT_POOL = "!startsWith(runner.name, 'cmux-runner-pool-')"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
 GUARDS = ROOT / ".github/workflows/cmux-next-guards.yml"
 SCRIPT = ROOT / "scripts/ci/cmux_next_fast_gates.py"
@@ -58,7 +59,12 @@ GATE_SCRIPTS = {
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
     "protocol skew": "scripts/ci/protocol_skew_check.py",
+    "entry logs": "scripts/ci/entry_logs.py",
+    "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
 }
+# Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
+# does not leave the parallel barrier one marker short.
+FIRST_BATCH_GATES = len(GATE_SCRIPTS) - 1
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
 
@@ -100,7 +106,7 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "receipt", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
         # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
@@ -109,8 +115,9 @@ class WorkflowShape(unittest.TestCase):
         self.assertNotIn("runner", doc[True]["workflow_dispatch"]["inputs"])
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key, each in doc["jobs"].items():
-            # fast-check-route is held to the 2-vCPU pool by fast_check_route.py check (the decision takes no pool runner).
-            if key == "fast-check-route":
+            # resolve is held to the 2-vCPU pool by fast_check_route.py check: it carries the route (route_job), so
+            # the decision takes no pool runner.
+            if key == "resolve":
                 continue
             with self.subTest(runner=key):
                 self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
@@ -140,6 +147,66 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
+
+    def test_pool_checkouts_fetch_unfiltered_from_the_mirror(self):
+        # 2026-11-25: actions/checkout adds --filter=blob:none to any sparse checkout, and on a pool VM a partial fetch
+        # borrowing the mirror made git copy ~3 GB of promisor objects (60-75 s a checkout, resolve p90 107 s against a
+        # 30 s budget). A pool VM runs its own unfiltered fetch into a fresh .git that borrows the mirror; the same
+        # sparse paths; every other runner keeps the action with blob:none.
+        doc = workflow()
+        for key, name in (("resolve", "Checkout the merge ref"),
+                          ("fast-gates", "Checkout")):
+            with self.subTest(job=key):
+                steps = doc["jobs"][key]["steps"]
+                action, pool = step_named(steps, name), step_named(steps, "Pool mirror: c" + name[1:])
+                self.assertEqual(steps.index(pool), steps.index(action) + 1)
+                self.assertEqual(action["with"]["filter"], "blob:none")
+                self.assertIn(NOT_POOL, action["if"])
+                self.assertIn(NOT_POOL[1:], pool["if"])
+                self.assertNotIn(NOT_POOL, pool["if"])
+                self.assertEqual(pool["env"]["SPARSE"], action["with"]["sparse-checkout"])
+                self.assertEqual(pool["env"]["SHA"], "${{ github.sha }}")
+                self.assertEqual(pool.get("timeout-minutes"), action.get("timeout-minutes"))
+                run = pool["run"]
+                self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
+                self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
+                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                self.assertNotIn("--filter", fetch)
+                self.assertIn("--depth=2", fetch)
+                self.assertNotIn("$TOKEN", fetch)
+
+    def test_pool_checkout_script_checks_out_the_sparse_paths_from_a_borrowed_mirror(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            step = step_named(job(workflow())["steps"], "Pool mirror: checkout")
+            seed = tmp / "seed"
+            git(tmp, "init", "-q", "-b", "main", str(seed))
+            for rel in ("scripts/ci/a.py", "Packages/p/b.swift", "outside/c.txt", "top.txt"):
+                (seed / rel).parent.mkdir(parents=True, exist_ok=True)
+                (seed / rel).write_text(rel)
+            git(seed, "add", "-A")
+            git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
+            (seed / "scripts/ci/d.py").write_text("d")
+            git(seed, "add", "-A")
+            git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "two")
+            sha = git(seed, "rev-parse", "HEAD").strip()
+            git(tmp, "clone", "-q", "--bare", str(seed), str(tmp / "mirror.git"))
+            run = step["run"].replace("/var/lib/cmux-git/cmux.git/objects", str(tmp / "mirror.git/objects")).replace(
+                "https://github.com/$GITHUB_REPOSITORY", "file://" + str(seed))
+            ws = tmp / "ws"
+            (ws / ".git").mkdir(parents=True)
+            (ws / "stale.txt").write_text("from an earlier job")
+            env = {**os.environ, "GITHUB_WORKSPACE": str(ws), "SHA": sha, "TOKEN": "t", "SPARSE": step["env"]["SPARSE"]}
+            subprocess.run(["bash", "-c", run], env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(git(ws, "rev-parse", "HEAD").strip(), sha)
+            git(ws, "rev-parse", "HEAD^1")
+            self.assertTrue((ws / "scripts/ci/d.py").exists() and (ws / "Packages/p/b.swift").exists())
+            self.assertTrue((ws / "top.txt").exists())
+            self.assertFalse((ws / "outside").exists())
+            self.assertFalse((ws / "stale.txt").exists())
+            promisor = subprocess.run(["git", "-C", str(ws), "config", "--get", "remote.origin.promisor"],
+                                      capture_output=True, text=True)
+            self.assertEqual(promisor.stdout.strip(), "")
 
     def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
         inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
@@ -179,11 +246,25 @@ class WorkflowShape(unittest.TestCase):
     def test_dispatch_refuses_a_fork_or_another_base_before_pr_code_runs(self):
         doc = workflow()
         resolve = job(doc, "resolve")
-        # resolve runs no checked-out code: on dispatch it checks nothing out at all.
+        # resolve runs no code the change made: on dispatch it checks nothing out at all, and on a pull request it
+        # runs only the router (isolated, -I), and only when the change leaves the router and its map as the base has
+        # them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
-            if step.get("uses", "").startswith("actions/checkout@"):
+            if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
+                self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
+                                step.get("name"))
+            if step.get("id") == "route":
                 self.assertEqual(step["if"].replace(" ", ""), "${{github.event_name=='pull_request'}}")
+                self.assertTrue(step["continue-on-error"])
+                body = step["run"]
+                for file in ("scripts/ci/fast_check_route.py", "scripts/ci/fast-check-inputs.json"):
+                    self.assertIn(file, body.split("python3")[0])
+                self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
+                self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
+                              ".github/workflows/cmux-next-fast-gates.yml", body)
+                continue
             self.assertNotIn("scripts/", step.get("run", ""), step.get("name"))
+        self.assertIn("steps.route.outputs.fast_gates", resolve["outputs"]["fast_gates"])
         body = step_named(resolve["steps"], "Resolve")["run"]
         self.assertIn('"$head_repo" != "$GITHUB_REPOSITORY"', body)
         self.assertIn('"$base_ref" != "$BRANCH"', body)
@@ -191,7 +272,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(step_named(resolve["steps"], "Resolve")["env"]["BRANCH"], "feat-cmux-next")
         # The gates job, which runs the PR's code, starts only after resolve passed, and not at all when a valid
         # local test receipt covers it (unless the receipt is audited).
-        self.assertEqual(job(doc)["needs"], ["resolve", "fast-check-route", "receipt"])
+        self.assertEqual(job(doc)["needs"], ["resolve", "receipt"])
         self.assertIn("needs.resolve.result == 'success'", job(doc)["if"])
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", job(doc)["if"])
@@ -333,7 +414,10 @@ class WorkflowShape(unittest.TestCase):
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
-        self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
+        # Then the land tier's suffix (tests/test_ci_label_events_skip_full_ci.py): another label event gets its own group.
+        self.assertTrue(concurrency["group"].startswith("fast-gates-${{ github.event.pull_request.number || inputs.pr }}"),
+                        concurrency["group"])
+        self.assertIn("format('-label-{0}', github.run_id)", concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_permissions_are_minimal(self):
@@ -359,6 +443,10 @@ class WorkflowShape(unittest.TestCase):
             # and the next step drops what it half extracted.
             if step.get("id") == "bun-cache" and step.get("uses", "").startswith("actions/cache/restore@"):
                 continue
+            # The pinned Node and Bun restores (scripts/ci/toolchain-r2.sh) are best-effort: a miss leaves the setup
+            # step after it to download as before, so they never decide the job.
+            if "toolchain-r2.sh\" restore " in step.get("run", ""):
+                continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
         self.assertIn("scripts/ci/cmux_next_fast_gates.py run", run["run"])
@@ -375,7 +463,7 @@ class WorkflowShape(unittest.TestCase):
     def test_receipt_job_runs_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         receipt = job(doc, "receipt")
-        self.assertEqual(receipt["needs"], ["resolve", "fast-check-route"])
+        self.assertEqual(receipt["needs"], ["resolve"])
         # No runner and no API call unless a same-repository pull request names a receipt in its body.
         for fragment in ("github.event_name == 'pull_request'",
                          "github.event.pull_request.head.repo.full_name == github.repository",
@@ -386,7 +474,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py", "/scripts/ci/deadline_http.py", "/scripts/ci/cmux_next_fast_gates.py"])
+        self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py", "/scripts/ci/deadline_http.py", "/scripts/ci/cmux_next_fast_gates.py", "/.gitmodules"])
         verify = step_named(receipt["steps"], "Verify the local test receipt")
         self.assertIn("ci_receipt.py verify fast-gates", verify["run"])
         # The body reaches the verifier through the environment, never spliced into the script.
@@ -401,7 +489,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet"])
+        self.assertEqual(poster["needs"], ["resolve", "receipt", "fast-gates", "panic-ratchet"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", poster["if"])
@@ -426,7 +514,7 @@ class WorkflowShape(unittest.TestCase):
         # one output (fast_check_route.py from the merge) only counts when the gates were skipped, and post runs only
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
-                         .replace("needs.receipt.outputs.", "").replace("needs.fast-check-route.outputs.fast_gates", ""))
+                         .replace("needs.receipt.outputs.", "").replace("needs.resolve.outputs.fast_gates", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]
@@ -606,12 +694,22 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        total = 0
+        # A step that runs only on a pool VM and one that runs only off it are alternatives (the pool mirror's
+        # checkout replaces actions/checkout, cmux#55973): a job pays one side's bounds, never both.
+        pool = "${{ startsWith(runner.name, 'cmux-runner-pool-') }}"
+        off_pool = "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}"
+        common = on_pool = not_pool = 0
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
-        self.assertLessEqual(total, 40)
+                minutes = int(step["timeout-minutes"])
+                if step.get("if") == pool:
+                    on_pool += minutes
+                elif step.get("if") == off_pool:
+                    not_pool += minutes
+                else:
+                    common += minutes
+        self.assertLessEqual(common + max(on_pool, not_pool), 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
@@ -665,6 +763,12 @@ class WorkflowShape(unittest.TestCase):
         # in full) and the last two run after the gate, so none of them is a verdict.
         receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
+            # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
+            if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the bounded package cache restores (cmux#55346): a miss or a timeout is a cold install, not a verdict.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
+                continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
@@ -799,7 +903,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "5"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": str(FIRST_BATCH_GATES)})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -1108,6 +1212,68 @@ class ScriptBehavior(unittest.TestCase):
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
+    def pool_merge(self, pr: str) -> tuple[str, str, list[str]]:
+        """A base 60 commits deep, a pull request of 5 commits off it, and its merge ref; returns (base, head, own)."""
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        commits(seed, [({"old.txt": f"old {n}\n"}, f"old base {n}") for n in range(60)])
+        fork = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "-b", f"pr{pr}", fork)
+        own = [commit(seed, {f"pr{pr}.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        base = commit(seed, {"tip.txt": "moved\n"}, "the base moves on")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit", own[-1])
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{own[-1]}:refs/pull/{pr}/head", f"HEAD:refs/pull/{pr}/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for key in ("uploadpack.allowReachableSHA1InWant", "uploadpack.allowFilter"):  # as GitHub allows
+            git(self.remote, "config", key, "true")
+        return base, own[-1], own
+
+    def pool_checkout(self, pr: str, mirror: Path) -> Path:
+        """What the pool checkout does: a fresh repo borrowing the mirror, the merge ref at depth 2."""
+        work = self.tmp / f"pool{pr}"
+        work.mkdir()
+        git(work, "init", "-q")
+        (work / ".git" / "objects" / "info" / "alternates").write_text(f"{mirror / 'objects'}\n")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", f"refs/pull/{pr}/merge")
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+        self.assertTrue((work / ".git" / "shallow").exists(), "the fixture must start shallow")
+        return work
+
+    def test_pull_request_on_a_pool_mirror_unshallows_locally_without_a_deepen_fetch(self):
+        base, head, own = self.pool_merge("11")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        work = self.pool_checkout("11", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unshallowed locally", result.stderr)
+        self.assertNotIn("deepened by", result.stderr)
+        self.assertEqual(git(work, "rev-parse", "--is-shallow-repository"), "false")
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
+    def test_pull_request_on_a_stale_pool_mirror_deepens_from_the_remote(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        base, head, own = self.pool_merge("12")  # all of it newer than the mirror's sync
+        work = self.pool_checkout("12", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("lacks some history", result.stderr)
+        self.assertIn("deepened by", result.stderr)
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
     def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
         # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
         # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the
@@ -1239,6 +1405,8 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
+        self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
+        self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1272,9 +1440,9 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all five markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until every first-batch marker exists. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 5)
+        self.assertEqual(len(list(barrier.glob("started-*"))), FIRST_BATCH_GATES)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
@@ -1322,11 +1490,44 @@ class ScriptBehavior(unittest.TestCase):
     def test_a_change_outside_the_ratchets_inputs_skips_the_crash_ratchet_only(self):
         work, out = self.prepared()
         before = git(work, "rev-parse", "HEAD")
-        commit(work, {"docs/note.md": "note\n", "cmux-tui/README.md": "readme\n"}, "no ratchet input")
+        # pr_owned_findings.py is a crash-class input and not a ratchet one.
+        commit(work, {"docs/note.md": "note\n", "scripts/ci/pr_owned_findings.py": "# changed\n"}, "no ratchet input")
         result = self.script(work, "run", "--base", before, "--web", "true", "--checks", "true")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"crash ratchet"})
         self.assertIn("crash ratchet: skipped (no change under Packages", result.stdout)
+
+    def test_a_change_outside_every_crash_input_skips_the_ratchet_and_the_crash_class_rules(self):
+        work, out = self.prepared()
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"docs/note.md": "note\n", "cmux-tui/README.md": "readme\n"}, "no crash input")
+        result = self.script(work, "run", "--base", before, "--web", "true", "--checks", "true")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()},
+                         set(GATE_SCRIPTS) - {"crash ratchet", "crash-class rules"})
+        self.assertIn("crash-class rules: skipped (no change under Packages", result.stdout)
+
+    def test_every_crash_class_input_runs_the_crash_class_rules(self):
+        module = load(SCRIPT)
+        work, _ = self.prepared()
+        for path in ("Packages/macOS/CmuxNext/Sources/A.swift", "Packages/Other/x.swift",
+                     "scripts/cmux-next/check-concurrency.sh", "scripts/cmux-next/check-objc-selectors.py",
+                     "scripts/ci/crash_class_fast_gate.py", "scripts/ci/crash-class-gate.sh",
+                     "scripts/ci/pr_owned_findings.py", ".github/workflows/cmux-next-crash-class.yml"):
+            with self.subTest(path=path):
+                before = git(work, "rev-parse", "HEAD")
+                commit(work, {path: f"{path}\n"}, f"change {path}")
+                self.assertTrue(module.crash_class_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"Packages-notes.md": "x\n", "scripts/cmux-next-other/a.py": "x\n",
+                      "cmux-tui/crates/c/lib.rs": "x\n", "webviews/a.ts": "x\n"}, "no crash-class input")
+        self.assertFalse(module.crash_class_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
+
+    def test_an_unreadable_diff_runs_the_crash_gates(self):
+        module = load(SCRIPT)
+        work, _ = self.prepared()
+        self.assertTrue(module.crash_class_inputs_changed(work, "0" * 40, "HEAD"))
+        self.assertTrue(module.ratchet_inputs_changed(work, "0" * 40, "HEAD"))
 
     def test_every_ratchet_input_runs_the_crash_ratchet(self):
         module = load(SCRIPT)
@@ -1815,6 +2016,15 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
+        merge = ("error: Failed to resolve vite config\n"
+                 "    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                 "vite.config.ts.timestamp-1795525836293-8f8fc7091050a8.mjs:3240:23)\n")
+        base = merge.replace("1795525836293-8f8fc7091050a8", "1795525901234-0a1b2c3d4e5f60")
+        new, old = self.module.compare(merge, base)
+        self.assertEqual(new, [])
+        self.assertTrue(old)
+
     def test_a_type_error_keys_on_file_code_and_message_not_line_or_frame(self):
         output = ("\x1b[31m  x typescript(TS2339): Property 'muted' does not exist on type 'Row'.\x1b[0m\n"
                   "     ,-[test/composer-row-layout.test.ts:350:22]\n"
@@ -1825,6 +2035,22 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual([key for key, _ in self.module.findings(output)],
                          ["test/composer-row-layout.test.ts: typescript(TS2339): "
                           "Property 'muted' does not exist on type 'Row'."])
+
+    def test_a_vite_config_stack_names_no_new_finding_on_the_merge(self):
+        def crash(stamp: str, line: int) -> str:
+            return (f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                    f"vite.config.ts.timestamp-{stamp}.mjs:{line}:23)\n")
+        merge, base = crash("1795526354921-166d4b4b7bbf6", 3240), crash("1795526301002-0a1b2c3d4e5f", 3238)
+        self.assertEqual(self.module.added(merge, base), [])
+        self.assertEqual(len(self.module.added(merge + "    at other (x.mjs:1:1)\n", base)), 1)
+
+    def test_a_base_frame_in_the_shared_node_modules_is_the_merges(self):
+        # The base's webviews/node_modules links to the merge's, so the base's stack names the merge's root.
+        frame = "    at async resolveConfig (file:///m/webviews/node_modules/vite/dist/node.js:42734:22)\n"
+        own = "    at x (file:///b/base/webviews/src/a.ts:1:1)\n"
+        merge = frame + own.replace("/b/base", "/m")
+        self.assertEqual(self.module.added(merge, frame + own, "/m", "/b/base"), [])
+        self.assertEqual(len(self.module.added(merge, own, "/m", "/b/base")), 1)
 
     def test_a_push_with_no_base_charges_every_red(self):
         self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
@@ -1928,6 +2154,14 @@ class WebviewsChecksGate(unittest.TestCase):
     UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"
               "endColumn=52,title=eslint(no-unused-expressions)::Expected expression to be used\n")
 
+    def test_a_vite_config_stack_differing_only_by_its_temp_bundle_name_is_the_base_one(self):
+        def stack(stamp: str) -> str:
+            return ("failed to load config from /w/webviews/vite.config.ts\n"
+                    f"    at markdownHost (file:///w/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs:3240:23)\n")
+        new, old = self.module.compare(stack("1795534024051-bd9bea275ee978"), stack("1795533990112-0a1b2c3d4e5f60"))
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 2)
+
     def test_an_annotation_finding_that_only_moved_lines_is_the_base_one(self):
         merge = self.UNUSED.format(line=803) + "Found 1 warning and 0 errors.\n"
         base = self.UNUSED.format(line=791) + "Found 1 warning and 0 errors.\n"
@@ -1948,6 +2182,40 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"check:fixed-waits": "  x\n"}, "red")
         self.gate(base)
         self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
+
+
+class DeepenFallbackTests(unittest.TestCase):
+    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+
+    def run_deepen_fetch(self, failures: dict[str, str]):
+        module = load(SCRIPT)
+        calls = []
+
+        def fake_git(repo, *args, check=True):
+            calls.append(args)
+            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            code = 128 if stderr else 0
+            if check and code:
+                raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
+            return subprocess.CompletedProcess(args, code, "", stderr)
+
+        module.git = fake_git
+        module.log = lambda message: None
+        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        return calls
+
+    def test_a_pack_objects_abort_retries_with_blob_none(self):
+        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
+        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_clean_deepen_fetches_once(self):
+        self.assertEqual(len(self.run_deepen_fetch({})), 1)
+
+    def test_any_other_failure_still_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
 
 
 if __name__ == "__main__":
