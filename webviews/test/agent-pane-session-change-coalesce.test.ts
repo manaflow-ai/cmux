@@ -316,6 +316,58 @@ test("another chat's summary sent again unchanged draws nothing", async () => {
   }
 });
 
+// Running chats change their times and latest words on each event, and each change drew every shown
+// pane at most twice a second (Leo, 2026-11-25: "the app speed on idle and on load we need to be
+// better"). With the pane's live readers listening (App.tsx `otherChatsLive`), a change of only those
+// fields of a chat outside the shown chat's tree goes to them and draws nothing; anything else draws.
+test("other chats that only ran on reach the pane's live readers and draw nothing", async () => {
+  const { socket, client, snapshots, latest } = await openPane();
+  jest.useFakeTimers();
+  try {
+    let draw = false;
+    const heard: number[] = [];
+    client.onOtherChatsLive((sessions) => {
+      heard.push(sessions.find((entry) => entry.sessionId === id(5))?.updatedAt ?? 0);
+      return draw;
+    });
+    const tick = (chat: number, at: number, extra: Record<string, unknown> = {}) => {
+      socket.notify("_acpmux/session_changed", {
+        sessionId: id(chat),
+        session: { ...summary(chat), updatedAt: at, ...extra },
+        kind: "updated",
+        seq: 10,
+      });
+      flushFrames();
+      jest.advanceTimersByTime(1000);
+      flushFrames();
+    };
+    const before = snapshots();
+    for (let round = 0; round < 10; round++) tick(5, 3_000_000 + round);
+    expect(snapshots() - before).toBe(0);
+    expect(heard.at(-1)).toBe(3_000_009);
+    // The next snapshot carries the newest list.
+    tick(6, 3_100_000, { title: "Renamed" });
+    expect(snapshots() - before).toBe(1);
+    expect(latest().sessions.find((entry: any) => entry.sessionId === id(5)).updatedAt).toBe(3_000_009);
+    // A status change draws, as does a tick the pane's readers show.
+    tick(7, 3_200_000, { status: "running" });
+    expect(snapshots() - before).toBe(2);
+    draw = true;
+    tick(5, 3_300_000);
+    expect(snapshots() - before).toBe(3);
+    draw = false;
+    // A chat the shown one started, at any depth, draws: its sub-session cards read its words.
+    tick(8, 3_400_000, { spawnedBy: SELECTED, status: "running" });
+    tick(9, 3_400_000, { spawnedBy: id(8) });
+    const drawn = snapshots();
+    tick(9, 3_500_000, { spawnedBy: id(8) });
+    expect(snapshots()).toBe(drawn + 1);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
 test("a hidden pane draws other chats' changes only when it shows again", async () => {
   const { socket, client, snapshots } = await openPane();
   try {
