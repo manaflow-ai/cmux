@@ -1276,6 +1276,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/paused_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/events",
       "params": {
         "$ref": "#/types/EventsParams"
@@ -1897,6 +1903,24 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
       "params": true,
       "result": true
     },
@@ -2668,6 +2692,24 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_undo",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_get",
       "params": true,
       "result": true
     },

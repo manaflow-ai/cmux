@@ -46,6 +46,8 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
+//! person touches, read the QoS of a class of work.
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `background_ready` owns the background ready copy's decisions (app.backgroundReady;
@@ -57,6 +59,8 @@
 pub mod files_lister;
 pub mod goo;
 pub mod hover;
+/// cbindgen:ignore
+pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
