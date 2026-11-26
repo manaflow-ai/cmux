@@ -128,6 +128,9 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
+    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
+    "cloud.machine.edge_dns",
     "cloud.machine.ledger_wake",
     "cloud.machine.power_overdue",
     "cloud.machine.scaler_pause_held",
@@ -533,6 +536,11 @@ def public_log(j):
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
             out["bind_probe"] = probe
+    if msg == "cloud.machine.edge_dns":
+        if isinstance(j.get("exit"), int) and not isinstance(j.get("exit"), bool):
+            out["exit"] = j["exit"]
+        if j.get("why") in ("bind", "claim"):
+            out["why"] = j["why"]
     if "error" in j:
         out["error"] = True
     return out, None
