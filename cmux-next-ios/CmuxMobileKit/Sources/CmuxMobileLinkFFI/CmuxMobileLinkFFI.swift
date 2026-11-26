@@ -6792,6 +6792,144 @@ public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UIn
 
 
 /**
+ * One link's relay-held send route.
+ */
+public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
+    
+}
+/**
+ * One link's relay-held send route.
+ */
+open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
+            errorHandler: nil
+            
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RelayHoldRoute
+
+    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
+        return RelayHoldRoute(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
+    return try FfiConverterTypeRelayHoldRoute.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
+    return FfiConverterTypeRelayHoldRoute.lower(value)
+}
+
+
+
+
+
+
+/**
  * An in-memory [`RelayViewerKey`] from a P-256 scalar (tests, and a phone without an enclave).
  */
 public protocol RelaySoftwareKeyProtocol: AnyObject, Sendable {
@@ -7151,144 +7289,6 @@ public func FfiConverterTypeRelayViewerKey_lift(_ handle: UInt64) throws -> Rela
 #endif
 public func FfiConverterTypeRelayViewerKey_lower(_ value: RelayViewerKey) -> UInt64 {
     return FfiConverterTypeRelayViewerKey.lower(value)
-}
-
-
-
-
-
-
-/**
- * One link's relay-held send route.
- */
-public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
-    
-}
-/**
- * One link's relay-held send route.
- */
-open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
-                )
-            },
-            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
-            errorHandler: nil
-            
-        )
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RelayHoldRoute
-
-    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
-        return RelayHoldRoute(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
-    return try FfiConverterTypeRelayHoldRoute.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
-    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -19272,6 +19272,93 @@ public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
 }
 
 
+
+/**
+ * Why [`vnc_json`] gave no answer.
+ */
+public enum VncJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case UnknownOperation(operation: String
+    )
+    case Invalid(detail: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension VncJsonError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVncJsonError: FfiConverterRustBuffer {
+    typealias SwiftType = VncJsonError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VncJsonError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .UnknownOperation(
+            operation: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Invalid(
+            detail: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VncJsonError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .UnknownOperation(operation):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(operation, into: &buf)
+            
+        
+        case let .Invalid(detail):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lift(_ buf: RustBuffer) throws -> VncJsonError {
+    return try FfiConverterTypeVncJsonError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lower(_ value: VncJsonError) -> RustBuffer {
+    return FfiConverterTypeVncJsonError.lower(value)
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -19678,93 +19765,6 @@ fileprivate struct FfiConverterOptionTypeFeedMovePlan: FfiConverterRustBuffer {
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
-}
-
-
-/**
- * Why [`vnc_json`] gave no answer.
- */
-public enum VncJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
-
-    
-    
-    case UnknownOperation(operation: String
-    )
-    case Invalid(detail: String
-    )
-
-    
-
-    
-
-    
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-    
-}
-
-#if compiler(>=6)
-extension VncJsonError: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeVncJsonError: FfiConverterRustBuffer {
-    typealias SwiftType = VncJsonError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VncJsonError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .UnknownOperation(
-            operation: try FfiConverterString.read(from: &buf)
-            )
-        case 2: return .Invalid(
-            detail: try FfiConverterString.read(from: &buf)
-            )
-
-         default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: VncJsonError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        
-        case let .UnknownOperation(operation):
-            writeInt(&buf, Int32(1))
-            FfiConverterString.write(operation, into: &buf)
-            
-        
-        case let .Invalid(detail):
-            writeInt(&buf, Int32(2))
-            FfiConverterString.write(detail, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeVncJsonError_lift(_ buf: RustBuffer) throws -> VncJsonError {
-    return try FfiConverterTypeVncJsonError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeVncJsonError_lower(_ value: VncJsonError) -> RustBuffer {
-    return FfiConverterTypeVncJsonError.lower(value)
 }
 
 #if swift(>=5.8)
