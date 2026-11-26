@@ -94,6 +94,49 @@ nonisolated let testLoginKeychain = LoginKeychain()
         #expect(recorder.interactionDuringCalls.allSatisfy { !$0 })
         #expect(recorder.queries.allSatisfy { $0[kSecAttrService as String] as? String == "test.bundle.iphone-host.identity" })
         #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+        // A Release build keeps no copy of the key outside the Keychain.
+        #expect(!FileManager.default.fileExists(atPath: store.keychainCopyFile.path))
+    }
+
+    /// A rebuilt DEV app (signed another way) is refused the item the build before it made. It made a
+    /// new file key, and the phone that pinned the Keychain's refused the Mac (`mac_identity_changed`)
+    /// until the person removed it on the phone (2026-11-24, tag paged-horizontal-tabs). The DEV copy
+    /// proves the pinned key at once: no retries, no second identity.
+    @Test func aRebuiltDevAppKeepsTheKeyThePhonePinned() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsKeychainCopy: true,
+                                               keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try store.loadOrCreate(fileStoreOnRefusal: false)
+        #expect(MobileHostMacIdentity.restore(try Data(contentsOf: store.keychainCopyFile)) == pinned)
+        let mode = try FileManager.default.attributesOfItem(atPath: store.keychainCopyFile.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        for status in [errSecInteractionNotAllowed, errSecAuthFailed, errSecMissingEntitlement] {
+            recorder.refuseReads(status)
+            #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
+            #expect(try store.loadOrCreate(fileStoreOnRefusal: true) == pinned)
+        }
+        #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+    }
+
+    /// A DEV build whose Keychain key was made before the copy existed writes the copy at the first read
+    /// that answers, and a stale copy follows the Keychain: the Keychain's key is the one phones pinned.
+    @Test func theDevCopyFollowsTheKeychain() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let release = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory,
+                                                 keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try release.loadOrCreate()
+        let dev = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsKeychainCopy: true,
+                                             keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try MobileHostMacIdentity.generate().privateKey.write(to: dev.keychainCopyFile)
+        #expect(try dev.loadOrCreate() == pinned)
+        #expect(MobileHostMacIdentity.restore(try Data(contentsOf: dev.keychainCopyFile)) == pinned)
+        recorder.refuseReads(errSecInteractionNotAllowed)
+        #expect(try dev.loadOrCreate(fileStoreOnRefusal: false) == pinned)
     }
 
     /// An item an earlier build signed another way made: the read is refused (no prompt), and the

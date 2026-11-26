@@ -57,11 +57,21 @@ public enum MobileHostMacIdentityError: Error, Equatable {
 /// login item trusts the signature that made it, so an earlier build of the same bundle id signed
 /// another way (a rebuilt DEV tag, an ad hoc rig build) would otherwise make macOS ask for the
 /// login keychain password. That read is refused instead and the caller retries; only a DEV build
-/// uses the file store (its key, or a new one) after its retries (phones paired with the old build
-/// pair again).
+/// uses the file store (its key, or a new one) after its retries.
+///
+/// A phone never pairs again with a Mac that proves a new key: it refuses it (`mac_identity_changed`)
+/// until the person removes the Mac on the phone. So a DEV build also keeps a copy of the Keychain's
+/// key (``keychainCopyFile``) while the Keychain answers, and a rebuilt DEV app the Keychain then
+/// refuses proves that copy, the key the phones pinned (2026-11-24: the tag paged-horizontal-tabs
+/// paired at 16:47, a rebuild at 22:05 made a new file key, and the phone refused the Mac from then on).
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
+    /// A DEV build's copy of the Keychain's key (``keepsKeychainCopy``).
+    public let keychainCopyFile: URL
+    /// A DEV build: keep ``keychainCopyFile`` and prove it when the Keychain does not hand its key back.
+    /// A Release build is always signed the same way and keeps the key in the Keychain only.
+    let keepsKeychainCopy: Bool
     /// Off in tests: only the file is used.
     let useKeychain: Bool
     let keychain: MobileHostSecItems
@@ -78,13 +88,18 @@ public struct MobileHostMacIdentityStore: Sendable {
         return context
     }
 
-    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, loginKeychain: LoginKeychain) {
-        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keychain: .system, loginKeychain: loginKeychain)
+    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsKeychainCopy: Bool = false,
+                loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain,
+                  keepsKeychainCopy: keepsKeychainCopy, keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
+    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsKeychainCopy: Bool = false,
+         keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = Self.service(bundleID: bundleID)
         fallbackFile = stateDirectory.appendingPathComponent("mac-identity", isDirectory: false)
+        keychainCopyFile = stateDirectory.appendingPathComponent("mac-identity.keychain-copy", isDirectory: false)
+        self.keepsKeychainCopy = keepsKeychainCopy
         self.useKeychain = useKeychain
         self.keychain = keychain
         self.loginKeychain = loginKeychain
@@ -116,6 +131,7 @@ public struct MobileHostMacIdentityStore: Sendable {
             case .found(let data):
                 if let stored = MobileHostMacIdentity.restore(data) {
                     if fileKey != nil { setAsideFileKey() }
+                    if keepsKeychainCopy { saveKeychainCopy(stored) }
                     return stored
                 }
             case .notFound:
@@ -124,10 +140,17 @@ public struct MobileHostMacIdentityStore: Sendable {
                 refused = status
             }
         }
+        // The Keychain did not hand its key back (a rebuilt DEV app it refuses, or an add that never
+        // landed): the copy is the key the phones pinned, never a second identity.
+        if keepsKeychainCopy, let copy = (try? Data(contentsOf: keychainCopyFile)).flatMap(MobileHostMacIdentity.restore) {
+            return copy
+        }
         if let refused, !fileStoreOnRefusal { throw MobileHostMacIdentityError.keychainRefused(refused) }
         if let fileKey { return fileKey }
         let identity = MobileHostMacIdentity.generate()
-        if !(useKeychain && refused == nil && keychainAdd(identity.privateKey)) {
+        if useKeychain && refused == nil && keychainAdd(identity.privateKey) {
+            if keepsKeychainCopy { saveKeychainCopy(identity) }
+        } else {
             try writeFallback(identity.privateKey)
         }
         return identity
@@ -184,10 +207,24 @@ public struct MobileHostMacIdentityStore: Sendable {
     }
 
     private func writeFallback(_ privateKey: Data) throws {
-        let directory = fallbackFile.deletingLastPathComponent()
+        try Self.writeKey(privateKey, to: fallbackFile)
+    }
+
+    /// Writes the copy when it is missing or holds another key (a launch that only reads writes nothing).
+    private func saveKeychainCopy(_ identity: MobileHostMacIdentity) {
+        guard (try? Data(contentsOf: keychainCopyFile)) != identity.privateKey else { return }
+        do {
+            try Self.writeKey(identity.privateKey, to: keychainCopyFile)
+        } catch {
+            Self.logger.error("iPhone host identity: could not keep the Keychain key's copy (\(String(describing: error), privacy: .public))")
+        }
+    }
+
+    private static func writeKey(_ privateKey: Data, to file: URL) throws {
+        let directory = file.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try privateKey.write(to: fallbackFile, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackFile.path)
+        try privateKey.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }
