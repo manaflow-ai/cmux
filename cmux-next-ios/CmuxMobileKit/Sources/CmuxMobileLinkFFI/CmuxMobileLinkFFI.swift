@@ -11933,16 +11933,24 @@ public struct MailboxRouteInput: Equatable, Hashable {
      * [`mailbox_available`] for this item.
      */
     public var mailboxAvailable: Bool
+    /**
+     * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+     */
+    public var cloudHolder: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(linkUp: Bool, presence: MailboxPresence, 
         /**
          * [`mailbox_available`] for this item.
-         */mailboxAvailable: Bool) {
+         */mailboxAvailable: Bool, 
+        /**
+         * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+         */cloudHolder: Bool) {
         self.linkUp = linkUp
         self.presence = presence
         self.mailboxAvailable = mailboxAvailable
+        self.cloudHolder = cloudHolder
     }
 
     
@@ -11963,7 +11971,8 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
             try MailboxRouteInput(
                 linkUp: FfiConverterBool.read(from: &buf), 
                 presence: FfiConverterTypeMailboxPresence.read(from: &buf), 
-                mailboxAvailable: FfiConverterBool.read(from: &buf)
+                mailboxAvailable: FfiConverterBool.read(from: &buf), 
+                cloudHolder: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -11971,6 +11980,7 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
         FfiConverterBool.write(value.linkUp, into: &buf)
         FfiConverterTypeMailboxPresence.write(value.presence, into: &buf)
         FfiConverterBool.write(value.mailboxAvailable, into: &buf)
+        FfiConverterBool.write(value.cloudHolder, into: &buf)
     }
 }
 
@@ -13752,6 +13762,183 @@ public func FfiConverterTypeTabsViewport_lift(_ buf: RustBuffer) throws -> TabsV
 #endif
 public func FfiConverterTypeTabsViewport_lower(_ value: TabsViewport) -> RustBuffer {
     return FfiConverterTypeTabsViewport.lower(value)
+}
+
+
+/**
+ * A tap's outcome: what it did, and the chosen agents after it (harness ids, in the order they
+ * were chosen). Swift keeps each kept agent's settings and makes a fresh pick for a new id.
+ */
+public struct TaskPickToggle: Equatable, Hashable {
+    public var change: TaskPickChange
+    public var picks: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(change: TaskPickChange, picks: [String]) {
+        self.change = change
+        self.picks = picks
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TaskPickToggle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskPickToggle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskPickToggle {
+        return
+            try TaskPickToggle(
+                change: FfiConverterTypeTaskPickChange.read(from: &buf), 
+                picks: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TaskPickToggle, into buf: inout [UInt8]) {
+        FfiConverterTypeTaskPickChange.write(value.change, into: &buf)
+        FfiConverterSequenceString.write(value.picks, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickToggle_lift(_ buf: RustBuffer) throws -> TaskPickToggle {
+    return try FfiConverterTypeTaskPickToggle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickToggle_lower(_ value: TaskPickToggle) -> RustBuffer {
+    return FfiConverterTypeTaskPickToggle.lower(value)
+}
+
+
+/**
+ * Where a terminal launch starts, and what it runs: the agent's CLI with the task.
+ */
+public struct TaskTerminalLaunch: Equatable, Hashable {
+    /**
+     * The task as typed (already trimmed by the composer).
+     */
+    public var prompt: String
+    /**
+     * The model id; `None`, empty or `default` leaves the CLI's own default.
+     */
+    public var model: String?
+    /**
+     * The agent's family (`claude`, `codex`): which CLI runs.
+     */
+    public var family: String?
+    /**
+     * The effort level, or `None` for the model's default.
+     */
+    public var effort: String?
+    /**
+     * The mode the agent starts in (Claude Code's permission mode), or `None`.
+     */
+    public var mode: String?
+    /**
+     * The workspace's folder to `cd` to first, or `None` to run where the shell is.
+     */
+    public var folder: String?
+    /**
+     * Paths of the task's uploaded photos and files, named after the prompt.
+     */
+    public var attachmentPaths: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The task as typed (already trimmed by the composer).
+         */prompt: String, 
+        /**
+         * The model id; `None`, empty or `default` leaves the CLI's own default.
+         */model: String?, 
+        /**
+         * The agent's family (`claude`, `codex`): which CLI runs.
+         */family: String?, 
+        /**
+         * The effort level, or `None` for the model's default.
+         */effort: String?, 
+        /**
+         * The mode the agent starts in (Claude Code's permission mode), or `None`.
+         */mode: String?, 
+        /**
+         * The workspace's folder to `cd` to first, or `None` to run where the shell is.
+         */folder: String?, 
+        /**
+         * Paths of the task's uploaded photos and files, named after the prompt.
+         */attachmentPaths: [String]) {
+        self.prompt = prompt
+        self.model = model
+        self.family = family
+        self.effort = effort
+        self.mode = mode
+        self.folder = folder
+        self.attachmentPaths = attachmentPaths
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TaskTerminalLaunch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskTerminalLaunch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskTerminalLaunch {
+        return
+            try TaskTerminalLaunch(
+                prompt: FfiConverterString.read(from: &buf), 
+                model: FfiConverterOptionString.read(from: &buf), 
+                family: FfiConverterOptionString.read(from: &buf), 
+                effort: FfiConverterOptionString.read(from: &buf), 
+                mode: FfiConverterOptionString.read(from: &buf), 
+                folder: FfiConverterOptionString.read(from: &buf), 
+                attachmentPaths: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TaskTerminalLaunch, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.prompt, into: &buf)
+        FfiConverterOptionString.write(value.model, into: &buf)
+        FfiConverterOptionString.write(value.family, into: &buf)
+        FfiConverterOptionString.write(value.effort, into: &buf)
+        FfiConverterOptionString.write(value.mode, into: &buf)
+        FfiConverterOptionString.write(value.folder, into: &buf)
+        FfiConverterSequenceString.write(value.attachmentPaths, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskTerminalLaunch_lift(_ buf: RustBuffer) throws -> TaskTerminalLaunch {
+    return try FfiConverterTypeTaskTerminalLaunch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskTerminalLaunch_lower(_ value: TaskTerminalLaunch) -> RustBuffer {
+    return FfiConverterTypeTaskTerminalLaunch.lower(value)
 }
 
 
@@ -17375,6 +17562,10 @@ public enum MailboxRoute: Equatable, Hashable {
      */
     case mailbox
     /**
+     * Post it to the chat's Cloud inbox ([`mailbox_inbox_post`]): a Cloud machine holds the chat.
+     */
+    case cloudInbox
+    /**
      * Neither: fail as before.
      */
     case fail
@@ -17403,7 +17594,9 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
         
         case 2: return .mailbox
         
-        case 3: return .fail
+        case 3: return .cloudInbox
+        
+        case 4: return .fail
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17421,8 +17614,12 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .fail:
+        case .cloudInbox:
             writeInt(&buf, Int32(3))
+        
+        
+        case .fail:
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -18712,6 +18909,106 @@ public func FfiConverterTypeTabsEvent_lift(_ buf: RustBuffer) throws -> TabsEven
 #endif
 public func FfiConverterTypeTabsEvent_lower(_ value: TabsEvent) -> RustBuffer {
     return FfiConverterTypeTabsEvent.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a tap on an agent's row did.
+ */
+
+public enum TaskPickChange: Equatable, Hashable {
+    
+    case added
+    case removed
+    /**
+     * The last agent stays: a task always has one.
+     */
+    case keptLast
+    /**
+     * `limit` agents are chosen already.
+     */
+    case atLimit
+    /**
+     * A phone can't start this agent.
+     */
+    case unavailable
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TaskPickChange: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskPickChange: FfiConverterRustBuffer {
+    typealias SwiftType = TaskPickChange
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskPickChange {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .added
+        
+        case 2: return .removed
+        
+        case 3: return .keptLast
+        
+        case 4: return .atLimit
+        
+        case 5: return .unavailable
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TaskPickChange, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .added:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .removed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .keptLast:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .atLimit:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .unavailable:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickChange_lift(_ buf: RustBuffer) throws -> TaskPickChange {
+    return try FfiConverterTypeTaskPickChange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickChange_lower(_ value: TaskPickChange) -> RustBuffer {
+    return FfiConverterTypeTaskPickChange.lower(value)
 }
 
 
@@ -21600,6 +21897,19 @@ public func mailboxBuild(spec: MailboxItemSpec, boxKey: String, signer: MailboxS
 })
 }
 /**
+ * The Cloud inbox request for one send: `[path, json body]`, or none when the chat id, the id or
+ * the text can't go there. Posting the same id again is safe.
+ */
+public func mailboxInboxPost(chatId: String, id: String, text: String) -> [String]?  {
+    return try!  FfiConverterOptionSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_inbox_post(
+        FfiConverterString.lower(chatId),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * The longest an item of `kind` lives, in seconds (540, or 86400 for `send` and `compose`).
  */
 public func mailboxLifetimeCap(kind: String) -> UInt64  {
@@ -21624,6 +21934,18 @@ public func mailboxNewNonce()throws  -> String  {
 public func mailboxRoute(input: MailboxRouteInput) -> MailboxRoute  {
     return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route(
+        FfiConverterTypeMailboxRouteInput_lower(input),$0
+    )
+})
+}
+/**
+ * Link, mailbox, Cloud inbox or fail for one send with client message id `id`. The id is the same
+ * on every path, and a Cloud inbox send fails if the inbox would mint a new id.
+ */
+public func mailboxRouteFor(id: String, input: MailboxRouteInput) -> MailboxRoute  {
+    return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route_for(
+        FfiConverterString.lower(id),
         FfiConverterTypeMailboxRouteInput_lower(input),$0
     )
 })
@@ -21816,6 +22138,48 @@ public func shareApprovalSigned(draft: ShareApprovalDraft, signature: String, si
         FfiConverterTypeShareApprovalDraft_lower(draft),
         FfiConverterString.lower(signature),
         FfiConverterString.lower(signingKey),$0
+    )
+})
+}
+/**
+ * The MIME type of an attached image from its bytes' signature (the first 12 are enough):
+ * PNG, JPEG, GIF or WebP, the formats agents take; `None` for any other.
+ */
+public func taskImageMimeType(head: Data) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_image_mime_type(
+        FfiConverterData.lower(head),$0
+    )
+})
+}
+/**
+ * A tap on `harness`'s row: picks it, or unpicks it unless it is the last. With no pick, the
+ * agent the task would start (`fallback`, shown checked) becomes a real pick first. At most
+ * `limit` agents are chosen.
+ */
+public func taskPickToggle(picks: [String], harness: String, canStart: Bool, fallback: String?, limit: UInt32) -> TaskPickToggle  {
+    return try!  FfiConverterTypeTaskPickToggle_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_pick_toggle(
+        FfiConverterSequenceString.lower(picks),
+        FfiConverterString.lower(harness),
+        FfiConverterBool.lower(canStart),
+        FfiConverterOptionString.lower(fallback),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+/**
+ * The line a terminal launch types into the new workspace's shell (zsh or bash, the Mac's
+ * default shells): `cd` to the folder and, only if that worked, the agent's CLI with its model
+ * and the prompt, the uploaded attachments' paths after it. `None` for an agent with no known
+ * CLI. Every value is one ANSI-C quoted word (`$'…'`), so nothing in it runs. Options are
+ * `--flag=value` and the prompt comes after `--`, so a value starting with `-` is never taken
+ * for an option.
+ */
+public func taskTerminalLine(launch: TaskTerminalLaunch) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_terminal_line(
+        FfiConverterTypeTaskTerminalLaunch_lower(launch),$0
     )
 })
 }
@@ -22284,6 +22648,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_build() != 59703) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_inbox_post() != 15764) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_lifetime_cap() != 25453) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22291,6 +22658,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route() != 455) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route_for() != 6729) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_trusted_box_key() != 23702) {
@@ -22342,6 +22712,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_signed() != 12150) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_image_mime_type() != 24668) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_pick_toggle() != 37761) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_terminal_line() != 3745) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
