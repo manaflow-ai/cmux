@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import Foundation
 
 // Settings and focus helpers the notification store reads. Extracted from
@@ -94,35 +95,6 @@ enum AppFocusState {
 
 }
 
-enum NotificationAuthorizationState: Equatable, Sendable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
 
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
-    }
-}
+// Preserve the app-target name while the package owns authorization state.
+typealias NotificationAuthorizationState = CmuxNotifications.NotificationAuthorizationState
