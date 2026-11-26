@@ -72,7 +72,9 @@ jobs:
           "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" \
             --artifact artifacts/ios-sim/evidence.zip --no-supersede --key "cnx-ios-try-try-${HEAD_SHA:0:12}" \
             --arg shots --arg try=dev --background --timeout 3600 2>&1 | tee "$log" || status=$?
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          # The runner's shell is bash -e: with pipefail a log that names no step (controller unreachable, 17:25Z on
+          # a121379b) failed the grep and ended the job red before any verdict.
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)" || step=""
           # The verdict is the fleet step's own state, never the client's exit code alone: exit 1 is also the
           # client's answer to a refused submit (HTTP 409 on a0a4b2d1), which built nothing and failed nothing.
           state="" code=""

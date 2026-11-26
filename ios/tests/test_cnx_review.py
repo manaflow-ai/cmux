@@ -2303,6 +2303,8 @@ try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CM
         step = '0123456789abcdef01234567'
         cases = [  # client run output, run exit, status JSON -> outcome, job exit
             ('cmux-ci: controller HTTP 409: step_key already names a different step', 1, '', '', 0),
+            # a121379b: the controller was unreachable; the log names no step.
+            ('cmux-ci: controller unavailable, no verdict (infra): 9 tries over 600 s', 69, '', '', 0),
             (f'cmux-ci: step {step} queued', 0, '{"state": "done", "exit_code": 0}', 'built', 0),
             (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 1}', 'failed', 1),
             (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 3}', '', 0),
@@ -2323,7 +2325,8 @@ echo {shlex.quote(out)} >&2; exit {rc}
                 env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
                            PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
                            GITHUB_STEP_SUMMARY=str(t / 'summary'))
-                r = subprocess.run(['bash', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                # The runner's shell: `bash -e {0}` (the step's own line adds -uo pipefail).
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(r.returncode, code, r.stdout + r.stderr)
                 self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
                 self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
