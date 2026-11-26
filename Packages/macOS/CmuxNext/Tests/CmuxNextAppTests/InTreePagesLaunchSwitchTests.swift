@@ -39,7 +39,7 @@ struct InTreePagesLaunchSwitchTests {
     @Test func aReleaseBuildTaggedInTreePagesRunsThemByDefault() {
         #expect(!DevTools.isAvailable(bundleID: "com.cmuxterm.app.debug.in-tree-pages-release", isDebugBuild: false))
         func decided(_ tag: String?, _ environment: [String: String] = [:]) -> (Bool, String) {
-            let inputs = DebugSettingsService.launchInTreePagesInputs(devTools: false, file: nil, tag: tag)
+            let inputs = InTreePages.launchInputs(devTools: false, file: nil, tag: tag)
             return InTreePages.decide(fileOverride: inputs.fileOverride, tag: inputs.tag, environment: environment)
         }
         let tagged = decided("in-tree-pages-release")
