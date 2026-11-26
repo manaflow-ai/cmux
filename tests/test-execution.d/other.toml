@@ -6,6 +6,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_api_workerd_green_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_appcast_keep_pubdates.py"
 lane = "linux-guard"
 
@@ -80,6 +84,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_build_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cancel_superseded_pr_runs.py"
 lane = "linux-guard"
 
 [[test]]
@@ -215,6 +223,15 @@ path = "tests/test_egress_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_egress_seeded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_egress_new_sites.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_egress_new_sites.py"
+
+[[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
@@ -224,6 +241,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fast_checks_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
@@ -250,6 +271,10 @@ lane = "linux-guard"
 path = "tests/test_files_host_dev_only.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
+
+[[test]]
+path = "tests/test_fleet_fallback.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fleet_test_host.py"
@@ -376,6 +401,11 @@ path = "tests/test_iroh_monitor_simulator_plan.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_iroh_transport_lock_pins_iroh_ffi.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_iroh_transport_lock_pins_iroh_ffi.py"
+
+[[test]]
 path = "tests/test_job_input_fingerprint.py"
 lane = "linux-guard"
 
@@ -470,6 +500,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_mac_live_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mac_tiers.py"
 lane = "linux-guard"
 
 [[test]]
@@ -636,7 +670,8 @@ reason = "Static check run by the author on the fleet; kept manual under the 202
 
 [[test]]
 path = "tests/test_png_opaque.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_png_opaque.py"
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
@@ -721,6 +756,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_rebuild_mirror.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_receipt_input_key.py"
 lane = "linux-guard"
 
 [[test]]
@@ -831,6 +870,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
 
 [[test]]
+path = "tests/test_screen_sharing_helper_release.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_script_module_loads.py"
 lane = "manual"
 reason = "Kept manual under the 2026-10-23 no-new-CI rule, since lifted: run python3 tests/test_script_module_loads.py after a test loads a scripts/ module by path or imports a new one by name (static scan plus two subprocess import orders; needs pytest for the route pair)."
@@ -906,6 +949,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sparse_checkout_keeps_gitmodules.py"
 lane = "linux-guard"
 
 [[test]]
