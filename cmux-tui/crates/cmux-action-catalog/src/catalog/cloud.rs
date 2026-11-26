@@ -800,6 +800,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud open-desktop",
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -817,6 +818,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud setup-desktop",
         waits_for_result: true,
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
