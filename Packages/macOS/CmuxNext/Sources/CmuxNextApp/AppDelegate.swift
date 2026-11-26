@@ -74,13 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch, shell: LaunchShell),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshotRead, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
-        self.launchReads = launchReads; self.launchCleanup = launchCleanup; DebugTimings.markLaunch("delegate.fields") // after the stored properties' initial values
+        self.launchReads = launchReads; self.launchCleanup = launchCleanup; DebugTimings.markLaunch("main.delegate.fields") // after the stored properties' initial values
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
-        launchSettle = LaunchSettle(firstFrame: firstFrame); DebugTimings.markLaunch("delegate.first_frame_gate")
+        launchSettle = LaunchSettle(firstFrame: firstFrame); DebugTimings.markLaunch("main.delegate.first_frame_gate")
         let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
-        self.mainWork = mainWork; DebugTimings.markLaunch("delegate.main_work")
-        control = AppControl(mainWork: mainWork); DebugTimings.markLaunch("delegate.control")
+        self.mainWork = mainWork; DebugTimings.markLaunch("main.delegate.main_work")
+        control = AppControl(mainWork: mainWork); DebugTimings.markLaunch("main.delegate.control")
         super.init()
     }
 
