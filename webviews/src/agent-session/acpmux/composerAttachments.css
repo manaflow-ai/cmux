@@ -439,7 +439,7 @@
   align-items: center;
   height: 32px;
   max-width: min(220px, 70vw);
-  padding: 0 var(--ds-space-fixed-6) 0 10px;
+  padding: 0 32px 0 10px;
   color: var(--agent-text);
 }
 .acpmux-attachment-file span {

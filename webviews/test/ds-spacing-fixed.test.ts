@@ -6,19 +6,15 @@ const src = path.resolve(import.meta.dir, "../src");
 const desktop = fs.readFileSync(path.join(src, "pages/shared/desktop.css"), "utf8");
 const fixed = fs.readFileSync(path.join(src, "pages/shared/fixed-spacing.css"), "utf8");
 const density = fs.readFileSync(path.join(src, "pages/shared/pageDensity.css"), "utf8");
-const expected: Record<string, number> = {
-  "1": 4,
-  "2": 8,
-  "3": 12,
-  "4": 16,
-  "5": 24,
-  "6": 32,
-  "40": 40,
-  "48": 48,
-  "56": 56,
-};
+const scale = JSON.parse(
+  fs.readFileSync(path.resolve(import.meta.dir, "../../schemas/design-scale/design-scale.json"), "utf8"),
+) as { spacing: { steps: Array<{ name: string; px: number }>; layout: number[] } };
+const expected: Record<string, number> = Object.fromEntries([
+  ...scale.spacing.steps.map((step) => [step.name, step.px]),
+  ...scale.spacing.layout.map((px) => [String(px), px]),
+]);
 const spacingProperty =
-  /^(?:padding(?:-(?:block|inline|block-start|block-end|inline-start|inline-end|top|right|bottom|left))?|margin(?:-(?:block|inline|top|right|bottom|left)(?:-(?:start|end))?)?|gap|row-gap|column-gap)$/;
+  /^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?|gap|row-gap|column-gap)$/;
 
 function cssFiles(): string[] {
   const files: string[] = [];

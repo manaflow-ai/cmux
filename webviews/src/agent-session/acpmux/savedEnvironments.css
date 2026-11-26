@@ -14,7 +14,7 @@
   max-width: 560px;
   box-sizing: border-box;
   margin: 10px auto 0;
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
   border: 0;
   border-radius: 10px;
   color: var(--agent-text);

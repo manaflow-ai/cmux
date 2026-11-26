@@ -150,7 +150,7 @@ aside > .groups {
 }
 
 section h3 {
-  margin: 10px var(--ds-space-fixed-3) 2px;
+  margin: 10px 12px 2px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: 600;
@@ -159,7 +159,7 @@ section h3 {
 }
 
 .connection {
-  margin: 0 var(--ds-space-fixed-3) 6px;
+  margin: 0 12px 6px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);

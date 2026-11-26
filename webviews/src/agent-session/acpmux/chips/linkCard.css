@@ -6,7 +6,7 @@
 /* A tight inset, 6px between rows and no dividers. The head is one row: the icon inline with the
    title (cut to two lines, a web link's address under it), then Open and Open in as quiet
    borderless buttons, the first line centred on the 20px buttons (Leo 2026-10-21). */
-.cv-link-preview__content{display:grid;gap:6px;padding:var(--ds-space-fixed-2) 10px}
+.cv-link-preview__content{display:grid;gap:6px;padding:8px 10px}
 .cv-link-preview__head{display:flex;align-items:flex-start;gap:6px;min-width:0}
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:16px;height:20px;color:var(--agent-muted)}
 .cv-link-preview__icon .cv-chip__icon{width:14px;height:14px;margin:0}
@@ -75,7 +75,7 @@
 .acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__branches{display:flex;align-items:center;gap:var(--ds-space-fixed-1);min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-fixed-1) 6px;color:var(--agent-muted)}
+.acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
 .acpmux-pr-card__decision{font-weight:500}
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}

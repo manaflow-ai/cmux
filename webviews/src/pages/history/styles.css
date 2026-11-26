@@ -149,7 +149,7 @@
 }
 
 .history-group-title {
-  margin: 14px var(--ds-space-fixed-2) var(--ds-space-fixed-1);
+  margin: 14px 8px 4px;
   font-size: 12px;
   font-weight: 600;
   color: var(--page-text-2);

@@ -26,7 +26,7 @@
 .acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}
 .acpmux-git-primary:disabled,.acpmux-git-secondary:disabled{opacity:.5}
 .acpmux-git-primary:focus-visible,.acpmux-git-secondary:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-git-status{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:var(--ds-space-fixed-2);padding:6px var(--ds-space-fixed-3);border-bottom:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-git-status{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:var(--ds-space-fixed-2);padding:6px 12px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:var(--ds-surface-card)}
 .acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
 .acpmux-git-status-text{flex:1;min-width:0}

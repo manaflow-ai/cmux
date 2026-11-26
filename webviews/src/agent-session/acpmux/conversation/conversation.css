@@ -1567,7 +1567,7 @@
 .cv-h1 {
   font-size: calc(var(--cv-font-size) * var(--instrument-heading-1-size, 1.5));
   line-height: calc(var(--cv-font-size) * var(--instrument-heading-1-line-height, 2));
-  margin: 20px 0 var(--ds-space-fixed-3);
+  margin: 20px 0 12px;
 }
 .cv-h2 {
   font-size: calc(var(--cv-font-size) * var(--instrument-heading-2-size, 1.25));
@@ -2273,7 +2273,7 @@
   align-items: center;
   gap: var(--ds-space-2);
   min-height: var(--cv-edit-diff-head);
-  padding: 0 6px 0 var(--ds-space-fixed-3);
+  padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--cv-codeblock-ring);
   font-size: calc(var(--cv-font-size) * 13 / 14);
   line-height: calc(var(--cv-font-size) * 20 / 14);
@@ -2715,7 +2715,7 @@ pre.cv-math-source {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px var(--ds-space-fixed-2);
+  gap: 2px 8px;
   min-inline-size: 0;
   min-height: 28px;
 }
@@ -2827,7 +2827,7 @@ pre.cv-math-source {
   max-height: 220px;
   overflow: auto;
   padding-block: 2px 6px;
-  padding-inline: 18px var(--ds-space-fixed-1);
+  padding-inline: 18px 4px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -5840,7 +5840,7 @@ a.cv-sha:focus-visible {
 /* The call's machine name (`mcp__<server>__<tool>`) over its request, quiet and copyable. */
 .cv-mcp-call__name {
   display: block;
-  margin: 0 0 var(--ds-space-fixed-1) 2px;
+  margin: 0 0 4px 2px;
   color: var(--cv-text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-caption);
@@ -6740,7 +6740,7 @@ a.cv-sha:focus-visible {
 }
 /* A failed turn's note: a block above its footer row, where an answer would be. */
 .cv-turn-note {
-  padding-block: 2px var(--ds-space-fixed-1);
+  padding-block: 2px 4px;
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -7741,7 +7741,7 @@ a.cv-sha:focus-visible {
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 2px var(--ds-space-fixed-3) var(--ds-space-fixed-2) 26px;
+  padding: 2px 12px 8px 26px;
   max-height: 320px;
   overflow: auto;
   white-space: pre-wrap;
@@ -7950,7 +7950,7 @@ a.cv-sha:focus-visible {
   --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
 }
 .cv-diagram__error {
-  padding: var(--ds-space-fixed-2) 10px;
+  padding: 8px 10px;
   font-size: calc(var(--cv-font-size) * 12 / 14);
   color: var(--agent-status-failure);
 }
@@ -8422,7 +8422,7 @@ a.cv-sha:focus-visible {
 }
 /* The held previews, under the detail line: plain quoted text, one per line. */
 .cv-agent-pair__held {
-  margin: 2px 0 var(--ds-space-fixed-1);
+  margin: 2px 0 4px;
   padding: 0 0 0 var(--cv-tool-text-inset);
   list-style: none;
   font-size: var(--text-detail);
@@ -8468,7 +8468,7 @@ a.cv-sha:focus-visible {
 }
 .cv-agent-pair__resume {
   all: unset;
-  padding: 1px var(--ds-space-fixed-2);
+  padding: 1px 8px;
   border: 1px solid var(--agent-border);
   border-radius: var(--ds-radius-control);
   cursor: default;
@@ -8699,7 +8699,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-fixed-1);
-  margin: 0 0 var(--ds-space-fixed-2) 13px;
+  margin: 0 0 8px 13px;
 }
 .cv-received .cv-message__reply {
   margin: 6px 0 0;
@@ -8885,7 +8885,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__inline-image {
   display: inline-flex;
   max-width: calc(100% - 8px);
-  margin: 2px var(--ds-space-fixed-1);
+  margin: 2px 4px;
   vertical-align: middle;
 }
 .cv-user__inline-image img {
@@ -8902,7 +8902,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__inline-file {
   display: inline-block;
   max-width: min(340px, 72vw);
-  margin: 2px var(--ds-space-fixed-1);
+  margin: 2px 4px;
   vertical-align: middle;
 }
 .cv-user__inline-file > .acpmux-file-chip {

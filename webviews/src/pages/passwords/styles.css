@@ -76,7 +76,7 @@
   border: 1px solid var(--page-separator);
   background: transparent;
   color: var(--page-text-2);
-  padding: 3px var(--ds-space-fixed-2);
+  padding: 3px 8px;
   border-radius: var(--ds-radius-control);
   cursor: default;
 }
@@ -113,7 +113,7 @@
   position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: var(--ds-space-fixed-1) calc(var(--page-edge) - var(--ds-space-fixed-2)) 18px;
+  padding: 4px calc(var(--page-edge) - 8px) 18px;
 }
 
 /* Windowed: only the items near the viewport are mounted, each placed at its offset. */

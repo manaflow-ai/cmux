@@ -23,9 +23,9 @@
 .acpmux-inspector-state {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 6px var(--ds-space-fixed-4);
+  gap: 6px 16px;
   margin: 0;
-  padding: 10px var(--ds-space-fixed-4);
+  padding: 10px 16px;
   border-bottom: 1px solid var(--agent-border);
 }
 
@@ -73,7 +73,7 @@
 .acpmux-inspector-tools button {
   border: 0;
   border-radius: var(--ds-radius-control);
-  padding: var(--ds-space-fixed-1) 10px;
+  padding: 4px 10px;
   background: var(--agent-control);
   color: var(--agent-text);
   font: inherit;
@@ -107,7 +107,7 @@
   align-items: baseline;
   gap: var(--ds-space-fixed-2);
   width: 100%;
-  padding: 3px var(--ds-space-fixed-4);
+  padding: 3px 16px;
   border: 0;
   background: none;
   color: var(--agent-text);

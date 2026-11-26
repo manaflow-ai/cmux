@@ -43,7 +43,7 @@
 .ds-search {
   width: 100%;
   box-sizing: border-box;
-  padding: 5px var(--ds-space-fixed-2);
+  padding: 5px 8px;
   border-radius: 6px;
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
@@ -219,7 +219,7 @@
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: var(--ds-space-fixed-2) 14px;
+  padding: 8px 14px;
 }
 
 .ds-row + .ds-row {
@@ -395,7 +395,7 @@
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--ds-space-fixed-1) 10px;
+  gap: 4px 10px;
   margin-bottom: 6px;
 }
 
@@ -412,7 +412,7 @@
 
 .ds-card-body > .ds-none {
   margin: 0;
-  padding: var(--ds-space-fixed-2) 14px;
+  padding: 8px 14px;
 }
 
 .ds-hang-duration {

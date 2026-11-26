@@ -4,7 +4,7 @@
 .stats {
   max-width: 880px;
   margin: 0 auto;
-  padding: 20px var(--ds-space-fixed-4) var(--ds-space-fixed-6);
+  padding: 20px 16px 32px;
 }
 
 .stats-header {
@@ -94,7 +94,7 @@
 }
 
 .stats-tile {
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
 }

@@ -35,7 +35,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--ds-space-fixed-2);
-  padding: var(--ds-space-fixed-4) 20px var(--ds-space-fixed-2) var(--ds-space-fixed-3);
+  padding: 16px 20px 8px 12px;
 }
 .ce-head-text {
   min-width: 0;
@@ -58,7 +58,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--ds-space-fixed-2) 20px var(--ds-space-fixed-3) 44px;
+  padding: 8px 20px 12px 44px;
   max-width: 720px;
 }
 .ce-actions {
@@ -67,7 +67,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: var(--ds-space-fixed-2);
-  padding: var(--ds-space-fixed-3) 20px var(--ds-space-fixed-4);
+  padding: 12px 20px 16px;
   border-top: 1px solid var(--ce-line);
 }
 .ce-field {
@@ -106,7 +106,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--ds-space-fixed-2) 10px;
+  gap: 8px 10px;
 }
 .ce-grow {
   flex: 1;
@@ -244,7 +244,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ds-space-fixed-1) 10px;
+  gap: 4px 10px;
   font-size: var(--text-detail);
   color: var(--ce-text-2);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -265,7 +265,7 @@
   flex-direction: column;
   gap: 10px;
   margin: var(--ds-space-fixed-1) 0 0;
-  padding: var(--ds-space-fixed-3) 14px;
+  padding: 12px 14px;
   border: 1px solid var(--ce-line);
   border-radius: 8px;
   max-width: 480px;
