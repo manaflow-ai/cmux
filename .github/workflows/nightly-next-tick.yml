@@ -233,6 +233,11 @@ jobs:
       # 3 hours then 3 at once?"): no start within NIGHTLY_NEXT_CADENCE_MINUTES (default 20) of the
       # newest one, even with the slot free; the start that falls due (this cron's 5-minute tick)
       # takes the newest buildable commit, and a longer gap promotes at once. 0 turns it off.
+      # Fast pass (Leo, 2026-11-25: "when can we get the next nightly. like just the fast pass way to
+      # go"): when every landing nightly-next lacks is a safe fix (scripts/ci/nightly_fast_pass.py: at most
+      # 3 commits, 12 files and 200 lines, none on .github/release-surface.txt, CI, build or dependency
+      # files, read from this checkout), the cadence is 5 minutes, not 20. The running-build wait, the
+      # precheck and every build check still hold. The step's fast_pass output names it.
       # The rolling rule's spare reader: a read the job's token is refused goes out once more on this
       # read-only route App token (its own budget; main's promote job reads on it too), so a dry
       # github.token and cmux-bot budget do not cost the tick its answer. Ticks 45118875109 and
