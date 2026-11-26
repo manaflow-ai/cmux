@@ -1,5 +1,6 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
+import CmuxMobileNotifications
 import Foundation
 import OSLog
 
