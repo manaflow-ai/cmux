@@ -248,6 +248,7 @@ import Testing
             "first_terminal_surface_created": 380, "first_terminal_content": 450, "first_terminal_content_applied": 451,
             "first_terminal_frame": 452, "chromium_page.make_start": 410, "chromium_page.browser_created": 420,
             "home.page_host_made": 430, "pages.created": 460, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
+            "browser_pane.first_paint": 700.04, "browser_pane.input_ready": 720,
             "terminal_input_accepted": 640, "terminal_echo": 645,
             "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
             "window.restore_wait_end": 362.25, "frame.commit_start": 363, "first_key_down": 630,
