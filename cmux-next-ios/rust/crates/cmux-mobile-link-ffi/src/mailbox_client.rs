@@ -94,6 +94,8 @@ pub enum MailboxRoute {
     Link,
     /// Seal it and post it to the relay's mailbox.
     Mailbox,
+    /// Post it to the chat's Cloud inbox ([`mailbox_inbox_post`]): a Cloud machine holds the chat.
+    CloudInbox,
     /// Neither: fail as before.
     Fail,
 }
@@ -104,23 +106,50 @@ pub struct MailboxRouteInput {
     pub presence: MailboxPresence,
     /// [`mailbox_available`] for this item.
     pub mailbox_available: bool,
+    /// The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+    pub cloud_holder: bool,
 }
 
-/// Link, mailbox or fail for one send. The item's id is the same on both paths.
+/// Link, mailbox, Cloud inbox or fail for one send with client message id `id`. The id is the same
+/// on every path, and a Cloud inbox send fails if the inbox would mint a new id.
 #[uniffi::export]
-pub fn mailbox_route(input: MailboxRouteInput) -> MailboxRoute {
+pub fn mailbox_route_for(id: String, input: MailboxRouteInput) -> MailboxRoute {
+    match core::decide(&id, core_input(input)).route {
+        core::Route::Link => MailboxRoute::Link,
+        core::Route::Mailbox => MailboxRoute::Mailbox,
+        core::Route::CloudInbox => MailboxRoute::CloudInbox,
+        core::Route::Fail(_) => MailboxRoute::Fail,
+    }
+}
+
+/// The Cloud inbox request for one send: `[path, json body]`, or none when the chat id, the id or
+/// the text can't go there. Posting the same id again is safe.
+#[uniffi::export]
+pub fn mailbox_inbox_post(chat_id: String, id: String, text: String) -> Option<Vec<String>> {
+    core::inbox_post(&chat_id, &id.to_lowercase(), &text).map(|(path, body)| vec![path, body])
+}
+
+fn core_input(input: MailboxRouteInput) -> core::RouteInput {
     let presence = match input.presence {
         MailboxPresence::Online => core::Presence::Online,
         MailboxPresence::Offline => core::Presence::Offline,
         MailboxPresence::Unknown => core::Presence::Unknown,
     };
-    match core::route(core::RouteInput {
+    core::RouteInput {
         link_up: input.link_up,
         presence,
         mailbox_available: input.mailbox_available,
-    }) {
+        cloud_holder: input.cloud_holder,
+    }
+}
+
+/// Link, mailbox or fail for one send. The item's id is the same on both paths.
+#[uniffi::export]
+pub fn mailbox_route(input: MailboxRouteInput) -> MailboxRoute {
+    match core::route(core_input(input)) {
         core::Route::Link => MailboxRoute::Link,
         core::Route::Mailbox => MailboxRoute::Mailbox,
+        core::Route::CloudInbox => MailboxRoute::CloudInbox,
         core::Route::Fail(_) => MailboxRoute::Fail,
     }
 }
