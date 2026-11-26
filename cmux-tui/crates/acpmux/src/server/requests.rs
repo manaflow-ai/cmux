@@ -2125,10 +2125,17 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            // Take ownership only after the lookup finishes in time. A retry after a timeout
+            // can still name these uploads even if the background lookup finishes later.
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
