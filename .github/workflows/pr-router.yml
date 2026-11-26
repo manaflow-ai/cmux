@@ -140,10 +140,12 @@ jobs:
           LAND_STATUS_RETRY_S: '20'
         run: |
           if [ "$STATE" = success ]; then
-            desc="The land's tier runs on this head (full; affected, with the full tier hourly on feat-cmux-next; or passed on the head this base merge sits on)"
+            desc="The land's tier runs on this head (full, affected with the hourly full tier, or passed on the head under this base merge)"
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
+          # GitHub refuses a status description over 140 characters (422), which left cmux/land-tier unposted.
+          desc="${desc:0:140}"
           # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the other, then again.
           for round in 1 2 3; do
             for token in "$APP_TOKEN" "$JOB_TOKEN"; do
