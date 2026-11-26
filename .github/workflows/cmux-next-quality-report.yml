@@ -65,13 +65,13 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: sticky-read-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -177,13 +177,13 @@ jobs:
       # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
       # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). These tokens are
       # minted after the slow Rust work so their one-hour lifetime covers the reads that use them.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: hq-read-bot
-        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -211,13 +211,13 @@ jobs:
 
       # Checks and contents (the commit history) read on this repository only, for the CI health section; its own mint, so an App without the checks
       # grant costs only the CI numbers (n/a, with the reason), never the perf rows or the crash fallback.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: checks-read-bot
-        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
