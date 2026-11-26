@@ -2484,19 +2484,22 @@ export class AcpmuxDirectClient {
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
-    const events: EventRecord[] = [];
+    // Keep journal reads aligned with the Rust replay adapter's bounded page. The daemon's
+    // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
+    // handing the replay reducer its source of truth.
+    const events = new Map<number, EventRecord>();
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: after,
-        limit: 2000,
+        limit: 400,
         kinds: ["transcript"],
       });
       const batch = records(page?.events);
-      events.push(...batch);
-      const last = batch.at(-1)?.seq;
-      if (!page?.hasMore || last === undefined || last <= after) return events;
-      after = last;
+      for (const event of batch) if (event.seq > 0) events.set(event.seq, event);
+      const through = Math.max(page?.pageThrough ?? 0, batch.at(-1)?.seq ?? 0);
+      if (!page?.hasMore || through <= after) return [...events.values()].sort((a, b) => a.seq - b.seq);
+      after = through;
     }
   }
 

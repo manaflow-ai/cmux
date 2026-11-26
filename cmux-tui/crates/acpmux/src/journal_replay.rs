@@ -8,7 +8,7 @@
 //! without reading or reducing the journal again.
 
 use anyhow::{Result, anyhow};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
 use crate::store::EventRecord;
 
@@ -66,8 +66,13 @@ where
                 continue;
             }
             next = next.max(event.seq);
-            if by_seq.insert(event.seq, event).is_some() {
-                duplicates += 1;
+            match by_seq.entry(event.seq) {
+                Entry::Vacant(slot) => {
+                    slot.insert(event);
+                }
+                Entry::Occupied(_) => {
+                    duplicates += 1;
+                }
             }
         }
         if !page.has_more {
