@@ -67,7 +67,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "matrix.runner comes from the census-routed plan-build; its attempt-2 small-size bump reads linux_16"),
     ("cmux-tui-testbox-warmup.yml", "cmux-tui-rust"): (
         "warms a Blacksmith testbox (environment blacksmith-testbox-trusted): it must run on Blacksmith"),
-    ("coderouter-release.yml", "build-linux"): "release build: keeps its runner as main does for release jobs",
     ("fast-checks.yml", "checks"): (
         "credentialed: the generator leaves it on the ephemeral pool (tests/test_ci_runner_set.py EPHEMERAL_POOL_JOBS)"),
 }
