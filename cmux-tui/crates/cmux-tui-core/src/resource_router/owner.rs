@@ -404,6 +404,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerGithubApp
         | ResourceOperation::CloudOwnerGithubRepos
         | ResourceOperation::CloudOwnerGithubConnect
+        | ResourceOperation::CloudOwnerOp
+        | ResourceOperation::CloudOwnerGithubComplete
+        | ResourceOperation::CloudOwnerGithubList
+        | ResourceOperation::CloudOwnerGithubCloneToken
         | ResourceOperation::CloudOwnerTurnCheckpoint
         | ResourceOperation::CloudOwnerTurnRewind
         | ResourceOperation::CloudOwnerTurns

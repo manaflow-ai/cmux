@@ -35,7 +35,7 @@ Usage:
       [--tree-key K --current-tree-key K2]  exit 3 (keep) when K == K2: the same source tree
   web-ota-pointer.py same-build --pointer NEW --current CURRENT --keys KEYS
       exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at, and
-      for a Linux release file sequence and version, equal), 1 otherwise: a write-once file someone
+      for a Linux release file sequence, version and the deb and rpm entries, equal), 1 otherwise: a write-once file someone
       published with other contents
       [--same-tree]  also ignore commit and committed_at, and require the same tree_key: the write-once
       tree/<key>/release.json, which any commit of the tree may find already written
@@ -266,6 +266,20 @@ LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"
 # own published name. cmux-tui and cmux-tui-hook are in every file (phase 1); the rest since phase 1b.
 LINUX_RELEASE_NAMES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-acpmux", "cmux-tui-app-host",
                        "cmux-tui-agent-screen-detection")
+# scripts/ci/linux-archive.py PACKAGES: the .deb and .rpm a release file names beside the binaries (design
+# section 2), built at signing time from the signing run's sequence (scripts/ci/linux-packages.sh), so like
+# `sequence` and `version` they are the signing run's: same-build ignores them.
+LINUX_RELEASE_PACKAGES = ("deb", "rpm")
+
+
+def without_packages(value):
+    """A Linux release payload without its package entries (same-build compares the rest)."""
+    targets = value.get("targets")
+    if not isinstance(targets, dict):
+        return value
+    return {**value, "targets": {target: ({n: e for n, e in files.items() if n not in LINUX_RELEASE_PACKAGES}
+                                          if isinstance(files, dict) else files)
+                                 for target, files in targets.items()}}
 
 
 def completes(new, current):
@@ -354,6 +368,8 @@ def check_linux_release(path, value):
                 raise Refused(f"{path}: {target} {name}: the url {url!r} is not under {prefix}")
             if name in LINUX_RELEASE_NAMES and rest != f"{name}-{target}":
                 raise Refused(f"{path}: {target} {name}: the url is not {prefix}{name}-{target}")
+            if name in LINUX_RELEASE_PACKAGES and not rest.endswith(f".{name}"):
+                raise Refused(f"{path}: {target} {name}: the url {url!r} is not a .{name}")
             if not re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256") or "")):
                 raise Refused(f"{path}: {target} {name}: bad sha256 {entry.get('sha256')!r}")
             if not is_int(entry.get("size")) or entry["size"] <= 0:
@@ -497,6 +513,10 @@ def run(args):
             if purpose != LINUX_RELEASE or not new.get("tree_key") or new.get("tree_key") != current.get("tree_key"):
                 fail(f"{args.current} is not a release file of tree {new.get('tree_key')!r}")
             skip += TREE_COMMIT_FIELDS
+        if purpose == LINUX_RELEASE:
+            # Packages carry the signing run's version: a re-sign of one build builds others, and the file
+            # already written keeps the ones it names (also when it names none).
+            new, current = without_packages(new), without_packages(current)
         build = lambda value: {k: v for k, v in value.items() if k not in skip}
         if build(new) != build(current):
             changed = sorted(k for k in set(new) | set(current)
