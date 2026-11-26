@@ -112,8 +112,8 @@ struct AgentChatVoiceTracker {
                     guard case .pending = question.state else { continue }
                     let prompts = question.items.compactMap { speech.speakable($0.prompt) }
                     if !prompts.isEmpty { out.append(prompts.joined(separator: " ")) }
-                case .tool, .thought, .plan, .subagents, .steer:
-                    // Not for the ear: tool calls, diffs, reasoning, plans and the messages sent
+                case .tool, .thought, .subagents, .steer:
+                    // Not for the ear: tool calls, diffs, reasoning and the messages sent
                     // into the turn stay on screen.
                     said.insert(item.id)
                 }
