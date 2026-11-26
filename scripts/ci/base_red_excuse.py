@@ -9325,6 +9325,27 @@ class Head(NamedTuple):
     compile: "CompileErrors | None" = None
 
 
+def checkout_death(repo: str, base: str, sha: str, job: dict, log: str | None, github) -> str | None:
+    """Why red JOB's LOG is a checkout that died before any step of the change ran (test_reds.died_in_checkout: its
+    first error is inside actions/checkout and no other step ran after it), when the change at SHA cannot have made
+    it fail: it changes neither .gitmodules nor a gitlink against BASE (runs_no_pr_code's rule), read in full. Else
+    None, and the red is judged as before. cmux#51655 at fd3c0b17: 'changes' died fetching from github.com in
+    actions/checkout ("Operation too slow", git exit 128) and land-judge stopped the land on it as the PR's own red;
+    it is the same red leo-workspace tools/ws-check reruns (failed_in_checkout, leo-workspace#11281)."""
+    error = test_reds.died_in_checkout(log)
+    if error is None:
+        return None
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha or job.get('head_sha')}")
+    files = diff.get("files") if isinstance(diff, dict) else None
+    if not isinstance(files, list) or len(files) >= COMPARE_FILES_CAP:
+        return None  # which paths the change touches is not known in full: its red stays its own
+    changed = {str(path) for found in files if isinstance(found, dict)
+               for path in (found.get("filename"), found.get("previous_filename")) if path is not None}
+    if ".gitmodules" in changed or compare_gitlinks(files):
+        return None  # a submodule pin the change moves can fail the checkout on its own (#43915)
+    return f"actions/checkout step, which died before any step of this change ran ({error[:300]})"
+
+
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
               evidence: "Evidence") -> Head:
     """The one reader of red head JOB's raw log for judge(), which reads only its failed_view. Raw, it is read only
@@ -9339,6 +9360,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
+        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")

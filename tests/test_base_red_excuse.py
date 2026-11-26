@@ -1889,6 +1889,38 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
 
+    def checkout_death_setup(self):
+        # cmux#51655 at fd3c0b17: 'changes' died fetching in actions/checkout (git exit 128), before any PR step ran.
+        checkout = "Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+        self.gh.jobs[1]["steps"] = [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1,
+             "started_at": "2026-11-25T19:16:17Z", "completed_at": "2026-11-25T19:16:18Z"},
+            {"name": checkout, "status": "completed", "conclusion": "failure", "number": 2,
+             "started_at": "2026-11-25T19:16:19Z", "completed_at": "2026-11-25T19:17:24Z"},
+            {"name": "Complete job", "status": "completed", "conclusion": "success", "number": 3,
+             "started_at": "2026-11-25T19:17:24Z", "completed_at": "2026-11-25T19:17:25Z"}]
+        self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
+
+    def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
+        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        self.checkout_death_setup()
+        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
+                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+            self.judge()
+
+    def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
+        self.checkout_death_setup()
+        json_of = self.gh.json
+        for changed in ({"filename": ".gitmodules", "blob_url": "https://github.com/b", "patch": "+x"},
+                        {"filename": "ghostty-next", "blob_url": None, "patch": "+Subproject commit abc"}):
+            def json(route, *, paginate=False, changed=changed):
+                found = json_of(route, paginate=paginate)
+                return dict(found, files=[changed]) if f"/compare/feat-cmux-next...{HEAD}" in route else found
+            self.gh.json = json
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+            self.assertNotIn("actions/checkout step", str(said.exception))
+
     def test_a_job_with_no_steps_is_never_excused(self):
         self.gh.jobs[1]["steps"] = []
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
@@ -12913,6 +12945,8 @@ RAW_LOG_READERS = {
                        "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
+    "checkout_death": "a gate: a checkout that died before any step of the change ran (test_reds.died_in_checkout); "
+                      "only refuses, for a rerun",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
