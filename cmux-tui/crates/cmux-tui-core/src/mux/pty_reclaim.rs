@@ -216,7 +216,19 @@ impl Mux {
     }
 
     /// One reclaim pass (module docs). Returns the tab surfaces parked.
+    #[cfg(test)]
     pub(crate) fn reclaim_ptys_if_low(&self, clock: &mut ReclaimClock) -> Vec<SurfaceId> {
+        self.reclaim_ptys_if_low_leaving(clock, &HashSet::new())
+    }
+
+    /// [`Self::reclaim_ptys_if_low`], never ending a closed tab's terminal in `held`: the
+    /// terminals a new owner holds until the app attaches to them again (terminal_reap.rs,
+    /// "Cold adoption"), which look detached until it does.
+    pub(crate) fn reclaim_ptys_if_low_leaving(
+        &self,
+        clock: &mut ReclaimClock,
+        held: &HashSet<String>,
+    ) -> Vec<SurfaceId> {
         let forced = self.pty_reclaim_forced.swap(false, Ordering::AcqRel);
         if !clock.due(Instant::now(), forced) {
             return Vec::new();
@@ -229,7 +241,7 @@ impl Mux {
         // Closed tabs' terminals waiting out the reap grace go first: no tab shows them, and a
         // burst of closes held the machine's PTYs with them until every new tab was refused
         // (STATUS 7938). Each ends through the reaper's own guarded close.
-        let ended = self.end_unplaced_terminals_for_ptys(want);
+        let ended = self.end_unplaced_terminals_for_ptys(want, held);
         let want = want.saturating_sub(ended);
         if want == 0 {
             eprintln!(
@@ -267,7 +279,7 @@ impl Mux {
     /// Ends up to `want` terminals that no tab shows and that wait out the reap grace, longest
     /// unplaced first; returns how many ended. A kept terminal, or one a client is attached to, is
     /// never one of them (`reap_unplaced_terminal` checks again atomically with the close).
-    fn end_unplaced_terminals_for_ptys(&self, want: usize) -> usize {
+    fn end_unplaced_terminals_for_ptys(&self, want: usize, held: &HashSet<String>) -> usize {
         let mut rows_empty = false;
         let unplaced = match self.reapable_terminals_unplaced_for(&mut rows_empty) {
             Ok(unplaced) => unplaced,
@@ -280,6 +292,7 @@ impl Mux {
         };
         let mut oldest: Vec<(Duration, String)> = unplaced
             .into_iter()
+            .filter(|(terminal_id, _)| !held.contains(terminal_id))
             .map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id))
             .collect();
         oldest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));

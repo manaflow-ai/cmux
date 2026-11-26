@@ -67,7 +67,8 @@ async function renderFailure(provider: RetryFailureProvider) {
 }
 
 for (const [name, failure] of [
-  ["upstream", { code: "cmux.cloud.upstream_error", message: "Cloud did not answer", retryable: true }],
+  // Final; a retryable one is read again quietly before it shows (CloudPage.blip.test.tsx).
+  ["upstream", { code: "cmux.cloud.upstream_error", message: "Cloud did not answer", retryable: false }],
   ["malformed", { code: "cmux.protocol.invalid_result", message: "Malformed auth reply", retryable: false }],
   ["terminal", { code: "cmux.cloud.auth_required", message: "Sign in to cmux Cloud", retryable: false }],
 ] as const) {

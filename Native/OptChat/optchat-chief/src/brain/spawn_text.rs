@@ -2,11 +2,14 @@
 //! 22013: "llm behavior needs to respond with text alongside those chips").
 //! Home draws each subagent as a pill beside the Chief's words of the turn
 //! that started it; a turn that started some and posted no text (no reply, no
-//! `send`, no `reply`) left the person with chips alone. Its end queues one
-//! `[no text]` note that names them, so a next turn writes the words; that
-//! turn is not nudged again, so a silent Chief never loops.
+//! `send`, no `reply`) left the person with chips alone. Its end has the host
+//! post `[a1] started: TITLE` itself (Lucas's latency plan, item 3: no Chief
+//! turn spent on the relay). Only when that post cannot go out (no
+//! conversation, or the owner refused it) does one `[no text]` note queue a
+//! next turn that writes the words; that turn is not nudged again, so a
+//! silent Chief never loops.
 
-use super::{Brain, Source};
+use super::Brain;
 
 /// The first word of the note a silent spawn turn leaves.
 pub const NO_TEXT_TAG: &str = "[no text]";
@@ -44,12 +47,37 @@ impl Brain {
             self.hold_spawns(spawned);
             return;
         }
-        (self.log)(&format!(
-            "turn {key} started {} and posted no text; queuing a {NO_TEXT_TAG} note",
-            spawned.join(", ")
-        ));
         self.spawn_text_nudged = true;
-        self.queue(no_text_note(&spawned), Source::Note);
+        let lines = spawned
+            .iter()
+            .map(|id| {
+                let title = self
+                    .state
+                    .sub(id)
+                    .map(|(_, s)| s.title.trim().to_owned())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| "the requested task".to_owned());
+                format!("[{id}] started: {title}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let key_of = format!(
+            "{}{}",
+            super::outcome_ledger::HOST_SPAWN_KEY,
+            spawned.join(",")
+        );
+        if self.host_post(key_of, lines, None) {
+            (self.log)(&format!(
+                "turn {key} started {} and posted no text; host-posting the start",
+                spawned.join(", ")
+            ));
+        } else {
+            (self.log)(&format!(
+                "turn {key} started {} and posted no text; queuing a {NO_TEXT_TAG} note",
+                spawned.join(", ")
+            ));
+            self.queue(no_text_note(&spawned), super::Source::Note);
+        }
     }
 }
 

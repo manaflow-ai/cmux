@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "switch.routeUnavailableUnnamed" : {
+      "comment" : "Agent pane: a chat's agent, whose name is unknown, did not start because the model route its profile uses can't serve it on the chat's machine.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مسار النموذج الخاص بهذا الوكيل غير متاح على هذا الجهاز."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ruta modela ovog agenta nije dostupna na ovom računaru."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modelruten for denne agent er ikke tilgængelig på denne maskine."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Modellroute dieses Agenten ist auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This agent's model route isn't available on this machine."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La ruta de modelo de este agente no está disponible en esta máquina."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La route de modèle de cet agent n'est pas disponible sur cette machine."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il percorso del modello di questo agente non è disponibile su questa macchina."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このマシンではこのエージェントのモデルルートを利用できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លូវម៉ូដែលរបស់ភ្នាក់ងារនេះមិនអាចប្រើបាននៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 컴퓨터에서는 이 에이전트의 모델 경로를 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modellruten for denne agenten er ikke tilgjengelig på denne maskinen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trasa modelu tego agenta nie jest dostępna na tym komputerze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A rota de modelo deste agente não está disponível nesta máquina."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Маршрут модели этого агента недоступен на этом компьютере."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เส้นทางโมเดลของเอเจนต์นี้ใช้ไม่ได้ในเครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu ajanın model rotası bu makinede kullanılamıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Маршрут моделі цього агента недоступний на цьому комп’ютері."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tuyến mô hình của tác tử này không khả dụng trên máy này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此代理的模型路由在这台机器上不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此代理的模型路由在這台機器上無法使用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

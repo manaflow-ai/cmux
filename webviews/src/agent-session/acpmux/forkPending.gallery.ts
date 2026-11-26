@@ -3,7 +3,7 @@
 // weird + it's so SLOW + i shuold be able to cancel a fork probably"). "before" is the transcript
 // row the pane drew until now; the others are the pending state's looks, side by side at full
 // size. Picked: "line", the host line's look above the composer (ForkPendingLine.tsx): it is the
-// stack's one way of saying a wait (HostWaitingLine), it moves nothing in the transcript, and its
+// stack's one way of saying a wait (HostError.tsx), it moves nothing in the transcript, and its
 // Cancel sits where the eye already is. "pill" floats a capsule over the transcript's foot and
 // reads as a toast; "composer" puts the wait inside the card, where it reads as the composer's
 // own state though typing still works.

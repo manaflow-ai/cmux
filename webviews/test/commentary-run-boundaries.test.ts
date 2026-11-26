@@ -1,7 +1,19 @@
 // l10n-allow-file: transcript fixture replies and paths, not shipped UI.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toggleTurnFold, turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -42,10 +54,10 @@ function expectSeparate(rows: AcpmuxRow[], text: string) {
 for (const family of ["codex", "claude", "gemini", "muse", undefined])
   for (const phase of ["commentary", undefined] as const)
     test(`${family ?? "default"}: ${phase ?? "unphased"} prose keeps consecutive tool groups separate while live and in an opened turn`, () => {
-      for (const [text, visible] of [
-        ["I'll check the other caller.", ["final"]],
-        ["This longer commentary remains its own paragraph. ".repeat(5), ["commentary", "final"]],
-      ] as const) {
+      for (const text of [
+        "I'll check the other caller.",
+        "This longer commentary remains its own paragraph. ".repeat(5),
+      ]) {
         const commentary = row("commentary", "assistant", { text, assistantPhase: phase });
         const source = [prompt, first, commentary, second];
         const options = { working: true, agentFamily: family };
@@ -67,9 +79,9 @@ for (const family of ["codex", "claude", "gemini", "muse", undefined])
         const folded = turnViewFrom([...concluding, summary], closed, { ...options, working: false });
         expect(
           folded.rows.filter((row) => row.kind === "activity" || row.kind === "assistant").map((row) => row.id),
-          // Marked commentary folds with the work beside a marked final answer, however long, as the
-          // Codex app folds it (2026-11-14); unmarked prose keeps the length rule.
-        ).toEqual(phase === "commentary" ? ["final"] : [...visible]);
+          // A closed fold keeps only the final answer in sight: commentary folds with the work,
+          // however long, marked or not.
+        ).toEqual(["final"]);
         const reopened = toggleTurnFold([...concluding, summary], closed, foldId);
         expectSeparate(turnViewFrom([...concluding, summary], reopened, { ...options, working: false }).rows, text);
       }

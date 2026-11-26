@@ -10,7 +10,7 @@
 # push never runs.
 #
 # It submits `package-test-lane.sh compile-tests BASE` with `cmux-ci run
-# --background` (after every urgent, manual and agent job), then watches the
+# --priority idle` (after every urgent, manual and agent job), then watches the
 # step while it waits in the queue:
 #   - a newer push's run of this workflow waiting behind this one (the
 #     workflow's concurrency group holds it pending): this queued step answers
@@ -62,7 +62,14 @@ if ! [ -x "$client" ]; then
   finish none
 fi
 
-"$client" run --background --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
+# The controller's `idle` request class (cmuxterm-hq#23557: queued behind every feed, named, pr and agent
+# job, and stoppable). A runner whose client predates --priority asks with --background, the same queue
+# place without the class.
+queue=(--background)
+if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
+  queue=(--priority idle)
+fi
+"$client" run "${queue[@]}" --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
   --arg=compile-tests --arg="$BASE" --timeout "$step_timeout" > "$log" 2>&1 &
 pid=$!
 started=$SECONDS

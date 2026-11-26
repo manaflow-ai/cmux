@@ -1,0 +1,24 @@
+[package]
+name = "cmux-migrate"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Moving to AutoCloud from anywhere: each source (this Mac, a devcontainer or compose file, an SSH host, another cloud dev environment, a team roster) becomes one dry-run plan of projects, each a repo plus a .cmux/machine.toml, with a ledger so a rerun makes nothing twice and every move can be undone."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml.workspace = true
+cmux-git.workspace = true
+# T3 Code's statev2.sqlite, opened read-only (sources::t3code).
+rusqlite.workspace = true
+# .gitpod.yml; the version cmux-host already builds.
+yaml-rust = "0.4.5"
+
+[dev-dependencies]
+tempfile = "3"

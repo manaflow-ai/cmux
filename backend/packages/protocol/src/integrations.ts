@@ -182,7 +182,8 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * Where a connect started from a chat sends the person back after GitHub: a cmux object link to that chat, the
  * grammar of `plans/cmux-next/links.json` (`<scheme>://workspace|pane|tab/<prefix><32 hex>[?machine=]`,
  * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
- * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
+ * `cmux-nightly`, `cmux-rc`, `cmux-next` (cmux NEXT, installed beside cmux NIGHTLY), and `cmux-dev[-<tag>]`
+ * (development builds; dropped on production). Nothing else:
  * no web origin, no other scheme, no other query key.
  *
  * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. The
@@ -191,7 +192,7 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * a state signed for that same user and team.
  */
 export const CONNECT_RETURN_TO = new RegExp(
-  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
@@ -248,7 +249,12 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * GitHub, staging and development only: a GitHub Actions OIDC token from an allowed workflow run, in place of
+     * `code` (cmux-api integrations/github-actions-connect.ts). Production refuses it.
+     */
+    actions_oidc: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8000)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,

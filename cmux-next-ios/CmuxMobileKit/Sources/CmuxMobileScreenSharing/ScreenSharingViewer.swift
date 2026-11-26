@@ -64,7 +64,9 @@ public final class ScreenSharingViewer: Identifiable {
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
     public private(set) var lastScope: SessionScope = .full
-    /// Set: this session streams over `cmux.rd/1` (a `cmux://mac-screen` link), not WebRTC.
+    /// Set: this session streams over `cmux.rd/1`, not WebRTC: a `cmux://mac-screen` link, a
+    /// Linux desktop, or a Mac whose share host answered WebRTC with cmux.rd/1 (its app is
+    /// closed and its acpmux daemon serves the phone, ``hostServes(_:sessionID:)``).
     @ObservationIgnored var rd: MacScreenRdTarget?
     /// The `cmux.rd/1` stream while approved (``rd`` set), instead of ``screen``.
     public private(set) var rdScreen: StreamedBrowserModel?
@@ -101,11 +103,24 @@ public final class ScreenSharingViewer: Identifiable {
     /// A denial or end the hub pushed before the request's HTTP answer named its session.
     @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
 
-    init(hostID: String, hostName: String, hub: DeviceHub, preferences: ScreenSharingPreferences) {
+    /// `hostPlatform`: a Linux desktop serves `cmux.rd/1` viewers only, so its sessions open
+    /// cmux.rd/1 from the start (control with a Full Control grant); a Mac starts on WebRTC.
+    init(hostID: String, hostName: String, hostPlatform: DevicePlatform? = nil, hub: DeviceHub,
+         preferences: ScreenSharingPreferences) {
         self.hostID = hostID
         self.hostName = hostName
         self.hub = hub
         self.preferences = preferences
+        if Self.servesRdOnly(hostPlatform) { rd = MacScreenRdTarget(displayID: nil, control: true) }
+    }
+
+    /// Whether a host of `platform` serves `cmux.rd/1` viewers only (its host refuses WebRTC).
+    /// Exhaustive, so a new platform says which it speaks.
+    nonisolated static func servesRdOnly(_ platform: DevicePlatform?) -> Bool {
+        switch platform {
+        case .linux?, .windows?: true
+        case .macos?, .ios?, nil: false
+        }
     }
 
     private func phaseChanged() {
@@ -278,6 +293,15 @@ public final class ScreenSharingViewer: Identifiable {
         phase = .streaming(sessionID: ticket.sessionId, scope: ticket.scope)
         reattachTask?.cancel()
         reattachTask = nil
+        if rd == nil, let signaling = pendingSignaling as? any ScreenHostTransportSignaling {
+            // A Mac whose app is closed: its acpmux daemon serves this phone over cmux.rd/1, and
+            // says so in answer to the WebRTC offer (cmuxterm-hq#18912).
+            let id = ticket.sessionId
+            signaling.onHostTransport { [weak self] transport in
+                // task-owner: hops one host frame to the main actor
+                Task { @MainActor [weak self] in self?.hostServes(transport, sessionID: id) }
+            }
+        }
         if let rd {
             acceptRd(ticket, target: rd)
             return
@@ -381,6 +405,17 @@ public final class ScreenSharingViewer: Identifiable {
         defer { pendingRd = nil }
         if pendingRd == nil, let id = sessionID { streamDropped(id) }
         return pendingRd
+    }
+
+    /// The host answered this viewer's WebRTC offer with the protocol it serves: `cmux.rd/1`
+    /// from a Mac whose app is closed (its acpmux daemon serves the share) or a Linux desktop.
+    /// The WebRTC stream goes, and the session reattaches (a fresh ticket, at once) and opens
+    /// cmux.rd/1 from then on, in control with a Full Control grant (taps are the host's clicks).
+    func hostServes(_ transport: String, sessionID id: String) {
+        guard transport == TicketSignaling.rdTransport, rd == nil, case .streaming(id, _) = phase else { return }
+        rd = MacScreenRdTarget(displayID: nil, control: true)
+        streamDropped(id)
+        stopStream()
     }
 
     /// The `cmux.rd/1` stream closed: the host's end or refusal ends the session; a link that

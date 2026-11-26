@@ -28,7 +28,8 @@ elif [ -n "${XDG_CACHE_HOME:-}" ]; then
 elif [ -n "${HOME:-}" ]; then
   cache="$HOME/.cache/cmux-code-mode"
 else
-  cache="${TMPDIR:-/tmp}/cmux-code-mode-$(id -u)"
+  # No home of its own to cache in: a fresh mktemp folder per run, never a guessable shared name.
+  cache="$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode.XXXXXX")"
 fi
 key=$(cksum < "$archive" | awk '{print $1 "-" $2}')
 dir="$cache/$key"

@@ -189,7 +189,6 @@ pub fn peer_row(peer: &str, index: usize, keys: usize) -> Value {
         ("lastPrompt", json!("p".repeat(300))),
         ("preview", json!("y".repeat(400))),
         ("agentSessionId", json!(agent_session_id(index))),
-        ("planStep", json!({"step": 3, "of": 7, "text": "x".repeat(200)})),
         (
             "tags",
             json!({"cmux.lane": {"value": format!("w{index}")}, "cmux.chief.role": {"value": "lane"}}),

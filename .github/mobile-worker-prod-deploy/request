@@ -1,0 +1,1 @@
+2026-11-25: device hub closes a Mac socket silent past 90 s, so phones see a cut-off Mac as offline (#55281; cmux#52200)

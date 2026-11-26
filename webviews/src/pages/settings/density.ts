@@ -42,7 +42,6 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabTitleSize: 14,
   sidebarTitleSize: 14,
   chatEditorMin: 35,
-  sidebarRowInset: 6,
   sidebarContentInset: 7,
   sidebarLineBoxBaseline: 1,
   sidebarIconColumn: 16.5,

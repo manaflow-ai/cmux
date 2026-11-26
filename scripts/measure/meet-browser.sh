@@ -59,8 +59,25 @@ trap 'exit 143' TERM
 mkdir -p "$work/app"
 if [[ "$build_job" == here ]]; then
   tag="meet-$(git rev-parse --short=10 HEAD)"
+  # A worker's warm checkout has no submodules and no GhosttyKit: get them first, as split-spring.sh does
+  # (without them cargo's ghostty-vt-sys build script fails: cmux18 step c447fb01).
+  for sub in ghostty ghostty-next; do
+    if [ ! -e "$sub/.git" ]; then
+      echo "MEET fetching submodule $sub"
+      git submodule update --init --depth 1 "$sub" || exit 1
+    fi
+  done
+  if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+    rm -rf GhosttyKit.xcframework
+    if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    echo "MEET getting GhosttyKit"
+    ./scripts/download-prebuilt-ghosttykit.sh || exit 1
+  fi
   echo "MEET building the app at $(git rev-parse HEAD) (reload.sh --tag $tag)"
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" > "$out/reload.log" 2>&1
+  # Streamed into the step's output (and kept), so a failure shows its cause, not only cargo's last line.
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log"
   built="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$built" || ! -d "$built" ]]; then
     echo "MEET the tagged build printed no app path" >&2

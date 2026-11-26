@@ -7,6 +7,7 @@ THIRD_PARTY_LICENSES.md
 agent-chat/adapters/claude-environment-policy.generated.ts
 backend/apps/api/src/domains/public-suffix-data.ts
 clients/ts/cloud/src/automation-cmux.ts
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
 cmux-tui/build-support/notices/REVIEW.md
 cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md
 cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml

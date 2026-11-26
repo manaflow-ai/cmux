@@ -248,8 +248,12 @@ impl Hub {
                 self.restore_git_branch(session, branch);
             }
             self.restore_agent_pairs(&session.id, pair_records, &recorded);
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-                transfer_out::restored_moving(scanned.is_ok(), moving);
+            let restored = transfer_out::restored_moving(scanned.is_ok(), moving);
+            let mut mark = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+            // Auto's hold (`auto_hold.rs`) on a chat being restored is not the log's to end: only
+            // the holder loop frees it, when the store says the chat is this machine's.
+            let held = mark.as_deref() == Some(crate::hub::AUTO_AWAY);
+            *mark = if held && restored.is_none() { mark.take() } else { restored };
         }
         // Accepted direct prompts whose turn never started go back first (`unstarted_prompt.rs`).
         if scanned.is_ok() && only.is_none() {

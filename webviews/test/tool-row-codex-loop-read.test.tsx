@@ -7,6 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { visibleLabelText } from "./support/factsCard";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -57,7 +58,7 @@ test("a Codex read of a loop's $f draws the loop's files, never $f", async () =>
       </>,
     ),
   );
-  const drawn = [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent ?? "");
+  const drawn = [...host.querySelectorAll(".cv-tool__text")].map(visibleLabelText);
   expect(drawn).toEqual(["Read 2 files (a.md, b.md)", "Read a.md"]);
   expect(host.textContent).not.toContain("$f");
 });

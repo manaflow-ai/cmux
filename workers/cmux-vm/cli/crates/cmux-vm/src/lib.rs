@@ -613,6 +613,76 @@ fn not_found(command: &Command) -> Option<(String, &'static str)> {
     }
 }
 
+/// The VM a verb acts on, which may be given by its name. `resize` and
+/// `retire` take only a public `vm_…` id and refuse anything else before any
+/// request, so they stay out.
+fn vm_target(command: &mut Command) -> Option<&mut String> {
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => Some(&mut a.vm_id),
+        Command::Delete(a) => Some(&mut a.vm_id),
+        Command::Exec(a) => Some(&mut a.vm_id),
+        Command::Fork(a) => Some(&mut a.vm_id),
+        Command::Identity(a) => Some(&mut a.vm_id),
+        _ => None,
+    }
+}
+
+/// Pages of the team's VMs read to find one by name, at most.
+const NAME_LOOKUP_PAGES: usize = 20;
+
+/// The id of the one VM whose display name is `name`, for a verb given a name
+/// instead of a `vm_…` id (the app's `cmux vm` resolves names itself; without
+/// the app this binary did not, so `cmux vm pause my-lane` was a 404).
+async fn vm_id_named(client: &Client, name: &str) -> Result<String, CliError> {
+    let mut named = Vec::new();
+    let mut cursor: Option<types::VmsListVmsCursor> = None;
+    for _ in 0..NAME_LOOKUP_PAGES {
+        let body =
+            fetch_body(client.vms_list_vms(None, cursor.as_ref(), None, Some("100"), None, None))
+                .await?;
+        let page: types::VmList = serde_json::from_slice(&body)
+            .map_err(|e| CliError::unexpected(format!("could not read the VM list: {e}")))?;
+        named.extend(
+            page.items
+                .iter()
+                .map(|vm| (vm.id.as_str().to_owned(), vm.display_name.clone())),
+        );
+        match page.next_cursor {
+            Some(next) => {
+                cursor = Some(next.parse().map_err(|e| {
+                    CliError::unexpected(format!("the VM list's next cursor is invalid: {e}"))
+                })?);
+            }
+            None => return pick_named(name, &named),
+        }
+    }
+    pick_named(name, &named)
+}
+
+/// The one id named `name` among `(id, display name)` pairs.
+fn pick_named(name: &str, vms: &[(String, Option<String>)]) -> Result<String, CliError> {
+    let ids: Vec<&str> = vms
+        .iter()
+        .filter(|(_, display)| display.as_deref() == Some(name))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    match ids.as_slice() {
+        [id] => Ok((*id).to_owned()),
+        [] => Err(CliError::usage(format!(
+            "no VM named {name:?}: give its vm_… id, or see `cmux vm list`"
+        ))),
+        many => Err(CliError::usage(format!(
+            "{} VMs are named {name:?} ({}): give the vm_… id",
+            many.len(),
+            many.join(", ")
+        ))),
+    }
+}
+
 /// Whether `--json` appears before any `--`, so a parse failure can still be
 /// reported as JSON.
 fn json_requested(args: &[OsString]) -> bool {
@@ -711,6 +781,11 @@ async fn execute(
     let mut command = cli.command;
     if let Command::Exec(args) = &mut command {
         args.env_values = exec_env(&args.env_names, env)?;
+    }
+    if let Some(target) = vm_target(&mut command) {
+        if !target.starts_with("vm_") {
+            *target = vm_id_named(&client, target).await?;
+        }
     }
     match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,

@@ -281,20 +281,10 @@ test("overlapping drops with twin screenshots and folders keep each drop's nativ
     read.resolve(firstBytes);
   });
   const attachments = () => composer.current!.wakeState().attachments ?? [];
-  await until(() => attachments().length >= 4, "both screenshots and folders");
-  expect(
-    attachments()
-      .filter((chip) => chip.kind === "image")
-      .map((chip) => chip.originalPath ?? "")
-      .sort((a, b) => a.localeCompare(b)),
-  ).toEqual(directories.map((directory) => `${directory}/image.png`));
-  expect(
-    attachments()
-      .filter((chip) => chip.kind === "link")
-      .map((chip) => chip.path ?? "")
-      .sort((a, b) => a.localeCompare(b)),
-  ).toEqual(directories.map((directory) => `${directory}/assets`));
-  expect(attachments()).toHaveLength(4);
+  await until(() => attachments().length === 6, "both sets of files and folders");
+  expect(attachments().map((chip) => chip.path)).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
 });
 
 /// A host that keeps each gesture's record of where its files are, dated by the wall clock, and
@@ -372,13 +362,10 @@ test("two fast pastes with twin screenshots each keep their own native paths", a
     setSystemTime();
   }
   const attachments = () => composer.current!.wakeState().attachments ?? [];
-  await until(() => nativePaths(attachments()).images.filter(Boolean).length === 2, "both screenshots' paths");
-  await until(() => nativePaths(attachments()).links.length === 2, "both folders");
-  expect(nativePaths(attachments())).toEqual({
-    images: directories.map((directory) => `${directory}/image.png`),
-    links: directories.map((directory) => `${directory}/assets`),
-  });
-  expect(attachments()).toHaveLength(4);
+  await until(() => attachments().length === 6, "both sets of paths");
+  expect(nativePaths(attachments()).links).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
 });
 
 // cmux#48809 follow-up: a host answer with fewer paths than files used to drop every path, and the
@@ -615,6 +602,25 @@ test("attachment intake wires local link deduplication through its hook state", 
   });
   await act(async () => {});
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
+});
+
+test("a picker keeps both selected images when their bytes match and the host has no paths", async () => {
+  const uploads: string[][] = [];
+  await openComposer([], {
+    localPaths: async () => undefined,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return { paths: files.map((file) => `/saved/${file.name}`) };
+    },
+  });
+  const names = ["first.png", "second.png"];
+  const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+  Object.defineProperty(input, "files", { value: names.map((name) => new File([PNG], name, { type: "image/png" })) });
+  await act(async () => {
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await until(() => uploads.length > 0, "the picked files' upload");
+  expect(uploads).toEqual([names]);
 });
 
 test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
