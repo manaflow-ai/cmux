@@ -245,6 +245,27 @@ class CollectionTests(unittest.TestCase):
                     NOTES.collect_prs(github, BASE, HEAD, "main")
 
 
+class RequestTests(unittest.TestCase):
+    def test_query_is_small_and_bounded(self):
+        github = Mock(repo=REPO)
+        github.rest.return_value = {"status": "ahead", "total_commits": 1, "commits": [{"sha": "c" * 40}]}
+        github.graphql.return_value = {"c0": {"associatedPullRequests": {"pageInfo": {"hasNextPage": False}, "nodes": []}}}
+        NOTES.collect_prs(github, BASE, HEAD, "main")
+        query = github.graphql.call_args.args[0]
+        for bad in ("first: 100", "first: 10)"):
+            self.assertNotIn(bad, query)
+        self.assertLessEqual(NOTES.COMMIT_BATCH, 5)
+
+    def test_timeout_is_retried_then_succeeds(self):
+        import subprocess
+        from unittest import mock
+        ok = subprocess.CompletedProcess([], 0, '{"data": {"repository": {}}}', "")
+        with mock.patch.object(NOTES.subprocess, "run", side_effect=[subprocess.TimeoutExpired("gh", 60), ok]) as run, \
+                mock.patch.object(NOTES.time, "sleep"):
+            self.assertEqual(NOTES.GitHub.request(["graphql"])["data"], {"repository": {}})
+        self.assertEqual(run.call_count, 2)
+
+
 class AppcastTests(unittest.TestCase):
     def write_feeds(self, directory, build="102"):
         for name in APPCASTS:
