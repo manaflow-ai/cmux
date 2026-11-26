@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWindowRules
 
