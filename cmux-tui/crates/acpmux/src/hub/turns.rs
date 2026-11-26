@@ -2487,6 +2487,8 @@ impl Hub {
                         o.extend(super::surgery::turn_fields(&session.id));
                         // What the task cost, model and compute, and the chat's total so far.
                         super::turn_cost::add_turn_cost(session, o, started_at, ended);
+                        // Its spend checks during the turn, and their warnings (`spend_burn.rs`).
+                        o.extend(super::spend_burn::turn_fields(&session.id, turn_id));
                         // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
                         if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
                         {
@@ -3425,6 +3427,7 @@ impl Hub {
             self.caller_registry.forget(&session.id);
             // Its chat secrets go with it (`chat_secrets.rs`).
             crate::chat_secrets::clear(&session.id);
+            super::spend_burn::forget(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
