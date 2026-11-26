@@ -18,6 +18,8 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-rd-core`'s Mac Screen device hub rules (`rd_hub_*`: the host's ticket admission, a
+//! viewer tab's progress with the hub, end reasons, refusals, access and default sharing),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -98,8 +100,9 @@ pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
-mod pane_focus;
 pub mod keychain;
+mod pane_focus;
+mod rd_hub;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -641,6 +644,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if rd_hub::handles(operation) => rd_hub::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
