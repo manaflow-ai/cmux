@@ -79,7 +79,7 @@ nonisolated struct LiveWallpaperSceneImage: Sendable {
     }
 }
 
-extension LiveWallpaperSceneImage {
+nonisolated extension LiveWallpaperSceneImage {
     /// The pixel format of scene images: BGRA, premultiplied, sRGB-encoded, so the engine samples
     /// linear light like every other color it gets.
     static let pixelFormat = MTLPixelFormat.bgra8Unorm_srgb
