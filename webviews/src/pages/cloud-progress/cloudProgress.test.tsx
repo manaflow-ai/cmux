@@ -27,7 +27,8 @@ const replacements = {
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
 const { createRoot } = await import("react-dom/client");
-const { CloudProgressPage, CLOUD_PROGRESS_SLOW_MS, cloudProgressSlow } = await import("./CloudProgressPage");
+const { CloudProgressPage, CloudProgressView, CLOUD_PROGRESS_SLOW_MS, cloudProgressSlow } =
+  await import("./CloudProgressPage");
 const strings = createStrings(table, ["en"]);
 const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
@@ -218,4 +219,34 @@ test("a question takes the buttons' place, and its answer carries its id", async
   expect(actions.hasAttribute("data-shown")).toBe(false);
   await act(async () => root.unmount());
   store.stop();
+});
+
+test("the card arm uses the Instrument card surface", async () => {
+  const previous = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...previous, "cloud-progress-look": "card" };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(
+        <CloudProgressView
+          snapshot={{ state: sampleState("creating"), receivedAt: Date.now() }}
+          strings={strings}
+          onAction={() => {}}
+          onAnswer={() => {}}
+        />,
+      );
+      await settle();
+    });
+    const card = host.querySelector(".cloud-progress__card");
+    expect(card).not.toBeNull();
+    expect(card?.getAttribute("data-surface-role")).toBe("card");
+    expect(card?.getAttribute("data-surface-material")).toBe("content");
+    expect(card?.classList.contains("ui-surface")).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    if (previous === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = previous;
+  }
 });
