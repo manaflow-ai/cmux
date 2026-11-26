@@ -54,15 +54,23 @@ for key in CFBundleShortVersionString CFBundleVersion CFBundleIdentifier; do
 done
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */NCR plist /'
 status=0
+# Each bundled CLI runs with no stdin, the temp folder as HOME, and a bound: a CLI that waits on anything is a
+# failed read-back line (exit 142, SIGALRM), not a measurement the controller stops 45 min later.
+bound=30
+bounded() { HOME="$work" perl -e 'alarm shift; exec @ARGV or exit 127' "$bound" "$@" </dev/null; }
 for name in cmux acpmux optchat-chief; do
-  bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" 2>/dev/null | head -1)"
+  # Contents/MacOS/cmux is the app itself, not its CLI: running it there opens the app and never returns
+  # (step 454185da sat silent for 45 min on it), so the bundled CLIs are looked up everywhere else.
+  bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" -not -path "$app/Contents/MacOS/*" 2>/dev/null | head -1)"
   if [[ -z "$bin" ]]; then echo "NCR $name: not in the bundle"; continue; fi
   echo "NCR $name path ${bin#"$app/"}"
-  echo "NCR $name --version: $(HOME="$work" "$bin" --version 2>&1 | head -3 | tr '\n' ' ')"
+  out="$(bounded "$bin" --version 2>&1)"; rc=$?
+  echo "NCR $name --version: $(printf '%s\n' "$out" | head -3 | tr '\n' ' ')"
+  if [[ $rc -eq 142 ]]; then echo "NCR $name --version timed out after ${bound}s"; status=1; fi
   if [[ "$name" == cmux ]]; then
     for verb in ${helps[@]+"${helps[@]}"}; do
       IFS=+ read -r -a words <<<"$verb"
-      out="$(HOME="$work" "$bin" "${words[@]}" --help 2>&1)"; rc=$?
+      out="$(bounded "$bin" "${words[@]}" --help 2>&1)"; rc=$?
       echo "NCR cmux ${words[*]} --help exit=$rc: $(printf '%s\n' "$out" | grep -m1 -v '^[[:space:]]*$')"
       [[ $rc -eq 0 ]] || status=1
     done
