@@ -9,7 +9,7 @@ artifact `guard-verdicts-<sha>` (run_ci_guards.py --results and its `.failures.j
 re-runs the head's red steps on the base to tell the change's reds from the base's. That re-run took up to 8 of the
 job's 17 minutes and often ran out of budget, which leaves those steps `unknown` and the job red (11-25: 87 of 89
 pull request runs red). This reads the newest completed push run at the base, or at the nearest ancestor of the
-base within MAX_BEHIND commits, and reuses its verdict for each step:
+base within MAX_BEHIND commits (at most MAX_COMPARES compare calls), and reuses its verdict for each step:
 
   - at the base itself: every step the push run has a result for;
   - at an ancestor: only the steps the ancestor..base diff cannot reach (guard_step_inputs.py, the selection
@@ -31,10 +31,12 @@ import argparse
 import io
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 API = "https://api.github.com"
@@ -43,6 +45,7 @@ BRANCH = "feat-cmux-next"
 ARTIFACT_PREFIX = "guard-verdicts-"
 MAX_BEHIND = 60
 RUNS_PAGE = 30
+MAX_COMPARES = 4
 CHECK_SEPARATOR = " :: "
 TIMEOUT_S = 20
 
@@ -77,37 +80,64 @@ def step_of(key: str) -> str:
     return key.split(CHECK_SEPARATOR, 1)[0]
 
 
-def find_source(repo: str, base: str, token: str, get=api_json) -> tuple[dict, list[str] | None] | None:
-    """(push run, ancestor..base changed paths or None at the base itself), the nearest completed one."""
+def find_source(repo: str, base: str, token: str, get=api_json,
+                base_time: float | None = None) -> tuple[dict, list[str] | None] | None:
+    """(push run, ancestor..base changed paths or None at the base itself), the nearest completed one.
+
+    The runs come newest first and feat-cmux-next is linear, so the first run whose commit is an ancestor of the base
+    is the nearest one, and every older run is further back: the walk stops there. A run whose commit is newer than
+    BASE_TIME (the base's commit time, when known) cannot be its ancestor and costs no compare call. At most
+    MAX_COMPARES compares are made. Every call spends the repository's shared GITHUB_TOKEN pool (1,000 an hour,
+    github_token_budget_lint.py): comparing all 30 runs spent about 30 calls on each pull request run, about 45 runs an
+    hour (2026-11-26 13-15Z), and the read failed with HTTP 403 in 6 of 8 sampled runs, so the base re-ran every red step.
+    """
     runs = get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}&event=push&status=completed"
                f"&per_page={RUNS_PAGE}", token).get("workflow_runs") or []
     for run in runs:
         if run.get("head_sha") == base:
             return run, None
-    best: tuple[int, dict, list[str] | None] | None = None
     seen: set[str] = set()
+    compares = 0
     for run in runs:
         sha = run.get("head_sha") or ""
         if not sha or sha in seen:
             continue
         seen.add(sha)
+        if base_time is not None and (_commit_time(run) or 0) > base_time:
+            continue
+        if compares >= MAX_COMPARES:
+            return None
+        compares += 1
         compare = get(f"repos/{repo}/compare/{sha}...{base}", token)
         # "ahead": base is ahead of the run's commit, which is then an ancestor of the base.
         if compare.get("status") != "ahead" or int(compare.get("behind_by") or 0) != 0:
             continue
-        ahead = int(compare.get("ahead_by") or 0)
-        if ahead > MAX_BEHIND or (best is not None and ahead >= best[0]):
-            continue
+        if int(compare.get("ahead_by") or 0) > MAX_BEHIND:
+            return None
         files = compare.get("files")
         # The compare lists at most 300 files: a full listing, or nothing is reused from this ancestor.
         paths = [f["filename"] for f in files] if isinstance(files, list) and len(files) < 300 else None
-        best = (ahead, run, paths)
-        if ahead <= 1:
-            break
-    if best is None:
+        return run, (paths if paths is not None else ["<unlisted>"] * 10_000)
+    return None
+
+
+def _commit_time(run: dict) -> float | None:
+    """The run's head commit time (epoch seconds) from the runs listing, or None when it has none."""
+    stamp = (run.get("head_commit") or {}).get("timestamp") or ""
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
         return None
-    _ahead, run, paths = best
-    return run, (paths if paths is not None else ["<unlisted>"] * 10_000)
+
+
+def base_commit_time(root: Path, base: str) -> float | None:
+    """BASE's committer time from the base checkout ROOT, or None when git cannot read it."""
+    try:
+        done = subprocess.run(["git", "-C", str(root), "show", "-s", "--format=%ct", base],
+                              capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
+        return float(done.stdout.strip()) if done.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
 
 
 def download_results(repo: str, run: dict, token: str, get=api_json, fetch=_request) -> tuple[dict, dict] | None:
@@ -219,7 +249,7 @@ def main(argv: list[str]) -> int:
     if not token:
         return everything("no token")
     try:
-        found = find_source(args.repo, args.base, token)
+        found = find_source(args.repo, args.base, token, base_time=base_commit_time(Path(args.root), args.base))
         if found is None:
             return everything(f"no completed {BRANCH} push run at {args.base[:12]} or within {MAX_BEHIND} commits before it")
         run, changed = found
