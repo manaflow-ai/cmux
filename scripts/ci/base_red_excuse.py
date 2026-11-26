@@ -3621,11 +3621,53 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     return receipt
 
 
+# A merge-base receipt that reads "superseded" (2026-11-25): cmux#50979's head changed only Swift, its fleet receipt
+# failed on a cmux-tui crate the PR does not touch, and the merge-base fc7c32be read "superseded". That is the
+# controller's word for a push tip it will not check because a newer push tip is checked instead, whose check covers
+# this commit (fleet_compile_result.judge): no verdict about the merge-base at all, yet it was read as "the red is this
+# head's". The receipt that covers it decides, followed through its `superseded_by` tip; with no tip to follow the
+# receipts gave no base verdict, so GitHub is asked the same question (github_compile_red).
+COMPILE_RECEIPT_SUPERSEDED = "superseded"
+COMPILE_RECEIPT_SUPERSEDED_HOPS = 4
+
+
+class BaseReceiptNoVerdict(Refused):
+    """The merge-base's receipt says nothing about the merge-base itself and points at nothing to follow: no receipt
+    answer about the base, so the same question may be asked of GitHub (github_compile_red)."""
+
+
+def covering_compile_receipt(repo: str, merge_base: str, at_base: dict) -> tuple[dict | None, str]:
+    """(the receipt that covers MERGE_BASE, the sha it was read at), following AT_BASE's `superseded_by` tips while
+    each reads "superseded", at most COMPILE_RECEIPT_SUPERSEDED_HOPS of them. BaseReceiptNoVerdict when a receipt
+    names no covering tip, names one already followed, or the chain runs past that bound: the receipts gave no
+    verdict about MERGE_BASE."""
+    seen = [merge_base]
+    receipt, at = at_base, merge_base
+    for _ in range(COMPILE_RECEIPT_SUPERSEDED_HOPS):
+        tip = str((receipt or {}).get("superseded_by") or "")
+        if not re.fullmatch(r"[0-9a-f]{40}", tip):
+            raise BaseReceiptNoVerdict(f"the compile receipt of {at[:12]} reads superseded and names no covering tip "
+                                       f"to follow ({tip or 'no superseded_by'}): the receipts gave no verdict about "
+                                       f"the merge-base {merge_base[:12]}")
+        if tip in seen:
+            raise BaseReceiptNoVerdict(f"the compile receipts of {merge_base[:12]} are superseded in a cycle "
+                                       f"({' -> '.join(short[:12] for short in seen)} -> {tip[:12]}): no verdict "
+                                       "about the merge-base")
+        seen.append(tip)
+        receipt, at = compile_receipt(repo, tip), tip
+        if (receipt or {}).get("state") != COMPILE_RECEIPT_SUPERSEDED:
+            return receipt, at
+    raise BaseReceiptNoVerdict(f"the compile receipt of {merge_base[:12]} is superseded through "
+                               f"{COMPILE_RECEIPT_SUPERSEDED_HOPS} tips without a verdict "
+                               f"({' -> '.join(short[:12] for short in seen)}): no verdict about the merge-base")
+
+
 def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
                           evidence: "Evidence | None" = None) -> str:
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
-    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red, over EVIDENCE's
-    commits)."""
+    "fail", else Refused. A merge-base receipt that reads "superseded" is no verdict about the merge-base: the receipt
+    that covers it decides (covering_compile_receipt). When the receipts host is unreachable, or they gave no verdict
+    about the base at all, GitHub decides (github_compile_red, over EVIDENCE's commits)."""
     try:
         head = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
@@ -3641,9 +3683,17 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
         at_base = compile_receipt(repo, merge_base)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down, evidence)
+    covers = ""
+    if (at_base or {}).get("state") == COMPILE_RECEIPT_SUPERSEDED:
+        try:
+            at_base, at = covering_compile_receipt(repo, merge_base, at_base or {})
+        except (ReceiptUnreachable, BaseReceiptNoVerdict) as unanswered:
+            return github_compile_red(repo, base, sha, name, github, unanswered, evidence)
+        covers = f" (superseded: read at {at[:12]}, the push tip whose check covers it)"
     if (at_base or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
-                      f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
+                      f"on {base}{covers} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this "
+                      "head's")
     tip = evidence.tip(sha)
     now = ""
     if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
@@ -3654,7 +3704,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
             now = ""
     log_decider(f"'{name}' at {sha[:12]} was decided by the fleet's compile receipts")
     return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
-            f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+            f"{merge_base[:12]}'s on {base}{covers} (an inherited base red{now}; merge the base for a new verdict)")
 
 
 def log_decider(message: str) -> None:
@@ -3724,13 +3774,15 @@ def compile_pass_status_at(repo: str, sha: str, github) -> tuple[dict | None, di
 
 def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused,
                        evidence: "Evidence | None" = None) -> str:
-    """inherited_compile_red's question asked of GitHub while the receipts host is unreachable (DOWN): the audit line
+    """inherited_compile_red's question asked of GitHub when the receipts could not answer it (DOWN: the host
+    unreachable, or no verdict about the base): the audit line
     excusing NAME's compile red at SHA when GitHub's cmux-next/compile at SHA reads a real compile fail and the same
     status at the merge-base (else the newest of the BASE_STATUS_COMMITS newest BASE commits with one completed) reads
     the same fail, else Refused naming why. Reads: one status, one compare, at most BASE_STATUS_COMMITS + 2 more; no
     wait and no retry, so a GitHub that cannot answer refuses too. The base commits are EVIDENCE's
     (Evidence.status_commits: a stacked parent's head alone)."""
-    why = f"the receipts host is unreachable ({down})"
+    why = (f"the receipts gave no verdict about the base ({down})" if isinstance(down, BaseReceiptNoVerdict)
+           else f"the receipts host is unreachable ({down})")
     log_decider(f"'{name}' at {sha[:12]}: {why}; GitHub decides")
     head = compile_status_at(repo, sha, github) or {}
     said = head.get("description") or ""
