@@ -17,7 +17,7 @@ test("at-once (the default) draws the spinner on the first frame", () => {
 test("delayed keeps the control's own icon on the first frame", () => {
   globalThis.cmuxExperiments = { "wait-spinner-delay": "delayed" };
   expect(firstFrame(true)).toContain("data-icon");
-  expect(firstFrame(true)).not.toContain("cv-spinner\"");
+  expect(firstFrame(true)).not.toContain('cv-spinner"');
 });
 
 test("delayed with no icon holds an empty box the spinner's size, so nothing moves", () => {
