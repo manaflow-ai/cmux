@@ -639,6 +639,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 window_rules::respond(operation, request)?
             }
             operation if rd_hub::handles(operation) => rd_hub::respond(operation, request)?,
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };

@@ -17,6 +17,15 @@ name: cmux-tui tree request
 # failed). A commit that is not on feat-cmux-next is refused: that run has the
 # R2 publish credentials. A commit that never had a run (it was never a pushed
 # head) is reported for trusted fleet publication.
+#
+# With pr=N instead it asks for an open same-repository pull request's head: one
+# dispatch of cmux-tui-artifacts.yml on the PR's branch, which publishes the
+# head's tree, commit manifest and cmux-tui/<sha>/mac-live.json, so
+# `cmux app try N` goes live for a daemon-only PR (cmuxterm-hq
+# docs/design/nightly-live-updates.md, "PR heads"). Lane branches never build on
+# push and a lane cannot dispatch one, so this is their on-request build:
+#   gh workflow run cmux-tui-tree-request.yml --repo manaflow-ai/cmux \
+#     --ref feat-cmux-next -f pr=<number>
 
 on:
   # GitHub dispatches only a workflow it knows, and it learns a file that is
@@ -30,13 +39,19 @@ on:
     inputs:
       commit:
         description: "Full 40-hex feat-cmux-next commit whose cmux-tui tree to publish"
-        required: true
+        required: false
+        default: ""
+        type: string
+      pr:
+        description: "Or an open same-repository pull request whose head's tree and mac-live.json to build"
+        required: false
+        default: ""
         type: string
 
 # Requests for one commit run one at a time, so the second sees the first's
 # re-run (an active run) and starts nothing.
 concurrency:
-  group: cmux-tui-tree-request-${{ inputs.commit }}
+  group: cmux-tui-tree-request-${{ inputs.commit || format('pr-{0}', inputs.pr) }}
   cancel-in-progress: false
 
 permissions: {}
@@ -48,7 +63,7 @@ env:
 jobs:
   request:
     name: request the cmux-tui tree publish
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && inputs.pr == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -236,3 +251,40 @@ jobs:
           esac
           echo "Re-ran cmux-tui artifacts run $run_id ($how, after attempt $run_attempt: $run_conclusion) for $COMMIT."
           report publishing "$run_url"
+
+  # pr=N: build the PR head on its own branch (see the header). It checks out nothing: one PR read, one live-file
+  # read, at most one dispatch. The dispatched run is the branch's own push-equivalent run: pin refs are refused there.
+  request-pr:
+    name: request the pull request head's tree and Mac live update
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && inputs.pr != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Dispatch cmux-tui artifacts on the pull request's branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "::error::pr must be a pull request number, not '$PR'"; exit 1; }
+          info="$(gh api "repos/$REPO/pulls/$PR" --jq '[.state, .head.ref, .head.sha, (.head.repo.full_name // "")] | @tsv')"
+          IFS=$'\t' read -r state branch sha head_repo <<< "$info"
+          if [[ "$state" != open || "$head_repo" != "$REPO" || ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::#$PR is not an open pull request from a branch of $REPO ($state, ${head_repo:-no repo}); nothing is built"
+            exit 1
+          fi
+          if [[ "$branch" == cmux-tui-pin-* || "$branch" == main || "$branch" == feat-cmux-next ]]; then
+            echo "::error::#$PR's branch $branch is not a pull request branch this builds; nothing is built"
+            exit 1
+          fi
+          if curl --fail --silent --max-time 15 -o /dev/null "https://files.cmux.com/cmux-tui/$sha/mac-live.json?tree-request=$GITHUB_RUN_ID"; then
+            echo "#$PR head ${sha:0:12} already has cmux-tui/$sha/mac-live.json: \`cmux app try $PR\` reads it; nothing is built" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The tree only: the PR's own run tests the daemon (daemon_tests=false, as the hot verify look asks).
+          gh workflow run cmux-tui-artifacts.yml --repo "$REPO" --ref "$branch" -f daemon_tests=false
+          echo "requested the cmux-tui tree and Mac live update of #$PR head ${sha:0:12} on $branch: files.cmux.com/cmux-tui/$sha/mac-live.json once it publishes, then \`cmux app try $PR\`" >> "$GITHUB_STEP_SUMMARY"
