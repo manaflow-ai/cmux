@@ -405,19 +405,58 @@ impl Hub {
     /// The answer of a release: the summary and the harness's resume command.
     async fn released(&self, session: &Session, family: &str, id: &str) -> Value {
         let meta = session.meta();
-        let (_, profile_env) = self.harness_env(&meta).await;
         let var = if family == "codex" { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" };
+        // A Codex chat: the profile as its own launch spawns it (defaults, preset, chat store,
+        // session env, route, `${home}` and `~/` expanded), so the terminal runs the codex, the
+        // config and the store the chat ran (`codex_app_server::launch_codex`).
+        let codex = if family == "codex" { self.codex_resume_profile(&meta).await } else { None };
         let mut env = serde_json::Map::new();
-        if let Some(store) = meta.chat_store.as_ref() {
+        if let Some(home) = codex.as_ref().and_then(|p| p.env.get(var)) {
+            env.insert(var.into(), json!(home));
+        } else if let Some(store) = meta.chat_store.as_ref() {
             env.insert(var.into(), json!(store));
-        } else if let Some(home) = profile_env.get(var) {
+        } else if let Some(home) = self.harness_env(&meta).await.1.get(var) {
             env.insert(var.into(), json!(home));
         }
-        let argv = resume_argv(family, id);
+        let argv = resume_argv_for(family, id, codex.as_ref(), crate::managed_codex::codex_binary);
         json!({
             "session": self.session_summary(session),
             "resume": {"argv": argv, "cwd": meta.cwd, "env": env},
         })
+    }
+
+    /// The profile a Codex chat's resume command is read from: the spawned profile's program and
+    /// env (`spawn_profile_for`), with the configured profile's global options (the launch's
+    /// own; a Cloud machine's auth adds a provider global whose env changes the terminal never
+    /// gets) and `CODEX_PATH`'s `${env:X}` references resolved as the launch resolves them
+    /// (`agent::command`), from the environment only: a resume reads no Keychain item.
+    async fn codex_resume_profile(&self, meta: &SessionMeta) -> Option<HarnessProfile> {
+        let (configured, defaults) = {
+            let cfg = self.config.read().await;
+            let profile =
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()?;
+            (profile, cfg.defaults_for(&meta.harness))
+        };
+        let mut spawned = self.spawn_profile_for(meta, &configured, &defaults.env).await.ok()?;
+        if let (Some(program), Some((_, globals))) =
+            (spawned.argv.first().cloned(), configured.argv.split_first())
+        {
+            spawned.argv = std::iter::once(program).chain(globals.iter().cloned()).collect();
+        }
+        if let Some(path) = spawned.env.get("CODEX_PATH").filter(|p| p.contains("${")) {
+            let mut only =
+                std::collections::BTreeMap::from([("CODEX_PATH".to_owned(), path.clone())]);
+            let resolved = crate::config::profiles::resolve_env_refs(
+                &mut only,
+                &|var| std::env::var(var).ok().or_else(|| crate::login_env::var(var)),
+                &|_, _| Err("a resume reads no Keychain item".to_owned()),
+            );
+            if resolved.is_ok() {
+                spawned.env.extend(only);
+            }
+        }
+        Some(spawned)
     }
 
     /// The transcript of `family` conversation `id` and the store it is in, as Take Over and
@@ -491,6 +530,28 @@ pub(crate) fn resume_argv(family: &str, id: &str) -> Vec<String> {
     }
 }
 
+/// [`resume_argv`] for a chat whose profile spawns as `spawned`: a Codex chat resumes with the
+/// codex its launch runs and the globals that pick its config
+/// (`codex_app_server::launch_codex`), never a bare `codex` the terminal's own PATH picks,
+/// which can be another build, another wrapper or none at all (the managed codex is on no
+/// PATH). `fallback` is the codex an ACP adapter profile runs without `CODEX_PATH`.
+pub(crate) fn resume_argv_for(
+    family: &str,
+    id: &str,
+    spawned: Option<&crate::config::HarnessProfile>,
+    fallback: impl FnOnce() -> Option<String>,
+) -> Vec<String> {
+    if family != "codex" {
+        return resume_argv(family, id);
+    }
+    let Some((program, globals)) =
+        spawned.and_then(|p| crate::codex_app_server::launch_codex(&p.argv, &p.env, fallback))
+    else {
+        return resume_argv(family, id);
+    };
+    std::iter::once(program).chain(globals).chain(["resume".to_owned(), id.to_owned()]).collect()
+}
+
 /// `file`'s length, and for a Codex rollout whether it is a current one whose message items are
 /// its turns (`adopt_replay.rs` `record_steps`), read from its newest part. A file that is gone
 /// reads as empty.
@@ -528,6 +589,58 @@ mod tests {
     fn resume_runs_the_harness_own_command() {
         assert_eq!(resume_argv("claude", "abc"), ["claude", "--resume", "abc"]);
         assert_eq!(resume_argv("codex", "abc"), ["codex", "resume", "abc"]);
+    }
+
+    fn profile(argv: &[&str], env: &[(&str, &str)]) -> crate::config::HarnessProfile {
+        crate::config::HarnessProfile {
+            kind: crate::config::HarnessKind::Acp,
+            argv: argv.iter().map(|s| (*s).to_owned()).collect(),
+            env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    }
+
+    /// Toggle Terminal and Chat ran a bare `codex resume ID`, which the terminal's PATH
+    /// resolved: another codex build, a wrapper, or nothing for the managed codex, while the
+    /// chat ran the binary its profile resolved. The terminal now runs the chat's own codex.
+    #[test]
+    fn a_codex_chat_resumes_with_the_codex_its_launch_runs() {
+        let none = || None;
+        // The discovered bridge: its own absolute argv0, with the globals that pick its config.
+        let bridge = profile(&["/home/u/.local/bin/codex", "-c", "a=b", "app-server"], &[]);
+        assert_eq!(
+            resume_argv_for("codex", "t1", Some(&bridge), none),
+            ["/home/u/.local/bin/codex", "-c", "a=b", "resume", "t1"]
+        );
+        // CODEX_PATH of the profile or its family wins, as the launch picks it.
+        let pinned = profile(&["codex", "app-server"], &[("CODEX_PATH", "/opt/codex-new")]);
+        assert_eq!(
+            resume_argv_for("codex", "t1", Some(&pinned), none),
+            ["/opt/codex-new", "resume", "t1"]
+        );
+        // An ACP adapter's argv0 is the adapter: its codex is CODEX_PATH, else the fallback.
+        let adapter = profile(&["/home/u/bin/codex-acp"], &[]);
+        assert_eq!(
+            resume_argv_for("codex", "t1", Some(&adapter), || Some("/m/codex".into())),
+            ["/m/codex", "resume", "t1"]
+        );
+        // An unresolved reference is no program; nothing known keeps the plain command.
+        let unresolved = profile(&["/home/u/bin/codex-acp"], &[("CODEX_PATH", "${env:X}")]);
+        assert_eq!(
+            resume_argv_for("codex", "t1", Some(&unresolved), none),
+            ["codex", "resume", "t1"]
+        );
+        assert_eq!(resume_argv_for("codex", "t1", None, none), ["codex", "resume", "t1"]);
+        assert_eq!(
+            resume_argv_for("claude", "t1", Some(&bridge), none),
+            ["claude", "--resume", "t1"]
+        );
     }
 
     #[test]
