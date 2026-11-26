@@ -563,7 +563,10 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
     ~/.config/cmux/cmux-next.json that the person's other apps read."""
     argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
-            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}",
+            # A NIGHTLY's SingleInstanceGuard otherwise hands off to the copy already running and exits
+            # before binding the socket (proof run 45821171663).
+            "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
     if credentials_file:
         argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
                  "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]

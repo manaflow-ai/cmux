@@ -326,6 +326,16 @@ class RateLimitTest(unittest.TestCase):
                 pmb.list_runs = saved
             self.assertIn("suites= drill ", out.read_text())
 
+    def test_a_probe_is_judged_against_its_known_good_commit(self) -> None:
+        # A bisect probe's suite judges its reds against `good` (gallery-health's `base`): a standing red
+        # there too is not the probed merge's, so the bisect hunts only the red that is new.
+        for good, base in (("c" * 40, "c" * 40), ("", "")):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--mode", "probe",
+                          "--suite", "drill", "--probe-sha", "a" * 40, "--good", good])
+                self.assertIn(f"base={base}\n", out.read_text())
+
 class BisectTest(unittest.TestCase):
     def walk(self, commits: list[str], culprit: str) -> tuple[str, int]:
         """Drives next_step from the confirming probe to its end with a red from culprit on."""
