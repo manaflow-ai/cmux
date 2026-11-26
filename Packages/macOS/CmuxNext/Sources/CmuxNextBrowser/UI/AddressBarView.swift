@@ -318,10 +318,14 @@ public final class AddressBarView: NSView {
     /// The focus mode badge's text (tests, diagnostics).
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
+    /// Measurements the narrow fit took, all bars (a badge's fitting width, the chip's label width): tests count them.
+    static var fitMeasurements: UInt64 = 0
+
     func updateBadgeSpace() {
         let wanted = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
         let shown = badges.arrangedSubviews.filter { !$0.isHidden }
+        if !shown.isEmpty { Self.fitMeasurements &+= 1 }
         let badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
         let fit = OmnibarNarrowFit.resolve(barWidth: bounds.width, chipLeading: OmnibarStyle.chipLeading, chipIcon: OmnibarStyle.chipSize,
                                            chipLabeled: chip.labeledWidth, textLeading: OmnibarStyle.textLeading, badges: badgesWidth,

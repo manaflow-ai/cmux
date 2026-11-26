@@ -22,6 +22,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     /// The chip's width with its label shown (its icon's width when it has no label), whether or not it is collapsed.
     var labeledWidth: CGFloat {
         let side = OmnibarStyle.chipSize
+        AddressBarView.fitMeasurements &+= 1
         guard labelText != nil else { return side }
         let padding = (side - OmnibarStyle.iconPointSize) / 2
         return ceil(side + text.intrinsicContentSize.width + padding)

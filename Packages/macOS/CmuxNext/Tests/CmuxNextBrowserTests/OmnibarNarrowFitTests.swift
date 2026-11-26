@@ -98,6 +98,25 @@ struct OmnibarNarrowFitTests {
         #expect(problems(bar).isEmpty)
     }
 
+    /// A width change of the bar measures nothing: the badges and the chip's label are measured when they change, and the
+    /// fit at a new width is arithmetic on those widths (in-tree release-resize measurement, 2026-11-26: each divider step
+    /// measured every omnibar's badges with `fittingSize`, a temporary layout engine each, and its chip label through a
+    /// localized string lookup; with four browser panes that was 0.3 ms of each step's main thread). Folding and unfolding
+    /// still follow the width.
+    @Test func aWidthChangeMeasuresNothing() {
+        let (bar, window, width) = bar(width: 840)
+        defer { window.closeAfterTest() }
+        let before = AddressBarView.fitMeasurements
+        for step in [600, 300, 180, 120, 90, 70, 140, 840] as [CGFloat] {
+            width.constant = step
+            window.contentView!.layoutSubtreeIfNeeded()
+            #expect(problems(bar).isEmpty, "at \(step) pt: \(problems(bar))")
+        }
+        #expect(bar.chip.collapsesLabel == false && !bar.starButton.isHiddenOrHasHiddenAncestor, "wide again, all back")
+        #expect(AddressBarView.fitMeasurements == before,
+                "\(AddressBarView.fitMeasurements - before) measurements across 8 width changes; a width change measures nothing")
+    }
+
     @Test func theFitRuleFoldsTheLabelBeforeTheBadges() {
         func fit(_ width: CGFloat) -> OmnibarNarrowFit {
             OmnibarNarrowFit.resolve(barWidth: width, chipLeading: 2, chipIcon: 24, chipLabeled: 90, textLeading: 5,
