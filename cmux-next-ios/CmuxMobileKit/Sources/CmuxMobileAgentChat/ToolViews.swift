@@ -118,7 +118,7 @@ struct ToolRowView: View {
 }
 
 /// What an expanded tool call draws under its card: nothing while its cut output's rest is read
-/// (the head stays in the card), a Try Again line only once the read failed.
+/// (the head stays in the card), a quiet line only once the read failed (it is read again on its own).
 enum ToolOutputFooter {
     static func shows(cut: Bool, failed: Bool) -> Bool { cut && failed }
 }
@@ -128,8 +128,10 @@ enum ToolOutputFooter {
 struct ToolOutputView: View {
     let call: ACPToolCall
     @Environment(\.loadFullToolOutput) private var loadFull
-    /// The whole output's read failed (link down, an older source): a tap asks again.
+    /// The whole output's read failed (the link was down: the hub answers nil until it is
+    /// ready). Read again on its own (AutoRetry), never a Try Again button.
     @State private var loadFailed = false
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -137,18 +139,19 @@ struct ToolOutputView: View {
             // The head the Mac sent stays drawn while the rest is read, and the whole text
             // takes its place in the same card (capped at the same height): no "Loading the full
             // output…" line that comes and goes under it. Leo, 2026-11-24: "wer need to chase
-            // all these placeholders doen and prevent them". Only a failed read adds a line.
-            if ToolOutputFooter.shows(cut: call.outputCut != nil, failed: loadFailed) {
-                Button("Couldn't load the full output. Try Again") {
-                    loadFailed = false
-                    Task { loadFailed = !(await loadFull(call)) }
-                }
-                .font(.footnote)
-                .padding(.leading, 26)
+            // all these placeholders doen and prevent them". Only a failed read adds a line, and
+            // only once the quiet bound passes: it is read again on its own, never a button.
+            if ToolOutputFooter.shows(cut: call.outputCut != nil, failed: loadFailed), autoRetry.isQuietLineShown {
+                AutoRetryQuietLine(autoRetry, Text("Still loading the full output…"))
+                    .padding(.leading, 26)
             }
         }
         .task(id: call.outputCut) {
             guard call.outputCut != nil else { return }
+            loadFailed = !(await loadFull(call))
+        }
+        .autoRetry(autoRetry, failing: loadFailed && call.outputCut != nil) {
+            guard call.outputCut != nil else { loadFailed = false; return }
             loadFailed = !(await loadFull(call))
         }
     }
