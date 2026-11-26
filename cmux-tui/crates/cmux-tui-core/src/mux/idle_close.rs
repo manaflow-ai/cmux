@@ -14,9 +14,15 @@
 //! terminal's policy is due, and is woken early when a policy changes or a
 //! view detaches. With no policy-bearing terminal it blocks indefinitely
 //! (it used to tick every 15 s whether or not any policy existed).
+//!
+//! Unattached time counts the time the Mac slept (see [`IdleMoment`]), and
+//! the reaper's wait to a deadline is at most [`IDLE_CLOSE_SLEEP_RECHECK`]:
+//! it waits on the awake clock, which stops while the Mac sleeps, so a sleep
+//! past a policy is seen within that long of waking.
 
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
+use std::time::SystemTime;
 
 use super::*;
 
@@ -25,6 +31,31 @@ use super::*;
 pub const IDLE_CLOSE_REAP_INTERVAL: Duration = Duration::from_secs(15);
 
 const IDLE_CLOSE_MUTATION_ORIGIN: &str = "cmux-tui-idle-close";
+
+/// The longest the reaper waits for a deadline on the awake clock: a sleep
+/// the awake clock never counts is seen by the wall clock within this long of
+/// waking. Policies are unchanged; this only bounds how late a close can be.
+pub(crate) const IDLE_CLOSE_SLEEP_RECHECK: Duration = Duration::from_secs(10 * 60);
+
+/// A moment by two clocks. `Instant` is the awake clock on a Mac
+/// (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so on a laptop that
+/// sleeps every night an idle-close policy counted on it alone took far
+/// longer than its real time (the same bug kept abandoned terminal hosts 8 to
+/// 16 days on Leo's Mac, cmux#48608). The wall clock counts sleep; a wall
+/// clock set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IdleMoment {
+    pub(crate) awake: Instant,
+    pub(crate) wall: SystemTime,
+}
+
+impl IdleMoment {
+    /// The longer of the awake and the wall time from `earlier` to `self`.
+    pub(crate) fn since(self, earlier: Self) -> Duration {
+        let awake = self.awake.saturating_duration_since(earlier.awake);
+        awake.max(self.wall.duration_since(earlier.wall).unwrap_or_default())
+    }
+}
 
 /// One policy-bearing terminal as observed by a single reaper tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +71,7 @@ pub(crate) struct IdleCandidate<'a> {
 
 #[derive(Debug, Clone, Copy)]
 struct Unattached {
-    since: Instant,
+    since: IdleMoment,
     attach_epoch: u64,
 }
 
@@ -51,10 +82,17 @@ pub(crate) struct IdleCloseTracker {
 }
 
 impl IdleCloseTracker {
-    /// Advance to `now` and return the terminals whose continuous unattached
-    /// time has reached their policy. Terminals absent from `candidates` (no
-    /// policy, closed, or cleared) are forgotten.
-    pub(crate) fn due(&mut self, now: Instant, candidates: &[IdleCandidate<'_>]) -> Vec<String> {
+    /// Advance to `now` (awake clock) and `wall` (wall clock) and return the
+    /// terminals whose continuous unattached time, sleep included, has
+    /// reached their policy. Terminals absent from `candidates` (no policy,
+    /// closed, or cleared) are forgotten.
+    pub(crate) fn due(
+        &mut self,
+        now: Instant,
+        wall: SystemTime,
+        candidates: &[IdleCandidate<'_>],
+    ) -> Vec<String> {
+        let now = IdleMoment { awake: now, wall };
         let live: HashSet<&str> =
             candidates.iter().map(|candidate| candidate.terminal_id).collect();
         self.unattached.retain(|terminal_id, _| live.contains(terminal_id.as_str()));
@@ -69,21 +107,31 @@ impl IdleCloseTracker {
             if entry.attach_epoch != candidate.attach_epoch {
                 *entry = fresh;
             }
-            if now.saturating_duration_since(entry.since) >= candidate.idle_close {
+            if now.since(entry.since) >= candidate.idle_close {
                 due.push(candidate.terminal_id.to_string());
             }
         }
         due
     }
 
-    /// When the earliest tracked unattached terminal becomes due.
-    pub(crate) fn next_deadline(&self, candidates: &[IdleCandidate<'_>]) -> Option<Instant> {
+    /// When, on the awake clock, the reaper should look again: when the
+    /// earliest tracked unattached terminal becomes due, but at most
+    /// [`IDLE_CLOSE_SLEEP_RECHECK`] after `now`, so a sleep (which the awake
+    /// clock does not count) is noticed soon after waking.
+    pub(crate) fn next_deadline(
+        &self,
+        now: Instant,
+        wall: SystemTime,
+        candidates: &[IdleCandidate<'_>],
+    ) -> Option<Instant> {
+        let moment = IdleMoment { awake: now, wall };
         candidates
             .iter()
             .filter(|candidate| !candidate.attached)
             .filter_map(|candidate| {
                 let entry = self.unattached.get(candidate.terminal_id)?;
-                entry.since.checked_add(candidate.idle_close)
+                let left = candidate.idle_close.saturating_sub(moment.since(entry.since));
+                now.checked_add(left.min(IDLE_CLOSE_SLEEP_RECHECK))
             })
             .min()
     }
@@ -119,18 +167,20 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_idle_policy(terminal_id)
     }
 
-    /// One reaper tick at `now`: close every policy-bearing terminal that has
-    /// had no attached view for at least its policy. Returns the host ids of
+    /// One reaper tick at `now` (awake clock) and `wall` (wall clock): close
+    /// every policy-bearing terminal that has had no attached view for at
+    /// least its policy, the Mac's sleep included. Returns the host ids of
     /// the terminals it closed.
-    pub fn reap_idle_terminals(&self, now: Instant) -> Vec<String> {
-        self.reap_idle_terminals_until_next(now).0
+    pub fn reap_idle_terminals(&self, now: Instant, wall: SystemTime) -> Vec<String> {
+        self.reap_idle_terminals_until_next(now, wall).0
     }
 
-    /// One reaper pass, plus when the next pass is due (`None`: no
-    /// unattached policy-bearing terminal, wait for a change).
+    /// One reaper pass, plus when the next pass is due on the awake clock
+    /// (`None`: no unattached policy-bearing terminal, wait for a change).
     pub(crate) fn reap_idle_terminals_until_next(
         &self,
         now: Instant,
+        wall: SystemTime,
     ) -> (Vec<String>, Option<Instant>) {
         let (pruned, policies) = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -148,7 +198,7 @@ impl Mux {
             }
         };
         if policies.is_empty() {
-            self.idle_close.lock().unwrap().due(now, &[]);
+            self.idle_close.lock().unwrap().due(now, wall, &[]);
             return (Vec::new(), None);
         }
         let placements = self.terminal_placements_by_host();
@@ -165,7 +215,7 @@ impl Mux {
                 }
             })
             .collect();
-        let due = self.idle_close.lock().unwrap().due(now, &candidates);
+        let due = self.idle_close.lock().unwrap().due(now, wall, &candidates);
         let any_due = !due.is_empty();
         let mut closed = Vec::with_capacity(due.len());
         for terminal_id in due {
@@ -195,7 +245,7 @@ impl Mux {
         }
         // A closed or forgotten terminal is re-tracked from `now` on the
         // next pass, so the deadline below covers only live periods.
-        let next = self.idle_close.lock().unwrap().next_deadline(&candidates);
+        let next = self.idle_close.lock().unwrap().next_deadline(now, wall, &candidates);
         // A due terminal was forgotten even when its close failed or a view
         // attached at the recheck; without a pass now it would never be
         // re-tracked and the reaper would block with no deadline.
@@ -295,10 +345,12 @@ pub fn start_idle_terminal_reaper(
         loop {
             let Some(owner) = mux.upgrade() else { break };
             let now = Instant::now();
-            let (_, next) = owner.reap_idle_terminals_until_next(now);
+            let (_, next) = owner.reap_idle_terminals_until_next(now, SystemTime::now());
             drop(owner);
             let message = match next {
                 None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                // At most IDLE_CLOSE_SLEEP_RECHECK (see `next_deadline`): this
+                // wait is on the awake clock, which stops while the Mac sleeps.
                 Some(next) => messages.recv_timeout(next.saturating_duration_since(now)),
             };
             match message {

@@ -60,7 +60,7 @@
 //! `ACPMUX_TEST_APP_ORPHAN_RECHECK_MS` replace the two intervals.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// How long the app's socket may refuse connects before the daemon stops.
 pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
@@ -186,12 +186,40 @@ pub(crate) enum Decision {
     Exit,
 }
 
+/// A moment by two clocks. `Instant` is the awake clock on a Mac
+/// (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so on a laptop that
+/// sleeps every night [`ORPHAN_EXIT_DELAY`] counted on it alone took far
+/// longer than its hour of real time (the same bug kept abandoned terminal
+/// hosts 8 to 16 days on Leo's Mac, cmux#48608). The wall clock counts sleep;
+/// a wall clock set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Moment {
+    pub(crate) awake: Instant,
+    pub(crate) wall: SystemTime,
+}
+
+impl Moment {
+    pub(crate) fn now() -> Self {
+        Self { awake: Instant::now(), wall: SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time from `earlier` to `self`.
+    pub(crate) fn since(self, earlier: Self) -> Duration {
+        let awake = self.awake.saturating_duration_since(earlier.awake);
+        awake.max(self.wall.duration_since(earlier.wall).unwrap_or_default())
+    }
+}
+
 /// The policy. `absent_since` is when the app was first seen gone (a
 /// refused connect after it answered once, or a changed executable) since it
-/// last answered; `None` while it answers or before it ever did.
-pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing) -> Decision {
+/// last answered; `None` while it answers or before it ever did. Time absent
+/// counts the Mac's sleep (see [`Moment`]). Every wait is at most
+/// `timing.recheck`: the watch sleeps on the awake clock, so a wait to the
+/// full deadline would not notice a long sleep; capped, a sleep past the delay
+/// is seen within one recheck of waking.
+pub(crate) fn decide(absent_since: Option<Moment>, now: Moment, timing: Timing) -> Decision {
     let Some(since) = absent_since else { return Decision::Wait(timing.recheck) };
-    let absent = now.saturating_duration_since(since);
+    let absent = now.since(since);
     if absent >= timing.delay {
         Decision::Exit
     } else {
@@ -508,7 +536,7 @@ async fn watch_app(mut app: App, executable: Executable) -> bool {
             Some(probe) => tokio::task::spawn_blocking(move || app_reachable(&probe)).await.ok(),
             None => Some(true),
         };
-        let now = Instant::now();
+        let now = Moment::now();
         // A failed task changes nothing.
         let decision = match reachable {
             Some(reachable) => {
@@ -552,6 +580,8 @@ async fn watch_app(mut app: App, executable: Executable) -> bool {
                 return end_agents;
             }
             Decision::Wait(after) => {
+                // `after` is at most `timing.recheck` (see `decide`): this sleep is on the
+                // awake clock, which stops while the Mac sleeps.
                 // Sleeps in steps, following a moved app at each, so a move and an update
                 // there in one recheck interval still find the updated app (see `App::follow`).
                 let until = tokio::time::Instant::now() + after;
@@ -776,18 +806,44 @@ mod tests {
         assert_eq!(containing_app_bundle(Path::new("/tmp/x.app")), None);
     }
 
+    /// `since` moved on by `awake` on the awake clock and `wall` on the wall clock.
+    fn later(since: Moment, awake: Duration, wall: Duration) -> Moment {
+        Moment { awake: since.awake + awake, wall: since.wall + wall }
+    }
+
     #[test]
     fn an_answering_app_keeps_the_daemon() {
-        assert_eq!(decide(None, Instant::now(), TIMING), Decision::Wait(TIMING.recheck));
+        assert_eq!(decide(None, Moment::now(), TIMING), Decision::Wait(TIMING.recheck));
     }
 
     #[test]
     fn the_daemon_stops_once_the_app_was_gone_for_the_delay() {
-        let since = Instant::now();
+        let since = Moment::now();
+        let at = |by: Duration| later(since, by, by);
         assert_eq!(decide(Some(since), since, TIMING), Decision::Wait(TIMING.recheck));
-        let late = since + TIMING.delay - Duration::from_secs(60);
+        let late = at(TIMING.delay - Duration::from_secs(60));
         assert_eq!(decide(Some(since), late, TIMING), Decision::Wait(Duration::from_secs(60)));
-        assert_eq!(decide(Some(since), since + TIMING.delay, TIMING), Decision::Exit);
+        assert_eq!(decide(Some(since), at(TIMING.delay), TIMING), Decision::Exit);
+    }
+
+    #[test]
+    fn the_time_the_mac_slept_counts_toward_the_delay() {
+        // Gone, then a night's sleep: a minute awake, the delay and more on the wall.
+        let since = Moment::now();
+        let woke = later(since, Duration::from_secs(60), TIMING.delay + Duration::from_secs(1));
+        assert_eq!(decide(Some(since), woke, TIMING), Decision::Exit);
+    }
+
+    #[test]
+    fn a_wall_clock_set_back_counts_the_awake_time() {
+        let since = Moment::now();
+        let back = |awake: Duration| Moment {
+            awake: since.awake + awake,
+            wall: since.wall - Duration::from_secs(24 * 60 * 60),
+        };
+        let early = back(TIMING.delay - Duration::from_secs(60));
+        assert_eq!(decide(Some(since), early, TIMING), Decision::Wait(Duration::from_secs(60)));
+        assert_eq!(decide(Some(since), back(TIMING.delay), TIMING), Decision::Exit);
     }
 
     #[test]
