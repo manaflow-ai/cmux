@@ -264,11 +264,10 @@ fn digits(text: &str, min: usize, max: usize) -> bool {
 
 /// `yyyy-MM-dd`, else the epoch's day.
 pub fn safe_day(day: &str) -> String {
-    let parts: Vec<&str> = day.split('-').collect();
-    let ok = parts.len() == 3
-        && digits(parts[0], 4, 4)
-        && digits(parts[1], 2, 2)
-        && digits(parts[2], 2, 2);
+    let ok = matches!(
+        day.split('-').collect::<Vec<&str>>().as_slice(),
+        [year, month, date] if digits(year, 4, 4) && digits(month, 2, 2) && digits(date, 2, 2)
+    );
     if ok { day.to_owned() } else { "1970-01-01".to_owned() }
 }
 
@@ -345,7 +344,7 @@ fn is_apple_chip(raw: &str) -> bool {
     if !(1..=2).contains(&number_len) {
         return false;
     }
-    matches!(&rest[number_len..], "" | " Pro" | " Max" | " Ultra")
+    matches!(rest.get(number_len..), Some("" | " Pro" | " Max" | " Ultra"))
 }
 
 /// Drops the last hang, then CPU exception, then interval until the wire bytes fit.
