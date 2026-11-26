@@ -67,6 +67,9 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.base.sha }}
           FILES: scripts/ci/language_boundaries.py .github/language-boundaries.toml
@@ -78,6 +81,7 @@ jobs:
           for f in $FILES; do
             mkdir -p "$part/$(dirname "$f")"
             code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
               "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
             if [ "$code" != 200 ]; then
               echo "::notice::$f read $code over raw; actions/checkout reads the files instead."

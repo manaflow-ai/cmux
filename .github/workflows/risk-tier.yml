@@ -70,6 +70,9 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           FILES: scripts/ci/risk_tier.py
@@ -91,6 +94,7 @@ jobs:
           for f in $FILES ${OPTIONAL_FILES:-}; do
             mkdir -p "$part/$(dirname "$f")"
             code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
               "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
             if [ "$code" = 404 ] && [[ " ${OPTIONAL_FILES:-} " == *" $f "* ]]; then
               rm -f "$part/$f"  # absent at this commit, as the sparse checkout would leave it

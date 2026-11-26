@@ -88,6 +88,9 @@ class RawBaseFilesTest(unittest.TestCase):
                 # Anything but a 200 (or a 404 for a file the checkout may also find absent) falls back.
                 self.assertIn('elif [ "$code" != 200 ]' if "OPTIONAL_FILES" in raw["env"] else 'if [ "$code" != 200 ]', raw["run"])
                 self.assertIn('[[ "$SHA" =~ ^[0-9a-f]{40}$ ]]', raw["run"])
+                self.assertEqual(raw["env"]["RAW_TOKEN"], "${{ github.token }}")
+                self.assertIn('-H "Authorization: token $RAW_TOKEN"', raw["run"])
+                self.assertEqual(raw["run"].count("$RAW_TOKEN"), 1)
                 self.assertIn('echo "ok=true" >> "$GITHUB_OUTPUT"', raw["run"])
                 # Files land in the workspace only after every read succeeded.
                 self.assertLess(raw["run"].index("done"), raw["run"].index('cp -R "$part"/. .'))
