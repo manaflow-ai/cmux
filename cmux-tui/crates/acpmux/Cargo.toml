@@ -73,6 +73,9 @@ mimalloc-gnu = []
 # Bench only: mimalloc's v2 line in place of v3, on a gnu build, for the same A/B (v3 held about
 # 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a; v2 was no better, eb7f270b).
 mimalloc-v2 = ["mimalloc/v2", "mimalloc-gnu"]
+# Bench only: musl's own malloc (mallocng) in place of mimalloc on a musl build, for the musl allocator A/B of
+# scripts/measure/alloc-musl-ab.sh. Never in a shipped build (RFD 0156: musl's malloc kept freed pages).
+musl-malloc = []
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"

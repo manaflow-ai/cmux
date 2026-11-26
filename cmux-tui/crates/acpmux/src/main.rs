@@ -6,10 +6,12 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 // The allocator on Linux follows the C library, as acpmux-standalone's (see that crate's main.rs):
 // glibc's malloc on a gnu build, mimalloc on a musl one (the shipped static packages), so the
 // tests measure the daemon's memory with the allocator that build ships with. `mimalloc-gnu`
-// (bench only) puts mimalloc on a gnu build too, for the allocator A/B.
+// (bench only) puts mimalloc on a gnu build too, for the allocator A/B; `musl-malloc` (bench only) leaves a
+// musl build on musl's own malloc.
 #[cfg(all(
     target_os = "linux",
     not(feature = "dhat-heap"),
+    not(feature = "musl-malloc"),
     any(target_env = "musl", feature = "mimalloc-gnu")
 ))]
 #[global_allocator]
@@ -24,6 +26,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(all(
     target_os = "linux",
     not(feature = "dhat-heap"),
+    not(feature = "musl-malloc"),
     any(target_env = "musl", feature = "mimalloc-gnu")
 ))]
 fn tune_allocator() {
@@ -43,6 +46,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(all(
         target_os = "linux",
         not(feature = "dhat-heap"),
+        not(feature = "musl-malloc"),
         any(target_env = "musl", feature = "mimalloc-gnu")
     ))]
     tune_allocator();
