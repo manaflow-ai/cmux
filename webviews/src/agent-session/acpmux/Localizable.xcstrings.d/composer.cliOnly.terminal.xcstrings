@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cliOnly.terminal" : {
+      "comment" : "Agent pane composer note: a Claude slash command that needs Claude Code's terminal and has no cmux control; {command} is its name without the slash",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعمل ‎/{command}‎ فقط في طرفية Claude Code، وليس في cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} radi samo u terminalu Claude Codea, ne u cmuxu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} virker kun i Claude Codes terminal, ikke i cmux."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} funktioniert nur im Terminal von Claude Code, nicht in cmux."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} works only in Claude Code's terminal, not in cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} solo funciona en la terminal de Claude Code, no en cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ne fonctionne que dans le terminal de Claude Code, pas dans cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} funziona solo nel terminale di Claude Code, non in cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} は Claude Code のターミナルでのみ使えます。cmux では使えません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ដំណើរការតែក្នុង terminal របស់ Claude Code ប៉ុណ្ណោះ មិនមែនក្នុង cmux ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command}은(는) cmux가 아닌 Claude Code 터미널에서만 작동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} fungerer bare i terminalen til Claude Code, ikke i cmux."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} działa tylko w terminalu Claude Code, nie w cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} só funciona no terminal do Claude Code, não no cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} работает только в терминале Claude Code, а не в cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ใช้ได้เฉพาะในเทอร์มินัลของ Claude Code ไม่ใช่ใน cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} yalnızca Claude Code terminalinde çalışır, cmux’ta çalışmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} працює лише в терміналі Claude Code, а не в cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} chỉ hoạt động trong terminal của Claude Code, không phải trong cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} 只能在 Claude Code 的终端中使用，不能在 cmux 中使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} 只能在 Claude Code 的終端機中使用，不能在 cmux 中使用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

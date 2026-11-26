@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceHibernation.freeingIdleMinutes.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الدقائق قبل انتهاء الصدفات الخاملة في مساحة عمل في السبات (1440 يوم واحد)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minute prije nego što neaktivni shellovi uspavanog radnog prostora završe (1440 je jedan dan)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutter, før et dvalende arbejdsområdes inaktive shells afsluttes (1440 er én dag)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuten, bevor die inaktiven Shells eines ruhenden Workspaces enden (1440 ist ein Tag)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minutes before a hibernated workspace's idle shells end (1440 is a day)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutos antes de cerrar los shells inactivos de un espacio hibernado (1440 es un día)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutes avant la fin des shells inactifs d'un espace en veille (1440 = un jour)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuti prima che le shell inattive di uno spazio ibernato si chiudano (1440 è un giorno)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ハイバネートしたワークスペースのアイドル状態のシェルが終了するまでの分数（1440 は 1 日）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួននាទីមុនពេល shell ទំនេរនៃកន្លែងធ្វើការដែលកំពុងសម្រាកបញ្ចប់ (1440 គឺមួយថ្ងៃ)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "최대 절전 중인 워크스페이스의 유휴 셸이 종료되기까지의 시간(분)입니다(1440은 하루)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutter før inaktive skall i et dvalende arbeidsområde avsluttes (1440 er én dag)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuty, po których kończą się bezczynne powłoki uśpionego obszaru (1440 to dzień)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutos até os shells ociosos de um espaço hibernado terminarem (1440 é um dia)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Минуты до завершения неактивных оболочек спящего пространства (1440 — один день)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนนาทีก่อนที่เชลล์ที่ไม่ได้ใช้งานของเวิร์กสเปซที่จำศีลจะปิด (1440 คือหนึ่งวัน)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uykudaki bir çalışma alanının boştaki kabukları sonlanmadan önceki dakika (1440 bir gündür)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Хвилини до завершення неактивних оболонок сплячого простору (1440 — доба)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số phút trước khi các shell không hoạt động của workspace đang ngủ đông kết thúc (1440 là một ngày)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "休眠工作区中闲置的 shell 结束前的分钟数（1440 为一天）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "休眠工作區中閒置的 shell 結束前的分鐘數（1440 為一天）。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
