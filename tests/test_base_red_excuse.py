@@ -41,6 +41,8 @@ if str(ROOT / "scripts/ci") not in sys.path:
 os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 import git_tree  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 
 
 def tree_blob(tree):
@@ -3165,7 +3167,7 @@ class WorkflowRedStatusesHaveAReader(unittest.TestCase):
                 name = str(job.get("name") or job_id)
                 jobs.update(re.findall(r"'([^']+)'", name) if "${{" in name else [name])
                 for index, step in enumerate(job.get("steps") or []):
-                    text = str((step or {}).get("run") or "")
+                    text = step_run(step or {})
                     if not cls.POST.search(text) or not cls.RED_STATE.search(text):
                         continue
                     where = f"{path.name} {job_id} step {index} ({step.get('name') or 'unnamed'})"
