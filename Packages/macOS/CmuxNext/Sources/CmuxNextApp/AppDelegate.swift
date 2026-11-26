@@ -217,14 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
-        // launch_tti_check.py's in_app chat rounds: the same key once more when the front chat first drew, into its composer.
-        if let chatProbe = LaunchTypeProbe(chatEnvironment: ProcessInfo.processInfo.environment, mark: { DebugTimings.markLaunch($0) }) {
-            AgentPaneLaunchTimings.shared.listen { name in
-                guard name == "agent_pane.painted" else { return }
-                Task { @MainActor in chatProbe.type() }
-            }
-        }
+        LaunchTypeProbe.armChat(environment: ProcessInfo.processInfo.environment, listen: AgentPaneLaunchTimings.shared.listen) { DebugTimings.markLaunch($0) }; firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1; launch_tti_check.py's chat rounds
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in

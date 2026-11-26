@@ -43,6 +43,18 @@ public final class LaunchTypeProbe {
         scope = "chat"
     }
 
+    /// Arms the chat probe when `environment` turns it on: it types once, on the main actor, when `listen` first tells
+    /// of `agent_pane.painted` (AgentPaneLaunchTimings' mark listener). Call it before any chat page loads.
+    public static func armChat(environment: [String: String],
+                               listen: (@escaping @Sendable (String) -> Void) -> Void,
+                               mark: @escaping (String) -> Void) {
+        guard let probe = LaunchTypeProbe(chatEnvironment: environment, mark: mark) else { return }
+        listen { name in
+            guard name == "agent_pane.painted" else { return }
+            Task { @MainActor in probe.type() }
+        }
+    }
+
     /// Types into the key window now (call it at the first window frame, the chat probe at the chat's first paint).
     public func type() {
         guard !typed else { return }
