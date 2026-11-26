@@ -610,6 +610,8 @@ Ops no app may call:
 - `cloud.owner.handoff_wait`
 - `cloud.owner.handoffs`
 - `cloud.owner.harness_login_copy`
+- `cloud.owner.slack`
+- `cloud.owner.slack_awake`
 - `cloud.owner.turn_checkpoint`
 - `cloud.owner.turn_rewind`
 - `cloud.owner.turns`
@@ -685,6 +687,7 @@ Ops no app may call:
 - `install.rename`
 - `install.revoke`
 - `install.sign_out`
+- `integration.approval.approve`
 - `integration.approval.get`
 - `integration.complete`
 - `integration.connect`

@@ -42,6 +42,9 @@
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
+//! `owner.slack` and `owner.slack_awake` are Settings' Slack page: the connection, its install
+//! link, a bot of the person's own and a Chief's Slack awake time (`slack.rs`).
+//!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
 //! (`message`), `no_backend`, `http` (`status`, `code`, `message`, `action`, `trace_id`),
@@ -77,6 +80,7 @@ mod owner;
 mod previews;
 pub mod sandbox;
 pub mod session;
+mod slack;
 mod turns;
 
 use serde_json::{Map, Value, json};
@@ -168,6 +172,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
         ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.slack" => slack::slack(&http, args).await,
+        "owner.slack_awake" => slack::slack_awake(&http, args).await,
         "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
             turns::run(&http, request.call.as_str(), args).await
         }
@@ -209,7 +215,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 48] = [
+pub const CALLS: [&str; 50] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -245,6 +251,8 @@ pub const CALLS: [&str; 48] = [
     "owner.github_complete",
     "owner.github_list",
     "owner.github_clone_token",
+    "owner.slack",
+    "owner.slack_awake",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",

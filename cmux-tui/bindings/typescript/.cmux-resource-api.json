@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f4c0bbcc1f479ee707c44a56484dcbdc19687e8d7c5dd95ef8a9be266265e5c9",
+  "catalog_sha256": "7bda404bae5282dc8ed0613aa68f314c214028dca1f2b248bb1e7f0f36e5138e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -255,6 +255,12 @@
     },
     "cloud.owner.harness_login_copy": {
       "class": "read"
+    },
+    "cloud.owner.slack": {
+      "class": "mutation"
+    },
+    "cloud.owner.slack_awake": {
+      "class": "mutation"
     },
     "cloud.owner.turn_checkpoint": {
       "class": "mutation"

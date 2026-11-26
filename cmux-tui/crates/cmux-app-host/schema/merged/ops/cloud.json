@@ -372,6 +372,16 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.slack": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.slack_awake": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
     "cloud.owner.turn_checkpoint": {
       "source": "local",
       "class": "mutation",
