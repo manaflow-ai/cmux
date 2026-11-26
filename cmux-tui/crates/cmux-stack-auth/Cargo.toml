@@ -21,6 +21,8 @@ tokio = { workspace = true, features = ["time", "sync"] }
 uuid.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
 
 [lints]
