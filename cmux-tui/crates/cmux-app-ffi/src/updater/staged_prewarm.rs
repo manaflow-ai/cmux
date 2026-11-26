@@ -104,7 +104,7 @@ pub fn scan(request: &ScanRequest) -> Option<Staged> {
 pub fn runs(bundle: &Path) -> Vec<Run> {
     let mut runs = Vec::new();
     let app = info(bundle)
-        .and_then(|info| string(&info, "CFBundleExecutable").map(str::to_owned))
+        .and_then(|info| string(&info, "CFBundleExecutable").cloned())
         .map(|name| bundle.join("Contents/MacOS").join(name))
         .filter(|path| executable(path));
     if let Some(app) = &app {
@@ -161,7 +161,7 @@ pub fn describe_exit(executable: &Path, status: i32) -> String {
 /// pressure.
 pub fn read_pages(root: &Path) -> Pages {
     // SAFETY: getpagesize has no preconditions.
-    let page = usize::try_from(unsafe { libc::getpagesize() }).unwrap_or(4096).max(1);
+    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096).max(1);
     let mut result = Pages::default();
     let mut fold = 0u8;
     let mut stack = vec![root.to_path_buf()];
@@ -376,7 +376,7 @@ mod tests {
         fs::write(root.join("one"), vec![1u8; 10]).unwrap();
         fs::write(root.join("sub/two"), vec![2u8; 3 * 4096 + 1]).unwrap();
         fs::write(root.join("empty"), b"").unwrap();
-        let page = u64::try_from(unsafe { libc::getpagesize() }).unwrap();
+        let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap();
         let pages = read_pages(&root);
         assert_eq!(pages.files, 2);
         assert_eq!(pages.pages, 1 + (3 * 4096 + 1u64).div_ceil(page));
