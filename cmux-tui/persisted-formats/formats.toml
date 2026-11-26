@@ -91,10 +91,10 @@ policy = "unreviewed"
 [[format]]
 file = "crates/cmux-customize/src/library/doctor.rs"
 const = "STATE_VERSION"
-name = "cmux-customize/doctor#STATE_VERSION"
-about = "the settings doctor's state: which findings were announced and dismissed, by fingerprint"
+name = "settings-doctor-state"
+about = "the settings doctor's announced and dismissed findings (id to fingerprint)"
 policy = "rebuild"
-why = "dismissals of settings-doctor findings; this reader also takes older versions, and losing the file only shows a dismissed finding again"
+why = "a file of another version is carried over by id on the next announce (doctor_announce), and a file lost costs one repeated toast, not work"
 
 [[format]]
 file = "crates/cmux-customize/src/setup/check.rs"
