@@ -2935,11 +2935,19 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__stack > .acpmux-running-tray__stack-mark:first-child {
   margin-inline-end: calc(var(--acpmux-tray-mark-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }
+/* One mark (a lone subagent, or the plan beside one finished subagent) takes +'s whole box, as the
+   lineage icon does, so its words start at the prompt's whatever the mark's drawn width
+   (composer-hat-groups#plan-and-done: the words started 3.9px short of the prompt's). */
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--acpmux-tray-lead-box);
+  padding-inline-start: 0;
+  justify-content: center;
   margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
-  margin-inline-end: var(--acpmux-tray-mark-room);
+  margin-inline: 0;
 }
 /* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
    subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
