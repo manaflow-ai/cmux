@@ -13,6 +13,8 @@ fn validates_provider_scopes_and_label() {
     for value in [
         json!({"provider":"","scopes":["read"]}),
         json!({"provider":"linear/token","scopes":["read"]}),
+        json!({"provider":".","session":"session-1","scopes":["read"]}),
+        json!({"provider":"..","session":"session-1","scopes":["read"]}),
         json!({"provider":"linear","session":"session-1","scopes":[]}),
         json!({"provider":"linear","session":"session-1","scopes":["read space"]}),
         json!({"provider":"linear","session":"session-1","scopes":["read"],"label":"agent label"}),
