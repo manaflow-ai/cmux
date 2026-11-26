@@ -43,8 +43,11 @@
 //! (`cache_compact.rs`, `cold_wake.rs`, `auto_resume/compact_first.rs`) that tried surgery first
 //! ([`Hub::surgery_before_compact`]) and sent `/compact` after all.
 //!
-//! Off switch: `agents.harnessMagic.surgery.enabled: false` in the settings file, or
-//! `ACPMUX_HM_SURGERY=0` in the daemon's environment.
+//! Off by default (Leo, 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with
+//! compacition. only do it for our personal fleet situation"): it rewrites what the agent sees,
+//! so only a person who asked for it gets it. On: `agents.harnessMagic.surgery.enabled: true` in
+//! the settings file; `ACPMUX_HM_SURGERY=0` in the daemon's environment turns it off whatever the
+//! file says.
 //!
 //! Codex: its rollout (`~/.codex/sessions/**/rollout-*.jsonl`) keeps `function_call_output`
 //! items that a copy could mask the same way, but a resumed thread rebuilds from `compacted`
@@ -115,7 +118,7 @@ impl Masked {
     }
 }
 
-/// Whether the feature is on: the kill switch, then the settings key (on unless `false`).
+/// Whether the feature is on: the kill switch, then the settings key (off unless `true`).
 pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     if env.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off"))
     {
@@ -123,7 +126,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 fn settings_doc() -> Option<Value> {
