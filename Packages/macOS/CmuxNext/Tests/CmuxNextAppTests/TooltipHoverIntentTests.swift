@@ -48,14 +48,14 @@ import CmuxNextWakeupsTestSupport
             presenter.dismiss()
             window.closeAfterTest()
         }
-        // The first tooltip waits the initial delay (450 ms).
+        // The first tooltip waits the initial delay (250 ms).
         presenter.enter(try Self.tracker(buttons[0]))
         #expect(presenter.shown == nil, "the first tooltip showed with no delay")
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(300))
+        clock.advance(by: .milliseconds(150))
         try await Self.settle()
         #expect(presenter.shown == nil, "the first tooltip showed before the delay")
-        clock.advance(by: .milliseconds(200))
+        clock.advance(by: .milliseconds(100))
         try await Self.settle(until: { presenter.shown != nil })
         #expect(presenter.shown?.text == "Back")
 
