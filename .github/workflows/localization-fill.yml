@@ -61,9 +61,20 @@ jobs:
       - name: Pin the head
         id: head
         run: echo "head=$(git -C main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this hourly pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 main/scripts/ci/job_token_floor.py localization-fill/gaps
       # One fill in flight: while the bot's pull request is open, the next run would only redo it.
+      # Held under the floor, open stays unset, so List the gaps skips too.
       - name: Skip while a fill is open
         id: open
+        if: steps.job-floor.outputs.held != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -555,6 +555,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
+    ".github/workflows/ios-sim-linux-build.yml",  # feat-cmux-next only: build takes ios_runner_pool's route, retry_runs_on on a re-run
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
@@ -646,6 +647,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/measure-swift-typecheck.yml":
         "feat-cmux-next only; type-checks scripts/measure/*.swift on a Mac when a pull request touches them, on the "
         "light side lane only on attempt 1 while vars.CI_PR_POOL_OWNED is 1; a re-run takes the paid macOS pool",
+    ".github/workflows/ios-sim-linux-build.yml":
+        "feat-cmux-next only (#55612); a producer for the Linux simulator runner's lane branches and by hand: its "
+        "build job takes ios_runner_pool.py's owned Mac on attempt 1 and retry_runs_on on a re-run, and nothing "
+        "waits on it, so the next lane push or a person's re-run moves it",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
