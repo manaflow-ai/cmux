@@ -280,7 +280,29 @@ test("chat simulator: compact-steer: one Worked for, under the steer, at every s
     .at(-1)!
     .rows!.filter((row) => row.turn >= 2)
     .map((row) => row.kind);
-  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+  expect(last.slice(0, 4)).toEqual(["user", "user", "compaction", "worked"]);
+});
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is
+// weird ... layout shifts and awkward looking animations". Once the steer and the compaction's note
+// are drawn, nothing lands above either: the note ends where its live line stood, under the steer,
+// and the steer's Working for goes under the note, live and once the turn ends.
+test("chat simulator: compact-steer: the steer and the compaction's note never move once drawn", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  const placed = new Map<string, number>();
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    for (const [name, at] of [
+      ["steer", own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"))],
+      ["note", own.findIndex((row) => row.kind === "compaction")],
+    ] as const) {
+      if (at < 0) continue;
+      const first = placed.get(name) ?? at;
+      placed.set(name, first);
+      expect({ step: step.step, name, at }).toEqual({ step: step.step, name, at: first });
+    }
+  }
+  expect([...placed.keys()].sort()).toEqual(["note", "steer"]);
 });
 
 // Leo, 2026-11-25: "this is extremely strange": a turn a background task's end opened (a notice
