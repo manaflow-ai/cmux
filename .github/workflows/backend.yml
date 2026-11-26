@@ -143,9 +143,51 @@ jobs:
           echo "API Worker suite needed: $run"
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
+  # ci500k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request whose API Worker
+  # test inputs (scripts/ci/api_workerd_key.py) match a head whose twelve shards already passed has nothing new to
+  # prove: the shards skip, and `test` still runs and passes (its last step accepts a skipped shard only on a hit).
+  # Only on a pull_request without the full-ci label: a push, a dispatch and every deploy always run the shards.
+  api-workerd-scope:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.reuse.outputs.hit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/api_workerd_key.py
+          sparse-checkout-cone-mode: false
+      - name: Hash the API Worker test inputs
+        id: key
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: echo "key=$(python3 scripts/ci/api_workerd_key.py)" >> "$GITHUB_OUTPUT"
+      - name: Look up a green marker for these inputs
+        id: green
+        if: ${{ steps.key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Decide whether the shards skip
+        id: reuse
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          HIT: ${{ steps.green.outputs.cache-hit }}
+        run: |
+          if [ -n "$KEY" ] && [ "$HIT" = true ]; then
+            echo "api-workerd: the inputs already passed (key $KEY); the shards skip"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
   api-workerd:
-    needs: workerd-changes
-    if: ${{ (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.workerd-changes.result == 'success' || needs.workerd-changes.result == 'skipped') }}
+    needs: [workerd-changes, api-workerd-scope]
+    if: ${{ (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.workerd-changes.result == 'success' || needs.workerd-changes.result == 'skipped') && needs.api-workerd-scope.outputs.hit != 'true' }}
     name: api-workerd (${{ matrix.shard }}/12)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
@@ -229,7 +271,7 @@ jobs:
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
-    needs: [api-workerd, workerd-changes]
+    needs: [api-workerd, workerd-changes, api-workerd-scope]
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && github.event.action != 'closed') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
@@ -415,12 +457,27 @@ jobs:
           done
           echo "verdict=pass" >> "$GITHUB_OUTPUT"
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
+        # A skipped shard is fine only on a path-gate miss (workerd-changes) or a green-marker hit (api-workerd-scope).
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && (needs.workerd-changes.outputs.run == 'false' || (needs.api-workerd-scope.result == 'success' && needs.api-workerd-scope.outputs.hit == 'true'))) }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |
           echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs and the rerun step above."
           exit 1
+
+      # Save the marker once all 12 shards passed in a run that ran them (not on a hit), and the rest of `test` passed.
+      # A cache key holding a date, no secrets; only for a pull request from this repository, never a fork.
+      - name: Mark these API Worker inputs green
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/api-workerd-green-marker" && date -u > "$RUNNER_TEMP/api-workerd-green-marker/passed"
+      - name: Save the API Worker green marker (cache)
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ needs.api-workerd-scope.outputs.key }}
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.
@@ -720,10 +777,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -914,10 +967,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -1065,19 +1114,37 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
-      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
-      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
-      # as cloud-journey-prod.yml's identical build.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Without a warm build every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339) and
+      # 36 min on run 45835919245 (job 140006782447), which left the journey under 15 of this job's 50 and
+      # cancelled it, so no promote reached production all of 2026-11-26. Its own rust-cache never filled: a
+      # cancelled job skips the post-step save (no v0-rust-journey-staging-* entry exists). So it reuses the
+      # build cmux-tui-headless-debug.yml saves on every feat-cmux-next cmux-tui push, the same key, path and
+      # build env as cmux-tui-sdks.yml's conformance job: the exact binary when the tree matches, else
+      # feat-cmux-next's shared target dir and an incremental build.
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+      - name: Restore the headless cmux-tui build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          workspaces: cmux-tui
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
-          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
-          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
-          # cache would stay cold forever.
-          cache-on-failure: true
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          cache-workspace-crates: "true"
+          # cmux-tui-headless-debug.yml owns this key; read-only here.
+          save-if: false
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1086,10 +1153,19 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # As cmux-tui-headless-debug.yml builds it, so the shared target dir's fingerprints match and the
+          # binary is the portable one (a build-host-native libghostty-vt dies with SIGILL on other hosts).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          HEADLESS_HIT: ${{ steps.headless-cache.outputs.cache-hit }}
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          if [[ "$HEADLESS_HIT" == "true" && -x "target/debug/cmux-tui" ]]; then
+            binary="target/debug/cmux-tui"
+            echo "restored the headless debug cmux-tui for this tree; no build"
+          else
+            cargo build -p cmux-tui --bin cmux-tui --locked
+          fi
           test -x "$binary"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
@@ -1149,10 +1225,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
