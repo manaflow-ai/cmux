@@ -1005,7 +1005,7 @@ def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
     # Tests are never compiled into the desktop app target, so the macOS area
     # is neutralized here. No package in the macOS package lane depends on
     # CmuxMobileShellModel since the legacy iOS packages were deleted; its own
-    # suite runs in test-ios.yml's mobile-core-package job instead.
+    # suite runs in test-ios.yml's mobile-core-linux job instead.
     actual = module.classify_files([
         "Packages/iOS/CmuxMobileShellModel/Tests/CmuxMobileShellModelTests/MacSurfaceRendererTests.swift"
     ])

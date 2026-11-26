@@ -627,8 +627,7 @@
       "class": "apple-gui",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
-    "test-ios.yml#ios-simulator-build": "apple-ios",
-    "test-ios.yml#mobile-core-package": "apple-ios"
+    "test-ios.yml#ios-simulator-build": "apple-ios"
   },
   "hosted_light_jobs": {
     "$comment": [
