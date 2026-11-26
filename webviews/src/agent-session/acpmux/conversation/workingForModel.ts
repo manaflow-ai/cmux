@@ -1,11 +1,11 @@
 import { createContext } from "react";
 import { type Translate } from "../i18n";
 import type { TurnTokenSplit } from "../model";
-import { formatDuration } from "./turns";
+import { turnSpan } from "./turns";
 import { previewAddress } from "./previewChipModel";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
-  t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
+  t("turn.working", { time: turnSpan(Math.max(0, now - at)) });
 
 /// What the running turn's line says after its time (App.tsx). The running subagents, background
 /// commands and started chats are the tray's to count (subagents/runningTray.ts), never the line's.
