@@ -1808,7 +1808,8 @@ exit "$status"
 # Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction,
 # steer-during-compaction, background-task and reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
 # frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
-# no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
+# no acpmux build, and no cmux-tui/ input (web_subareas.py's chat_flow). Alone: its WebKit install takes apt's lock,
+# as agent-pane-real-acpmux's does.
 [step.chat-flow-shift-budget]
 job = "web-browser"
 timeout = 900
@@ -1820,7 +1821,6 @@ inputs = [
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
-  "cmux-tui/**",
   "schemas/**",
   "release-notes/next/highlights/*.md",
   "web/data/**",
@@ -1851,12 +1851,11 @@ inputs = [
   "scripts/install-git-hooks.sh",
   "tests/test_install_git_hooks.py",
   ".gitattributes",
-  ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/playwright-apt-cache/**",
   ".github/workflows/ci-web.yml",
 ]
 run = '''
-python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+python3 -I scripts/ci/web_subareas.py has chat_flow || exit 0
 root="$PWD"
 cd webviews
 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
@@ -2096,6 +2095,142 @@ python3 scripts/ci/ios_reliability_matrix.py --rust "$out/rust.log" --json "$out
 exit $(( scroll || matrix ))
 '''
 
+# cmux-next-pr-autofix.yml's generated-drift job: a generated file the pull request changes with none of its inputs.
+# The job keeps its docs-only fallback runs; a pull request into feat-cmux-next runs this step. As the job did, the
+# judge is the base's generated_outputs.py (with the settings-exports.txt it reads), not the pull request's, and the
+# label generated-drift-ok skips it. The changed list is the merge commit's diff against the base tip (the job read
+# action-areas' list or the files API: the same paths). Measured 0.3 s.
+[step.generated-drift]
+job = "linux"
+timeout = 120
+title = "Generated drift"
+about = "no generated file changes unless one of its inputs does (the base's scripts/cmux-next/generated_outputs.py drift)"
+inputs = ["**"]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+if python3 -I - "${GITHUB_EVENT_PATH:-}" <<'PY'
+import json, sys
+try:
+    labels = (json.load(open(sys.argv[1])).get("pull_request") or {}).get("labels") or []
+except (OSError, ValueError):
+    labels = []
+sys.exit(0 if any(label.get("name") == "generated-drift-ok" for label in labels) else 1)
+PY
+then
+  echo "::notice title=generated drift::skipped: the pull request has the generated-drift-ok label"
+  exit 0
+fi
+git rev-parse -q --verify 'HEAD^2' >/dev/null || { echo "not a merge commit: no pull request diff to judge"; exit 0; }
+base="$RUNNER_TEMP/drift-base"
+mkdir -p "$base"
+git show 'HEAD^1:scripts/cmux-next/generated_outputs.py' > "$base/generated_outputs.py" 2>/dev/null \
+  || { echo "The base has no generated_outputs.py yet."; exit 0; }
+git show 'HEAD^1:scripts/cmux-next/settings-exports.txt' > "$base/settings-exports.txt" 2>/dev/null || true
+git diff --name-only --no-renames 'HEAD^1' HEAD > "$RUNNER_TEMP/drift-changed.txt"
+if ! python3 -I "$base/generated_outputs.py" drift --changed "$RUNNER_TEMP/drift-changed.txt" > "$RUNNER_TEMP/drift.txt"; then
+  sed 's/^/::error::/' "$RUNNER_TEMP/drift.txt"
+  exit 1
+fi
+echo "no generated file drift"
+'''
+
+# test-ios.yml's package-conventions-lint job, split in two: the lint's own tests (always gate) and the conventions
+# gate. Into feat-cmux-next the gate is warn-only (Leo, 2026-10-19; CMUX_NEXT_STYLE_GUARDS) except for a namespace
+# type the pull request adds that --namespace-fix rewrites (pr_added_namespace_types.py; label
+# namespace-lint-override skips that). The job keeps its push, dispatch and other-base runs; the iOS suites after it
+# already run on a skipped or warn-only lint. `inputs` is detect-ios-changes' should_lint list.
+# Measured locally: 43 s (tests) and 123-247 s (gate, with its worktree); the whole job took 310 s on cmux-linux
+# (tests, gate and checkout). The gate runs alone, in its own worktree (--namespace-fix rewrites files), so no other
+# step sees its edits or competes for its CPUs.
+[step.package-conventions-tests]
+job = "linux"
+timeout = 180
+title = "Package conventions lint tests"
+about = "the iOS package conventions lint's own tests (test_ios_package_conventions.py, test_pr_scoped_lint_gates.py)"
+inputs = [
+  "ios/**",
+  "Packages/**",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/lint-ios-package-conventions.sh",
+  "scripts/lint_swift_namespaces.py",
+  "scripts/swift_source_mask.py",
+  "scripts/tests/test_ios_package_conventions.py",
+  "scripts/tests/test_pr_scoped_lint_gates.py",
+  "scripts/ci/package-conventions-gate.sh",
+  "scripts/ci/crash-class-gate.sh",
+  "scripts/cmux-next/check-concurrency.sh",
+  "scripts/cmux-next/check-closure-mutex.py",
+  "scripts/cmux-next/check-main-actor-work.py",
+  "scripts/cmux-next/swift_scope.py",
+  "scripts/cmux-next/caller_isolation.py",
+  "scripts/cmux-next/caller-isolated-blocking-pending.json",
+  "scripts/ci/pr_owned_findings.py",
+  "scripts/lint-ios-package-conventions-baseline.txt",
+  "scripts/lint-namespace-types-baseline.txt",
+  "scripts/lint-namespace-types-ratchet.txt",
+]
+run = '''
+python3 scripts/tests/test_ios_package_conventions.py
+python3 scripts/tests/test_pr_scoped_lint_gates.py
+'''
+
+[step.package-conventions-gate]
+job = "linux"
+timeout = 360
+alone = true
+title = "Package conventions lint"
+about = "the iOS package conventions gate on the files the pull request changes (package-conventions-gate.sh --pr), warn-only into feat-cmux-next but for an added namespace type"
+inputs = [
+  "ios/**",
+  "Packages/**",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/lint-ios-package-conventions.sh",
+  "scripts/lint_swift_namespaces.py",
+  "scripts/swift_source_mask.py",
+  "scripts/tests/test_ios_package_conventions.py",
+  "scripts/tests/test_pr_scoped_lint_gates.py",
+  "scripts/ci/package-conventions-gate.sh",
+  "scripts/ci/crash-class-gate.sh",
+  "scripts/cmux-next/check-concurrency.sh",
+  "scripts/cmux-next/check-closure-mutex.py",
+  "scripts/cmux-next/check-main-actor-work.py",
+  "scripts/cmux-next/swift_scope.py",
+  "scripts/cmux-next/caller_isolation.py",
+  "scripts/cmux-next/caller-isolated-blocking-pending.json",
+  "scripts/ci/pr_owned_findings.py",
+  "scripts/lint-ios-package-conventions-baseline.txt",
+  "scripts/lint-namespace-types-baseline.txt",
+  "scripts/lint-namespace-types-ratchet.txt",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+scope=()
+git rev-parse -q --verify 'HEAD^2' >/dev/null && scope=(--pr)
+override="$(python3 -I - "${GITHUB_EVENT_PATH:-}" <<'PY'
+import json, sys
+try:
+    labels = (json.load(open(sys.argv[1])).get("pull_request") or {}).get("labels") or []
+except (OSError, ValueError):
+    labels = []
+print("true" if any(label.get("name") == "namespace-lint-override" for label in labels) else "false")
+PY
+)"
+tree="$(mktemp -d "$RUNNER_TEMP/pcl.XXXXXX")"
+git worktree add --detach "$tree" HEAD >/dev/null
+trap 'git worktree remove --force "$tree" >/dev/null 2>&1 || true' EXIT
+cd "$tree"
+rc=0
+CMUX_NEXT_STYLE_GUARDS=warn scripts/ci/package-conventions-gate.sh ${scope[@]+"${scope[@]}"} || rc=$?
+# Warn-only still fails a pull request that adds a namespace type the safe rewrite fixes.
+if (( rc != 0 )) && [ ${#scope[@]} -gt 0 ] && [ "$override" != true ]; then
+  python3 scripts/ci/pr_added_namespace_types.py || exit 1
+fi
+if (( rc != 0 )); then
+  echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
+fi
+exit 0
+'''
+
 [step.ios-connection-notices]
 job = "linux"
 timeout = 120
@@ -2196,11 +2331,18 @@ mode="${CMUX_IOS_SIM_LINUX:-off}"
 pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
 pool=""
 sim=0
-if [[ "$mode" == on && -f "$pool_dir/submitted" ]]; then
+if [[ "$mode" == on && -f "$pool_dir/submitted" ]] && (( ! status )); then
   pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=1200 bash scripts/ci/ios-sim-pool.sh collect)"
   echo "fleet pool: $pool"
 fi
+# A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
+# of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
+if (( status )); then
+  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  pool="skipped"
+fi
 case "${pool%% *}" in
+skipped) ;;
 pass) echo "iOS simulator tests passed on the fleet pool; this Mac skips them" ;;
 fail) echo "::error title=fleet pool::iOS simulator tests failed on the fleet pool (${pool#* })"; sim=1 ;;
 *)
