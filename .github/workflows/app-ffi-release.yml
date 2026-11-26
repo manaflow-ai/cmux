@@ -98,6 +98,7 @@ on:
       - "cmux-tui/crates/cmux-rd-engine/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-rd-screen/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
       - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
@@ -117,6 +118,8 @@ on:
       - "!cmux-tui/bindings/rust/examples/**"
       # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
       - "cmux-tui/crates/cmux-rd-proto/tests/**"
+      # cmux-wallpaper's lottie scene includes tests/fixtures/lottie/orbs.json.
+      - "cmux-tui/crates/cmux-wallpaper/tests/**"
   workflow_dispatch:
     inputs:
       universal:
@@ -438,6 +441,8 @@ jobs:
         env:
           CMUX_APP_FFI_ARCHS: ${{ inputs.universal && 'arm64,x86_64' || 'arm64' }}
           CMUX_APP_FFI_OUT: ${{ runner.temp }}/app-ffi
+          # Self-hosted Macs keep cargo's target directory between releases (build-app-ffi.sh).
+          CMUX_APP_FFI_PERSIST_TARGET: ${{ runner.environment == 'self-hosted' && '1' || '0' }}
         run: ../scripts/cmux-next/build-app-ffi.sh
 
       - name: Assemble, check and checksum
