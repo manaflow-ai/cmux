@@ -18,8 +18,8 @@ the profiles lane goes here first, then into a PR.
 | Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | Done here: `.transition({kind, motion})` times the move and fade with a motion token, spring or timed curve on both renderers; `cmux.motion/1` sends a transition without a motion as the bare kind, so it keeps the renderer's own springs |
 | Looping effects (pulse, breathe, spin, ...) | Yes: `.loop({effect, period, amount})` | None: the native renderer clamps `amount` to [-10, 10] like `cmux.motion/1`, so a negative `spin` turns counterclockwise on macOS too |
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
-| Named motion presets shared by an app's nodes | Partly: a JS constant passed to `.animation()` | No manifest- or theme-level preset table, so a profile cannot retime its extensions in one place |
-| Chrome motion (tab reflow, sidebar, palette, hover card) | No: only `ui.animationSpeed`, `ui.animation`, `ui.paneAnimations` | The design-token springs and fades (`design-tokens.json` `motion`) are compiled in. A profile cannot set its own timings, so codex-app and t3-code cannot match their apps' feel |
+| Named motion presets shared by an app's nodes | Partly: the look carries them (a theme file's `motion.presets`, `{duration, bounce}` springs read and clamped in Rust by `cmux_extension_sdk::motion_profile`); an extension still passes a JS constant to `.animation()` | `.animation("presetName")` does not resolve a look preset yet: each app host runs in its own process and does not read the active look. `MotionProfile::preset_animation` already gives a preset's `cmux.motion/1` spring for that step |
+| Chrome motion (tab reflow, sidebar, palette, hover card) | Partly: a theme file's `motion.springs` and `motion.fades` override the design-token springs and fades by name; the daemon reads, checks and clamps them and `theme.slots.resolve` answers them with the slots on every theme file change | The macOS app does not apply the answer yet: its chrome still reads the compiled-in `MotionTunables` defaults. The next step is a Swift layer that applies the answer's `motion` under the Debug Settings overrides |
 | Streaming style of agent text (reveal, cursor, chunk fade) | Yes: `agentPane.display.streaming`, `words` (the default: whole words, the newest fading in), `lines` (whole lines) or `instant` (as it arrives, no fade); a theme or profile file may set it | No fade timing of its own: the fade follows the host's `--agent-motion-in` |
 | Scroll and gesture motion inside a pane scene | No | No scroll-linked props: an extension cannot pin a header or fade content against its scroll position |
 
@@ -32,7 +32,7 @@ the profiles lane goes here first, then into a PR.
 | Keybindings an extension declares | Yes: `contributes.keybindings` in keybindings.json form (`{key, command, when?, args?}`, the same parser), an own op or a cmux action, in the app binding layer below the person's keybindings.json; a pair bound twice warns (`keybindings.shortcutConflict`) | Bare keys outside a bare-key `when` stay the person's |
 | Menus and toolbar items | Yes: `contributes.menus`, `contributes.toolbarItems` | None found |
 | Panes and overlays | Yes: `cmux.pane/1` (`presentation.overlay` too), `cmux.section/1`, `cmux.newtab/1`; panel flows: `cmux.app.openPane(args)` resolves the pane's `ctx.close(result)`, and the pane context has `args`, `onOpen` and `onClose` (runtime 1.5.0) | None for the flow itself |
-| Pane state that survives a reload | Partly: `app.storage.*`, and `cmux ext dev` hot-reloads the script | Scene state (scroll position, focused field, expanded rows) is lost on a hot reload. There is no `state` export the host keeps and hands back |
+| Pane state that survives a reload | Yes: `ctx.keep(name, initial)` on every view context, a signal the daemon keeps with the mount through a `cmux ext dev` save, a host restart or a Reload, and `ctx.state` (runtime 1.6.0); `app.storage.*` for what outlives the view | Scroll position and focus are the renderer's, not kept yet |
 | Composer layout (toolbar, chips, model and reasoning picker) | Yes: `cmux.composer.toolbar/1`, `cmux.composer.chip/1`, `cmux.composer.model.picker/1` | None found |
 | Chat message actions and widgets | Yes: `cmux.chat.action/1`, `cmux.chat.widget/1` | None found |
 | Hover cards and sidebar row decorations | Yes: `cmux.hovercard/1`, `cmux.sidebar.rows/1` | `cmux.sidebar.rows/1.json` was not valid JSON (unescaped quotes in `docs`), so its options schema did not load. Fixed in the same PR as `cmux.motion/1` |
@@ -55,7 +55,41 @@ The codex profile (`examples/looks/codex/profile`, built from these docs only) f
 1. `cmux.motion/1`: one typed and versioned motion contract in Rust (landed with this page).
 2. Done: `agentPane.display.streaming` (`words`, `lines`, `instant`), the streaming style setting.
 3. `contributes.keybindings` with `onKeybinding` activation (landed).
-4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`.
+4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`. Rust side
+   landed (`cmux-app-host/src/motion_profile.rs`, theme file `motion`, `theme.slots.resolve`); next: the app
+   applies the answer to its chrome, and `.animation("presetName")` resolves a look preset.
 5. Done (runtime 1.5.0): `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).
-6. Scene state that survives a hot reload.
+6. Done (runtime 1.6.0): view state that survives a hot reload (`ctx.keep`, `app.view.state`).
 7. Timed transitions (`{kind, motion}`) (landed).
+
+## The `motion` block (for agents)
+
+A theme file (`themes/NAME.json`, and so a look, a theme pack or a profile that carries one) may set:
+
+```json
+{
+  "motion": {
+    "presets": { "drawer": { "duration": 0.32, "bounce": 0.1 } },
+    "springs": { "move": { "duration": 0.18 }, "appear": { "duration": 0.16 } },
+    "fades": { "fadeIn": 0.12, "hoverOut": 0.1 }
+  }
+}
+```
+
+- A spring is `{duration, bounce}`, as SwiftUI's `.spring(duration:bounce:)`: `duration` in seconds (the
+  response), `bounce` 0 (no overshoot, the default) up to 0.7. Rust converts it: response = duration, damping
+  fraction = 1 - bounce.
+- Every number is clamped to `cmux.motion/1`: seconds in 0.05 to 10, damping fraction 0.3 to 1.
+- `springs` and `fades` names are the design tokens' (`design-tokens.json` `motion.springs`, `motion.fades`).
+  An unknown name, a malformed entry or a preset named like a `cmux.motion/1` token (`smooth`, `move`, ...) is
+  left out with a diagnostic naming its path; the rest apply.
+- No block, or an empty one, changes no timing.
+- `cmux theme schema` prints the JSON Schema, `motion` included.
+
+Copy-paste prompt:
+
+> Give my look the feel of APP. In its theme file (`themes/NAME.json`), add a `motion` block: override only
+> the design-token springs (`motion.springs`, each `{duration, bounce}`) and fades (`motion.fades`, seconds)
+> whose timing differs from APP, and name any spring APP's panels share as a preset in `motion.presets`.
+> Keep `bounce` 0 unless APP visibly overshoots. Check the file with `cmux theme schema`, and leave every
+> other key alone.

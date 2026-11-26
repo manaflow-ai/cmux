@@ -10,6 +10,7 @@ agentPane.dictationSource
 agentPane.display.code.family
 agentPane.display.code.scale
 agentPane.display.commandLabels
+agentPane.display.compactShortTurns
 agentPane.display.environment.placement
 agentPane.display.finishSound
 agentPane.display.font.faces
@@ -23,6 +24,7 @@ agentPane.display.fullWidth
 agentPane.display.harnessPlacement
 agentPane.display.inspector.placement
 agentPane.display.minimap
+agentPane.display.modelPickerOrder
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach
