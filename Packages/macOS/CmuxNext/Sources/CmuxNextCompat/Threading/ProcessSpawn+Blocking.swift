@@ -18,10 +18,18 @@ public import Glibc
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `posix_spawn` returns (0, or an error number).
+#if canImport(Darwin)
+public typealias PosixSpawnFileActions = posix_spawn_file_actions_t?
+public typealias PosixSpawnAttributes = posix_spawnattr_t?
+#else
+public typealias PosixSpawnFileActions = posix_spawn_file_actions_t
+public typealias PosixSpawnAttributes = posix_spawnattr_t
+#endif
+
 @inlinable
 public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: UnsafePointer<CChar>,
-                               _ fileActions: UnsafePointer<posix_spawn_file_actions_t?>?,
-                               _ attributes: UnsafePointer<posix_spawnattr_t?>?,
+                               _ fileActions: UnsafePointer<PosixSpawnFileActions>?,
+                               _ attributes: UnsafePointer<PosixSpawnAttributes>?,
                                _ argv: UnsafePointer<UnsafeMutablePointer<CChar>?>,
                                _ envp: UnsafePointer<UnsafeMutablePointer<CChar>?>?,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
