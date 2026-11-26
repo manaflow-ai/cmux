@@ -1445,7 +1445,7 @@ try {
   // chosen: alternating long and empty windows in one launch (a launch is one renderer and V8 isolate, so the two
   // would share a heap and its collections), or a floor on the xN denominator (empty xN idles at 1.7-3.3 %, so a
   // floor that steadied the ratio would sit on the values it compares and hide a real difference).
-  const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
+  const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS, { profile: PROFILE });
   const many: [string, Launch][] = [];
   if (emptyMany && CASES !== "grown-many")
     many.push([
@@ -1459,6 +1459,7 @@ try {
     many.push([
       `grown_x${CHATS}`,
       await runLaunch(`grown_x${CHATS}`, small, CHATS, {
+        profile: PROFILE,
         grow: long.turns,
         match: emptyMany,
       }),
