@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "sessionInfo.alsoHere" : {
-      "comment" : "Agent pane: who else works on these files",
+    "settings.agentPane.display.pinnedPlan" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Task List in Chat"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يعمل هنا أيضًا"
+            "value" : "تثبيت قائمة المهام في المحادثة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Takođe radi ovdje"
+            "value" : "Prikači listu zadataka u razgovoru"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbejder også her"
+            "value" : "Fastgør opgavelisten i chatten"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbeitet auch hier"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Also working here"
+            "value" : "Aufgabenliste im Chat anheften"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "También trabajan aquí"
+            "value" : "Fijar la lista de tareas en el chat"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Travaille aussi ici"
+            "value" : "Épingler la liste des tâches dans la conversation"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lavorano anche qui"
+            "value" : "Fissa l'elenco delle attività nella chat"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ここで作業中の他のセッション"
+            "value" : "タスクリストをチャットに固定"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ក៏កំពុងធ្វើការនៅទីនេះ"
+            "value" : "ខ្ទាស់បញ្ជីកិច្ចការក្នុងការជជែក"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "여기서 함께 작업 중"
+            "value" : "채팅에 작업 목록 고정"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Jobber også her"
+            "value" : "Fest oppgavelisten i chatten"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pracują tu także"
+            "value" : "Przypnij listę zadań w czacie"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Também trabalhando aqui"
+            "value" : "Fixar a lista de tarefas no chat"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Также работают здесь"
+            "value" : "Закрепить список задач в чате"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ทำงานที่นี่ด้วย"
+            "value" : "ปักหมุดรายการงานในแชท"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Burada da çalışıyor"
+            "value" : "Görev listesini sohbete sabitle"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Також працюють тут"
+            "value" : "Закріпити список завдань у чаті"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cũng đang làm việc ở đây"
+            "value" : "Ghim danh sách công việc trong cuộc trò chuyện"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在这里工作"
+            "value" : "在聊天中固定任务列表"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在這裡工作"
+            "value" : "在聊天中固定任務清單"
           }
         }
       }
