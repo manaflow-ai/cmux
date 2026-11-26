@@ -171,14 +171,23 @@ ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
 
 # Valgrind for the instruction-count step (Callgrind). A host valgrind is used as is; otherwise the distribution's
 # package is fetched with `apt-get download` (no root: apt checks it against the signed index) and unpacked into
-# $CI_TOOLS, with a wrapper that points it at its own tool directory.
+# $CI_TOOLS, with a wrapper that points it at its own tool directory. A runner whose apt index lacks the package (a
+# hosted image ships its lists pruned: "Can't select candidate version from package valgrind") gets a job-local index
+# fetched into $CI_TOOLS/apt, still signature-checked, still without root.
 valgrind = '''
 if command -v valgrind >/dev/null 2>&1; then
   valgrind --version
   exit 0
 fi
 mkdir -p "$CI_TOOLS/valgrind-deb" "$CI_TOOLS/bin"
-(cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind)
+if ! (cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind); then
+  apt_dir="$CI_TOOLS/apt"
+  mkdir -p "$apt_dir/lists/partial" "$apt_dir/cache/archives/partial"
+  apt_opts=(-o "Dir::State::Lists=$apt_dir/lists" -o "Dir::Cache=$apt_dir/cache" -o Debug::NoLocking=1)
+  echo "the host apt index has no valgrind; fetching a job-local index into $apt_dir"
+  apt-get "${apt_opts[@]}" -o Acquire::Retries=3 update -qq
+  (cd "$CI_TOOLS/valgrind-deb" && apt-get "${apt_opts[@]}" download valgrind)
+fi
 dpkg -x "$CI_TOOLS"/valgrind-deb/valgrind_*.deb "$CI_TOOLS/valgrind-root"
 lib="$(dirname "$(find "$CI_TOOLS/valgrind-root" -name 'callgrind-*-linux' | head -n 1)")"
 [ -d "$lib" ] || { echo "the valgrind package holds no callgrind"; exit 1; }
@@ -694,17 +703,24 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
-# Every on-disk format a cmux-tui build leaves for the next build ships its migration (Leo, 2026-11-24,
+# Every on-disk format a build leaves for the next build ships its migration (Leo, 2026-11-24,
 # ask-1f9e8b7422: "we need to make sure in the future these kinds of cutovers always have proper migrations.").
-# The registry is cmux-tui/persisted-formats/formats.toml; the cmux_next_persisted_* Rust tests load its fixtures
-# through the real readers (the cmux_next_ daemon tests step). Seconds.
+# Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
+# (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
+# retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
+# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant in cmux-tui is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
+  "persisted-formats/**",
+  "Packages/**",
+  "cmux-next-ios/**",
+  "webviews/src/**",
+  "schemas/settings/**",
   "scripts/ci/persisted_formats.py",
   "tests/test_ci_persisted_formats.py",
   "tests/git_fixture_env.py",
@@ -1031,7 +1047,8 @@ exit "$status"
 '''
 
 # cmux-next-guards.yml's tooling-tests job: the tests of feat-cmux-next's own CI tooling. A pull request into
-# feat-cmux-next runs these four steps (the job's tt- steps in its order, split so each stays under the cap); the job
+# feat-cmux-next runs these five steps (the job's tt- steps in its order, split so each stays well under the cap
+# on a slow runner: tt-objc-selectors-step and tt-display-suites took 83 s and 139 s there, so they sit in different steps); the job
 # keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
 # tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k (zsh from apt) and tt-tailnet
 # (cmux-tui's pinned Rust). Each step asks tooling_steps.py which tt- steps the change reaches, as the job's
@@ -1123,8 +1140,8 @@ exit "$status"
 [step.tooling-tests-3]
 job = "linux"
 timeout = 300
-title = "Tooling tests 3 (iOS, Swift package and media scripts)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-app-crate-licenses to tt-media-publish-windows, those the change reaches"
+title = "Tooling tests 3 (iOS simulator, App Store and selector scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-app-crate-licenses to tt-asc-review-package, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1156,6 +1173,35 @@ if want tt-ios-ffi-cache; then python3 -I tests/test_ios_ffi_cache.py || status=
 if want tt-ios-chief-benchmark; then python3 -I tests/test_ios_chief_benchmark_route.py || status=1; fi
 if want tt-ios-appstore-listing; then python3 -I tests/test_ios_appstore_listing_text.py || status=1; fi
 if want tt-asc-review-package; then python3 -I tests/test_asc_review_package.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-4]
+job = "linux"
+timeout = 300
+title = "Tooling tests 4 (display suites, Swift package and media scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-display-suites to tt-media-publish-windows, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
 if want tt-display-suites; then python3 scripts/ci/display_suites.py && python3 tests/test_ci_display_suites.py || status=1; fi
 if want tt-swiftpm-test-product; then python3 tests/test_swiftpm_test_product.py || status=1; fi
 if want tt-compile-string-catalogs; then python3 tests/test_compile_string_catalogs.py || status=1; fi
@@ -1165,10 +1211,10 @@ if want tt-media-publish-windows; then python3 tests/test_cmux_next_media_publis
 exit "$status"
 '''
 
-[step.tooling-tests-4]
+[step.tooling-tests-5]
 job = "linux"
 timeout = 300
-title = "Tooling tests 4 (measure, checkup, packaging and web routing scripts)"
+title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
 about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
 inputs = ["**"]
 run = '''
@@ -1302,33 +1348,6 @@ python3 tests/test_remote_daemon_release_verification.py || rc=1
 python3 tests/test_remote_daemon_notices.py || rc=1
 python3 tests/test_remote_daemon_release_assets.py || rc=1
 exit "$rc"
-'''
-
-# coderouter-ci.yml's test job, which keeps its main push runs. `inputs` is its former pull_request path filter
-# (`.github/workflows/coderouter-*.yml`) less coderouter-ci.yml. It had a Swatinem/rust-cache; here coderouter/target
-# starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
-[step.coderouter]
-job = "linux"
-# Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
-alone = true
-timeout = 360
-title = "coderouter CLI"
-about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.94.0, its cargo, Python and npm versions agree, and its npm package packs"
-needs = ["rust", "node"]
-inputs = [
-  "coderouter/**",
-  ".github/workflows/coderouter-release.yml",
-  ".github/workflows/coderouter-verify-release.yml",
-]
-run = '''
-cd coderouter
-export RUSTUP_TOOLCHAIN=1.94.0
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked --all-targets
-node scripts/check-version.mjs
-cd npm
-npm pack --dry-run
 '''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
@@ -1780,6 +1799,70 @@ done
 exit "$status"
 '''
 
+# Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction,
+# steer-during-compaction, background-task and reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
+# frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
+# no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
+[step.chat-flow-shift-budget]
+job = "web-browser"
+timeout = 900
+alone = true
+title = "Chat flow layout-shift budget"
+about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "cmux-tui/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/webviews_test_history.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/playwright-apt-deps.sh*",
+  "scripts/ci/web_subareas.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "scripts/ci/r2-cache.sh",
+  "scripts/blacksmith-testbox-source-mtimes.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  ".gitattributes",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/playwright-apt-cache/**",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+root="$PWD"
+cd webviews
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./node_modules/.bin/playwright install --with-deps webkit
+log="$(mktemp)"
+bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
+chrome="$(tail -n 1 "$log")"
+case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
+export CMUX_BROWSER_TESTS=1 FAST_CHECKS_OUT="${RUNNER_TEMP:-$root/.ci-tmp}/chat-flow-shift-budget"
+bun test test/chat-flow-shift-budget-browser.test.ts
+'''
+
 # Leo's UI removals stay removed (Leo, 2026-11-25, ask-9e3c3b10a7: "why are random things getting introduced...").
 # scripts/cmux-next/removed-ui.json lists each element he asked to remove, his words and a marker only it has; a
 # change that brings a marker back fails here, naming the line and the ask. Bringing one back on purpose: the row's
@@ -1882,6 +1965,7 @@ about = "the cmux_next_ daemon tests of the cmux-tui workspace members that name
 needs = ["rust", "zig"]
 inputs = [
   "cmux-tui/**",
+  "schemas/settings/**",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/cmux-next/cargo-locks.py",
   "scripts/ci/cmux-tui-test-target.sh",
@@ -2147,7 +2231,11 @@ job = "linux"
 timeout = 120
 title = "Phone connection notices"
 about = "a phone connection state waits QuietStatusGate's 10 s or carries an action (check-connection-notices.py)"
-inputs = ["cmux-next-ios/**", "scripts/cmux-next/check-connection-notices.py"]
+# Every surface the detector judges (its SURFACES, the bound's schema, its allowlist): a web or Mac change that adds an
+# offender fails on its own PR, not on the next phone PR (GitHubConnectCard.tsx from #56129 reddened every iOS PR).
+inputs = ["cmux-next-ios/**", "webviews/src/**", "Packages/macOS/CmuxNext/Sources/**", "Packages/iOS/**",
+          "schemas/notice-timing/**", "scripts/cmux-next/check-connection-notices.py",
+          "scripts/cmux-next/connection-notices-allowlist.tsv"]
 ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 run = '''
