@@ -457,7 +457,8 @@
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
-        "schemas/sidebar-drag-geometry/vectors.json"
+        "schemas/sidebar-drag-geometry/vectors.json",
+        "schemas/sidebar-region-layout/vectors.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
