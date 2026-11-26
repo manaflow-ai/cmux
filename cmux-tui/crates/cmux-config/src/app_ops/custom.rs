@@ -720,6 +720,19 @@ fn palette_ranking(read: &mut Read) {
         remembers = json!(on);
     }
     read.set("remembersSearches", remembers);
+    // Swift ignores a bad `experiments.paletteV2` / `palettePreview` silently.
+    let mut look = read.default_of("experiments.paletteV2");
+    if let Some(text) = read.at("experiments.paletteV2").and_then(Value::as_str) {
+        if read.choices_of("experiments.paletteV2").iter().any(|c| c == text) {
+            look = json!(text);
+        }
+    }
+    read.set("paletteV2", look);
+    let mut preview = read.default_of("experiments.palettePreview");
+    if let Some(Value::Bool(on)) = read.at("experiments.palettePreview") {
+        preview = json!(on);
+    }
+    read.set("palettePreview", preview);
 }
 
 fn palette_scope_prefixes(read: &mut Read) {
@@ -1086,7 +1099,9 @@ fn reduced_backgrounds_notes(request: &Value, read: &mut Read) {
     if request.get("reduced").and_then(Value::as_bool) != Some(true) {
         return;
     }
-    for path in ["appearance.windowOpacity", "appearance.windowMaterial", "appearance.background"] {
+    for path in
+        ["appearance.backgroundOpacity", "appearance.backgroundBlur", "appearance.background"]
+    {
         read.diagnostics.push(json!({
             "kind": "plainBackgrounds",
             "path": path,
@@ -1099,12 +1114,15 @@ fn reduced_backgrounds_notes(request: &Value, read: &mut Read) {
 
 fn recent_fonts_recorded(request: &Value) -> Result<Value, OpError> {
     const LIMIT: usize = 6;
-    let family = string(request, "family")?;
+    let family = string(request, "family")?.trim();
     let list: Vec<&str> = request
         .get("list")
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
+    if family.is_empty() {
+        return Ok(json!({"list": list}));
+    }
     let mut result = vec![family];
     result.extend(list.into_iter().filter(|name| *name != family));
     result.truncate(LIMIT);
@@ -1321,6 +1339,12 @@ mod tests {
             "menu_look",
             json!({"appearance": {"menu": {"shadow": "huge", "fill": "red", "rowHeight": 99}}}),
         );
+        assert_eq!(bad["values"]["rowHeight"], 40.0);
+        assert!(
+            messages(&bad)
+                .iter()
+                .any(|m| m.0 == "appearance.menu.shadow" && m.1.starts_with("expected one of"))
+        );
         let paths: Vec<_> = messages(&bad).into_iter().map(|m| m.0).collect();
         for path in ["appearance.menu.shadow", "appearance.menu.fill", "appearance.menu.rowHeight"]
         {
@@ -1448,6 +1472,14 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!(answer["list"], json!(["A", "B", "C"]));
+        let trimmed = call("recent_fonts.recorded", &json!({"family": "  A ", "list": ["B"]}))
+            .unwrap()
+            .unwrap();
+        assert_eq!(trimmed["list"], json!(["A", "B"]));
+        let blank = call("recent_fonts.recorded", &json!({"family": "  ", "list": ["B"]}))
+            .unwrap()
+            .unwrap();
+        assert_eq!(blank["list"], json!(["B"]));
         let tip =
             call("feature_tips.is_open", &json!({"lastShownAt": 0, "at": 100})).unwrap().unwrap();
         assert_eq!(tip["open"], false);
