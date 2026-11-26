@@ -36,6 +36,29 @@ import Testing
         window.close()
     }
 
+    private func showToast(on window: NSWindow) -> WindowOverlayHost {
+        let host = WindowOverlayHost.host(for: window)
+        _ = host.present(NSView(frame: CGRect(x: 0, y: 0, width: 40, height: 20)),
+                         options: OverlayOptions(kind: .toast, anchor: CGRect(x: 10, y: 10, width: 10, height: 10), passesThroughClicks: true))
+        return host
+    }
+
+    /// Two main windows of one app, both with their overlay panel attached: while A enters and sits in full screen, B
+    /// (windowed, behind it) keeps a panel that cannot join A's full screen Space; A's own panel goes with A.
+    @Test func aSecondWindowsPanelStaysOutOfTheFirstWindowsFullScreen() {
+        let a = shellWindow(), b = shellWindow()
+        let hostA = showToast(on: a), hostB = showToast(on: b)
+        #expect(hostA.panel.parent === a && hostB.panel.parent === b)
+        ChildWindowSpaces.willEnterFullScreen(a)
+        #expect(auxiliary(hostA.panel), "A's panel goes with A into its full screen Space")
+        #expect(!auxiliary(hostB.panel), "B's panel could join A's full screen Space and take B with it")
+        ChildWindowSpaces.willExitFullScreen(a)
+        ChildWindowSpaces.didExitFullScreen(a)
+        #expect(!auxiliary(hostA.panel) && !auxiliary(hostB.panel))
+        b.close()
+        a.close()
+    }
+
     private func panel(_ behavior: NSWindow.CollectionBehavior) -> NSPanel {
         let panel = NSPanel(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
