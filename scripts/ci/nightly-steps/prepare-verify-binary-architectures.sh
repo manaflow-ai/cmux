@@ -27,6 +27,12 @@ done
 if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   for helper in optchat-chief cmux-mobile-host; do
     binary="$APP/Contents/Resources/bin/$helper"
+    # The iPhone host is a stale part, not a hold (app-bundle-chief-and-mobile-host.sh noted it), unless
+    # vars.NIGHTLY_COMPONENT_GATES is block.
+    if [ ! -e "$binary" ] && [ "$helper" = cmux-mobile-host ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+      echo "::warning title=Nightly stale part::cmux-mobile-host: this nightly carries no iPhone host"
+      continue
+    fi
     [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"

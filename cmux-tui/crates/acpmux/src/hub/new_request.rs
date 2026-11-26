@@ -4,8 +4,14 @@
 use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
-pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+pub(super) fn unique_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    agent: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
     for n in 0.. {
         let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
         if !taken.contains(&candidate) {
@@ -20,8 +26,14 @@ pub const SUFFIX_TAKEN_NAME: &str = "suffix";
 
 /// `name` when no session in `sessions` has it, else `name-N` for the first N from 2 not taken:
 /// the requested name kept, never the agent's.
-pub(super) fn suffixed_name_among(sessions: &HashMap<String, Arc<Session>>, name: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+pub(super) fn suffixed_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    name: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
     suffixed_name(&taken, name)
 }
 
@@ -162,11 +174,22 @@ pub struct NewRequest {
     /// The owner's Cloud credential for this chat's agent (`_meta.acpmux.credentials`, unix
     /// socket only, `agent_credentials.rs`): kept on the session in memory, never in its meta.
     pub credential: Option<crate::agent_credentials::AgentCredential>,
+    /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
+    /// create sent again with it, after a restart cut its reply, gets the session it made.
+    pub create_key: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
-/// it can): it never finished a turn, or another profile ran it and this
-/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
+/// it can): it never finished a turn, or the store this profile resumes from
+/// (its CLAUDE_CONFIG_DIR) does not have it.
+///
+/// The store is checked whoever ran the chat last. A conversation can leave
+/// the store a profile of its own never left: the Chief compactor deletes a
+/// transcript it folded, and a pruned, rotated or deleted store loses the
+/// rest. `--resume` on one of those fails every turn of that session forever
+/// (`No conversation found with session ID`, no turn, no self-healing), while
+/// a refusal here costs one fresh conversation with the transcript restored
+/// from acpmux's own log (`lifecycle.rs`).
 pub(super) fn claude_resume_refusal(
     meta: &SessionMeta,
     profile: &HarnessProfile,
@@ -175,12 +198,20 @@ pub(super) fn claude_resume_refusal(
     if meta.claude_unstored {
         return Some("never finished a turn");
     }
-    let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
-    if ran_elsewhere {
-        let store = meta.claude_store(&profile.env);
-        if !crate::adopt::claude_session_exists(&store, sid) {
-            return Some("is not in this profile's Claude store");
-        }
+    let store = meta.claude_store(&profile.env);
+    if !crate::adopt::claude_session_exists_near(&store, sid, &meta.cwd) {
+        // Which store it is missing from, so the log and the `resume_failed`
+        // row read as what happened.
+        let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
+        return Some(if ran_elsewhere {
+            "is not in this profile's Claude store"
+        } else {
+            "is no longer in Claude's store"
+        });
     }
     None
 }
+
+#[cfg(test)]
+#[path = "claude_resume_tests.rs"]
+mod claude_resume_tests;

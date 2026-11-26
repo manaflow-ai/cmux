@@ -64,8 +64,8 @@ struct CatalogListParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Shelf {
-    /// Discover: the first-party apps cmux ships as default apps (Cloud,
-    /// CodeRouter), cmux's own store apps (the `cmux/` packages the build
+    /// Discover: the first-party apps cmux ships as default apps (Cloud),
+    /// cmux's own store apps (the `cmux/` packages the build
     /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
     /// marker: the clock, weather, calendar and to-do widgets), and later a
     /// cloud catalog's listings.
@@ -86,7 +86,8 @@ const FIRST_PARTY_PUBLISHER: &str = "cmux/";
 impl Shelf {
     pub(crate) fn of(package: &Package) -> Self {
         match package.source {
-            Source::Default | Source::User => Self::Store,
+            // A git-installed app is the person's own install, like User.
+            Source::Default | Source::User | Source::Git => Self::Store,
             // A first-party STORE app is built into the same folder as the
             // samples; its `cmux/` publisher puts it on Discover (Leo,
             // 2026-11-20: "JUST ADD SHIT").
@@ -154,6 +155,9 @@ pub(crate) struct Listing {
     #[serde(skip_serializing_if = "Option::is_none")]
     tagline: Option<String>,
     publisher: String,
+    /// The app draws on the New Tab page (`cmux.newtab/1`), so the store
+    /// offers Use as New Tab (`tabs.newTabApp`).
+    new_tab: bool,
     tier: Tier,
     version: String,
     icon: Option<IconRef>,
@@ -241,7 +245,7 @@ fn contributions(package: &Package) -> Vec<Contribution> {
     if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
         rows.extend(widget_contributions(widget, &name));
     }
-    rows.extend(package.palette_commands().iter().map(|command| Contribution {
+    rows.extend(package.palette_commands(None).iter().map(|command| Contribution {
         kind: "command",
         title: command.get("title").map(text).unwrap_or_default(),
     }));
@@ -356,6 +360,8 @@ struct InstalledApp {
     name: String,
     tier: Tier,
     hide_only: bool,
+    /// The app draws on the New Tab page (`cmux.newtab/1`).
+    new_tab: bool,
     state: InstallState,
     grants: Vec<String>,
     /// The deployed instance (`deploy.rs`), null for an app with none.
@@ -412,7 +418,15 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
     }
 }
 
-fn listing(package: &Package, record: Option<&Record>) -> Listing {
+/// The interface whose app draws on the New Tab page (`tabs.newTabApp`).
+const NEW_TAB_INTERFACE: &str = "cmux.newtab/1";
+
+/// Whether the manifest implements `cmux.newtab/1`.
+fn draws_new_tab(manifest: &Value) -> bool {
+    manifest.get("implements").and_then(|implements| implements.get(NEW_TAB_INTERFACE)).is_some()
+}
+
+pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
     let m = &package.manifest;
     let icon = match &m["icon"] {
         Value::String(path) => Some(IconRef::Asset(path.clone())),
@@ -427,6 +441,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
         summary: text(&m["description"]),
         tagline: m.get("tagline").map(text).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
+        new_tab: draws_new_tab(m),
         tier: package.tier,
         version: package.version.clone(),
         icon,
@@ -458,6 +473,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
         name: package.map_or_else(|| app.to_string(), |p| text(&p.manifest["name"])),
         tier: package.map_or(Tier::Unverified, |p| p.tier),
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
+        new_tab: package.is_some_and(|p| draws_new_tab(&p.manifest)),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
         instance: Value::Null,
@@ -511,7 +527,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
 impl Supervisor {
     /// Runs one App Store op. `origin` is the request's, admitted by the A2
     /// gate on the wire.
-    pub fn store_call(
+    pub(super) fn store_call_base(
         &self,
         client: u64,
         op: &str,
@@ -761,6 +777,21 @@ impl Supervisor {
             result.set("instance", self.deploy_start(&p.app, &key, target, spec));
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod new_tab_tests {
+    use serde_json::json;
+
+    /// The store offers Use as New Tab only for an app whose manifest implements `cmux.newtab/1`.
+    #[test]
+    fn only_a_newtab_implementation_draws_new_tab() {
+        let drawn = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+        assert!(super::draws_new_tab(&drawn));
+        let other = json!({ "implements": { "cmux.section/1": { "export": "render" } } });
+        assert!(!super::draws_new_tab(&other));
+        assert!(!super::draws_new_tab(&json!({})));
     }
 }
 

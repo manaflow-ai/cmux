@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.rail.control.help" : {
+      "comment" : "Settings > Appearance > Agent Chat > Prompt Rail Button: help for the toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض ما يسرده الشريط فوقه أثناء التأشير عليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje šta traka navodi iznad nje dok pokazujete na nju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser, hvad bjælken lister, over den, mens du peger på den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt über der Leiste, was sie auflistet, solange du darauf zeigst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows what the rail lists above it while you point at it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra lo que lista la barra encima de ella mientras apuntas a ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche ce que la barre liste au-dessus d’elle quand vous la survolez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra sopra la barra cosa elenca mentre la indichi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ポインタを合わせている間、レールの上に一覧の内容を表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញអ្វីដែលរបាររាយ នៅខាងលើវា ពេលអ្នកចង្អុលលើវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "레일을 가리키는 동안 그 위에 레일이 나열하는 항목을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser hva linjen lister over den mens du peker på den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje nad paskiem, co wyświetla, gdy na niego wskazujesz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra acima da barra o que ela lista enquanto você aponta para ela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает над лентой, что она перечисляет, пока вы наводите на неё указатель."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงสิ่งที่แถบแสดงไว้ด้านบน ขณะที่คุณชี้ไปที่แถบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Üzerine geldiğinizde çubuğun neyi listelediğini üstünde gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує над стрічкою, що вона перелічує, поки ви наводите на неї."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện những gì thanh đang liệt kê phía trên nó khi bạn trỏ vào."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指向此栏时，在其上方显示它列出的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指向此列時，在其上方顯示其列出的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

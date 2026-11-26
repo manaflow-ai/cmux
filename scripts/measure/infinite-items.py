@@ -415,6 +415,8 @@ class Run:
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        if self.args.evict_idle_secs is not None:
+            env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
         return env
 
     def start(self):
@@ -551,6 +553,9 @@ class Run:
         tree = tui.call("list-workspaces")
         listed = tree.get("workspaces", [])[-n:]
         self.workspaces = [w["id"] for w in listed]
+        # select-workspace takes the index in the session's list (a `workspace` id is ignored by it).
+        first = len(tree.get("workspaces", [])) - len(listed)
+        self.workspace_index = {w: first + i for i, w in enumerate(self.workspaces)}
         self.panes = [w["screens"][0]["panes"][0]["id"] for w in listed]
         self.browser_tabs = []
         for pane in self.panes if self.args.browser_tabs else []:
@@ -613,6 +618,29 @@ class Run:
             except (OSError, RuntimeError, ValueError) as exc:
                 self.error("attach", exc)
 
+    def open_probe(self, k):
+        """--open-probe K: opens K idle chats as the app does (attach, newest 400 records), each on a fresh
+        connection, after the last idle window so it moves no memory number. With --evict-idle-secs those
+        chats are evicted rows, so this is the open of an evicted chat; without it, of a resident one."""
+        picks = random.Random(self.count).sample(self.idle, min(k, len(self.idle)))
+        took = []
+        for sid in picks:
+            try:
+                c = Acp(self.acp_sock, timeout=60)
+                t0 = time.monotonic()
+                c.call("_acpmux/attach", {"sessionId": sid, "limit": 400})
+                took.append((time.monotonic() - t0) * 1000)
+                c.close()
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.error("open probe", exc)
+        if not took:
+            return None
+        took.sort()
+        out = {"n": len(took), "p50": round(took[len(took) // 2], 2), "p95": round(took[int(len(took) * 0.95) - 1 if len(took) > 1 else 0], 2),
+               "max": round(took[-1], 2)}
+        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} {json.dumps(out)}", flush=True)
+        return out
+
     @staticmethod
     def drain(conn):
         try:
@@ -671,7 +699,7 @@ class Run:
         for step in range(steps):
             if step < a.switches and self.workspaces:
                 try:
-                    tui.call("select-workspace", workspace=rnd.choice(self.workspaces))
+                    tui.call("select-workspace", index=self.workspace_index[rnd.choice(self.workspaces)])
                 except (OSError, RuntimeError, ValueError) as exc:
                     self.error("select-workspace", exc)
             if step < a.tab_cycles and self.panes:
@@ -769,6 +797,21 @@ def settle(args, top):
         time.sleep(0.25)  # the poll interval of the process trees
 
 
+def dhat_mark(day):
+    """--dhat-mark-days: a dhat-heap cmux-tui (CMUX_TUI_DHAT_OUT, CMUX_TUI_DHAT_MARKS; heap_profile.rs) ends its
+    heap window here: it writes the window to <out>.<n> and removes the mark once written."""
+    out = os.environ.get("CMUX_TUI_DHAT_OUT")
+    if not out:
+        log("dhat mark: CMUX_TUI_DHAT_OUT is not set; no window ended")
+        return
+    mark = os.path.splitext(out)[0] + ".mark"
+    open(mark, "w").close()
+    deadline = time.monotonic() + 900
+    while os.path.exists(mark) and time.monotonic() < deadline:
+        time.sleep(1)  # the poll of the daemon's window write (bench only, bounded)
+    log(f"dhat mark: day {day} window {'written' if not os.path.exists(mark) else 'NOT written in 900 s'}")
+
+
 def run_count(args, count):
     run = Run(args, count)
     result = {"count": count, "samples": []}
@@ -790,6 +833,8 @@ def run_count(args, count):
         day0["day"] = 0
         result["samples"].append(day0)
         log(f"N={count} opened in {result['open_seconds']} s {json.dumps(result['mix'])}: {json.dumps(day0['total'])}")
+        if 0 in args.dhat_mark_days:
+            dhat_mark(0)
         for number in range(1, args.days + 1):
             t0 = time.monotonic()
             turns = run.day(number)
@@ -799,6 +844,10 @@ def run_count(args, count):
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
+            if number in args.dhat_mark_days:
+                dhat_mark(number)
+        if args.open_probe > 0:
+            result["open_ms"] = run.open_probe(args.open_probe)
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -897,6 +946,10 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
+    p.add_argument("--evict-idle-secs", type=int, default=None,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--open-probe", type=int, default=0,
+                   help="after the last day, time opening (attach) this many idle chats; prints INFINITE-OPEN")
     p.add_argument("--settle", type=float, default=5)
     p.add_argument("--window", type=float, default=10, help="idle window seconds per sample")
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")
@@ -914,8 +967,11 @@ def main():
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+    p.add_argument("--dhat-mark-days", default="",
+                   help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--out")
     args = p.parse_args()
+    args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args
     for path in (args.acpmux, args.tui):

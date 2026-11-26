@@ -164,6 +164,15 @@ fn pr08_mirror_apply() {
     let counts = god.hub.mirror_counts();
     let units = counts.applied - marks_before.applied;
     let mark_bytes = (counts.mark_bytes - marks_before.mark_bytes) / units.max(1);
+    let line = format!(
+        "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
+    );
+    eprintln!("{line}");
+    if let Ok(path) = std::env::var("V2_GATE_OUT")
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
     assert_eq!(
         counts.full
             + counts.not_owner
@@ -174,15 +183,6 @@ fn pr08_mirror_apply() {
             + counts.join_refused,
         0
     );
-    let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
-    );
-    eprintln!("{line}");
-    if let Ok(path) = std::env::var("V2_GATE_OUT")
-        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
-    {
-        let _ = writeln!(file, "{line}");
-    }
     assert!(god_p95 * 10 <= small_p95 * 12, "unit p95 exceeded 1.2x: {small_p95} -> {god_p95} ns");
 }
 
@@ -266,7 +266,6 @@ fn pr08_mirror_local_row() {
     let god_all = p95(&mut pooled);
     let alone_p95 = alone_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
-    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_local_row\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"alone_p95\":{alone_p95},\"unit_changes\":{MAX_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
@@ -276,6 +275,7 @@ fn pr08_mirror_local_row() {
     {
         let _ = writeln!(file, "{line}");
     }
+    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     assert!(
         god_p95 * 10 <= small_p95 * 12,
         "local row p95 under units exceeded 1.2x: {small_p95} -> {god_p95} ns"
@@ -352,7 +352,6 @@ fn pr08_mirror_local_row_thirty() {
     let capped_all = p95(&mut pooled);
     let lifted_p95 = lifted_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
-    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
@@ -362,6 +361,7 @@ fn pr08_mirror_local_row_thirty() {
     {
         let _ = writeln!(file, "{line}");
     }
+    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     assert!(capped_p95 <= 10_000_000, "local row p95 under 30 units over 10 ms: {capped_p95} ns");
 }
 

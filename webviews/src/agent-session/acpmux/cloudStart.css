@@ -3,13 +3,24 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* The transcript's own geometry (cmux#55540): the started chat's page takes this view's place, so
+     the message and the status line sit where its first rows will. The column and its inset are the
+     thread's (`.acpmux-thread`: --cv-inset, 16px above the first row), rows start --cv-lead in (less
+     the narrow outset, as `.acpmux-row`), and the bubble's right edge is the column's. A column of its
+     own (720px less 16px of padding) put the bubble 24px left of the composer's edge and the line
+     17px right of the transcript's, and both jumped when the chat's page showed. */
+  --cv-lead-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset, 16px) - var(--cv-inset-end, var(--cv-inset, 16px)))) * 1000),
+    8px
+  );
   width: 100%;
-  max-width: var(--acpmux-column, 720px);
   /* Keep the message, status line and disclosure in the same shell footprint while the
      native handoff swaps this view for the live transcript. */
   min-height: calc(4 * var(--grid-row));
-  margin: 24px auto 0;
-  padding: 0 16px;
+  margin: 16px 0 0;
+  padding: 0 var(--cv-inset-end, var(--cv-inset, 16px)) 0
+    calc(var(--cv-inset, 16px) + var(--cv-lead, 0px) - var(--cv-lead-outset));
   box-sizing: border-box;
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -232,6 +243,20 @@
 /* `banner`: the title and the buttons on one line, the body under it. */
 .acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }
+/* The quiet start's stage line (CloudStartView.tsx StageLine): the live line's look, then the usual
+   wait in its dim ink. `stacked` puts the wait on its own line under the words; `hint` draws one thin
+   segment per stage under the line, the current one in the accent. */
+.acpmux-cloud-start__stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acpmux-cloud-start__stage .cv-worked { min-width: 0; }
+/* In a narrow pane the stage keeps its words and the wait gives way, ending in an ellipsis. */
+.acpmux-cloud-start__stage .cv-shimmer__row { flex-shrink: 0; }
+.acpmux-cloud-start__stage .acpmux-cloud-start__progress { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.acpmux-cloud-start__progress > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-cloud-start__progress-line { color: var(--cv-text-dim, var(--agent-muted)); }
+.acpmux-cloud-start__hint { display: flex; gap: 4px; width: 120px; }
+.acpmux-cloud-start__hint > span { flex: 1; height: 0; border-top: 2px solid color-mix(in srgb, var(--agent-muted) 30%, transparent); transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out); }
+.acpmux-cloud-start__hint > span[data-step="done"] { border-top-color: color-mix(in srgb, var(--agent-muted) 70%, transparent); }
+.acpmux-cloud-start__hint > span[data-step="current"] { border-top-color: var(--agent-accent, #4ade80); }
 /* "This team has no Cloud plan" (CloudStartView PlanTeamRefusal): the title, the team picked in the
    team menu, and the way on. A final state: no spinner, no Retry. */
 .acpmux-cloud-plan-team { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
@@ -260,3 +285,15 @@
 .acpmux-cloud-setup__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__body { margin: 0; color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__actions { flex-wrap: wrap; }
+/* The first-send setup strip (conversation/CloudSetupSteps.tsx): sign in, plan, model, at the top of each setup
+   card. `rail` (shipped) names every step in one row joined by a hairline; done steps carry a check, the current
+   one is in the normal ink with a filled mark, the rest are muted. `count` is one caption; `list` a row per step. */
+.acpmux-cloud-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); margin: 0 0 var(--ds-space-1); padding: 0; list-style: none; color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acpmux-cloud-steps[data-look="list"] { flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); }
+.acpmux-cloud-steps__step { display: inline-flex; align-items: center; gap: calc(var(--ds-space-1) + var(--grid-half-step)); }
+.acpmux-cloud-steps[data-look="rail"] .acpmux-cloud-steps__step + .acpmux-cloud-steps__step::before { content: ""; width: var(--ds-space-3); height: var(--cmux-hairline); margin-right: var(--grid-half-step); background: currentColor; opacity: 0.4; }
+.acpmux-cloud-steps__mark { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-icon-16); height: var(--ds-icon-16); border-radius: 50%; border: var(--cmux-hairline-ring) solid currentColor; line-height: 1; font-variant-numeric: tabular-nums; }
+.acpmux-cloud-steps__step[data-step="done"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 10%, transparent); color: var(--agent-soft); }
+.acpmux-cloud-steps__step[data-step="current"] { color: var(--agent-text); font-weight: 600; }
+.acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); }
+.acpmux-cloud-plan-team[data-setup-step] .acpmux-cloud-plan-team__title { color: var(--agent-text); }

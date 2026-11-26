@@ -48,7 +48,8 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
     /// wide; nil off a picture or on one still loading.
     static func picture(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
         guard let payload = payload(part) else { return nil }
-        return HomeTableGrid(payload.table, available: width).pictureRects(at: .zero)
+        let grid = HomeTableGrid(payload.table, available: width)
+        return grid.pictureRects(at: grid.cardOrigin(.zero))
             .first { !$0.loading && $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.source
     }
 
@@ -70,7 +71,8 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
 
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {
         guard let payload = Self.payload(part) else { return }
-        HomeTableGrid(payload.table, available: rect.width).draw(ctx, at: rect.origin)
+        let grid = HomeTableGrid(payload.table, available: rect.width)
+        grid.draw(ctx, at: grid.cardOrigin(rect.origin))
     }
 
     func tapped(_ part: CustomPart, ref: PartRef) -> Bool {
@@ -137,6 +139,10 @@ struct HomeTableGrid {
     var pictures: [[[CGImage]]] { slots.map { $0.map { $0.compactMap(\.image) } } }
     let alignments: [HomeTable.Alignment]
     let cardWidth: CGFloat
+    /// The card's offset from the row's leading edge: a card narrower than the row sits centered in it
+    /// (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats."); a card as wide
+    /// as the row (its columns share the row) and a Before|After card start at the edge.
+    let lead: CGFloat
     /// The table's first header cell is empty (a matrix: row labels down the first column, names across the top).
     let hasEmptyCorner: Bool
     /// The large-pairs layout of a Before|After table (``HomeCompareLayout``); nil for a grid.
@@ -187,7 +193,11 @@ struct HomeTableGrid {
         hasEmptyCorner = table.columns > 1 && table.header[0].trimmingCharacters(in: .whitespaces).isEmpty
         compare = style == .pairs ? HomeCompareLayout(table, slots: pictures, available: available) : nil
         cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.gutter)
+        lead = compare == nil ? max(0, ((available - cardWidth) / 2).rounded(.down)) : 0
     }
+
+    /// Where the card draws in a row whose body starts at `body`: ``lead`` in from it.
+    func cardOrigin(_ body: CGPoint) -> CGPoint { CGPoint(x: body.x + lead, y: body.y) }
 
     /// Where the rule under row `r` starts and ends (x) in a card drawn at `origin`. The header's rule leaves an
     /// empty corner cell blank, so it does not cross the row labels' column (the user, 2026-11-05: "top left has

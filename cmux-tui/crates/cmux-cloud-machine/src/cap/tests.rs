@@ -39,19 +39,69 @@ fn the_servers_cap_refusal_names_the_busy_machines() {
     assert!(!cap.free_plan);
     assert!(refusal("cloud.quota.exceeded", None).is_some(), "upstream's spelling, no details");
     assert!(refusal("cmux.cloud.plan_required", None).is_none());
-    let vm_limit = json!({"limit": 20, "team_vms": 20, "orphans": 3});
     assert!(
-        refusal("cloud.quota.vm_limit", Some(&vm_limit)).is_none(),
-        "the VM limit counts paused machines: Pause and Upgrade free nothing"
-    );
-    assert!(
-        refusal("cmux.cloud.quota_exceeded", Some(&json!({"resource": "snapshots"}))).is_none(),
+        refusal("cmux.cloud.quota_exceeded", Some(&json!({"resource": "saved"}))).is_none(),
         "another quota is not the machine cap"
     );
     assert!(
         refusal("cmux.cloud.quota_exceeded", Some(&json!({"resource": 3}))).is_some(),
         "an unreadable resource is the machine cap"
     );
+}
+
+#[test]
+fn the_teams_machine_limit_offers_upgrade_and_never_pause() {
+    let vm_limit =
+        json!({"limit": 20, "team_vms": 20, "orphans": 3, "busy": [{"machine": "vm_a"}]});
+    let limited = Cap {
+        machine_limit: Some(MachineLimit { limit: Some(20), used: Some(20) }),
+        ..Cap::default()
+    };
+    assert_eq!(refusal("cloud.quota.vm_limit", Some(&vm_limit)), Some(limited.clone()));
+    assert_eq!(
+        refusal("cmux.cloud.vm_limit", Some(&vm_limit)),
+        Some(limited),
+        "the app server's code"
+    );
+    let bare = refusal("cloud.quota.vm_limit", None).unwrap();
+    assert!(bare.busy.is_empty(), "paused machines count there: no Pause");
+    assert_eq!(bare.machine_limit, Some(MachineLimit::default()));
+    let kept = json!({"resource": "machines", "limit": 50, "used": 50});
+    assert_eq!(
+        refusal("cloud.quota.exceeded", Some(&kept)).and_then(|cap| cap.machine_limit),
+        Some(MachineLimit { limit: Some(50), used: Some(50) }),
+        "a quota on kept machines is the machine limit"
+    );
+    assert!(
+        refusal("cloud.quota.exceeded", Some(&refused())).unwrap().machine_limit.is_none(),
+        "the running cap pauses"
+    );
+    let wire =
+        serde_json::to_value(refusal("cloud.quota.vm_limit", Some(&vm_limit)).unwrap()).unwrap();
+    assert_eq!(wire["machineLimit"], json!({"limit": 20, "used": 20}), "the app reads camelCase");
+}
+
+#[test]
+fn the_teams_hourly_create_limit_says_when_it_frees_up() {
+    let details =
+        json!({"retry_after_ms": 600_000, "limit": 20, "used": 20, "window_ms": 3_600_000});
+    let cap = refusal("cmux.cloud.rate_limited", Some(&details)).unwrap();
+    assert_eq!(
+        cap.create_rate,
+        Some(CreateRate { limit: Some(20), retry_after_ms: Some(600_000) })
+    );
+    assert!(
+        cap.busy.is_empty() && cap.machine_limit.is_none(),
+        "neither Pause nor the machine limit"
+    );
+    assert!(refusal("cloud.rate_limited", Some(&details)).is_some(), "upstream's spelling");
+    assert!(
+        refusal("cloud.rate_limited", Some(&json!({"retry_after_ms": 30_000}))).is_none(),
+        "the per-minute request limit names no window and keeps its own words"
+    );
+    assert!(refusal("cloud.rate_limited", None).is_none());
+    let wire = serde_json::to_value(cap).unwrap();
+    assert_eq!(wire["createRate"], json!({"limit": 20, "retryAfterMs": 600_000}));
 }
 
 fn owned(id: &str, status: Status, user: &str) -> Machine {
@@ -81,7 +131,10 @@ fn the_classic_card_lists_only_the_persons_own_running_machines() {
     assert_eq!(cap.busy[0].name, "paint");
     assert!(busy_machines(std::slice::from_ref(&mine), None).is_empty());
     assert!(busy_machines(std::slice::from_ref(&mine), Some("")).is_empty());
-    assert_eq!(plan(true, true, &[mine], Some("alice")), Cap { busy: Vec::new(), free_plan: true });
+    assert_eq!(
+        plan(true, true, &[mine], Some("alice")),
+        Cap { busy: Vec::new(), free_plan: true, ..Cap::default() }
+    );
 }
 
 #[test]

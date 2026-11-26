@@ -346,8 +346,9 @@ extension NSWindow {
     // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
     private nonisolated static let imageOptions: UInt32 = (1 << 0) | (1 << 3)
 
-    /// One window's image (`CGWindowListCreateImage`, kCGWindowListOptionIncludingWindow).
-    private nonisolated static func windowServerImage(of windowNumber: Int) -> CGImage? {
+    /// One window's image (`CGWindowListCreateImage`, kCGWindowListOptionIncludingWindow). Any thread;
+    /// this process's own window needs no Screen Recording grant. The launch image store captures with it.
+    public nonisolated static func windowServerImage(of windowNumber: Int) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard windowNumber > 0, let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else {
             return nil

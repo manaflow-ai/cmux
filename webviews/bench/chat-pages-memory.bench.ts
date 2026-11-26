@@ -43,6 +43,18 @@ const TURNS = Number(process.argv[3] ?? 100);
 const IDLE_WINDOW_MS = Number(process.env.IDLE_MS ?? 5000);
 const RELEASE = process.env.RELEASE === "1";
 const REOPEN = Number(process.env.REOPEN ?? 10);
+// NOCHAT=1: each page is the pane with no chat attached (no session in its URL), so a row is what one more document
+// of the app costs before any chat content: the share a chat would not pay if hidden chats shared one document.
+const NOCHAT = process.env.NOCHAT === "1";
+// SHARED=1: the hidden chats are views in one document (cut 2a, cmuxterm-hq goals/memory-per-chat.md): each count opens
+// one page with that many chats mounted (`?mounts=N#sessions=…`, mountModel.tsx and dev-host/host.ts), every one but the
+// newest display:none, and closes the page before it.
+const SHARED = process.env.SHARED === "1";
+// SHARED_HIDE=cv: hidden views use content-visibility:hidden (keeps layout and scroll) instead of display:none.
+// SHARED_HIDE=vis: visibility:hidden (keeps style and layout; nothing paints).
+const SHARED_HIDE = ["cv", "vis"].includes(process.env.SHARED_HIDE ?? "")
+  ? (process.env.SHARED_HIDE as "cv" | "vis")
+  : "none";
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -158,7 +170,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    // NOMINIFY=1: readable names in the idle wakeup sources.
+    build: { outDir: out, emptyOutDir: true, ...(process.env.NOMINIFY === "1" ? { minify: false } : {}) },
     logLevel: "error",
   });
   // CSS=inline: the page's stylesheets as one inline <style>, as the page shipped them before; else linked
@@ -189,7 +202,7 @@ try {
   releases.push(() => statics.stop(true));
   const origin = `http://127.0.0.1:${statics.port}`;
   const urlFor = (index: number) =>
-    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux${NOCHAT ? "" : `&session=${sessionId(index)}`}`;
 
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
@@ -336,10 +349,46 @@ try {
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
   let first: { count: number; mb: number } | undefined;
   for (const count of COUNTS) {
-    while (pages.length < count) {
+    if (SHARED) {
+      for (const entry of pages.splice(0)) {
+        await entry.cdp.detach().catch(() => undefined);
+        await entry.page.close();
+      }
+      const page = await context.newPage();
+      const sessions = Array.from({ length: count }, (_, index) => sessionId(index)).join(",");
+      await page.goto(
+        `${origin}/?mounts=${count}#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&sessions=${sessions}`,
+      );
+      await page.waitForFunction(
+        ([text, n]) => {
+          const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+          const all = n === 1 ? [document.getElementById("root")!] : mounts;
+          return all.length === n && all.every((el) => el.textContent?.includes(text as string));
+        },
+        [FIRST_TEXT, count] as const,
+        { timeout: 300_000, polling: 500 },
+      );
+      await page.evaluate((mode) => {
+        const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+        for (const el of mounts) el.style.cssText = "position:absolute;inset:0";
+        for (const el of mounts.slice(0, -1)) {
+          if (mode === "cv") el.style.contentVisibility = "hidden";
+          else if (mode === "vis") el.style.visibility = "hidden";
+          else el.style.display = "none";
+        }
+      }, SHARED_HIDE);
+      pages.push({ page, cdp: await context.newCDPSession(page) });
+    }
+    while (!SHARED && pages.length < count) {
       const index = pages.length;
       const page = await context.newPage();
       await page.goto(urlFor(index));
+      if (NOCHAT) {
+        await page.waitForLoadState("load");
+        await settledAt(page).catch(() => undefined);
+        pages.push({ page, cdp: await context.newCDPSession(page) });
+        continue;
+      }
       const shown = await page.waitForFunction(
         (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
         FIRST_TEXT,
@@ -405,6 +454,13 @@ try {
     );
     perfRow({ name: `chat_pages_memory.n${count}.renderer_mb`, p50: now.mb, p95: now.mb, unit: "MB" });
     perfRow({ name: `chat_pages_memory.n${count}.mb_per_chat`, p50: perChat, p95: perChat, unit: "MB" });
+    // The goal's ratio (memory-per-chat, chat_memory_vs_empty_ratio): the renderer with 10 chats open over the empty
+    // renderer, both from this same run (page-total form: 10 chats against none).
+    if (count === 10 && empty.mb > 0) {
+      const ratio = now.mb / empty.mb;
+      console.log(`chat-pages-memory: renderer MB at 10 chats / empty: ${ratio.toFixed(3)}`);
+      perfRow({ name: "chat_pages_memory.n10.ratio_vs_empty", p50: ratio, p95: ratio, unit: "ratio", floor: 0.05 });
+    }
     perfRow({ name: `chat_pages_memory.n${count}.renderers`, p50: now.renderers, p95: now.renderers, unit: "count" });
     perfRow({
       name: `chat_pages_memory.n${count}.idle_wakeups_per_s`,
@@ -448,6 +504,103 @@ try {
         `chat-pages-memory: a released chat opened again draws its newest reply in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms (n=${opens.length})`,
       );
       perfRow({ name: "chat_pages_memory.reopen", p50, p95, unit: "ms" });
+    }
+  }
+  if (SHARED && REOPEN > 0 && pages.length === 1) {
+    // Switch back in the shared document: the visible view hides, a hidden one shows, timed to its second frame.
+    // `atBottom` says whether the transcript is still at its newest reply (instant means no scroll jump).
+    const profiling = process.env.PROFILE_SWITCH === "1";
+    const tracing = process.env.TRACE_SWITCH === "1";
+    const traceEvents: { name: string; ph: string; dur?: number; cat: string }[] = [];
+    if (tracing) {
+      pages[0].cdp.on("Tracing.dataCollected", (data) =>
+        traceEvents.push(...(data.value as unknown as typeof traceEvents)),
+      );
+      await pages[0].cdp.send("Tracing.start", {
+        categories: "devtools.timeline,disabled-by-default-devtools.timeline,cc,viz,blink",
+        transferMode: "ReportEvents",
+      });
+    }
+    if (profiling) {
+      await pages[0].cdp.send("Profiler.enable");
+      await pages[0].cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await pages[0].cdp.send("Profiler.start");
+    }
+    const switches = await pages[0].page.evaluate(
+      async ([mode, n]) => {
+        const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+        const hide = (el: HTMLElement, hidden: boolean) => {
+          if (mode === "cv") el.style.contentVisibility = hidden ? "hidden" : "";
+          else if (mode === "vis") el.style.visibility = hidden ? "hidden" : "";
+          else el.style.display = hidden ? "none" : "";
+        };
+        const scroller = (root: HTMLElement) =>
+          [...root.querySelectorAll<HTMLElement>("*")]
+            .filter((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY))
+            .sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const out: { ms: number; atBottom: boolean; layout: number; frame1: number }[] = [];
+        let visible = mounts.length - 1;
+        for (let step = 0; step < Math.min(n as number, mounts.length - 1); step++) {
+          const target = step % (mounts.length - 1);
+          const start = performance.now();
+          hide(mounts[visible], true);
+          hide(mounts[target], false);
+          void mounts[target].offsetHeight;
+          const layout = performance.now() - start;
+          await frame();
+          const frame1 = performance.now() - start;
+          await frame();
+          const ms = performance.now() - start;
+          const el = scroller(mounts[target]);
+          out.push({ ms, layout, frame1, atBottom: !el || el.scrollHeight - el.scrollTop - el.clientHeight < 8 });
+          visible = target;
+        }
+        return out;
+      },
+      [SHARED_HIDE, REOPEN] as const,
+    );
+    if (tracing) {
+      const done = new Promise((resolve) => pages[0].cdp.once("Tracing.tracingComplete", resolve));
+      await pages[0].cdp.send("Tracing.end");
+      await done;
+      const sum = new Map<string, number>();
+      for (const event of traceEvents)
+        if (event.ph === "X" && event.dur) sum.set(event.name, (sum.get(event.name) ?? 0) + event.dur / 1000);
+      for (const [name, ms] of [...sum].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`chat-pages-memory: trace ${ms.toFixed(1)} ms  ${name}`);
+    }
+    if (profiling) {
+      const { profile } = (await pages[0].cdp.send("Profiler.stop")) as {
+        profile: {
+          nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+          samples: number[];
+          timeDeltas: number[];
+        };
+      };
+      const byNode = new Map(profile.nodes.map((node) => [node.id, node]));
+      const self = new Map<string, number>();
+      profile.samples.forEach((id, index) => {
+        const frame = byNode.get(id)!.callFrame;
+        const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").pop()}:${frame.lineNumber}`;
+        self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+      });
+      for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`chat-pages-memory: profile self ${ms.toFixed(1)} ms  ${key}`);
+    }
+    if (switches.length) {
+      const ms = switches.map((entry) => entry.ms);
+      const [p50, p95] = [percentile(ms, 0.5), percentile(ms, 0.95)];
+      const kept = switches.filter((entry) => entry.atBottom).length;
+      const mid = (pick: (entry: (typeof switches)[number]) => number) =>
+        percentile(switches.map(pick), 0.5).toFixed(0);
+      console.log(
+        `chat-pages-memory: shared switch split p50: style+layout ${mid((e) => e.layout)} ms, first frame ${mid((e) => e.frame1)} ms, second frame ${mid((e) => e.ms)} ms`,
+      );
+      console.log(
+        `chat-pages-memory: a hidden view (${SHARED_HIDE}) shown again draws in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms; ${kept}/${switches.length} kept their scroll at the newest reply`,
+      );
+      perfRow({ name: `chat_pages_memory.shared_reshow.${SHARED_HIDE}`, p50, p95, unit: "ms" });
     }
   }
   if (process.env.HIDDEN === "1" && !RELEASE && hiddenPages.size > 1 && REOPEN > 1) {

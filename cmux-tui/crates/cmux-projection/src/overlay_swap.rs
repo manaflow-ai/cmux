@@ -13,16 +13,17 @@
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt as _;
 
-use super::{EEXIST, EIO, ENOENT, ENOTDIR, Inner, Kind, Node, Overlay, Path, PoisonError, Type};
+use super::Type;
+use super::{EEXIST, EIO, ENOENT, ENOTDIR, Entry, Inner, Kind, Node, Overlay, Path, PoisonError};
 use super::{fs, join};
 
-const RENAME_NOREPLACE: u32 = 1;
-const RENAME_EXCHANGE: u32 = 2;
+use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE};
 
+/// `renameat2` on Linux (the raw syscall, as `Upper::rename` makes it: musl has no wrapper).
+#[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
-    // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
     let done = unsafe {
         libc::syscall(
@@ -33,6 +34,32 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
             to.as_ptr(),
             flags,
         )
+    };
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
+/// `renameatx_np` on macOS, Linux's flags turned into its own, as `Upper::rename` does.
+#[cfg(not(target_os = "linux"))]
+fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
+    if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 {
+        return Err(super::EINVAL);
+    }
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    let done = unsafe {
+        libc::renameatx_np(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), own)
     };
     if done < 0 {
         Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
@@ -74,7 +101,7 @@ impl Overlay {
         }
         {
             let mut inner = self.lock();
-            Self::retire(&mut inner, name, old, index, self.manifest.len() as u64);
+            Self::retire(&mut inner, name, old, index, self.manifest.head_len() as u64);
         }
         // The folder git copied up before the swap (its writes are in `target` too).
         if upper_now.is_some() {
@@ -121,7 +148,8 @@ impl Overlay {
 
     pub(super) fn readdir_retired(&self, index: u32) -> Vec<(u64, Type, String)> {
         let path = self.manifest.path_of(index);
-        let (_, children) = self.manifest.children(index);
+        let children: Vec<Entry> =
+            self.manifest.children(index).map(|(_, entry)| entry.clone()).collect();
         let mut inner = self.lock();
         children
             .iter()

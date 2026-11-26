@@ -122,6 +122,22 @@ test("the folder lists keep their input while no folder, place or activity chang
   expect(runs).toBe(2);
 });
 
+test("a projection first reads fields when it has different entries to compare", () => {
+  const projected: string[] = [];
+  const by = new SessionsBy((entry) => {
+    projected.push(entry.sessionId);
+    return [entry.formerNames];
+  });
+  const first = [{ sessionId: "one", formerNames: ["First"] }, { sessionId: "two" }];
+  expect(by.of(first)).toBe(first);
+  expect(projected).toEqual([]);
+  const refreshed = [{ sessionId: "one", formerNames: ["First"] }, first[1]!];
+  expect(by.of(refreshed)).toBe(first);
+  expect(projected).toEqual(["one", "one"]);
+  const renamed = [{ sessionId: "one", formerNames: ["First", "Second"] }, first[1]!];
+  expect(by.of(renamed)).toBe(renamed);
+});
+
 test("a session added or removed is still seen", () => {
   const by = new SessionsBy(folderFields);
   const one = [counted(1), counted(2)];

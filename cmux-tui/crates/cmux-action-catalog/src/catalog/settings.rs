@@ -266,6 +266,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action live-swift-stop",
         ..Action::DEFAULT
     },
+    // Update Status: one read of the running build, the staged update and whether a relaunch
+    // installs it now (`UpdaterService.statusAnswer`). A CLI run answers the fields
+    // (`cmux settings update-status --json`); a palette run shows the one line as a toast.
+    Action {
+        id: "updates.status",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.status", "Update Status"),
+        hint: Some(t("ActionCatalog", "action.updates.status.hint", "The running build, the staged update and whether a relaunch installs it now.")),
+        description: Some("Reads the running build, the staged update (if any) and relaunch readiness (ready, held and why, installing, or nothing staged). Changes nothing."),
+        keywords: &["update", "status", "version", "build", "staged", "relaunch", "restart", "ready", "idle", "nightly"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings update-status",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "updates.whatsNew",
         group: GROUP,
@@ -339,6 +356,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CHANNEL],
         cli_name: "settings switch-update-channel",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -356,6 +374,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

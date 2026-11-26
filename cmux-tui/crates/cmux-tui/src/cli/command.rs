@@ -14,6 +14,8 @@ use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
 #[cfg(unix)]
+mod agent_hook_links;
+#[cfg(unix)]
 mod agent_hook_status;
 mod agent_list;
 mod agent_message_cmd;
@@ -31,6 +33,7 @@ mod machine;
 mod name_flags;
 mod notification;
 mod pane_move;
+mod project;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
@@ -214,6 +217,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
         "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
         "notify" => parse_notify(words, &mut tokens.flags)?,
@@ -1940,7 +1944,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
     #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut result = crate::agent_hook_install::run(&plan);
+    let mut result = run_hooks_and_links(&plan);
     #[cfg(unix)]
     if plan.action == crate::agent_hook_install::Action::Status {
         result.value =
@@ -1957,6 +1961,44 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// `agent hook` over the hook providers and the `link-` rows (agent_hook_links.rs): a status
+/// with no ids lists both; an install or uninstall with no ids touches hooks only; ids that are
+/// all `link-` run no hook step.
+#[cfg(unix)]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    use crate::agent_hook_install::{Action, Plan, RunResult};
+    let (apps, hooks, mut errors) = agent_hook_links::split(&plan.providers);
+    let every = plan.providers.is_empty();
+    let hooks_run = every || !hooks.is_empty();
+    let base = if hooks_run {
+        crate::agent_hook_install::run(&Plan { action: plan.action, providers: hooks })
+    } else {
+        let action = match plan.action {
+            Action::Install => "install",
+            Action::Uninstall => "uninstall",
+            Action::Status => "status",
+        };
+        RunResult { value: json!({"action": action, "providers": [], "errors": []}), failed: false }
+    };
+    let (rows, link_errors) = if every && plan.action != Action::Status {
+        (Vec::new(), Vec::new())
+    } else {
+        agent_hook_links::run(plan.action, &apps, every)
+    };
+    errors.extend(link_errors);
+    let failed = base.failed || !errors.is_empty();
+    RunResult { value: agent_hook_links::merge(base.value, rows, errors), failed }
+}
+
+#[cfg(not(unix))]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    crate::agent_hook_install::run(plan)
 }
 
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.

@@ -476,6 +476,16 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceId> {
+        self.view_surface_for_terminal(terminal_id)
+    }
+
+    /// The surface a client's tab shows `terminal_id` in ([`State::terminal_view_surface`]): the
+    /// view an identity-only `attach-surface` attaches to, so its stream names the surface the
+    /// client's tab has. After a reopen or a projection that is not the runtime's catalog id.
+    pub(crate) fn view_surface_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).terminal_view_surface(terminal_id)
     }
 

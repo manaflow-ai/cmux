@@ -13,7 +13,12 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
+import {
+  cmuxCommandRefusal,
+  type CmuxCommand,
+  type CmuxCommandResult,
+  mergedCommands,
+} from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { teardownDom } from "./support/domTeardown";
 
@@ -674,13 +679,40 @@ for (const inputType of ["insertParagraph", "insertLineBreak"]) {
   }
 }
 
-test("a paragraph the input method inserts on its own sends instead", async () => {
+// Leo: "wait that message got split up and queued". Dictation's "new paragraph" (or a voice tool
+// typing a message) inserts a paragraph with no Return key behind it; sending there split one
+// spoken message into queued pieces.
+test("a paragraph the input method inserts with no Return key behind it adds a line and sends nothing", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
     field,
     new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
   );
-  expect({ sent, inserted }).toEqual({ sent: [{ text: "What is Spotlight?", steer: true }], inserted: false });
+  expect({ sent, inserted, lines: lines(field) }).toEqual({ sent: [], inserted: false, lines: 2 });
+});
+
+test("a dictated message with paragraphs stays one draft until Return sends it once", async () => {
+  const { field, sent } = await composer(chat(), "First paragraph");
+  for (const inputType of ["insertParagraph", "insertLineBreak"])
+    await dispatch(field, new window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }));
+  expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 3 });
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent.length).toBe(1);
+  expect(sent[0]!.text.startsWith("First paragraph")).toBe(true);
+});
+
+test("a dictated Return (keyCode 229) still sends, once, with the paragraph input that follows it", async () => {
+  const { field, sent } = await composer(chat(), "日本語");
+  await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+  await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+  // Past the commit window this 229 Return is taken and sends; its paragraph input is the same Return.
+  await dispatch(field, key({ key: "Enter", keyCode: 229 }), 6_000);
+  await dispatch(
+    field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+    6_001,
+  );
+  expect(sent).toEqual([{ text: "日本語", steer: false }]);
 });
 
 test("Return with the command menu closed sends the typed /word", async () => {
@@ -690,6 +722,21 @@ test("Return with the command menu closed sends the typed /word", async () => {
   expect(host.querySelector("#acpmux-slash-menu")).toBeNull();
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "/rev", steer: false }], proceeded: false });
+});
+
+// Review of #48024 (Return sends the unfinished prompt): a `$word` is often a price or a variable, so
+// Return picks its row only once the arrows chose it (slashCommands.ts returnPicks); the arrows must
+// mark the row chosen, else Return sent the half-typed prompt.
+test("Return picks the $ row the arrows chose instead of sending the half-typed prompt", async () => {
+  const commands = [
+    { name: "browser-use", insert: "@browser-use ", description: "Browser use", source: "extension" as const },
+  ];
+  const { field, sent } = await composer(chat({ commands }), "open it with $brow");
+  expect(host.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await dispatch(field, key({ key: "ArrowDown" }));
+  const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect({ sent, proceeded }).toEqual({ sent: [], proceeded: false });
+  expect(field.textContent).toContain("@browser-use");
 });
 
 test("Shift-Return adds a line and sends nothing", async () => {
@@ -730,3 +777,27 @@ test("one of the agent's own commands still waits for the turn while the chat sh
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([{ text: "/compact", steer: false }]);
 });
+
+// Leo, 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait behind ... they
+// should just... go there. and run. instead of being treated like normal messages".
+for (const name of ["mcp", "status"]) {
+  test(`a bare /${name} mid-turn runs now: no steer, no queued prompt`, async () => {
+    const ran: string[] = [];
+    // The agent lists its own /mcp and /status too (Claude Code's), which would wait for the turn.
+    const snapshot = {
+      ...working(),
+      commands: mergedCommands([
+        { name: "mcp", description: "MCP", source: "agent" },
+        { name: "status", description: "Status", source: "agent" },
+      ]),
+    };
+    const { field, sent } = await composer(snapshot, `/${name}`, (command) => {
+      ran.push(command.action);
+      return true;
+    });
+    // Return with the menu showing the typed name runs it (slashCommands.ts returnPicks).
+    await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+    expect({ sent, ran }).toEqual({ sent: [], ran: [name] });
+    expect(field.textContent).toBe("");
+  });
+}

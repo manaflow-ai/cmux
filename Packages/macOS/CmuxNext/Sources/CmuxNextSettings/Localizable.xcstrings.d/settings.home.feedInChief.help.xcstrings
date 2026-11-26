@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.feedInChief.help" : {
+      "comment" : "Help for the Show the Feed in Chief toggle (home.feedInChief).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feed notices show among the Chief's messages. The Chief does not read them."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تظهر إشعارات الموجز بين رسائل Chief. لا يقرأها Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obavijesti iz feeda pojavljuju se među Chiefovim porukama. Chief ih ne čita."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Notifikationer fra feedet vises blandt Chiefs beskeder. Chief læser dem ikke."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hinweise aus dem Feed erscheinen zwischen den Nachrichten des Chiefs. Der Chief liest sie nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los avisos del feed aparecen entre los mensajes del Chief. El Chief no los lee."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les notifications du flux s’affichent parmi les messages du Chief. Le Chief ne les lit pas."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli avvisi del feed compaiono tra i messaggi del Chief. Il Chief non li legge."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "フィードの通知を Chief のメッセージの間に表示します。Chief は読みません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជូនដំណឹងពី Feed បង្ហាញក្នុងចំណោមសាររបស់ Chief។ Chief មិនអានវាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "피드 알림이 Chief의 메시지 사이에 표시됩니다. Chief는 읽지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Varsler fra feeden vises blant Chiefs meldinger. Chief leser dem ikke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiadomienia z kanału pojawiają się wśród wiadomości Chiefa. Chief ich nie czyta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avisos do feed aparecem entre as mensagens do Chief. O Chief não os lê."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомления ленты появляются среди сообщений Chief. Chief их не читает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การแจ้งเตือนจากฟีดจะแสดงระหว่างข้อความของ Chief และ Chief จะไม่อ่าน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Akış bildirimleri Chief'in mesajları arasında görünür. Chief bunları okumaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сповіщення стрічки показуються серед повідомлень Chief. Chief їх не читає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông báo từ Feed xuất hiện giữa các tin nhắn của Chief. Chief không đọc chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "动态通知会显示在 Chief 的消息之间。Chief 不会读取。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "動態通知會顯示在 Chief 的訊息之間。Chief 不會讀取。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

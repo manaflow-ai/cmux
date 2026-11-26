@@ -244,6 +244,26 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
+    /// Your Devices lists a Linux desktop and a Windows PC with their own glyphs (Leo 2026-11-16: "i dont see
+    /// windows nor linux"). Linux opens like a Mac; a Windows PC, which this Mac cannot view yet, says so with no buttons.
+    @Test func linuxAndWindowsRowsShowTheirPlatform() throws {
+        let full = MacScreenAccess(.full)
+        let linux = MacScreenHomeSnapshot.Device(id: "l", name: "Box", isPhone: false, online: true, macScreenShared: true,
+                                                  access: full, platform: .linux)
+        let windows = MacScreenHomeSnapshot.Device(id: "w", name: "PC", isPhone: false, online: true, macScreenShared: true,
+                                                    access: full, platform: .windows)
+        #expect(linux.glyph == "server.rack")
+        #expect(windows.glyph == "pc")
+        #expect(MacScreenHomeSnapshot.Device(id: "m", name: "Mac", isPhone: false, online: true, macScreenShared: true,
+                                             access: full).glyph == "desktopcomputer")
+        let (pages, home) = try homeView([linux, windows])
+        #expect((findView("macScreen.home.control.Box", under: home) as? NSButton)?.isEnabled == true)
+        #expect(findView("macScreen.home.notViewable.PC", under: home) != nil)
+        #expect(findView("macScreen.home.control.PC", under: home) == nil)
+        #expect(findView("macScreen.home.view.PC", under: home) == nil)
+        pages.tabClosed("home")
+    }
+
     /// Macs are listed whether or not they are online or sharing; a phone only when it shares (never, today).
     @Test func listsEveryMacButOnlySharingPhones() {
         let devices = [
@@ -268,7 +288,9 @@ struct MacScreenAppKitViewTests {
         #expect(pane.model.card == .hubRefused(.notSignedIn, requested: .full))
         let refusedTitle = L.t("macScreen.hub.signedOutTitle", "Not Signed In")
         #expect(await settle { texts(under: pane.view.chrome.card).contains(refusedTitle) })
-        #expect(findView("macScreen.card.retry", under: pane.view.chrome.card) is NSButton)
+        // No Try Again: the pane asks again on its own once signed in; the card offers Sign In.
+        #expect(findView("macScreen.card.retry", under: pane.view.chrome.card) == nil)
+        #expect(findView("macScreen.card.signIn", under: pane.view.chrome.card) != nil)
         pane.view.layoutSubtreeIfNeeded()
         let card = pane.view.chrome.card.frame
         #expect(card.width == MacScreenCardView.width && card.height > 100)

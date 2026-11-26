@@ -234,6 +234,12 @@ pub(in crate::cli) fn note_started(chat: Chat) {
     *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
 }
 
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The chat `id` names when this process started it here ([`note_started`]): its scope is
 /// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
 /// app call and no session snapshot (goal local-instant-start).
@@ -295,6 +301,12 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
 /// reaches): its `_acpmux/peers` answer, the machines New Agent Chat's Environment picker lists.
 pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
     acp::peers(app_acpmux(global).as_deref())
+}
+
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the
@@ -510,18 +522,10 @@ pub(in crate::cli) fn page_of_events(
     page
 }
 
-/// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
-/// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
-pub(in crate::cli) fn turn_items(
-    global: &GlobalArgs,
-    target: &str,
-    after: u64,
-) -> Result<Vec<Value>, CallFailure> {
-    turn_items_of(&scoped_chat(global, target)?, after)
-}
-
-/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
-/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+/// The transcript items of a chat already found (and scope-checked) with [`scoped_chat`] after
+/// `after`, each whole (no per-item cut) and masked as a read masks them: the turn `cmux chat
+/// --wait` waited on, read from its prompt on. It finds its chat once and reads it with no second
+/// lookup (turn.rs).
 pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,
@@ -857,7 +861,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
@@ -975,6 +979,11 @@ pub(super) mod acp {
         })
     }
 
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
+    }
+
     /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
     pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
         block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
@@ -1056,6 +1065,101 @@ pub(super) mod acp {
                            "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
         })
     }
 

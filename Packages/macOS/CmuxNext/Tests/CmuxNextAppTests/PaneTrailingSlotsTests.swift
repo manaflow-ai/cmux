@@ -19,7 +19,30 @@ import Testing
         #expect(slots.reserve(in: 900, besides: TabID("b")) == 0)
     }
 
-    /// A tab replaced by another keeps the pane's tab count; the replaced tab's need still goes.
+    /// A chat's rolling summary (an accessory of the row) is never kept in the slot for a tab not selected: it left an
+    /// empty gap at the row's end that the tabs were squeezed and scrolled beside (#53314). Only the tools' need counts.
+    @Test func aChatsSummaryTakesNoRoomWhileAnotherTabIsSelected() {
+        var slots = PaneTrailingSlots()
+        let tabs = [TabItem(id: TabID("a"), title: "A"), TabItem(id: TabID("b"), title: "B")]
+        slots.record(.init(intrinsic: 40, shared: 8, tools: 150), for: TabID("a"), live: tabs)
+        slots.record(.init(intrinsic: 40), for: TabID("b"), live: tabs)
+        #expect(slots.reserve(in: 1200, besides: TabID("b")) == 158)
+        // Too narrow for the need: the toolbar alone, as before.
+        #expect(slots.reserve(in: 200, besides: TabID("b")) == 40)
+    }
+
+    /// The tabs come before a row's accessories: an accessory takes only what is left once every tab has its full width,
+    /// and none of a full row (#53314).
+    @Test func anAccessoryTakesOnlyWhatTheTabsLeave() {
+        // 1200pt row, 200pt toolbar and tools, tabs that need 600pt: 400pt free, a 300pt summary fits whole.
+        #expect(TabRowAccessoryFit.fit(base: 200, accessory: 300, width: 1200, tabs: 600) == (slot: 500, room: 400))
+        // Tabs that need 900pt leave 100pt: the summary gets at most that (the page hides it under its minimum).
+        #expect(TabRowAccessoryFit.fit(base: 200, accessory: 300, width: 1200, tabs: 900) == (slot: 300, room: 100))
+        // A full row (tabs past the room, or a tab that fills the strip): nothing for the summary.
+        #expect(TabRowAccessoryFit.fit(base: 200, accessory: 300, width: 1200, tabs: 2000) == (slot: 200, room: 0))
+        #expect(TabRowAccessoryFit.fit(base: 200, accessory: 300, width: 1200, tabs: .infinity) == (slot: 200, room: 0))
+    }
+
     @Test func aReplacedTabTakesNoRoom() {
         var slots = PaneTrailingSlots()
         let a = TabItem(id: TabID("a"), title: "A"), b = TabItem(id: TabID("b"), title: "B"), c = TabItem(id: TabID("c"), title: "C")

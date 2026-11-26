@@ -6,6 +6,8 @@ import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { PromptHeads } from "../../src/agent-session/acpmux/promptHeads";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { messagesRows } from "../../src/agent-session/acpmux/conversation/messagesRows";
+import { PresentationContext } from "../../src/agent-session/acpmux/conversation/presentationContextModel";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
@@ -30,13 +32,15 @@ import "../../src/agent-session/acpmux/composerLocation.css";
 import "../../src/agent-session/acpmux/composerAttachments.css";
 import "../../src/agent-session/acpmux/markdownField.css";
 import "../../src/agent-session/acpmux/modelPicker.css";
-import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 // The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map, and
 // `?wave=stepped` (or another wave.experiment.ts arm) picks the hover wave's shape.
 const query = new URLSearchParams(location.search);
+/// `?presentation=messages` draws the rows as the Messages page does (Home, Chief and a chat set to
+/// Messages: App.tsx `chatPresentation`), speakers only, through messagesRows.
+const messages = query.get("presentation") === "messages";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": query.get("layout") === "full" ? "full" : "compact",
   ...(query.get("wave") ? { "thread-minimap-wave": query.get("wave")! } : {}),
@@ -81,20 +85,22 @@ const actions = {
     shownRows = rows;
     shownExtra = extra;
     view.render(
-      <TurnActionsContext.Provider value={actions}>
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="minimap-session"
-          earlier={earlierOf(shownExtra.earlier)}
-          promptCount={shownExtra.promptCount}
-          loadThrough={loadThrough}
-          loadPromptIndex={loadPromptIndex}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-          canLoadOlder={olderPage !== undefined}
-          onLoadOlder={olderPage}
-        />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value={messages ? "messages" : "transcript"}>
+        <TurnActionsContext.Provider value={actions}>
+          <VirtualTranscript
+            rows={messages ? messagesRows(rows) : turnView(rows, new Set())}
+            sessionId="minimap-session"
+            earlier={earlierOf(shownExtra.earlier)}
+            promptCount={shownExtra.promptCount}
+            loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            canLoadOlder={olderPage !== undefined}
+            onLoadOlder={olderPage}
+          />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     );
   })();
 

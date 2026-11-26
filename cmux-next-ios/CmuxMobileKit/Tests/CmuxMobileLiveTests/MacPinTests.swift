@@ -28,10 +28,12 @@ import Testing
     static let phoneNonce = "pinnonce0123456789abcdef"
 
     /// A challenge frame as cmux-mobile-host sends it, its proof made by `key`.
-    static func challenge(_ key: P256.Signing.PrivateKey?, nonce: String = "c0ffee", provedNonce: String = phoneNonce) -> JSONValue {
+    static func challenge(_ key: P256.Signing.PrivateKey?, nonce: String = "c0ffee", provedNonce: String = phoneNonce,
+                          tunnel: TunnelKeys? = nil) -> JSONValue {
         var object: [String: JSONValue] = ["challenge": .string(nonce), "mac": .string(mac)]
+        if tunnel != nil { object["proofVersion"] = .string("2") }
         if let key {
-            let message = MacPins.proofMessage(mac: mac, phone: phone, phoneNonce: provedNonce, challenge: nonce)
+            let message = MacPins.proofMessage(mac: mac, phone: phone, phoneNonce: provedNonce, challenge: nonce, tunnel: tunnel)
             let signature = try! key.signature(for: message).rawRepresentation
             object["macKey"] = .string(ApprovalPayload.hex(key.publicKey.x963Representation))
             object["macSignature"] = .string(ApprovalPayload.hex(signature))
@@ -39,9 +41,61 @@ import Testing
         return .object(object)
     }
 
-    static func check(_ frame: JSONValue, pinned: String?) -> LinkPairing.MacProof {
+    static func check(_ frame: JSONValue, pinned: String?, tunnel: TunnelKeys? = nil) -> LinkPairing.MacProof {
         LinkPairing.check(frame, mac: mac, phone: phone, macNonce: phoneNonce, challenge: frame["challenge"]?.stringValue ?? "",
-                          pinned: pinned)
+                          pinned: pinned, tunnel: tunnel)
+    }
+
+    /// This phone's tunnel, and one a hub in between would have run to the Mac.
+    static let tunnel = TunnelKeys(dialer: "cGhvbmU=", answerer: "bWFj")
+    static let relayed = TunnelKeys(dialer: "aHViLTE=", answerer: "bWFj")
+
+    /// The v2 messages are the bytes cmux-mobile-host signs and checks
+    /// (`challenge_message_v2`, `mac_proof_message_v2`; the same vectors are in pairing.rs).
+    @Test func theV2MessagesCoverTheTunnelKeys() {
+        let keys = TunnelKeys(dialer: "D", answerer: "A")
+        #expect(LinkAuthPayload(mac: "m", phone: "p", nonce: "n", identityKey: "i", approvalKey: "a", action: "pair", tunnel: keys).message
+            == Data("cmux-mobile-link-auth-v2\u{0}m\u{0}p\u{0}n\u{0}i\u{0}a\u{0}pair\u{0}D\u{0}A".utf8))
+        #expect(MacPins.proofMessage(mac: "m", phone: "p", phoneNonce: "pn", challenge: "c", tunnel: keys)
+            == Data("cmux-mobile-mac-identity-v2\u{0}m\u{0}p\u{0}pn\u{0}c\u{0}D\u{0}A".utf8))
+        #expect(LinkAuthPayload(mac: "m", phone: "p", nonce: "n", identityKey: "i", approvalKey: "a", action: "pair").message
+            == Data("cmux-mobile-link-auth-v1\u{0}m\u{0}p\u{0}n\u{0}i\u{0}a\u{0}pair".utf8))
+    }
+
+    /// A Mac's proof over the tunnel keys its own tunnel has holds only for a phone whose tunnel
+    /// has the same ones: a pinned Mac proving other keys is refused as a changed identity.
+    @Test func aProofOverAnotherTunnelsKeysIsRefused() {
+        let key = P256.Signing.PrivateKey()
+        let hexKey = ApprovalPayload.hex(key.publicKey.x963Representation)
+        #expect(Self.check(Self.challenge(key, tunnel: Self.tunnel), pinned: hexKey, tunnel: Self.tunnel) == .proven(hexKey))
+        #expect(Self.check(Self.challenge(key, tunnel: Self.relayed), pinned: hexKey, tunnel: Self.tunnel) == .refused(LinkPairing.changed))
+        // A v1 proof does not pass as v2.
+        #expect(Self.check(Self.challenge(key), pinned: hexKey, tunnel: Self.tunnel) == .refused(LinkPairing.changed))
+    }
+
+    /// End to end on the phone, over a tunnel: a Mac that proves another tunnel's keys, a Mac that
+    /// once proved v2 and now answers v1, and a v2 challenge on a link with no tunnel are refused
+    /// before this phone signs anything.
+    @Test func aTunnelPairingRefusesOtherKeysAndADowngrade() async {
+        let key = P256.Signing.PrivateKey()
+        let pins = MacPins(file: nil)
+        pins.pin(ApprovalPayload.hex(key.publicKey.x963Representation), for: Self.mac)
+        pins.pinTunnelBinding(for: Self.mac)
+        #expect(pins.bindsTunnel(Self.mac))
+        let pairing = LinkPairing(keys: PhoneKeys(service: "test.unused"), phoneID: Self.phone, name: "iPhone", pins: pins)
+        let cases: [(JSONValue, TunnelKeys?)] = [
+            (Self.challenge(key, tunnel: Self.relayed), Self.tunnel),
+            (Self.challenge(key), Self.tunnel),
+            (Self.challenge(key, tunnel: Self.tunnel), nil),
+        ]
+        for (frame, tunnel) in cases {
+            var opened = LinkPairing.Opened(channel: ScriptedAuth([frame]), identity: "04aa", approval: "04bb", macNonce: Self.phoneNonce)
+            opened.tunnel = tunnel
+            let outcome = await pairing.finish(.success(opened), macID: Self.mac) {}
+            #expect(outcome == .refused(LinkPairing.changed))
+        }
+        pins.forget(Self.mac)
+        #expect(!pins.bindsTunnel(Self.mac))
     }
 
     @Test func aMacProvesItsKeyAndAChangedKeyIsRefused() {

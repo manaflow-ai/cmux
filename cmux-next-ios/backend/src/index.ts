@@ -8,6 +8,8 @@ import {
   apnsTopics,
   clean,
   isSealedText,
+  MAILBOX_MAX_HOLD_MS,
+  MAILBOX_TTL_MS,
   MAX_MAILBOX_SEALED,
   notifyFailures,
   notifyLimitKey,
@@ -22,10 +24,24 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
+import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER } from "./link-relay.ts";
+import { CACHE_VIEWER_HEADER, relayCacheRoomName } from "./relay-cache.ts"
+import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
+import {
+  isRegion,
+  netcheckRoomName,
+  parseNetcheck,
+  relayPlacement,
+  locationHintFor,
+  relayRoomName,
+} from "./placement.ts";
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { LinkRelay } from "./link-relay.ts"
+export { HubRelay } from "./hub-relay.ts"
+export { locationHintFor } from "./placement.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -69,6 +85,14 @@ export class CloudAttentionPush extends WorkerEntrypoint<Env> {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+/** A path segment, decoded; a malformed % escape is the caller's 400, never a 500. */
+const pathSegment = (raw: string): string => {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    throw new HttpError(400, "bad_request", "malformed path")
+  }
+}
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/
 const PERSONAL = "personal-"
 /**
@@ -160,33 +184,6 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
  * personal space id that appeared in two projects would still be two separate spaces.
  */
 const scoped = (env: Env, caller: Caller, key: string) => (caller.projectId === primaryProject(env).id ? key : `${caller.projectId}:${key}`)
-/**
- * Where a new TeamHub should live: the region of the caller's own location (Cloudflare's geolocation of the
- * client), not of the colo that received the request. A Durable Object stays where it is first created, and
- * free-plan traffic is sometimes received far away (a California client was served from Paris on 2026-10-13),
- * so creating hubs next to the ingress colo stranded them across an ocean. Only affects a hub's creation.
- */
-export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; country?: unknown } | undefined): DurableObjectLocationHint | undefined => {
-  if (!cf || typeof cf.continent !== "string") return undefined
-  const lon = typeof cf.longitude === "string" ? Number.parseFloat(cf.longitude) : typeof cf.longitude === "number" ? cf.longitude : Number.NaN
-  switch (cf.continent) {
-    case "NA":
-      return Number.isFinite(lon) && lon < -100 ? "wnam" : "enam"
-    case "SA":
-      return "sam"
-    case "EU":
-      return Number.isFinite(lon) && lon > 20 ? "eeur" : "weur"
-    case "AF":
-      return "afr"
-    case "OC":
-      return "oc"
-    case "AS":
-      return ["AE", "BH", "IL", "IQ", "IR", "JO", "KW", "LB", "OM", "QA", "SA", "SY", "YE"].includes(String(cf.country)) ? "me" : "apac"
-    default:
-      return undefined
-  }
-}
-
 /** The caller's identity, build space (`spaceOf`), and where a hub created by this request should live. */
 type Ctx = Caller & { readonly space: string; readonly hint?: DurableObjectLocationHint; readonly t: Timing }
 /**
@@ -338,9 +335,18 @@ const colo = (req: Request): string | null => {
 
 /** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
 const ingressOf = (req: Request): Ingress => {
-  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown } }).cf
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown; latitude?: unknown; longitude?: unknown } }).cf
   const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
-  return { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent) }
+  // Rounded to 0.1 degree (about 11 km): enough to place a relay, never a street.
+  const deg = (v: unknown, max: number) => {
+    const n = typeof v === "string" ? Number.parseFloat(v) : typeof v === "number" ? v : Number.NaN
+    return Number.isFinite(n) && Math.abs(n) <= max ? Math.round(n * 10) / 10 : null
+  }
+  const out: Ingress = { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent), lat: deg(cf?.latitude, 90), lon: deg(cf?.longitude, 180) }
+  // The client's netcheck (`?netcheck=wnam:31,enam:72`, PROTOCOL.md "Relay placement"), when it sent one.
+  const rtt = parseNetcheck(new URL(req.url).searchParams.get("netcheck"))
+  if (rtt) out.rtt = rtt
+  return out
 }
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
@@ -390,6 +396,114 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     await limit(env.ICE_LIMIT, me, "ICE requests")
     const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
     return json({ iceServers: list, ttl, turn })
+  }
+
+  const probe = path.match(/^\/v1\/netcheck\/([a-z]+)$/)
+  if (probe && method === "GET") {
+    // A netcheck target (PROTOCOL.md "Relay placement"): a WebSocket to one Durable Object per region, created
+    // with that region's hint, that answers `ping` with `pong` without waking. The client times a few pings to
+    // each region and sends the result with its signal socket, so a relay is placed by measured round trips.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const region = probe[1]!
+    if (!isRegion(region)) throw new HttpError(404, "unknown_region", "no such netcheck region")
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(netcheckRoomName(space, region)), { locationHint: region })
+    const headers = new Headers({ upgrade: "websocket" })
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/netcheck", { headers }))
+  }
+
+  const relay = path.match(/^\/v1\/relay\/([^/]+)$/)
+  if (relay && method === "GET") {
+    // The link's WebSocket relay (PROTOCOL.md "WebSocket relay"): only the two devices the caller's hub bound to
+    // this session can join, each with its own socket, and only after direct UDP and TURN failed them.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const sessionId = pathSegment(relay[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    // The device's own ticket, which the hub stamped on the signals it sent to that device's socket.
+    const ticket = req.headers.get(RELAY_TICKET_HEADER)
+    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId, ticket))
+    if (!bound) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const peer = bound.peer
+    // Placed from both ends (placement.ts): only the first join creates the object, later hints are ignored.
+    const placed = relayPlacement(ingressOf(req), bound.ingress, caller.hint)
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayRoomName(me, space, sessionId)), placed.hint ? { locationHint: placed.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer, "x-cmux-relay-owner": me, "x-cmux-relay-space": space })
+    // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/join", { headers }))
+  }
+
+  const cachePath = path.match(/^\/v1\/relay-cache\/([^/]+)\/(snapshot|delta|catch-up|ack)$/)
+  if (cachePath) {
+    // The relay's sealed snapshot cache and delta catch-up (RFD 0142 R2 and R9, PROTOCOL.md "Relay snapshot seal",
+    // "Relay delta catch-up"): one LinkRelay room per source Mac, so a phone's cold open reads it with no link
+    // session and the Mac asleep. The Mac writes for a named viewer (`?viewer=`); a viewer reads only its own.
+    // The relay sees only each envelope's clear header (relay-cache.ts `peek`), never the plaintext.
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    if (env.LINK_RELAY_CACHE !== "on") return fail(503, "relay_cache_off", "the relay cache is turned off")
+    const source = pathSegment(cachePath[1]!).toLowerCase()
+    const what = cachePath[2]!
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(source) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sourceDeviceId and deviceId must be UUIDs")
+    const kindOf = async (id: string) => {
+      const kind = await t.span("hub", userHub(env, caller).hubDevice(who, id))
+      if (kind) return kind
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, id))
+      return device && device.ownerUserId === me ? (device.kind === "mac" ? "mac" : "phone") : null
+    }
+    const writes = (what === "snapshot" && method === "PUT") || (what === "delta" && method === "POST")
+    let viewer = deviceId
+    if (writes) {
+      // Only the source itself writes, and only for one of the owner's own devices.
+      if (deviceId !== source) throw new HttpError(403, "not_the_source", "only the source device writes its cache")
+      viewer = (url.searchParams.get("viewer") ?? "").toLowerCase()
+      if (!UUID.test(viewer)) throw new HttpError(400, "bad_request", "viewer must be a UUID")
+      const [sourceKind, viewerKind] = await Promise.all([kindOf(source), kindOf(viewer)])
+      if (sourceKind !== "mac") throw new HttpError(403, "not_a_source", "only a Mac or VM device has a relay cache")
+      if (!viewerKind) throw new HttpError(403, "not_owner", "the viewer is not one of your devices")
+    } else {
+      const [sourceKind, viewerKind] = await Promise.all([kindOf(source), kindOf(deviceId)])
+      if (sourceKind !== "mac" || !viewerKind) throw new HttpError(403, "not_owner", "register this device first")
+    }
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayCacheRoomName(me, space, source)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const target = new URL(`https://link-relay/cache/${what}`)
+    const stream = url.searchParams.get("stream")
+    if (stream !== null) target.searchParams.set("stream", stream)
+    const headers = new Headers({ [CACHE_VIEWER_HEADER]: viewer })
+    const type = req.headers.get("content-type")
+    if (type) headers.set("content-type", type)
+    const length = req.headers.get("content-length")
+    if (length) headers.set("content-length", length)
+    return t.span("relay", room.fetch(target.toString(), { method, headers, body: method === "GET" ? undefined : req.body }))
+  }
+
+  const hubPath = path.match(/^\/v1\/hub\/([^/]+)$/)
+  if (hubPath && method === "GET") {
+    // The three-way hub (RFD 0142 R6, PROTOCOL.md "Three-way hub"): the session's sources (the owner's Mac and VM,
+    // both registered as kind mac) upload, the owner's viewers download the newest copy once. Only the owner's own
+    // registered devices join; everything past the clear header is sealed end to end, so the room is per owner.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.HUB_RELAY_MODE === "off") return fail(503, "hub_off", "the cmux hub is turned off")
+    const sessionId = decodeURIComponent(hubPath[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    const role = url.searchParams.get("role") ?? ""
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    if (role !== "mac" && role !== "vm" && role !== "viewer") throw new HttpError(400, "bad_request", "role must be mac, vm or viewer")
+    let kind = await t.span("hub", userHub(env, caller).hubDevice(who, deviceId))
+    if (!kind) {
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
+      if (device && device.ownerUserId === me) kind = device.kind === "mac" ? "mac" : "phone"
+    }
+    if (!kind) throw new HttpError(403, "not_owner", "register this device first")
+    if (role !== "viewer" && kind !== "mac") throw new HttpError(403, "not_a_source", "only a Mac or VM device can be a hub source")
+    const room = env.HUB_RELAY.get(env.HUB_RELAY.idFromName(hubRoomName(me, space, sessionId)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-hub-device": deviceId, "x-cmux-hub-role": role, "x-cmux-hub-session": sessionId })
+    // The capability handshake: a hub client offers cmux-hub.v1 and this relay echoes it (never the bearer entry).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === HUB_SUBPROTOCOL)) headers.set("x-cmux-hub-subprotocol", "1")
+    return t.span("relay", room.fetch("https://hub-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {
@@ -497,10 +611,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
-    const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
+    const deviceId = pathSegment(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
-    const itemId = dev[3] === undefined ? undefined : decodeURIComponent(dev[3]).toLowerCase()
+    const itemId = dev[3] === undefined ? undefined : pathSegment(dev[3]).toLowerCase()
     if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
     if (sub === "mailbox") {
       // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
@@ -522,8 +636,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
       const phone = await withStore(env, ctx, (s) => s.getDevice(space, from))
       if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      // `hold` (seconds, API 0.18.0 "Store and forward"): how long the item waits for a Mac that sleeps.
+      if (b.hold !== undefined && !(Number.isInteger(b.hold) && (b.hold as number) >= 1 && (b.hold as number) * 1000 <= MAILBOX_MAX_HOLD_MS))
+        throw new HttpError(400, "bad_request", `hold must be whole seconds from 1 to ${MAILBOX_MAX_HOLD_MS / 1000}`)
       await limit(env.MAILBOX_LIMIT, me, "replies")
-      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed })
+      const ttl = b.hold === undefined ? MAILBOX_TTL_MS : (b.hold as number) * 1000
+      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed }, ttl)
       if ("error" in r) {
         if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
         throw new HttpError(409, "conflict", "another reply already has this id")
@@ -603,11 +721,14 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
       // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
       const failures = notifyFailures(results)
+      // Not sent: APNs refused the key or topic for another send to the same environment and topic.
+      const skipped = results.filter((r) => r.outcome === "skipped").length
       return json({
         configured: true,
         sent: results.filter((r) => r.outcome === "sent").length,
         failed: failed.length,
         dropped: drop.length,
+        ...(skipped ? { skipped } : {}),
         wants,
         batches: true,
         ...(failures.length ? { failures } : {})
@@ -734,7 +855,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal|hub)$/)
   if (!team) return fail(404, "not_found", "no such route")
-  const teamId = decodeURIComponent(team[1]!)
+  const teamId = pathSegment(team[1]!)
   const action = team[2]!
 
   if (action === "signal" && method === "GET") {

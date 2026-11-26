@@ -53,7 +53,7 @@ DIRS = ("scripts", ".github")
 NOCLOBBER = re.compile(r"(?<![\w-])(?:set\s+-[a-zA-Z]*C\b|set\s+-o\s+noclobber)")
 SHARED_TMP = re.compile(r"(?:(?<![\w.])(?:/private)?/tmp|\$\{?TMPDIR(?::-/tmp)?\}?)/[A-Za-z0-9._-]*"
                         r"(?:\$\$|\$\{?[A-Za-z_]\w*\}?|\$\(|\{[A-Za-z_][^}]*\})")
-SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
+SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".tsv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
                  ".test.ts", ".test.mjs", ".test.js", ".spec.ts")
 
 # Name prefixes the app, its daemons or acpmux choose. The app makes these sockets, logs and records; a script here
@@ -99,8 +99,6 @@ ALLOWED = {
     ("scripts/ci/owned_catch_up.sh", 'root="/private/tmp/cmux-ci-$root_number"'):
         "the canonical build root: the compile cache keys on this exact path (canonical-build-root.sh), and on an "
         "owned Mac glaeda-canonical-root holds it for the job",
-    (".github/workflows/seed-derived-data.yml", 'root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"'):
-        "the canonical build root (canonical-build-root.sh), taken through glaeda-canonical-root for the job",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}"'):
         "the tag's DerivedData compatibility link, a name other tools follow (#41021 kept it); read with readlink",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}" root=""'):
@@ -129,10 +127,17 @@ ALLOWED = {
         "made by os.makedirs after the rmtree: mkdir fails on any entry another account left there",
     ("scripts/cmux-next/rust-live.py", 'path = f"/tmp/rust-live-{os.getuid()}"'):
         "control_dir refuses it unless it is a real 700 folder this user owns",
-    ("scripts/journeys/ext_marker.py", 'path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"'):
-        "made with O_CREAT|O_EXCL, which fails on any entry already there",
     ("scripts/irx-soak.py", "/tmp/cmux-irx-journal-mac-{args.tag}.jsonl"):
         "read only: the journal of the tagged app the runner launched; nothing is written there",
+    ("scripts/cmux-next/own-machine-parity.ts", 'mktemp -d "\\${TMPDIR:-/tmp}/owp-${run}-XXXXXX"'):
+        "a mktemp -d template in the command string bsh runs on machine B: mktemp makes it there, and the line after "
+        "checks it printed a path",
+    ("scripts/cmux-next/vm-hassle.ts", "const stage = `/tmp/vm-hassle-${ctx.tag}-${id}`;"):
+        "a path in the Cloud machine the run made, a single-account VM of its own, written through its fs/write API; "
+        "the name also carries a randomUUID request id",
+    ("scripts/measure/cu-driver-eval/cueval-guest.sh", 'sock="${TMPDIR:-/tmp}/cmux-tui-$(id -u)/cmux-app-nightly.sock"'):
+        "the Nightly daemon's own per-user socket (cmux-tui names and makes that folder), only waited on with -S, "
+        "never made, inside the guest VM the run boots",
     ("scripts/cmux-next/cloud-chaos.ts", "`/tmp/cmux-chaos-seq-${tag}.txt`"):
         "a path in the Cloud machine's terminal the run made, a single-account VM of its own",
     ("scripts/gallery-matrix/runner.ts", "const remoteRoot = `/tmp/${runId}`;"):

@@ -101,7 +101,7 @@ export default editorPageEntry({
       path: "/Users/you/src/atlas-web/private/config.ts",
     },
     "network-error": {
-      note: "The editor owner is disconnected and the page offers Retry.",
+      note: "The editor owner is disconnected: the page reads again on its own and, past the deadline, says so in one quiet line with no button.",
       error: "network",
       path: "/Users/you/src/atlas-web/src/server.ts",
     },

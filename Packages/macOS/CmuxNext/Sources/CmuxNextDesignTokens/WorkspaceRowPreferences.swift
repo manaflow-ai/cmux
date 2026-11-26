@@ -50,14 +50,20 @@ public nonisolated struct WorkspaceRowOverride: Hashable, Sendable {
     public var isEmpty: Bool { elements.isEmpty && secondLineOrder == nil }
 }
 
-/// `sidebar.workspaceRow`: the base set plus per-kind overrides.
+/// `sidebar.workspaceRow`: the base set plus per-kind overrides, and where every row's status mark draws.
 public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
     public var base: WorkspaceRowElements
     public var overrides: [WorkspaceRowKind: WorkspaceRowOverride]
+    /// `sidebar.workspaceRow.statusPlacement`: one value for every kind.
+    public var statusPlacement: WorkspaceRowStatusPlacement
+    public var layouts: WorkspaceRowLayouts
 
-    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]) {
+    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:],
+                statusPlacement: WorkspaceRowStatusPlacement = .trailing, layouts: WorkspaceRowLayouts = WorkspaceRowLayouts()) {
         self.base = base
         self.overrides = overrides
+        self.statusPlacement = statusPlacement
+        self.layouts = layouts
     }
 
     public static let defaults = Self()
@@ -74,6 +80,6 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
 
     /// Whether a row of some kind shows `element`, with that kind's override.
     public func showsAnywhere(_ element: WorkspaceRowElement) -> Bool {
-        WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
+        layouts.elements.contains(element) || WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
     }
 }
