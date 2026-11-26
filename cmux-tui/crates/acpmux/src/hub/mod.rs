@@ -40,11 +40,10 @@ pub(crate) mod audit_log;
 mod auto_background;
 // Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
 pub(crate) mod auto_evacuate;
-// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
-mod auto_hold;
 // A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
 mod auto_give;
-pub(crate) use auto_give::TurnStop;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -156,6 +155,7 @@ mod host_level;
 #[cfg(test)]
 mod host_notice_tests;
 mod hosts;
+pub(crate) mod transcript_offload;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 pub(crate) mod hub_health;
@@ -506,6 +506,7 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
 pub use cloud_offload::HistoryOffloadRequest;
@@ -542,6 +543,7 @@ pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
+pub use transcript_offload::TranscriptOffloadRequest;
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)

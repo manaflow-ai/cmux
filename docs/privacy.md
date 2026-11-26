@@ -167,6 +167,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
+| `index.crates.io` | connects | crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
@@ -188,6 +189,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
 | `share.cmux.dev` | connects | shared workspace links (production) |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
+| `static.crates.io` | connects | crate downloads, fetched once by a Cloud machine's crates cache for cargo on that machine, then served from its copy |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
@@ -377,6 +379,15 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `dot.net` | identifier | the .NET installer URL written into a Cloud machine setup line when a migrated devcontainer names the dotnet feature; the app never fetches it |
 | `aka.ms` | identifier | the Azure CLI installer URL written into a Cloud machine setup line when a migrated devcontainer names the azure-cli feature; the app never fetches it |
 | `git-lfs.github.com` | identifier | the version line of a Git LFS pointer file, matched when seeding a project, never fetched |
+| `1password.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `appstoreconnect.apple.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `atlassian.net` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `cloudflare.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `dash.cloudflare.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `dashboard.stripe.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `netlify.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `portal.azure.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `sentry.io` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 
 ### Samples and placeholders
 
@@ -395,6 +406,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
 | `www.bbc.co.uk` | example | a sample site in the iPhone site-monogram gallery |
+| `developers.cloudflare.com` | example | a link in a sample agent reply in the iPhone Feed's preview data |
 
 ### Text that looks like a host name
 
