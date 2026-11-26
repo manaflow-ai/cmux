@@ -1100,7 +1100,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUsePreview",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextSettings",
         "CmuxNextTerminal"
       ],
       "packages": []
@@ -2573,6 +2576,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextSignposts"
       ],
