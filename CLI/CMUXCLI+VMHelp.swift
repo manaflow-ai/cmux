@@ -317,10 +317,11 @@ extension CMUXCLI {
     /// Cloud API looks machines up by provider id only, so a label resolves here.
     /// A provider-shaped id skips the `vm.list` round trip; an unmatched reference,
     /// or a list that cannot be read, goes through as typed so the id path reports
-    /// its own not-found error.
+    /// its own not-found error. The list gets 25 s: the server answers it within
+    /// its 20 s database budget, and a label lookup should not stall a verb longer.
     func resolveVMReference(_ reference: String, client: SocketClient) throws -> String {
         guard !CloudVMReference(reference).looksLikeMachineID,
-              let response = try? client.sendV2(method: "vm.list", responseTimeout: 60) else {
+              let response = try? client.sendV2(method: "vm.list", responseTimeout: 25) else {
             return reference
         }
         return try Self.resolveVMReference(reference, listResponse: response)
