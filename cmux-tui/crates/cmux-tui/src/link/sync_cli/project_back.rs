@@ -235,13 +235,17 @@ fn batches<'a>(paths: &'a [String], size: impl Fn(&str) -> u64) -> Vec<&'a [Stri
     for (at, path) in paths.iter().enumerate() {
         let len = size(path);
         if at > start && (at - start == BATCH_PATHS || bytes.saturating_add(len) > BATCH_BYTES) {
-            runs.push(&paths[start..at]);
+            if let Some(batch) = paths.get(start..at) {
+                runs.push(batch);
+            }
             (start, bytes) = (at, 0);
         }
         bytes = bytes.saturating_add(len);
     }
     if start < paths.len() {
-        runs.push(&paths[start..]);
+        if let Some(batch) = paths.get(start..) {
+            runs.push(batch);
+        }
     }
     runs
 }
@@ -486,8 +490,14 @@ fn diff_stage(
     let mut by_repo: BTreeMap<String, Vec<Change>> = BTreeMap::new();
     let mut add = |path: &str, file: Option<PathBuf>| {
         let Some(repo) = repository_of(manifest, path) else { return };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = if repo.is_empty() {
+            path.to_owned()
+        } else {
+            path.strip_prefix(repo)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .unwrap_or(path)
+                .to_owned()
+        };
         by_repo.entry(repo).or_default().push(Change { path: path.to_owned(), inside, file });
     };
     for write in plan.writes.iter().filter(|w| w.kind == Kind::File) {
@@ -667,8 +677,14 @@ fn keep_ignored_home(
         .filter(|(path, _)| manifest.resolve(path).is_none());
     for (path, dir) in new_paths {
         let Some(repo) = repository_of(manifest, path) else { continue };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = if repo.is_empty() {
+            path.to_owned()
+        } else {
+            path.strip_prefix(repo)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .unwrap_or(path)
+                .to_owned()
+        };
         // A folder is asked about through a name inside it: git checks a missing path's leading
         // folders as folders (so `target/` matches), never the missing path itself.
         by_repo.entry(repo).or_default().push(if dir {
@@ -708,7 +724,8 @@ fn keep_ignored_home(
     ignored.dedup();
     let all: BTreeSet<String> = ignored.iter().cloned().collect();
     let within = |path: &str, set: &BTreeSet<String>| {
-        path.match_indices('/').any(|(at, _)| set.contains(&path[..at]))
+        path.match_indices('/')
+            .any(|(at, _)| path.get(..at).is_some_and(|prefix| set.contains(prefix)))
     };
     ignored.retain(|path| !within(path, &all));
     let roots: BTreeSet<String> = ignored.iter().cloned().collect();
@@ -800,7 +817,12 @@ fn apply(
     let outcome = (|| -> anyhow::Result<()> {
         for delete in &plan.deletes {
             match delete.kind {
-                Kind::File => transaction.delete(&delete.path, &expected[&delete.path])?,
+                Kind::File => transaction.delete(
+                    &delete.path,
+                    expected
+                        .get(&delete.path)
+                        .with_context(|| format!("missing expected state for {}", delete.path))?,
+                )?,
                 Kind::Link => {
                     let text = manifest
                         .resolve(&delete.path)
@@ -825,7 +847,12 @@ fn apply(
                     transaction.remove_link(&write.path, &text)?;
                 }
                 Some(Kind::File) if write.kind != Kind::File => {
-                    transaction.delete(&write.path, &expected[&write.path])?;
+                    transaction.delete(
+                        &write.path,
+                        expected.get(&write.path).with_context(|| {
+                            format!("missing expected state for {}", write.path)
+                        })?,
+                    )?;
                 }
                 Some(Kind::Dir) if write.kind != Kind::Dir => {
                     let (parent, name) = place::parent_of(&root, &write.path)?
@@ -846,8 +873,13 @@ fn apply(
                         &staged,
                         std::fs::Permissions::from_mode(local::permissions_of(write.mode)),
                     )?;
-                    let replaced =
-                        (write.replaces == Some(Kind::File)).then(|| &expected[&write.path]);
+                    let replaced = if write.replaces == Some(Kind::File) {
+                        Some(expected.get(&write.path).with_context(|| {
+                            format!("missing expected state for {}", write.path)
+                        })?)
+                    } else {
+                        None
+                    };
                     transaction.write(&write.path, &name, replaced)?;
                 }
                 Kind::Link => {

@@ -715,21 +715,24 @@ fn way_back_answer(
             }
             .map_err(|error| io(&error))?;
             let mut encoded = layer.encode().map_err(|error| io(&error))?;
-            let mut data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
-                                  "whiteouts": layer.whiteouts.len(), "mark": mark});
-            if line.prune {
+            let data = if line.prune {
                 // The pruned folders follow the listing, so a dial with thousands of them
                 // (`__pycache__` in every package) never makes a long answer line.
                 let more = cmux_projection::layer::Layer::encode_pruned(&pruned)
                     .map_err(|error| io(&error))?;
-                data["pruned_bytes"] = json!(more.len());
-                data["kept_on_machine"] = json!({
+                let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                "whiteouts": layer.whiteouts.len(), "mark": mark,
+                "pruned_bytes": more.len(), "kept_on_machine": {
                     "folders": pruned.len(),
                     "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
                     "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
-                });
+                }});
                 encoded.extend_from_slice(&more);
-            }
+                data
+            } else {
+                json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                       "whiteouts": layer.whiteouts.len(), "mark": mark})
+            };
             Ok((data, WayBackBody::Bytes(encoded)))
         }
         UNSYNCED => {
@@ -785,16 +788,17 @@ fn unsynced(state: &Path, prune: bool) -> anyhow::Result<Value> {
         .iter()
         .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
         .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
-    let mut data = json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()});
-    if prune {
-        data["kept_on_machine"] = json!({
+    Ok(if prune {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len(),
+        "kept_on_machine": {
             "folders": pruned.len(),
             "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
             "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
             "paths": pruned.iter().take(UNSYNCED_FOLDERS).map(|f| &f.path).collect::<Vec<_>>(),
-        });
-    }
-    Ok(data)
+        }})
+    } else {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()})
+    })
 }
 
 /// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
