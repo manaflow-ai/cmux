@@ -4,8 +4,8 @@
 //! `window_update_*`, `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, editors, files, history, launch, notifications, remote, restore,
-    screen_share, update_idle,
+    appearance, browser, editors, files, history, launch, notification_policy, notifications,
+    remote, restore, screen_share, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -26,6 +26,45 @@ struct Unread {
     verb: notifications::Verb,
     #[serde(default)]
     unread: Vec<notifications::UnreadTab>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Arriving {
+    #[serde(default)]
+    prefs: notification_policy::Prefs,
+    arrival: notification_policy::Arrival,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundAdmit {
+    last: Option<notification_policy::LastSound>,
+    event: notification_policy::SoundEvent,
+    now_ms: i64,
+    #[serde(default)]
+    cooldown_ms: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundChoosing {
+    #[serde(default)]
+    sounds: notification_policy::SoundPrefs,
+    event: notification_policy::SoundEvent,
+    #[serde(default)]
+    scope: notification_policy::SoundScope,
+    #[serde(default)]
+    fallback: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundOf {
+    #[serde(default)]
+    source: notification_policy::Source,
+    #[serde(default)]
+    level: notification_policy::Level,
 }
 
 #[derive(Deserialize)]
@@ -194,6 +233,36 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
                 Ok(index) => json!({ "index": index }),
                 Err(refusal) => json!({ "refusal": refusal }),
             }
+        }
+        // What an arriving notification does: read on sight, ring, banner, bounce, timeout, sound.
+        b"window_notifications_decide" => {
+            let request: Arriving = read(request)?;
+            value(notification_policy::decide(&request.prefs, &request.arrival))?
+        }
+        // Each dismissal mode's clearing triggers; the app asks once and keeps the table.
+        b"window_notifications_clears_table" => value(notification_policy::clears_table())?,
+        // The burst cooldown: whether a sound plays, and the new last sound when it does.
+        b"window_notifications_sound_admit" => {
+            let request: SoundAdmit = read(request)?;
+            match notification_policy::admit(
+                request.last,
+                request.event,
+                request.now_ms,
+                request.cooldown_ms,
+            ) {
+                Some(last) => json!({ "admitted": true, "last": last }),
+                None => json!({ "admitted": false }),
+            }
+        }
+        // The sound an event plays in a scope, and the level that chose it (none: silent).
+        b"window_notifications_sound_choice" => {
+            let request: SoundChoosing = read(request)?;
+            json!({ "choice": request.sounds.choice(request.event, &request.scope, &request.fallback) })
+        }
+        // What a notification from a source at a level is about, for its sound.
+        b"window_notifications_sound_event" => {
+            let request: SoundOf = read(request)?;
+            json!({ "event": notification_policy::SoundEvent::of(request.source, request.level) })
         }
         b"window_notifications_toggle_mute" => {
             let request: Mute = read(request)?;

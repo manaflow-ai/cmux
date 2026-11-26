@@ -29,6 +29,9 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_policy`]: what a notification does when it arrives
+//!   (read on sight, ring, banner, Dock bounce, timeout, its sound and how
+//!   loud), which interactions clear it, and the burst sound cooldown.
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -46,6 +49,7 @@ pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_policy;
 pub mod notifications;
 pub mod remote;
 pub mod restore;

@@ -2778,6 +2778,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
             ],
             // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
             exclude: ["Localizable.xcstrings.d"],
