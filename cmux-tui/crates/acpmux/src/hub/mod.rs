@@ -85,8 +85,6 @@ pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
 mod control_asks;
-// The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
 pub(crate) mod create_key;
 pub mod created_by;
 mod credentials;
@@ -503,6 +501,7 @@ mod workflow_runs;
 pub(crate) mod worktree_care;
 mod wrap_up_offer;
 mod xai;
+
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
