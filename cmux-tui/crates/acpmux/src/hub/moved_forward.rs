@@ -20,9 +20,17 @@ impl Hub {
     /// down: the caller then answers as before (`transfer.moved`).
     pub fn moved_forward(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let session = self.resolve(key).ok()?;
+        self.moved_destination(&session, crate::peer::Peer::ready)
+    }
+
+    fn moved_destination(
+        &self,
+        session: &Session,
+        eligible: impl FnOnce(&crate::peer::Peer) -> bool,
+    ) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let to = session.read_meta(|m| m.moved_to.clone())?;
         let peer = self.peer_by_name(to.get("host")?.as_str()?)?;
-        if !peer.ready() {
+        if !eligible(&peer) {
             return None;
         }
         let id = to
@@ -59,9 +67,19 @@ impl Hub {
         &self,
         key: &str,
     ) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
-        if self.resolve(key).is_err() {
+        self.remote_or_moved_for(key, crate::peer::Peer::ready)
+    }
+
+    /// Resolving demand for a moved chat can name its destination before its link is ready.
+    /// Ordinary forwarding still requires a ready peer and falls back to the local tombstone.
+    pub(crate) fn remote_or_moved_for(
+        &self,
+        key: &str,
+        eligible: impl FnOnce(&crate::peer::Peer) -> bool,
+    ) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+        let Ok(session) = self.resolve(key) else {
             return self.resolve_remote(key).map(|(peer, id, row)| (peer, id, row, false));
-        }
-        self.moved_forward(key).map(|(peer, id, row)| (peer, id, row, true))
+        };
+        self.moved_destination(&session, eligible).map(|(peer, id, row)| (peer, id, row, true))
     }
 }
