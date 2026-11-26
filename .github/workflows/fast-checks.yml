@@ -171,6 +171,10 @@ jobs:
           cd .fast-checks-checkout
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
+          # The work tree goes too: checkout runs with clean: false, since its
+          # `git reset --hard HEAD` fails on the unborn HEAD written below and
+          # would make it delete the whole store.
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
             rm -rf -- .git
           elif [[ -d .git ]]; then
@@ -181,6 +185,12 @@ jobs:
             else
               rm -rf .git/hooks .git/logs .git/refs
               rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              # Git takes a directory for a repository only with refs/ and a
+              # HEAD. Without them actions/checkout's first probe printed
+              # "fatal: --local can only be used inside a git repository" and
+              # it re-cloned from scratch (run 45685122297).
+              mkdir -p .git/refs/heads .git/refs/tags
+              printf 'ref: refs/heads/main\n' > .git/HEAD
               cat > .git/config <<'EOF'
           [core]
             repositoryformatversion = 0
@@ -200,7 +210,7 @@ jobs:
           ref: ${{ inputs.source_sha }}
           path: .fast-checks-checkout
           persist-credentials: false
-          clean: true
+          clean: false
           # The tested commit is the snapshot's parent: depth 2 brings it (its tree is the
           # snapshot's, so only the commit object is new).
           fetch-depth: ${{ inputs.tested_sha && 2 || 1 }}

@@ -214,6 +214,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Validate the sanitized warm fast-checks checkout stays a Git repository
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
+
       - name: Test fleet submission from a plain checkout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_submit_fleet_test.py
