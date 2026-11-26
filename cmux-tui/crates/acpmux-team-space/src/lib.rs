@@ -4,7 +4,7 @@
 //!
 //! - [`store::TeamSpaceStore`] is the seam to the hosted store: post into a space, and read a
 //!   space's feed after a sequence cursor. The store owns the feed, its cursor and its
-//!   permissions. This crate only consumes them, and implements no feed, shared space or bridge.
+//!   permissions. This crate only consumes them, and implements no feed, shared space or sending.
 //!   The store's API is not reachable from the fleet yet: no lane holds a forum credential until
 //!   per-org agent keys exist. So the only implementation here is [`fake::FakeStore`]. A
 //!   network implementation goes behind the same trait once the store answers an agent key.
@@ -21,10 +21,13 @@
 //!   them, what touches their area, everything else counted, duplicates folded, each item with
 //!   its source link; plain text under a budget, or JSON. [`record`] keeps what the person did
 //!   with each item (opened, answered, dismissed) in the store, and [`record::stats`] counts it.
+//! - [`bridge`] renders a person's digest as an email or a Slack message for people not on the
+//!   feed yet. It only renders; nothing here sends.
 //!
 //! Joining a space is a person's act, so this client has no join call. A space the agent was
 //! never admitted to answers [`store::StoreError::Forbidden`].
 
+pub mod bridge;
 pub mod delivery;
 pub mod digest;
 pub mod fake;
@@ -36,6 +39,7 @@ pub mod service;
 pub mod store;
 pub mod thread;
 
+pub use bridge::{Channel, Message};
 pub use delivery::{Delivery, DigestItem, WakePolicy};
 pub use digest::{Digest, DigestEntry, DigestOptions, Person, Rendered};
 pub use model::{AgentIdentity, Author, AuthorKind, Event, FeedPage, NewPost, PostKind};

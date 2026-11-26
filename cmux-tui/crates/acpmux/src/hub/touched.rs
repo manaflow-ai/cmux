@@ -331,8 +331,7 @@ impl Hub {
         let mut unreached: Vec<Value> = vec![];
         let ask_peers = !from_peer && params.get("peers").and_then(Value::as_bool) != Some(false);
         if ask_peers {
-            let peers: Vec<Arc<crate::peer::Peer>> =
-                self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+            let peers: Vec<Arc<crate::peer::Peer>> = self.peers.load().values().cloned().collect();
             let forward = json!({"query": q, "peers": false});
             let asks = peers.into_iter().map(|p| {
                 let forward = forward.clone();

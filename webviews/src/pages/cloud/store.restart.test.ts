@@ -35,7 +35,8 @@ class TerminalAfterTransportProvider extends StartingProvider {
   override async call<R>(op: string, params: unknown): Promise<R> {
     if (op === CloudOps.authStatus && this.authReads > 0 && !this.terminal) {
       this.terminal = true;
-      throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", true);
+      // Final: a retryable one is read again quietly first (CloudPage.blip.test.tsx).
+      throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", false);
     }
     return super.call<R>(op, params);
   }

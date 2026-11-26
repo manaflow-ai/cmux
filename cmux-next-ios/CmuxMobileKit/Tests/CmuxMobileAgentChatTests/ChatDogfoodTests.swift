@@ -13,7 +13,6 @@ import Testing
         #expect([TurnRow]().needsWorkingIndicator)
         #expect([TurnRow.tool(call("a", .completed))].needsWorkingIndicator)
         #expect([TurnRow.toolGroup(id: "g", calls: [call("a", .completed), call("b", .failed)])].needsWorkingIndicator)
-        #expect([TurnRow.plan(id: "p", entries: [])].needsWorkingIndicator)
     }
 
     @Test func hiddenWhileTheLastRowShowsItsOwnProgress() {

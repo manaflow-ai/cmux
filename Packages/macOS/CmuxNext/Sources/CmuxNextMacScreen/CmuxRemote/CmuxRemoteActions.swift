@@ -160,7 +160,8 @@ extension CmuxRemoteActionEnvironment {
                     return Self.allowAgents(call.params["on"]?.boolValue ?? true, hub: hub, window: environment.window())
                 }
                 if action == "share", !device.isEmpty {
-                    return try Self.confirmShareOther(device, hub: hub, window: environment.window(), ticket: ticket, remote: environment.remote)
+                    return try Self.confirmShareOther(device, hub: hub, window: environment.window(), ticket: ticket, remote: environment.remote,
+                                                     consent: environment.shareConsent)
                 }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let window = environment.window()
@@ -286,8 +287,15 @@ extension CmuxRemoteActionEnvironment {
     /// `remote.confirm {action: share, device}`: share another Mac of this account. The person
     /// confirms here; only then does this device sign the approval the target Mac admits
     /// (`acpmux::share_approval`). Nothing turns on here: the target makes its own hub call.
+    ///
+    /// No dialog when this Mac's own Share This Mac yes holds (`consent`: the person's answered
+    /// sheet here, or this Mac joined to their own account, Z4 "joining is the whole consent"): the
+    /// asker is then the person's own Mac, the target is another Mac of the same account, and the
+    /// target still admits it only under its own owner's yes. Leo: "the whole "allow blah blah" is
+    /// so annoying too".
     static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?, ticket: String? = nil,
-                                  remote: CmuxRemoteService? = nil) throws -> ControlReply {
+                                  remote: CmuxRemoteService? = nil,
+                                  consent: CmuxRemoteShareConsent? = nil) throws -> ControlReply {
         guard let target = hub.otherDevices.first(where: { $0.id == device || $0.name.caseInsensitiveCompare(device) == .orderedSame }) else {
             throw ControlError.invalidParams(CmuxRemoteStrings.notYourDevice(device))
         }
@@ -300,16 +308,28 @@ extension CmuxRemoteActionEnvironment {
             // The owner's agent under the account's standing permission: no dialog, a notice here.
             var grant: CmuxRemoteAgentGrant?
             if let ticket, let remote { grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote, target: target) }
-            if let grant {
-                await CmuxRemoteAgentShare.post(grant, in: window) {}
-            } else {
-                guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+            if let grant { await CmuxRemoteAgentShare.post(grant, in: window) {} }
+            let answer = await Self.shareOtherAnswer(agent: grant != nil, consent: consent) {
+                await Self.confirm(title: title, body: body, in: window)
             }
+            guard answer != .declined else { return ["ok": false, "declined": true] }
             var approval = unsigned
             approval.confirmedAt = Int(Date().timeIntervalSince1970)
             let signed = try approval.signed(by: identity)
-            return .object(["ok": true, "approval": signed.json, "agent": .bool(grant != nil)])
+            return .object(["ok": true, "approval": signed.json, "agent": .bool(grant != nil), "asked": .bool(answer == .asked)])
         }
+    }
+
+    /// How a share of another Mac of this account is allowed: by the owner's agent under the
+    /// standing permission, by this Mac's own yes (``CmuxRemoteShareConsent``, Z4), or by the person
+    /// on the dialog (`ask`), which runs only when neither holds.
+    nonisolated enum ShareOtherAnswer: Equatable, Sendable { case agent, consented, asked, declined }
+
+    static func shareOtherAnswer(agent: Bool, consent: CmuxRemoteShareConsent?,
+                                 ask: @MainActor () async -> Bool) async -> ShareOtherAnswer {
+        if agent { return .agent }
+        if let consent, await consent.givenNow() { return .consented }
+        return await ask() ? .asked : .declined
     }
 
     /// The person's answer to one dialog (false without a window).
