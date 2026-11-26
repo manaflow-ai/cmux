@@ -116,7 +116,7 @@
     "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
     "cmux-tui/crates/acpmux/src/hub/full_access_bound.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/hub/inbox_reader.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
-    "cmux-tui/crates/acpmux/src/hub/lifecycle.rs:rust-duration": {"count": 1, "reason": "bound: harness_now's 1 s read of the child's harness state answers None (nothing known this tick) and the next tick asks again; it ends no session"},
+    "cmux-tui/crates/acpmux/src/hub/lifecycle_cold_start.rs:rust-duration": {"count": 1, "reason": "bound: harness_now's 1 s read of the child's harness state answers None (nothing known this tick) and the next tick asks again; it ends no session"},
     "cmux-tui/crates/acpmux/src/hub/live_name.rs:rust-duration": {"count": 2, "reason": "bound: ANSWER_WITHIN and IN_FLIGHT_WAIT pace a rename retry (a local command); a timed-out rename is asked again later and the chat keeps its old name meanwhile"},
     "cmux-tui/crates/acpmux/src/hub/lock_bridge.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
     "cmux-tui/crates/acpmux/src/hub/mcp_probe.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
