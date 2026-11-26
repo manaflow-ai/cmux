@@ -357,6 +357,15 @@ class NightlyNextOneJobTests(unittest.TestCase):
         check = next(s for s in wake["steps"] if s.get("name") == "Check the published feed offers deltas")
         self.assertIn("needs.nightly-next-one.outputs.newer_push_waiting != '1'", one_line(check.get("if")))
 
+    def test_the_live_code_variant_notarizes_on_the_nightlys_sign_channel(self) -> None:
+        # 2026-11-26 run 45798252585: the variant (cmux NIGHTLY.app, grafted into the published nightly's app) was
+        # checked as channel `next` and failed "CFBundleName expected 'cmux NEXT', found 'cmux NIGHTLY'" after Apple
+        # had accepted it. The nightly itself signs on decide's sign_channel (`nightly` on nightly-next).
+        sign = self.jobs["sign-live-code-variant"]
+        notarize = next(s for s in sign["steps"] if s.get("name") == "Notarize the variant and its DMG")
+        self.assertEqual(notarize["env"]["CMUX_CHANNEL"], "${{ needs.decide.outputs.sign_channel }}")
+        self.assertIn("decide", sign["needs"])
+
     def test_the_feed_waits_on_no_delta_when_the_deltas_follow_it(self) -> None:
         # The item is written full-only then, so the wait before the Sparkle key stops an unfinished prebuild
         # instead of waiting for it (one-job.sh deltas-join), with the same switch. Why: note-31
