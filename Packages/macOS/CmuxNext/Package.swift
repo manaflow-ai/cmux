@@ -36,7 +36,7 @@ import PackageDescription
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
-//   CmuxNextMobile -> Daemon (phone host model, pairing and the mobile.* compat adapter; no UI)
+//   CmuxNextMobile -> Daemon, CCmuxAppFFI (phone host model, pairing and the mobile.* compat adapter; no UI; the rules in Rust)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -90,8 +90,8 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextTaskManagerPage -> Pages, Resources, Settings (the React Task Manager page's model lifetime, kill
 //     rule and snapshot stream; the App opens the tabs and runs the kill action)
-//   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
-//     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextAgentPane -> Design, Actions, Dictation, CCmuxAppFFI (WKWebView host for the React agent pane and the acpmux
+//     handshake; the page talks to acpmux itself; no daemon; the page frames' duplicate-key check in Rust)
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> CCmuxAppFFI, AgentCursor (visibility of a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out, from cmux-focus-core's rules through the typed app FFI call;
@@ -701,6 +701,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextAgentPane",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the page frames' strict duplicate-key check (cmux-agent-pane-policy src/json_keys.rs).
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentList",
                 "CmuxNextAgentPanePlacement",
@@ -3044,7 +3046,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // policy.rs mirrors, and the transport-free mobile.* compat adapter. No UI, no transport.
         .target(
             name: "CmuxNextMobile",
+            // CCmuxAppFFI: the iPhone host's rules (cmux-mobile-host-core, the mobile_host op; MobileHostRules).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
