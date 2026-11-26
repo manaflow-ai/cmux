@@ -4,7 +4,7 @@
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
-use crate::cli::command::{CloseArgs, MoveSessionsArgs, RebalanceArgs, StopIf};
+use crate::cli::command::{CloseArgs, MoveSessionsArgs, PlaceSessionArgs, RebalanceArgs, StopIf};
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
@@ -212,6 +212,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
+    /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
+    /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
+    #[command(name = "place-set")]
+    PlaceSet(PlaceSessionArgs),
     /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
     /// only chats between turns with no work running below them, at most a few a pass, to the
     /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
