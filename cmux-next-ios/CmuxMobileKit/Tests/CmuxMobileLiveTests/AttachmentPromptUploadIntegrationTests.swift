@@ -116,6 +116,7 @@ import Testing
         let imageBlock = try #require(blocks.first { $0["type"]?.stringValue == "image" })
         let upload = imageBlock["_meta"]?["acpmux"]?["upload"]
         #expect(upload?["uploadId"]?.stringValue == "upload-1")
+        #expect(upload?["fileName"]?.stringValue == "photo.png")
         #expect(upload?["owned"]?.stringValue == "owner-1")
     }
 }
