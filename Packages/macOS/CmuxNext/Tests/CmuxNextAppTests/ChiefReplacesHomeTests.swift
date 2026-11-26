@@ -106,6 +106,8 @@ struct ChiefReplacesHomeTests {
     /// a new page opens the way the person left it, and the button is lit while the list shows.
     @Test func chatsShowsAndFoldsTheList() throws {
         _ = NSApplication.shared
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
         let suite = "cmux.tests.chiefReplacesHome.chats.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
