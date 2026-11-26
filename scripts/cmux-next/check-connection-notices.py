@@ -414,6 +414,7 @@ def scan(tree: Tree) -> list[Unit]:
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
     propagate(units, imports)
+    pass_drawn_components(units, imports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
@@ -525,6 +526,42 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
             moved = True
         if not moved:
             break
+
+
+def pass_drawn_components(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web component that only draws words a label table handed it (every hit came through a provider, none is its
+    own copy) passes them on to the components that draw it (`<ConnectPill status={row.status} />`): the pill is a
+    part of its host's card. It passes them only when every host carries an action or the bound, and one hop only,
+    so the pass clears a pill on an actionable card and never moves a finding (or an allowlist row) elsewhere. A
+    component that says its own words, that no component is seen to draw, or that one host draws bare keeps its hits."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for unit in list(units.values()):
+        if (not unit.hits or unit.ok or not unit.path.endswith(".tsx")
+                or not re.match(r"[A-Z][a-z]", unit.name) or min(h.hops for h in unit.hits) < 1):
+            continue
+        stem = unit.path[:-len(".tsx")]
+        pool = [u for u in by_file.get(unit.path, []) if u is not unit]
+        for path, bindings in imports.items():
+            if path != unit.path and any(local == unit.name and target in (stem, stem.rsplit("/index", 1)[0])
+                                         for local, target in bindings):
+                pool.extend(by_file.get(path, []))
+        drawn = re.compile(rf"<{re.escape(unit.name)}\b")
+        consumers = []
+        for other in pool:
+            if other.name == "<file>":
+                continue
+            i = next((i for i, line in enumerate(other.lines) if drawn.search(line)), None)
+            if i is not None:
+                consumers.append((other, i))
+        if not consumers or not all(other.acted or (other.gated and not other.literal_grace)
+                                    for other, _ in consumers):
+            continue
+        said = unit.hits[0]
+        for other, i in consumers:
+            other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, said.hops + 1, said.origin))
+        unit.hits = []
 
 
 def read_allowlist(text: str) -> dict[str, tuple[str, str, str]]:
