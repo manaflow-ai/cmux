@@ -102,7 +102,7 @@ help_ok() { local out; out="$(wrun "$1" --help)" || { printf '%s\n' "$out"; retu
 
 smoke() { # binary name dist tests
   local name="$1" tests="$3" exe="$2/$1-x86_64-pc-windows-gnu.exe"
-  [[ -f "$exe" ]] || { echo "wine-smoke: no $exe" >&2; return 2; }
+  [[ -f "$exe" ]] || { printf 'wine-smoke: FAIL %-48s missing %s\n' "$name" "$exe"; failed=1; return 0; }
   check "$name --version" version_ok "$exe"
   case "$name" in
     cmux-tui)
