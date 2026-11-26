@@ -6312,7 +6312,6 @@ CmuxNextDesign	enum	BackdropAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Accent.swift	art accent pick rule
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Daily.swift	daily art pick rule
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+DailyRotation.swift	daily rotation of art
-CmuxNextDesign	extension	BackdropArt	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift	generated from art/manifest.json by generate_backdrop_art.py (header)
 CmuxNextDesign	enum	BackdropArtCollection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Library.swift	art collections grouping for the picker
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Library.swift	from enum BackdropArtCollection:5: art collections grouping for the picker
 CmuxNextDesign	enum	BackdropArt	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift	generated from art/manifest.json by generate_backdrop_art.py (header)

@@ -78,6 +78,13 @@
       "status": "build"
     },
     {
+      "id": "backdrop-art-entries",
+      "generator": "scripts/cmux-next/art/generate_backdrop_art.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift"],
+      "inputs": ["art/manifest.json"],
+      "status": "build"
+    },
+    {
       "id": "motion-scale",
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [
