@@ -63,8 +63,10 @@ fn cpu_pegs_on_three_probes_in_a_row() {
 /// CPU within two, both well inside the platform's 5 s.
 #[test]
 fn the_probe_sees_pressure_within_two_seconds() {
-    assert!(PROBE_INTERVAL_MS <= 1_000);
-    assert!(PROBE_INTERVAL_MS * (u64::from(CPU_PROBES) - 1) <= 2_000);
+    const {
+        assert!(PROBE_INTERVAL_MS <= 1_000);
+        assert!(PROBE_INTERVAL_MS * (CPU_PROBES as u64 - 1) <= 2_000);
+    }
 }
 
 /// A block that names something newly short (or a newer OOM rise) rose and goes at once; one that
