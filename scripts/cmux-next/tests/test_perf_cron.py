@@ -2602,7 +2602,7 @@ class ControllerRouteTests(unittest.TestCase):
         # step, could not fetch main; the build part's failure ended motion, switch and tabs as build_failed.
         error = ("ci-step reviewed check: no reviewed tip could be fetched for scripts/measure/split-spring.sh at "
                  "60a23ed343cf (main: not fetched (git: unable to access "
-                 "'http://100.89.225.106:18765/v1/git/manaflow-ai/c")  # the state's why, cut at 200 characters
+                 "'http://controller.invalid/v1/git/manaflow-ai/c")  # the state's why, cut at 200 characters
         refused = cron.result_files(json.loads(self.result(part="build", state="failed", error=error)))
         self.assertEqual(refused["state"], "yielded")
         self.assertFalse(refused["build_failed"], "the check ran before the step: no build ran")

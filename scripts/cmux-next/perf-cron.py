@@ -5252,7 +5252,7 @@ def result_plan(o, state, t):
 # build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
 # build_failed though no build ran. The same day tip 60a23ed3's build failed in the controller's reviewed-script check
 # while the controller restarted ("ci-step reviewed check: no reviewed tip could be fetched for
-# scripts/measure/split-spring.sh ... git: unable to access 'http://100.89.225.106:18765/v1/git/...'"): the check gates
+# scripts/measure/split-spring.sh ... git: unable to access '<controller>/v1/git/...'"): the check gates
 # the step's script before the step runs, so it too ran nothing of the commit, yet it ended motion, switch and tabs
 # as build_failed, and with c2b1760e's 403 before it last_tip_build_failed read "the base is likely broken". Every
 # refusal the controller makes before a step starts is a yield, whatever its words: the source fetch and the check.
