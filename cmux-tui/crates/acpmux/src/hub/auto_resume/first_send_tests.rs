@@ -109,7 +109,9 @@ async fn handoff_chat() -> (Arc<Hub>, Arc<Session>, tempfile::TempDir) {
 async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_environment() {
     let (hub, s, dir) = handoff_chat().await;
     *s.work_below_since.lock().unwrap() = 1;
-    prompt(&hub, &s, "revoked-once: hello", "handoff").await.unwrap_err();
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
     let old = s.child.lock().await.clone().unwrap();
     hub.config
         .write()
@@ -119,7 +121,8 @@ async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_enviro
         .unwrap()
         .env
         .insert("TEST_RETRY_ROUTE".into(), "replacement".into());
-    hub.respawn_when_quiet(&s);
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
     until("first send claims its retry", || {
         matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
     })
@@ -142,9 +145,12 @@ async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_enviro
 async fn automatic_restart_first_send_stop_fences_a_busy_handoff() {
     let (hub, s, _dir) = handoff_chat().await;
     *s.work_below_since.lock().unwrap() = 1;
-    prompt(&hub, &s, "revoked-once: hello", "handoff-stop").await.unwrap_err();
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff-stop").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
     let old = s.child.lock().await.clone().unwrap();
-    hub.respawn_when_quiet(&s);
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
     until("first send claims its retry", || {
         matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
     })
