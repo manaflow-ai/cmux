@@ -31,9 +31,11 @@ on:
 permissions:
   contents: read
 
+# A newer push queues behind a live run instead of cancelling it: a drill cancelled mid-move uploads nothing (off-dst
+# and pause-dst in run 45777295662, cancelled by a push at 10:06Z), and its machines live out the sweep's bound.
 concurrency:
   group: cloud-move-kill-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
