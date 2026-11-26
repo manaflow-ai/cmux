@@ -835,6 +835,10 @@ impl Cloud for Api {
     }
 }
 
+#[cfg(test)]
+#[path = "direct_seeded_tests.rs"]
+mod seeded_tests;
+
 /// `cloud list-machines|pause-machine|resume-machine|kill-machine` on the direct route
 /// ([`Route::choose`]): answered by the cmux API and printed as the app prints them. `None` leaves
 /// every other command, and every command on the app route, where it went before.
