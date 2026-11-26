@@ -447,7 +447,7 @@ import {
   withAnswered,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
-import { canFork, forksAnyTurn, latestForkSeq, canForkTurn } from "./conversation/messageMenu";
+import { canFork, forksAnyTurn, forkRefusal, latestForkSeq, canForkTurn } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { type SaveDocument } from "./conversation/ArtifactPanel";
 import { useArtifactCoversPane } from "./conversation/artifactPanelModel";
@@ -1785,6 +1785,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A turn end of the settled view acpmux opened the chat from stands in until the rows hold one
   // (cmuxterm-hq#9655): the fork is offered from the chat's first settled frame.
   const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
+  /// Whether `/fork` forks now: Fork Conversation's rule (`forkRefusal`), so a working chat forks
+  /// as it is now and an idle one through its latest finished turn.
+  const slashForkable = forkRefusal(snapshot) === undefined && (snapshot.isWorking || forkSeq !== undefined);
   const forkAny = forksAnyTurn(snapshot);
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
@@ -7629,7 +7632,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // /rename is the header's Rename on a chat's own tab; Quick Chat's panel is no tab to rename.
     if (snapshot.sessionId && !quick) enabledCmuxActions.add("rename");
     if (!quick) enabledCmuxActions.add("cd");
-    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    // A working chat offers /fork as Fork Conversation does: a fork of the chat as it is now
+    // (forkToTarget), never "unavailable" until the turn ends (cmux#59876).
+    if (slashForkable) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
     if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
@@ -7674,8 +7679,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudStartFolderShown,
     cloudStartPickShown,
     continueAvailable,
-    forkable,
-    forkSeq,
+    slashForkable,
     isSideSession,
     shownStarting,
     shownQueue,
@@ -8305,7 +8309,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What a cmux-owned command's refusal rule reads (cmuxCommandRefusal), for the chat or New Tab.
   const commandState = (fresh: boolean) => ({
     summary: !fresh && !!snapshot.summary,
-    forkable: !fresh && forkable && forkSeq !== undefined,
+    forkable: !fresh && slashForkable,
     sideFork: sideChatRefusal(snapshot, sidePlace),
     sideAvailable: !fresh && sidePlace !== undefined,
     canContinue: !fresh && canContinue,
