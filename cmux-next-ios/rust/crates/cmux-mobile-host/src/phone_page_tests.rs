@@ -96,6 +96,41 @@ async fn several_phones_need_a_device() {
     assert_eq!(answer["value"]["n"], 2);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_full_phone_queue_uses_the_calls_deadline_and_forgets_it() {
+    let phones = leak();
+    let attached = phones.attach("dev-1", "iPhone");
+    let out = phones.lock().get(&attached.key).unwrap().out.clone();
+    for _ in 0..QUEUE {
+        out.try_send(Vec::new()).unwrap();
+    }
+    let wait = Duration::from_secs(15);
+    let start = tokio::time::Instant::now();
+    let answer = tokio::time::timeout(
+        wait * 2,
+        phones.call_within(None, "browser.page.state", &json!({"tab": "tab_1"}), wait),
+    )
+    .await
+    .expect("queue saturation must not outlive the call's deadline");
+    assert_eq!(answer["error"], cmux_phone_page::TIMEOUT);
+    assert_eq!(start.elapsed(), wait);
+    assert!(attached.pending.lock().unwrap().is_empty());
+    phones.detach(attached.key);
+}
+
+#[test]
+fn completed_lines_obey_the_same_limit_as_partial_lines() {
+    for frames in [vec![b"12345\n".as_slice()], vec![b"123".as_slice(), b"45\n".as_slice()]] {
+        let mut lines = Lines::default();
+        let mut result = Ok(Vec::new());
+        for frame in frames {
+            result = lines.push(frame, 4);
+        }
+        assert!(result.is_err());
+    }
+    assert_eq!(Lines::default().push(b"1234\n1234\n", 4).unwrap(), vec![b"1234".to_vec(); 2]);
+}
+
 #[test]
 fn lines_split_across_frames_and_refuse_a_runaway() {
     let mut lines = Lines::default();

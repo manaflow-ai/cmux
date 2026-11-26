@@ -147,25 +147,30 @@ impl Phones {
         let forget = || {
             pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
         };
-        if out.send(cmux_phone_page::request_line(id, method, &params)).await.is_err() {
-            forget();
-            return Err(gone().to_json());
-        }
-        match tokio::time::timeout(wait, answered).await {
-            Ok(Ok(Ok(value))) => Ok((device_id, value)),
-            Ok(Ok(Err(refusal))) => Err(json!({
-                "error": refusal.get("code").cloned().unwrap_or_else(|| json!("operation.failed")),
-                "message": refusal.get("message").cloned().unwrap_or_else(|| json!("")),
-            })),
-            Ok(Err(_)) => Err(gone().to_json()),
-            Err(_) => {
-                forget();
-                Err(PageRefusal::new(
-                    cmux_phone_page::TIMEOUT,
-                    format!("the iPhone did not answer {method} in time"),
-                )
-                .to_json())
+        // Queue backpressure is part of the call's budget, not an unbounded
+        // wait before the reply deadline starts.
+        let outcome = tokio::time::timeout(wait, async {
+            if out.send(cmux_phone_page::request_line(id, method, &params)).await.is_err() {
+                return Err(gone().to_json());
             }
+            match answered.await {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(refusal)) => Err(json!({
+                    "error": refusal.get("code").cloned().unwrap_or_else(|| json!("operation.failed")),
+                    "message": refusal.get("message").cloned().unwrap_or_else(|| json!("")),
+                })),
+                Err(_) => Err(gone().to_json()),
+            }
+        })
+        .await;
+        forget();
+        match outcome {
+            Ok(result) => result.map(|value| (device_id, value)),
+            Err(_) => Err(PageRefusal::new(
+                cmux_phone_page::TIMEOUT,
+                format!("the iPhone did not answer {method} in time"),
+            )
+            .to_json()),
         }
     }
 
@@ -204,6 +209,9 @@ impl Lines {
         self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
         while let Some(end) = self.buffer.iter().position(|b| *b == b'\n') {
+            if end > max {
+                return Err(());
+            }
             let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
             line.pop();
             if !line.is_empty() {

@@ -41,6 +41,10 @@ public enum PhonePageChannel {
             while let bytes = try await channel.receive() {
                 buffer.append(bytes)
                 while let end = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                    guard buffer.distance(from: buffer.startIndex, to: end) <= maxLine else {
+                        await channel.close(code: "too_large", reason: "a phone-page line is too long")
+                        return
+                    }
                     let line = buffer[buffer.startIndex..<end]
                     buffer = Data(buffer[buffer.index(after: end)...])
                     guard !line.isEmpty else { continue }
