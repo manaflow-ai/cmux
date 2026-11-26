@@ -1,4 +1,5 @@
 use super::*;
+use super::super::upstream::upstream_http::Http;
 
 /// A DEV build's `cmux mcp serve` keeps its tool lists in the build's own caches
 /// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/<NEXT_DIR>`, which NIGHTLY shares.
@@ -84,6 +85,39 @@ fn the_key_follows_the_program_the_server_runs() {
     assert_ne!(key(&relative).unwrap(), before);
     // Without the servers own PATH entry, this processs PATH (no `srv`) finds nothing.
     assert_eq!(resolve(&spec(Path::new("srv-not-on-any-path"), "t")), None);
+}
+
+/// acpmux's gateway serves each chat's own servers at `/mcp/<session>/tools`: two chats' specs
+/// differ in that session, the port and the token, and must still share one stored list, or every
+/// new chat starts each server to list it before the harness's first turn (cmux#57487). Another
+/// path (another server) is another list.
+#[test]
+fn chats_behind_the_gateway_share_one_list() {
+    let home = tempfile::tempdir().unwrap();
+    let binary = home.path().join("acpmux");
+    std::fs::write(&binary, "v1").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let at = |port: u16, session: &str, tail: &str| {
+        let mut spec = spec(&binary, session);
+        spec.http = Some(Http {
+            url: format!("http://127.0.0.1:{port}/mcp/{session}/tools{tail}"),
+            headers: vec![("Authorization".into(), format!("Bearer {session}-token"))],
+        });
+        spec
+    };
+    let a = at(64438, "01a215d2-467a-7207-b972-50269f6313fd", "");
+    let b = at(51001, "01a215d2-6c49-7753-825e-c30eaa14be94", "");
+    assert_eq!(key(&a), key(&b));
+    assert_ne!(key(&a), key(&at(64438, "01a215d2-467a-7207-b972-50269f6313fd", "/cmux-forum")));
+    let listing = Listing { tools: vec![json!({"name": "ls"})], instructions: None };
+    let folder = home.path().join("listings");
+    store(&folder, &a, &key(&a).unwrap(), &listing);
+    assert_eq!(load(&folder, &b), Some(listing));
+    assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+    assert_eq!(http_path("http://127.0.0.1:1/mcp/s1/tools/x"), "mcp/{session}/tools/x");
+    assert_eq!(http_path("http://127.0.0.1:1/other/s1"), "other/s1");
+    assert_eq!(http_path("http://127.0.0.1:1"), "");
 }
 
 #[test]
