@@ -67,7 +67,7 @@
     "ui.animations.feedback": false,
     // The running tool label shines without pause.
     "agentPane.display.thinking.shimmer": "continuous"
-    // Pending: per-category durations and easings (150 ms cubic-bezier(0.4, 0, 0.2, 1) popovers,
-    // a 0.97 press scale, 180 ms step rows) need motion tokens a look can set: lane/look-motion-tokens.
+    // Popovers, menus and tooltips (150 ms, cubic-bezier(0.4, 0, 0.2, 1)) and folds (200 ms) are timed
+    // by agent-pane/theme.css's motion tokens. Pending: a 0.97 press scale and 180 ms step rows.
   }
 }
