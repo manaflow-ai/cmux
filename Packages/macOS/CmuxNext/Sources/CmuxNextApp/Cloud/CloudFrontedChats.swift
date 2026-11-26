@@ -38,6 +38,9 @@ final class CloudFrontedChats {
     /// Opens a tool on a Cloud chat's machine (``openTool(_:chat:cwd:typing:services:)``); a test records the opens here.
     @ObservationIgnored var openToolOverride: (@MainActor (_ kind: RightColumnPlacement.Kind, _ chat: AgentTabKey, _ cwd: String?, _ typing: String?) -> Bool?)?
 
+    /// The Cloud chat each native New Tab page was opened from, by page tab: its picks open on that chat's machine (cmux#57249).
+    @ObservationIgnored var pageOrigins: [String: AgentTabKey] = [:]
+
     var isEmpty: Bool { fronts.isEmpty && making.isEmpty }
 
     /// The Cloud workspaces no window may take: each front's, and each one a start is making for a Mac tab.

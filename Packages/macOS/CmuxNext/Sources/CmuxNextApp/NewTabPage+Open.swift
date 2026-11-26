@@ -24,8 +24,6 @@ extension InternalPageID {
 extension NewTabPage {
     /// Panes whose New Tab page opening runs in this main-actor turn.
     private static var openingPanes: Set<ObjectIdentifier> = []
-    /// The Cloud chat each native New Tab page was opened from (cmux#57249); the web page's handler keeps its own.
-    private static var cloudChats: [String: AgentTabKey] = [:]
     /// The New Tab page in `pane`, adopting the window's prewarmed spare when it has one
     /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
@@ -284,7 +282,7 @@ extension NewTabPage {
         let cloud = CloudFrontedChats.cloudChat(shownBy: pane.selectedTab, services: services)
         let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                                          window: services.windowController(showing: pane))
-        cloudChats[opened] = cloud // its picks open on that chat's machine (cmux#57249)
+        services.agentTabs.frontedChats.pageOrigins[opened] = cloud // its picks open on that chat's machine (cmux#57249)
         // The prepared page, if one is parked (NewTabSparePool.warmNative); the pane's view for `opened` adopts it.
         let spare = services.newTabSpares.takeNative(for: opened)
         pane.apply(pane.snapshot())
@@ -334,9 +332,9 @@ extension NewTabPage {
     private static func nativeActions(_ key: String, cwd: String?, pane: PaneController, list: NativeNewTabList) -> NativeNewTabActions {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search, event in
-                if let pane, let cloud = cloudChats[key], let request = NewTabSubmit.nativeRequest(text: text.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, search: search, cwd: cwd,
+                if let pane, let cloud = pane.services.agentTabs.frontedChats.pageOrigins[key], let request = NewTabSubmit.nativeRequest(text: text.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, search: search, cwd: cwd,
                                                                                                    resolver: pane.services.cache.suggestionEngine.resolver),
-                   opensOnCloud(request, chat: cloud, services: pane.services, close: closingPage(key, in: pane)) { cloudChats[key] = nil; return }
+                   opensOnCloud(request, chat: cloud, services: pane.services, close: closingPage(key, in: pane)) { pane.services.agentTabs.frontedChats.pageOrigins[key] = nil; return }
                 if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key, event: event) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
