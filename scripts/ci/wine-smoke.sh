@@ -86,8 +86,22 @@ core_tests() { # the long-path unit tests the Windows runner runs
   done
 }
 
+relay_serves() { # exe: serve on loopback under Wine; Linux curl reads /healthz and upgrades /v1/relay
+  local port=$((20000 + RANDOM % 20000)) pid body code
+  timeout --kill-after=5 60 wine "$1" serve --allow-open --bind "127.0.0.1:$port" </dev/null >"$root/relay.log" 2>&1 &
+  pid=$!
+  for _ in $(seq 1 80); do body="$(curl -fsS --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null)" && break; sleep 0.25; done
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 -H 'Upgrade: websocket' -H 'Connection: Upgrade' \
+    -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "http://127.0.0.1:$port/v1/relay" 2>/dev/null || true)"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+  printf 'healthz: %s\nwebsocket upgrade: %s\n' "$body" "$code"; cat "$root/relay.log"
+  grep -Fq '"status":"ok"' <<<"$body" && [[ $code == 101 ]]
+}
+
+help_ok() { local out; out="$(wrun "$1" --help)" || { printf '%s\n' "$out"; return 1; }; printf '%s\n' "$out"; grep -q 'Usage\|usage\|OPTIONS' <<<"$out"; }
+
 smoke() { # binary name dist tests
-  local name="$1" dist="$2" tests="$3" exe="$2/$1-x86_64-pc-windows-gnu.exe"
+  local name="$1" tests="$3" exe="$2/$1-x86_64-pc-windows-gnu.exe"
   [[ -f "$exe" ]] || { echo "wine-smoke: no $exe" >&2; return 2; }
   check "$name --version" version_ok "$exe"
   case "$name" in
@@ -97,6 +111,8 @@ smoke() { # binary name dist tests
       check "$name long state path" wpy "$repo_root/cmux-tui/scripts/smoke-windows-long-state-path.py" --binary "$exe"
       check "$name terminal process exit" wpy "$repo_root/cmux-tui/scripts/smoke-windows-process-wait.py" --binary "$exe"
       ;;
+    cmux-relay) check "$name serves /healthz and a websocket" relay_serves "$exe" ;;
+    *) check "$name --help" help_ok "$exe" ;;
   esac
 }
 
