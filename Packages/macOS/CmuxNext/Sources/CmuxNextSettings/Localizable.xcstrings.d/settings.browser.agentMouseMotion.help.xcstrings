@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.agentMouseMotion.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Human moves along a curve and pauses before clicks; Instant jumps."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«بشري» يتحرك في مسار منحنٍ ويتوقف قبل النقرات؛ «فوري» يقفز."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ljudsko se kreće po krivulji i zastane prije klikova; Trenutno skače."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menneskelig bevæger sig ad en bue og holder pause før klik; Øjeblikkelig springer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menschlich folgt einer Kurve und hält vor Klicks kurz an; Sofort springt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Humano se mueve en curva y se detiene antes de los clics; Instantáneo salta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Humain suit une courbe et marque une pause avant les clics ; Instantané saute."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Umano si muove lungo una curva e si ferma prima dei clic; Istantaneo salta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「人間」は曲線を描いて動き、クリックの前に止まります。「即時」は一瞬で移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«មនុស្ស» ផ្លាស់ទីតាមផ្លូវកោង ហើយឈប់បន្តិចមុនការចុច; «ភ្លាមៗ» លោត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사람은 곡선으로 움직이고 클릭 전에 잠시 멈추며, 즉시는 바로 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menneskelig beveger seg i en bue og stopper før klikk; Umiddelbar hopper."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ludzki porusza się po krzywej i zatrzymuje przed kliknięciami; Natychmiastowy przeskakuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Humano segue uma curva e pausa antes dos cliques; Instantâneo salta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Человек» движется по кривой и замирает перед щелчками; «Мгновенно» перескакивает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบบมนุษย์จะเคลื่อนเป็นเส้นโค้งและหยุดเล็กน้อยก่อนคลิก แบบทันทีจะกระโดดไปเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İnsan eğri bir yol izler ve tıklamalardan önce durur; Anında atlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Людина» рухається вигнутою траєкторією і зупиняється перед клацаннями; «Миттєво» перестрибує."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Như người di chuyển theo đường cong và dừng trước khi nhấp; Tức thì nhảy tới ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“拟人”沿曲线移动并在点击前停顿；“即时”直接跳转。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「擬人」沿曲線移動並在點按前停頓；「即時」直接跳轉。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

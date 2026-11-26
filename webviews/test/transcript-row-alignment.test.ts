@@ -5,8 +5,8 @@
 // ours: "1 CODEX 2 US 3 US 4 CODEX 5 CLAUDDE WE NEED TO LINE OUR SHIT UP LIKE THEIRS".
 //
 // In gallery entry agent-pane.transcript-row-alignment (a reply, a tool call, a reply, a subagent
-// that started, a reply, the subagent finished, a reply, a background command that ended, a reply, another agent's message, a
-// reply; above them a folded
+// that started, a reply, the subagent finished, a reply, a background command that ended, a reply; after the live turn
+// another agent's message opens its own section, #37653; above them a folded
 // turn's "Worked for" line and a footer with its actions and time), measured from the
 // transcript column's left edge (`col-left`, design/grid.md 5.5) in light and dark:
 // - every reply's first glyph, a "Worked for" line's first glyph and the first glyph of every action
@@ -262,8 +262,10 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           "agent message",
         ])
           expect(kinds.has(kind), `measured a ${kind}`).toBe(true);
+        // Another agent's message is a message row (#37653): it opens its own section after the live
+        // turn's "Working for" line, so it is never a status row between two replies. Its icon and
+        // words are checked with the iconed rows above.
         expect(measured.gaps.map((gap) => gap.kind).sort()).toEqual([
-          "agent message",
           "background command",
           "subagent finished",
           "subagent started",

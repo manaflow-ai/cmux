@@ -89,7 +89,7 @@ async function mount() {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
-  const draw = (text: string) => act(async () => root.render(createElement(TextRoll, { turn: text }, text)));
+  const draw = (text: string) => act(async () => root.render(createElement(TextRoll, { turn: text, children: text })));
   const out = () => host.querySelector(".ui-text-roll__out");
   const incoming = () => host.querySelector(".ui-text-roll__in");
   const cell = () => host.querySelector<HTMLElement>(".ui-text-roll")!;
@@ -171,8 +171,8 @@ describe("TextRoll", () => {
         : { top: 900, bottom: 920, left: 0, right: 100, width: 100, height: 20 };
     };
     const root = createRoot(host);
-    await act(async () => root.render(createElement(TextRoll, { turn: "a" }, "a")));
-    await act(async () => root.render(createElement(TextRoll, { turn: "b" }, "b")));
+    await act(async () => root.render(createElement(TextRoll, { turn: "a", children: "a" })));
+    await act(async () => root.render(createElement(TextRoll, { turn: "b", children: "b" })));
     expect(host.querySelector(".ui-text-roll__out")).toBeNull();
     expect(host.textContent).toBe("b");
     proto.getBoundingClientRect = rect;

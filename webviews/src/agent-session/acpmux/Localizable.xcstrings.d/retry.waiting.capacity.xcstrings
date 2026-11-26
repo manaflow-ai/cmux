@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "retry.waiting.capacity" : {
+      "comment" : "Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed because no model capacity was available (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retrying ({attempt}/{of}) after a capacity error"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعادة المحاولة ({attempt}/{of}) بعد خطأ في السعة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponovni pokušaj ({attempt}/{of}) nakon greške kapaciteta"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver igen ({attempt}/{of}) efter en kapacitetsfejl"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neuer Versuch ({attempt}/{of}) nach einem Kapazitätsfehler"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Reintentando ({attempt}/{of}) tras un error de capacidad"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvelle tentative ({attempt}/{of}) après une erreur de capacité"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuovo tentativo ({attempt}/{of}) dopo un errore di capacità"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "容量エラーのため再試行中（{attempt}/{of}）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសសមត្ថភាព"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "용량 오류로 재시도 중 ({attempt}/{of})"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver igjen ({attempt}/{of}) etter en kapasitetsfeil"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponawianie ({attempt}/{of}) po błędzie przepustowości"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tentando novamente ({attempt}/{of}) após um erro de capacidade"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Повторная попытка ({attempt}/{of}) после ошибки нехватки мощностей"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดด้านความจุ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapasite hatasından sonra yeniden deneniyor ({attempt}/{of})"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Повторна спроба ({attempt}/{of}) після помилки потужності"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang thử lại ({attempt}/{of}) sau lỗi dung lượng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "容量错误后正在重试（{attempt}/{of}）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "容量錯誤後正在重試（{attempt}/{of}）"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
