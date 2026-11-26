@@ -44,6 +44,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "PAIRMATRIX_LONG_MINUTES",
     // The replace setting (off by default), so a row can measure the earlier dial.
     "ACPMUX_PEER_REPLACE_SECS",
+    // The peer link's send window (off by default), so a row can measure it.
+    "ACPMUX_PEER_SEND_WINDOW_KB",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
