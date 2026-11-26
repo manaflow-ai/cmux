@@ -1074,6 +1074,9 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
+        // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
+        summary.set("bgTasksRunning", json!(self.bg_running_count(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         summary.set("heldMessages", super::native_messaging::held_messages(session));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
