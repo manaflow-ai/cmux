@@ -594,6 +594,7 @@ Ops no app may call:
 - `cloud.machine.io`
 - `cloud.machine.link_token`
 - `cloud.machine.resize`
+- `cloud.machine.setup_desktop`
 - `cloud.machine.share_chat`
 - `cloud.owner.acpmux_keyed_start`
 - `cloud.owner.acpmux_person_holds`
@@ -681,6 +682,7 @@ Ops no app may call:
 - `install.rename`
 - `install.revoke`
 - `install.sign_out`
+- `integration.approval.approve`
 - `integration.approval.get`
 - `integration.complete`
 - `integration.connect`
