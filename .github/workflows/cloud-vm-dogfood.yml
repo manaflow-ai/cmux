@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      paused_reads:
+        description: Also time paused reads (listing, open, whole-tree search) through the files routes, n=30/30/5, no resume (RFD 0144 piece 2)
+        required: false
+        default: false
+        type: boolean
       egress_allowlist:
         description: Also run the egress allowlist red team (an allowlisted VM reaches api.anthropic.com, cannot POST to an outside host or raw IP)
         required: false
@@ -230,6 +235,7 @@ jobs:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}
           EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
+          PAUSED_READS: ${{ inputs.paused_reads }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
@@ -239,6 +245,7 @@ jobs:
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
+          if [ "$PAUSED_READS" = "true" ]; then args+=(--paused-reads); fi
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
@@ -272,6 +279,7 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)"] | join(", ")) else empty end' "$result"
             jq -r 'if has("memoryKept") then "Memory kept across pause: \(.memoryKept)" else empty end' "$result"
+            jq -r 'if .pausedReads.listing then "Paused reads (ms, no resume; stayed paused: \(.pausedReads.stayedPaused), 429s: \(.pausedReads.rateLimited)): " + ([("listing", "open", "search") as $k | .pausedReads[$k] | "\($k) n=\(.n) p50=\(.p50) p95=\(.p95)"] | join("; ")) else empty end' "$result"
             jq -r '(.lifecycleApi, .lifecycleCli, .lifecycleCleanup) // empty | to_entries[] | "- \(.key): \(.value)"' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
