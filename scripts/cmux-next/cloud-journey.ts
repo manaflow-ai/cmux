@@ -2171,19 +2171,63 @@ finally:
 CMUX_FIRST_TEXT`;
 }
 
-/** Start before send and record as soon as the observer answers. Never reject an unawaited background promise. */
-export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
+/** A machine answer that clears on its own: staging's VM API answers 502/503 vm_unavailable for a minute or two at a
+ * time (cloud-journey-ci.sh), and the CLI marks it retryable:false, so the reason is read from the text. */
+export function transientMachineError(text: string): boolean {
+  return /vm_unavailable|\b50[23]\b|Service Unavailable|Bad Gateway/.test(text);
+}
+
+/** Start before send and record as soon as the observer answers. Never reject an unawaited background promise.
+ * A transient machine error is retried until the budget runs out. The observer replays the stream (`--since 0`), so a
+ * retry still sees text that came while the machine was away, but its mark would fall late: after a retry the step
+ * says text came and records no time, and the p50 keeps only first-try samples. */
+export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void, retryMs = 2000, now: () => number = Date.now): Promise<void> {
+  const t0 = now();
+  let retries = 0;
+  let lastError = "";
   try {
-    const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
-    const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
-    if (r.code !== 0 || !m) throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
-    timing.mark("first_text");
-    if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
-    if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
-    record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
+    for (;;) {
+      const left = budgetMs - (now() - t0);
+      let r: ExecResult;
+      try {
+        r = await exec(`${GUEST}${firstTextCommand(session, left)}`, Math.min(270_000, left) + 5000);
+      } catch (error) {
+        // A thrown exec (the transport, not the machine) keeps its own words unless it names a transient machine error.
+        const text = String((error as Error)?.message ?? error);
+        if (!transientMachineError(text)) throw error;
+        r = { code: -1, stdout: "", stderr: text };
+      }
+      const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
+      if (r.code === 0 && m) {
+        if (retries) {
+          record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: streamed assistant text came, seen after ${retries} retried observer exec(s) past a transient machine error (${lastError.slice(-160)}); a replayed stream's mark would be late, so no time is recorded`, fields: timing.fields() });
+          return;
+        }
+        timing.mark("first_text");
+        if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
+        if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
+        record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
+        return;
+      }
+      lastError = `first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || r.stdout.slice(-300) || "no text marker"}`;
+      if (!transientMachineError(lastError) || now() - t0 + retryMs >= budgetMs) {
+        throw new Error(retries ? `${lastError} (after ${retries} retried exec(s))` : lastError);
+      }
+      retries += 1;
+      await sleep(retryMs);
+    }
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
   }
+}
+
+/** The reply step's timeout names what it last saw: an exec that never reached the session (its exit and stderr, e.g.
+ * 503 vm_unavailable), and with the model stub, how many model requests the stub logged (0: the model was never asked). */
+export function noReplyError(budgetMs: number, last: string, lastExec?: ExecResult, stubRequests?: number | null): string {
+  const parts = [`no reply within ${budgetMs / 1000} s; last: ${last.slice(-300)}`];
+  if (lastExec) parts.push(`last exec without an acp wait answer: exit ${lastExec.code} ${(lastExec.stderr || lastExec.stdout).trim().slice(-200)}`);
+  if (stubRequests !== undefined) parts.push(stubRequests === null ? "the stub's request log could not be read" : `the model stub logged ${stubRequests} model request(s)${stubRequests === 0 ? ": the model was never asked" : ""}`);
+  return parts.join("; ");
 }
 
 /** All callers, including a signal during delete, wait for the same cleanup to finish. */
@@ -3529,6 +3573,20 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
   `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
 
 /**
+ * A stub chat that a real model answered: whether the image's model route file exists, and for each Claude process the
+ * provider names its env sets and the host of its ANTHROPIC_BASE_URL (a host, never a key), plus settings.json's.
+ */
+export const STUB_BYPASS_PROGRAM =
+  `[ -e /etc/cmux/model-plane.env ] && echo "model-plane.env present" || echo "model-plane.env absent"; ` +
+  `echo "settings.json base URL host: $(grep -oE '"ANTHROPIC_BASE_URL": *"[a-z]+://[^/"]+' /home/cmux/.claude/settings.json 2>/dev/null | sed -E 's#.*://##')"; ` +
+  `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
+  `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-60); ` +
+  `printf '%s\\n' "$c" | grep -qE '(^|/)claude( |$)|claude-(agent|code)' || continue; ` +
+  `e=$(tr '\\0' '\\n' < "$d/environ" 2>/dev/null); ` +
+  `echo "pid \${d#/proc/}: $c :: $(printf '%s\\n' "$e" | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CONFIG_DIR)=' | tr -d = | tr '\\n' ' ')base host $(printf '%s\\n' "$e" | sed -nE 's#^ANTHROPIC_BASE_URL=[a-z]+://([^/]+).*#\\1#p')"; ` +
+  `n=$((n + 1)); [ "$n" -ge 6 ] && break; done; true`;
+
+/**
  * Whether the journey's Claude login goes with the agent's start as its launch credential (cmux#40159), never onto the
  * machine: the way the app sends a person's Cloud model connection, on the stub and on the real model alike. Staging
  * and production machines have no model route of their own (acpmux cloud_model_plane.rs where_resolves), so a copied
@@ -3662,13 +3720,16 @@ export type WarmHomeAnswer = { state: "ready" | "not_ready" | "unsupported"; rea
 /** Parse warm-home's optional JSON answer. Older guest images print nothing because the command is absent. */
 export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   let answer: any;
-  for (const line of stdout.split(/\r?\n/).map((line) => line.trim()).reverse()) {
-    if (!line.startsWith("{")) continue;
+  // acpmux's --json prints pretty JSON (cli/output.rs print_json, to_string_pretty): the answer spans lines, from a
+  // line that opens with "{" to the end. Try each such start, the last first; a diagnostic line can come before it.
+  const lines = stdout.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].trim().startsWith("{")) continue;
     try {
-      answer = JSON.parse(line);
+      answer = JSON.parse(lines.slice(i).join("\n"));
       break;
     } catch {
-      // The command can include a non-JSON diagnostic before its answer.
+      // Not the answer's first line (an inner object, or a non-JSON diagnostic).
     }
   }
   if (!answer || typeof answer !== "object") {
@@ -5711,9 +5772,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const awaitReply = async (): Promise<string> => {
       const t0 = Date.now();
       let last = "";
+      let lastExec: ExecResult | undefined;
       while (Date.now() - t0 < chatBudget) {
         const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; echo "@@lastexit $?"`, 45_000);
         const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
+        // No @@wait: the exec itself did not reach the session (the machine refused it); kept for the final error.
+        if (!wait) lastExec = r;
         last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
         if (wait === "0" && last) return last;
         if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
@@ -5721,7 +5785,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(exec, session, last)}`);
         }
       }
-      throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
+      const stubRequests = modelStub || gatewayStub ? await stubTurns().then((t) => t.length, () => null) : undefined;
+      throw new Error(noReplyError(chatBudget, last, lastExec, stubRequests));
     };
     const send = async (text: string): Promise<number | null> => {
       const r = await exec(guestTimed(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
@@ -5733,6 +5798,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
       return r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
         .filter((x: any) => x && x.method === "POST" && x.stream && !x.side);
+    };
+    // Why a stub chat's reply came from somewhere else: how many turns the stub logged, whether the image's model route
+    // file is there (acpmux cloud_model_plane.rs fills its base URL into every spawn), and each Claude process's
+    // provider names and base URL host (names and hosts only, never a key).
+    const stubBypassFacts = async (): Promise<string> => {
+      const n = await stubTurns().then((t) => t.length, () => null);
+      const r = await exec(STUB_BYPASS_PROGRAM).catch(() => null);
+      return `the stub logged ${n ?? "unread"} turn requests; ${r?.stdout.trim().replace(/\n/g, "; ").slice(0, 900) || "machine facts unread"}`;
     };
     // A later turn in the same session. With the stub, a request's step is the number of tool results already in the
     // conversation: the first request of this turn at step >= 1 proves the session still holds turn 1 (its tool
@@ -5857,7 +5930,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await J.step("reply", async () => {
             const last = await awaitReply();
             if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
-              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}; ${await stubBypassFacts()}`);
             }
             return { value: last, detail: last.slice(0, 280) };
           });

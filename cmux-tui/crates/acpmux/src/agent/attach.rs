@@ -106,6 +106,8 @@ impl ChildAgent {
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            _tether: None,
             #[cfg(feature = "sim")]
             sim_alive: None,
         });
