@@ -78,7 +78,7 @@ installer="$ROOT/scripts/install-zig-ci.sh"
 # shellcheck disable=SC2016 # the installer's own text, matched literally
 fetch_line="$(grep -n 'bash "$ZIG_R2_SCRIPT" fetch "$ZIG_NAME"' "$installer" | head -1 | cut -d: -f1)"
 # shellcheck disable=SC2016
-mirror_line="$(grep -n '^  download_zig_artifact "" "$ZIG_TAR"' "$installer" | head -1 | cut -d: -f1)"
+mirror_line="$(grep -nE '^ +download_zig_artifact "" "[$]ZIG_TAR"' "$installer" | head -1 | cut -d: -f1)"
 [[ -n "$fetch_line" && -n "$mirror_line" && "$fetch_line" -lt "$mirror_line" ]] || fail "install-zig-ci.sh does not read the bucket before the mirrors"
 
 # The daemon tests job restores before it installs, and inits ghostty-next through the cache.
