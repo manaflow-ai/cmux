@@ -1112,8 +1112,10 @@ async fn relay_first_dial_with_a_slow_gather(
 /// offer and `ticketEarly`), and the gathered endpoints follow as a trickle
 /// (`wg-endpoints` and the sealed in-tunnel announcement, which rides the
 /// relay), so a slow gather no longer holds the offer, the ticket and both
-/// joins. With a 400 ms gather and 200 ms joins, `wg-init` goes at once and
-/// the link is up a gather sooner; the baseline holds it the whole gather.
+/// joins. The tunnel still starts once both `wg-resp` and the gather are in,
+/// so the link comes up after the longer of the gather and the join instead
+/// of their sum: with a 400 ms gather and 200 ms joins, `wg-init` goes at
+/// once and the link is up about a join (200 ms) sooner.
 /// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
@@ -1139,7 +1141,8 @@ async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
         eprintln!("{label}: link up {up:?}, wg-init forwarded at {init:?} (median of {runs})");
     }
     let (before, after) = (rows[0].1, rows[1].1);
-    assert!(after + Duration::from_millis(250) < before, "link up {after:?} vs {before:?} before");
+    assert!(after + Duration::from_millis(150) < before, "link up {after:?} vs {before:?} before");
+    assert!(after < stun + join, "link up {after:?}: the gather and the join overlap");
 }
 
 /// The offer before the gather against a Mac before relay first (it
