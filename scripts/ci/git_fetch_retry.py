@@ -25,7 +25,20 @@ nightly-next builder failed three tries in a row with `fatal: could not get a
 repository handle for submodule 'ghostty'`, then `fatal: not a git repository:
 ghostty/../.git/modules/ghostty`.
 
-    git_fetch_retry.py [--tries 3] [--timeout S] [--repo DIR] -- git ARGS...
+With `--stop-on-refusal`, git's stderr is read as well (and still printed): a
+failure whose stderr shows the server or git refusing the request (repository
+not found, no such ref, authentication, HTTP 401/403/404, a bad revision, exit
+129 usage) is not tried again, since another try gets the same answer. Every
+other failure, a slow transfer, reset, timeout, name lookup or a lazy
+promisor fetch cut short, is tried again. The gate lists refusals, the short,
+stable set, so a transport failure in new wording is still retried. On
+2026-11-26 a deploy's `git checkout` died "Operation too slow ... could not
+fetch fc12c33... from promisor remote" (run 45740936781, job 139645489749) and
+kept production on an old commit for about 10 hours.
+
+The last line on failure names the tries spent and git's last reason.
+
+    git_fetch_retry.py [--tries 3] [--timeout S] [--repo DIR] [--stop-on-refusal] -- git ARGS...
 
 Exits with the last try's status (124 for a timeout).
 """
@@ -35,10 +48,13 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -50,6 +66,25 @@ BACKOFF_SECONDS = (10, 30)
 TIMEOUT_EXIT = 124
 # Seconds between SIGTERM and SIGKILL for a try's process group.
 KILL_GRACE_SECONDS = 10
+# git's usage-error exit status: the command line is wrong, so no try can succeed.
+USAGE_EXIT = 129
+# git stderr that means the request itself was refused (with --stop-on-refusal it is not tried again).
+REFUSAL = re.compile("|".join((
+    r"repository .*not found",
+    r"does not appear to be a git repository",
+    r"couldn't find remote ref",
+    r"not our ref",
+    r"authentication failed",
+    r"could not read (username|password)",
+    r"permission denied \(publickey",
+    r"the requested url returned error: 40[134]\b",
+    r"invalid refspec",
+    r"is not a valid (ref|branch) name",
+    r"unknown revision",
+    r"invalid reference",
+    r"did not match any file",
+    r"--unshallow on a complete repository",
+)), re.IGNORECASE)
 
 
 def low_speed_command(command: Sequence[str]) -> list[str]:
@@ -313,7 +348,11 @@ def is_submodule_update(command: Sequence[str]) -> bool:
 
 def run_once(command: Sequence[str], timeout: float) -> int:
     """Run `command` in its own process group; kill the group after `timeout` seconds."""
-    process = subprocess.Popen(list(command), start_new_session=True)
+    return wait_or_kill(subprocess.Popen(list(command), start_new_session=True), timeout)
+
+
+def wait_or_kill(process: subprocess.Popen, timeout: float) -> int:
+    """Wait for `process`; past `timeout` seconds kill its whole group and return TIMEOUT_EXIT."""
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -332,6 +371,44 @@ def run_once(command: Sequence[str], timeout: float) -> int:
     while group_alive(process.pid) and time.monotonic() < deadline:
         time.sleep(0.1)
     return TIMEOUT_EXIT
+
+
+def run_once_captured(command: Sequence[str], timeout: float) -> tuple[int, str]:
+    """`run_once`, with git's stderr printed as it comes and its last 64 KB returned."""
+    process = subprocess.Popen(list(command), start_new_session=True, stderr=subprocess.PIPE)
+    tail: deque[str] = deque(maxlen=400)
+
+    def pump() -> None:
+        assert process.stderr is not None
+        for raw in iter(process.stderr.readline, b""):
+            line = raw.decode(errors="replace")
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            tail.append(line)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    status = wait_or_kill(process, timeout)
+    reader.join(timeout=KILL_GRACE_SECONDS)
+    if not reader.is_alive() and process.stderr is not None:
+        process.stderr.close()
+    return status, "".join(tail)[-65536:]
+
+
+def refusal(status: int, stderr: str) -> str | None:
+    """The line saying the request was refused, or None for a failure another try may clear."""
+    if status == USAGE_EXIT:
+        return f"git usage error (exit {USAGE_EXIT})"
+    for line in stderr.splitlines():
+        if REFUSAL.search(line):
+            return line.strip()
+    return None
+
+
+def last_reason(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    fatal = [line for line in lines if "fatal:" in line.lower() or "error:" in line.lower()]
+    return (fatal or lines or [""])[-1][:300]
 
 
 def signal_group(pgid: int, sig: int) -> None:
@@ -354,26 +431,41 @@ def group_alive(pgid: int) -> bool:
 def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
         runner: Callable[[Sequence[str], float], int] = run_once,
         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.time,
-        log: Callable[[str], None] = print) -> int:
+        log: Callable[[str], None] = print, stop_on_refusal: bool = False,
+        captured_runner: Callable[[Sequence[str], float], tuple[int, str]] = run_once_captured,
+        backoff: Sequence[float] = BACKOFF_SECONDS) -> int:
     command = low_speed_command(command)
     status = 1
+    reason = ""
     for attempt in range(1, tries + 1):
         started = clock()
         only = submodule_update_paths(command)
         if only is not None:  # an update of named paths drops only under those paths; with none, under all
             drop_dangling_submodules(repo, log, only=only)
         modules_before = module_dirs(repo)
-        status = runner(command, timeout)
+        stderr = ""
+        if stop_on_refusal:
+            status, stderr = captured_runner(command, timeout)
+        else:
+            status = runner(command, timeout)
         if status == 0:
             if attempt > 1:
                 log(f"git_fetch_retry: try {attempt} of {tries} succeeded")
             return 0
         reason = f"timed out after {round(timeout)} s" if status == TIMEOUT_EXIT else f"exited {status}"
-        log(f"::warning title=git fetch retry::try {attempt} of {tries} {reason}: {' '.join(command)}")
+        if stderr and status != TIMEOUT_EXIT:
+            reason += f" ({last_reason(stderr)})"
         clean_partial(repo, started - 1, log)
         clean_new_modules(repo, modules_before, log)
+        refused = refusal(status, stderr) if stop_on_refusal and status != TIMEOUT_EXIT else None
+        if refused:
+            log(f"::error title=git fetch retry::{' '.join(command)} refused on try {attempt} of {tries}, "
+                f"not tried again (a refusal, not a transport failure): {refused}")
+            return status
+        log(f"::warning title=git fetch retry::try {attempt} of {tries} {reason}: {' '.join(command)}")
         if attempt < tries:
-            sleep(BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)])
+            sleep(backoff[min(attempt - 1, len(backoff) - 1)])
+    log(f"::error title=git fetch retry::{' '.join(command)} failed on all {tries} tries; the last {reason}")
     return status
 
 
@@ -382,6 +474,10 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--tries", type=int, default=3)
     parser.add_argument("--timeout", type=float, help="seconds per try (required with a command)")
     parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument("--stop-on-refusal", action="store_true",
+                        help="read git's stderr and do not try again after a refusal (no such repository or ref, auth)")
+    parser.add_argument("--backoff", default=",".join(str(s) for s in BACKOFF_SECONDS),
+                        help="seconds to wait before each try after the first, comma-separated (the last repeats)")
     parser.add_argument("--drop-dangling-submodules", action="store_true",
                         help="only remove submodule checkouts whose git dir is gone, then exit")
     parser.add_argument("--only", action="append", default=[], metavar="PATH",
@@ -394,7 +490,14 @@ def main(argv: Sequence[str]) -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if args.tries < 1 or args.timeout is None or args.timeout <= 0 or not command:
         parser.error("need --tries >= 1, --timeout > 0 and a git command after --")
-    return run(command, tries=args.tries, timeout=args.timeout, repo=args.repo.resolve())
+    try:
+        backoff = [float(part) for part in args.backoff.split(",")]
+    except ValueError:
+        parser.error("--backoff takes comma-separated seconds")
+    if not backoff or any(wait < 0 for wait in backoff):
+        parser.error("--backoff takes comma-separated seconds")
+    return run(command, tries=args.tries, timeout=args.timeout, repo=args.repo.resolve(),
+               stop_on_refusal=args.stop_on_refusal, backoff=backoff)
 
 
 if __name__ == "__main__":
