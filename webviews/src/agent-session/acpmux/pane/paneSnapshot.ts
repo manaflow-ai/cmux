@@ -183,7 +183,6 @@ import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
@@ -762,9 +761,6 @@ export function paneSnapshotEffect({
     },
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
-    },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
     },
     applyExperiments(value) {
       setExperimentSwitches(value);
