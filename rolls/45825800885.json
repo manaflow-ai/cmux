@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45825800885",
+  "recorded_at": "2026-11-26T13:37:49Z",
+  "reason": "image inputs changed in 5ef2d2f0f54fd57082e2ed3df45b40ced81aaf35..f39e2af4ed4a2e57c3922f79aaae086c4fd89572",
+  "dry_run": false,
+  "cmux_tui": "6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7",
+  "fixes": [
+    {
+      "sha": "f39e2af4ed4a2e57c3922f79aaae086c4fd89572",
+      "mergedAt": "2026-11-26T13:05:32Z",
+      "subject": "cmux-vm image: keep DNS working when the TLS-edge resolver stalls (#58163)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T13:37:49Z",
+    "snapshot_id": "sh-8f44c5d695a947b68c16a86502ec3533",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45825800885): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0112350833949b47bc0f0d73e92170eb2c07792a",
+    "image": "cloud-native-auto-6fde033d-45825800885-1",
+    "revision": "ci-45825800885-1",
+    "at": "2026-11-26T13:37:49Z"
+  },
+  "rolled_back": false
+}
