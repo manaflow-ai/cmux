@@ -483,6 +483,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
         | Op::CloudMachineChiefResize
+        | Op::CloudMachineSetupDesktop
         | Op::CloudMachineFork
         => Access::Denied(Denied::NotAllowed),
     }
