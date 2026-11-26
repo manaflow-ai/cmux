@@ -905,6 +905,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_scheduled_workflow_gh_retry.py
 
+      - name: Validate the nightly-next promotion request deadline
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_request_bound.py
+
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
@@ -1584,6 +1588,7 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_publication_marker.py
+          python3 tests/test_publication_guard_release_read.py
           python3 tests/test_nightly_resume_tracks.py
 
       - name: Validate the nightly-next canary runs the installed app

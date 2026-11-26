@@ -199,6 +199,7 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 NON_LABEL_RUNNER_VARIABLES = {
     "CI_RUNNER_STATE",
     "CI_SEED_KEEP_LOCAL_RUNNERS",
+    "MERGE_FREEZE_OWN_RUNNER",  # Opts into the standalone merge-freeze job.
     "RUNNER_ADMISSION_CONTROLLER",
     "RUNNER_POOLS",
 }

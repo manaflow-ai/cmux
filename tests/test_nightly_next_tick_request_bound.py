@@ -146,15 +146,15 @@ class RequestStepBoundsTests(unittest.TestCase):
         # over a lazy fetch at checkout: on 2026-11-26 it stalled ("Operation too slow", "could not
         # fetch ... from promisor remote") and the tick died before it asked for anything.
         doc = yaml.safe_load(TICK.read_text(encoding="utf-8"))
-        found = 0
+        jobs_with_tooling = set()
         for name, job in doc["jobs"].items():
             for step in job["steps"]:
                 if str(step.get("uses", "")).startswith("actions/checkout@") and step.get("with", {}).get("path") == ".tick-tooling":
-                    found += 1
+                    jobs_with_tooling.add(name)
                     self.assertNotIn("sparse-checkout", step["with"], name)
                     self.assertNotIn("filter", step["with"], name)
                     self.assertEqual(step["with"].get("fetch-depth"), 1, name)
-        self.assertEqual(found, 2)
+        self.assertTrue({"request", "unstick"} <= jobs_with_tooling, jobs_with_tooling)
 
 
 if __name__ == "__main__":

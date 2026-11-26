@@ -7374,7 +7374,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "id-token": "write",
                                               "pull-requests": "read"})
         checkout = job["steps"][0]
-        self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
+        self.assertEqual(checkout["with"], {"ref": "refs/heads/main", "persist-credentials": False})
 
     def test_runs_when_dispatched_or_for_a_screenshots_or_dev_daily_run(self):
         triggers = self.doc[True]
