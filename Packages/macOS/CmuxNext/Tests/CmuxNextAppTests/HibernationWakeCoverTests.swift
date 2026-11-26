@@ -97,10 +97,10 @@ import CmuxNextWakeupsTestSupport
         try await rig.until("the picture went at the cap") { Self.cover(over: page) == nil }
     }
 
-    /// An image view over the whole page, above the web view.
-    private static func cover(over page: WebKitTab) -> NSImageView? {
+    /// A picture view over the whole page, above the web view, showing its pixels.
+    private static func cover(over page: WebKitTab) -> BrowserPictureView? {
         guard let index = page.contentView.subviews.firstIndex(where: { $0 === page.webView }) else { return nil }
-        return page.contentView.subviews[(index + 1)...].compactMap { $0 as? NSImageView }.first { !$0.isHidden && $0.image != nil }
+        return page.contentView.subviews[(index + 1)...].compactMap { $0 as? BrowserPictureView }.first { !$0.isHidden && $0.decodedPicture != nil }
     }
 
     private static func picture() -> CGImage? {

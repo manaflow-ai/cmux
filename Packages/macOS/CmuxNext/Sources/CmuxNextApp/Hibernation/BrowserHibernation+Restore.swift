@@ -128,18 +128,18 @@ extension BrowserHibernation {
 
     /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) ?? leavePicture(tab, key: key) else { return nil }
-        return await HibernationSnapshots.compress(image)
+        guard let image = await capture(tab), let picture = await HibernationSnapshots.compress(image) else { return await leaveFrame(tab, key: key) }
+        return picture
     }
 
-    /// Chromium: its leave picture of the URL it has now (its title, load state aside). A page that gets none is
-    /// counted by why (`debug.surfaces` `snapshot_missing`), so a bench tells a page never pictured from a picture
-    /// of an earlier URL and from one the 16 MB leave-picture budget dropped.
-    private func leavePicture(_ tab: any BrowserTab, key: String) -> CGImage? {
-        guard let cache else { return nil }
-        let pictured = cache.pageThumbnailURLs[key], current = tab.state.url?.absoluteString
-        if pictured != nil, pictured == current, let image = cache.pageThumbnails.image(for: key) { return image }
-        snapshots.noteMissing(pictured: pictured, current: current) // never shown or blank, of an earlier URL, or dropped
+    /// Chromium: its leave picture of the URL it has now (title, load state aside) at full size, the file that capture wrote
+    /// (`BrowserPageFrames`), never the 640 px hover thumbnail that woke blurry (cmux#57419). None is counted by why
+    /// (`snapshot_missing`): never pictured, of an earlier URL, or no full-size frame (incognito, or the disk budget dropped it).
+    private func leaveFrame(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
+        let pictured = cache?.pageThumbnailURLs[key], current = tab.state.url?.absoluteString
+        if pictured != nil, pictured == current, cache?.keepsFrameOnDisk(key) == true,
+           let frame = await cache?.pageFrames?.lastPicture(key) { return await HibernationSnapshots.compress(frame) }
+        snapshots.noteMissing(pictured: pictured, current: current) // never shown or blank, of an earlier URL, or no frame
         return nil
     }
 }

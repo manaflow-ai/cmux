@@ -148,9 +148,10 @@ package final class HibernationSnapshots {
     }
 
     /// A hibernating Chromium page kept no picture: its leave picture, of URL `pictured` (nil: it has none), was of an
-    /// earlier URL than `current`, or of this one and dropped by the leave-picture budget.
+    /// earlier URL than `current`, or of this one with no full-size frame on disk (incognito, or the frames' budget
+    /// dropped it).
     package func noteMissing(pictured: String?, current: String?) {
-        missing[pictured == nil ? "no_leave_picture" : pictured == current ? "leave_picture_evicted" : "url_moved", default: 0] += 1
+        missing[pictured == nil ? "no_leave_picture" : pictured == current ? "leave_frame_missing" : "url_moved", default: 0] += 1
     }
 
     /// The store's `debug.surfaces` fields.

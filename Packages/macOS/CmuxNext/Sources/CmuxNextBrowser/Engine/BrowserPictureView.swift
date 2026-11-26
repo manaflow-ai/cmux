@@ -8,7 +8,14 @@ import AppKit
 /// (`init(decoded:)`: a wake stand-in taking over from the shown placeholder) shows them from its
 /// first frame and keeps them for its short life: decoding again would leave it empty for the
 /// first frames, the blank frame the stand-in exists to remove.
-final class BrowserPictureView: NSImageView {
+///
+/// The picture is drawn top-left at its own size, one picture pixel per window backing pixel, never
+/// stretched to the pane, as a Chromium page shows its last frame while its pane changes size and as
+/// an agent pane draws its launch image (`PaneContentView.showLaunchImage`). Stretched to the pane
+/// (cmux#57419), a picture taken at another pane size drew the page's text at the wrong size, and a
+/// picture with fewer pixels than the pane (a 640 px hover card thumbnail) drew it blurry until the
+/// page painted.
+final class BrowserPictureView: NSView {
     private let picture: @MainActor () -> CGImage?
     /// Pixels decoded before the view was made; shown at once and never dropped.
     private let ready: CGImage?
@@ -23,8 +30,7 @@ final class BrowserPictureView: NSImageView {
         self.picture = picture
         ready = nil
         super.init(frame: .zero)
-        imageScaling = .scaleAxesIndependently
-        wantsLayer = true
+        configureLayer()
     }
 
     /// A view showing `decoded` (pixels already drawn into a bitmap) from its first frame, in or out of a window.
@@ -32,20 +38,35 @@ final class BrowserPictureView: NSImageView {
         picture = { decoded }
         ready = decoded
         super.init(frame: .zero)
-        imageScaling = .scaleAxesIndependently
-        wantsLayer = true
+        configureLayer()
         show(decoded)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    private func configureLayer() {
+        wantsLayer = true
+        // The layer's contents are the picture; AppKit never redraws over them.
+        layerContentsRedrawPolicy = .never
+        layer?.contentsGravity = .topLeft
+        layer?.contentsScale = pixelsPerPoint
+    }
+
+    /// The window's backing scale: a page picture holds the device pixels of the page area it was taken of.
+    /// Out of a window, the main screen's (2 when none).
+    var pixelsPerPoint: CGFloat {
+        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+    }
+
+    override var isOpaque: Bool { false }
+
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         guard ready == nil else { return }
         decoding?.cancel()
         decodedPicture = nil
-        image = nil
+        layer?.contents = nil
         guard newWindow != nil, let picture = picture() else { return }
         decoding = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
@@ -55,9 +76,20 @@ final class BrowserPictureView: NSImageView {
         }
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        layer?.contentsScale = pixelsPerPoint
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        layer?.contentsScale = pixelsPerPoint
+    }
+
     private func show(_ decoded: CGImage) {
         decodedPicture = decoded
-        image = NSImage(cgImage: decoded, size: .zero)
+        layer?.contentsScale = pixelsPerPoint
+        layer?.contents = decoded
     }
 
     /// `image` drawn into a bitmap of its size and color space, keeping its alpha if it has one
