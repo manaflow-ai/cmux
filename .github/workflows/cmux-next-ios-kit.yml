@@ -66,6 +66,11 @@ on:
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
       - "scripts/ci/ios_link_ffi_key.py"
+      # The steps' own scripts: a change to one ran no kit run until an unrelated iOS push (the simulator bound
+      # and the connection-notices lint both gate this run).
+      - "scripts/ci/ios-kit-sim-mac-test.sh"
+      - "scripts/cmux-next/check-connection-notices.py"
+      - "scripts/cmux-next/connection-notices-allowlist.tsv"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
