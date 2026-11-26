@@ -4293,3 +4293,28 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
+
+/* RFD 0123 Slack awake card (gallery-first): the who-spent meter, the slider and the right-hand value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-card="slack-awake"] .slack-awake-meter {
+  width: 96px;
+  height: 6px;
+  margin-left: auto;
+}
+[data-card="slack-awake"] .slack-awake-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+[data-card="slack-awake"] .slack-awake-slider output {
+  min-width: 5.5em;
+  font-variant-numeric: tabular-nums;
+}
+[data-card="slack-awake"] form.accounts-buttons input[type="number"] {
+  width: 4.5em;
+}
