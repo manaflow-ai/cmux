@@ -140,6 +140,27 @@ fn carry_lists_worktrees_and_submodules_without_packing_subfolders() {
     assert!(list(&subfolder).is_err(), "preserve the listing's existing root-only contract");
 }
 
+#[test]
+fn carry_skips_bare_repositories_without_a_worktree_git_directory() {
+    let folder = tempfile::tempdir().unwrap();
+    let bare = folder.path().join("bare");
+    git_in(&folder.path(), &["init", "--bare", bare.to_str().unwrap()]);
+
+    // A bare repository resolves HEAD for Git, but the projection listing treats it as a plain
+    // folder. Carry must follow that same classification and never add a synthetic `.git` path.
+    assert!(projection_carry(&bare).is_none());
+
+    let carry_root = tempfile::tempdir().unwrap();
+    let base_path = carry_root.path().join("carry.base");
+    let pack_path = carry_root.path().join("carry.pack");
+    std::fs::write(&base_path, "0".repeat(40)).unwrap();
+    std::fs::write(&pack_path, b"pack").unwrap();
+    let carry = CarryFiles { base_path, pack_path, folder: carry_root.path().to_path_buf() };
+    let listed = list_with_carry(&bare, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.base").is_none());
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_none());
+}
+
 /// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a
 /// repository tracks is listed with its real stat and why, and its bytes are refused; an untracked
 /// secret is still not listed at all.

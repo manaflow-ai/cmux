@@ -967,28 +967,30 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
     let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
     let mut files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
-    if let Some(carry) = carry {
-        // The names are reserved for this projection. If an old checkout already has either
-        // file, do not replace its bytes or create duplicate manifest entries.
-        if !files.iter().any(|(path, _)| path == ".git/cmux-carry.base")
-            && !files.iter().any(|(path, _)| path == ".git/cmux-carry.pack")
-        {
-            files.push((
-                ".git/cmux-carry.base".into(),
-                LocalFile {
-                    source: Origin::File(carry.base_path.clone()),
-                    permissions: 0o600,
-                    id: None,
-                },
-            ));
-            files.push((
-                ".git/cmux-carry.pack".into(),
-                LocalFile {
-                    source: Origin::File(carry.pack_path.clone()),
-                    permissions: 0o600,
-                    id: None,
-                },
-            ));
+    if set.git {
+        if let Some(carry) = carry {
+            // The names are reserved for this projection. If an old checkout already has either
+            // file, do not replace its bytes or create duplicate manifest entries.
+            if !files.iter().any(|(path, _)| path == ".git/cmux-carry.base")
+                && !files.iter().any(|(path, _)| path == ".git/cmux-carry.pack")
+            {
+                files.push((
+                    ".git/cmux-carry.base".into(),
+                    LocalFile {
+                        source: Origin::File(carry.base_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+                files.push((
+                    ".git/cmux-carry.pack".into(),
+                    LocalFile {
+                        source: Origin::File(carry.pack_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+            }
         }
     }
     let stats = stat_all(&files);
@@ -1061,6 +1063,10 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
     if !cmux_projection::git_swap::enabled() {
         return None;
     }
+    // Keep carry eligibility identical to the projection listing. In particular, a bare
+    // repository can resolve `HEAD`, but it has no working-tree `.git` directory for the
+    // receiver's swap and is therefore listed as a plain folder.
+    local::GitDirs::of(folder).ok().flatten()?;
     let output = |args: &[&str]| {
         cmux_process::Command::new("git")
             .current_dir(folder)
