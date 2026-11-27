@@ -52,13 +52,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
-from workflow_filters import (  # noqa: E402,F401  (re-exported: callers import them from here too)
-    EVENT_TERM, EVENTS, FILTERS, admits, filtered_events, glob_regex, load_yaml, mapping, may_run_for, triggers,
-)
 
+EVENTS = ("pull_request", "pull_request_target", "push")
+FILTERS = ("paths", "paths-ignore")
 STDLIB = set(getattr(sys, "stdlib_module_names", ())) | set(sys.builtin_module_names) | {"__future__"}
 TEST_NAME = re.compile(r"(^test_.*|.*_test\.[^/]+|.*\.test\.[^/]+|.*_tests?\.[^/]+|^tests?\.(sh|py)|.*-tests?\.sh)$")
 TEST_DIR = re.compile(r"(^|/)tests?/")
+EVENT_TERM = re.compile(r"github\.event_name\s*(==|!=)\s*'([a-z_]+)'")
 SCRIPT_DIR_EXPR = re.compile(
     r"\$\(\s*dirname\s+(?:--\s+)?\"?\$(?:0|\{0\}|\{BASH_SOURCE\[0\]\}|\{BASH_SOURCE\}|BASH_SOURCE)\"?\s*\)"
     r"|\$\{(?:BASH_SOURCE(?:\[0\])?|0)%/\*\}")
@@ -72,6 +72,79 @@ PREFIXES = {"exec", "env", "command", "time", "sudo", "nice", "timeout", "xargs"
 # Calls whose path arguments a Python file runs or loads as code; any other path it builds is read as data.
 RUN_CALLS = {"run", "call", "check_call", "check_output", "Popen", "execv", "execvp", "execve", "spawnv",
              "spec_from_file_location", "run_path", "SourceFileLoader", "import_path", "load_source"}
+
+
+# --------------------------------------------------------------------------------------------- filters
+@functools.lru_cache(maxsize=None)
+def glob_regex(pattern: str) -> re.Pattern:
+    """A GitHub paths-filter glob: `**` crosses directories, `*` and `?` do not, `[..]` is a class."""
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        elif pattern[i] == "[" and "]" in pattern[i + 2:]:
+            end = pattern.index("]", i + 2)
+            body = pattern[i + 1:end]
+            body = ("^" + body[1:]) if body.startswith("!") else body
+            klass = "[" + body.replace("\\", "\\\\") + "]"
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    re.compile(klass)
+            except re.error:
+                klass = re.escape(pattern[i:end + 1])
+            out, i = out + klass, end + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+
+
+def admits(kind: str, patterns: list[str], path: str) -> bool:
+    """Whether a change to `path` alone starts the event under this filter (later patterns win; `!` negates)."""
+    matched = False
+    for pattern in patterns:
+        pattern = str(pattern)
+        negated = pattern.startswith("!")
+        if glob_regex(pattern[1:] if negated else pattern).match(path):
+            matched = not negated
+    return not matched if kind == "paths-ignore" else matched
+
+
+def triggers(document) -> dict:
+    events = document.get("on", document.get(True)) if isinstance(document, dict) else None
+    if isinstance(events, str):
+        return {events: {}}
+    if isinstance(events, list):
+        return {e: {} for e in events}
+    return events if isinstance(events, dict) else {}
+
+
+def filtered_events(document) -> dict[str, tuple[str, list[str]]]:
+    """{event: (filter kind, patterns)} for each push / pull_request event that has a path filter."""
+    out = {}
+    for event, config in triggers(document).items():
+        if event in EVENTS and isinstance(config, dict):
+            for kind in FILTERS:
+                if kind in config:
+                    out[event] = (kind, [str(p) for p in (config.get(kind) or [])])
+    return out
+
+
+def may_run_for(condition, event: str) -> bool:
+    """False only when an `if:` made of `&&` terms has one that names another event."""
+    text = str(condition or "")
+    if "||" in text or "!(" in text:
+        return True
+    for op, name in EVENT_TERM.findall(text):
+        if (op == "==") != (name == event):
+            return False
+    return True
 
 
 # --------------------------------------------------------------------------------------------- the tree
@@ -1007,6 +1080,16 @@ def go_eval(expression: str, consts: dict[str, str]) -> str | None:
 
 
 # --------------------------------------------------------------------------------------------- workflows
+def load_yaml(path: Path):
+    import yaml  # noqa: PLC0415 - the one dependency; CI installs PyYAML
+
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def mapping(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def steps_for(repo: Repo, document, event: str, seen: set[str] | None = None, unknown=None):
     """(run text, working directory (repo path), env) for each step `event` can run, reusable workflows and local
     composite actions included. A nested file that cannot be read is noted in `unknown`, not followed."""

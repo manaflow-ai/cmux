@@ -152,8 +152,7 @@ class Inputs:
     whole: str = ""  # why the step reads the whole tree; empty when its inputs are the sets above
     runs_named: bool = False  # it runs a tree path built from a variable: any code file it names may run
     declared: bool = False  # a source it reaches declares its reads (`# guard-inputs:`) where the text cannot show them
-    named_runs: set[str] = field(default_factory=set)  # code files a source names and may run (runs_named): followed
-    # unless the source declares its reads, which then stand for theirs (they stay inputs, as data)
+    opaque: str = ""  # why no declaration can stand for this source's reads: it starts a tool or runs code it builds
 
     def reaches(self, path: str) -> bool:
         if self.whole or path in self.files:
@@ -272,25 +271,23 @@ class Tree:
         declared = declared_inputs(text)
         if current.endswith(".py") or text.startswith(("#!/usr/bin/env python", "#!/usr/bin/python")):
             found.whole = self.python(current, text, found, changed)
-            if declared is None:
-                found.files |= found.named_runs
-                found.data -= found.named_runs
             return self.declare(current, declared, found, changed)
         code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(("#", "//")))
         marker = GIT_OR_BASE.search(code) or SHELL_WALK.search(code)
         if marker:
             found.whole = f"{current} reads more of the tree than it names ({marker.group(0).strip()!r})"
-            if declared is None:
-                return found
+            return found
         if current.endswith(JS_SUFFIXES):
             self.javascript(current, code, found, changed)
         for token in PATH_TOKEN.findall(code):  # a shell script runs what it names
             self.place(token, str(Path(current).parent), found, changed)
-        return self.declare(current, declared, found, changed)
+        return found
 
     def declare(self, current: str, declared: list[str] | None, found: Inputs, changed: frozenset[str]) -> Inputs:
-        """FOUND with a source's declared reads in place of its whole-tree verdict (declared_inputs)."""
-        if declared is None or not found.whole or found.whole.startswith(f"{current} does not parse"):
+        """FOUND with a Python source's declared reads in place of its whole-tree verdict (declared_inputs). Only
+        reads --verify can see stand declared: the process's own opens, listings and git calls in the tree. A tool it
+        starts or code it builds reads what no trace of it shows, so that verdict stays."""
+        if declared is None or not found.whole or found.opaque or found.whole.startswith(f"{current} does not parse"):
             return found
         found.whole, found.declared = "", True
         for pattern in declared:
@@ -374,10 +371,11 @@ class Tree:
                     elif source.rooted(node.args[0]):  # os.path.join(ROOT, name, ...): named at runtime
                         whole = whole or f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
         executed = self.executed(source, nodes, changed)
-        whole = whole or executed.whole
+        found.opaque = executed.whole
+        whole = executed.whole or whole
         run = executed.files
         if executed.runs_named:
-            found.named_runs |= {f for f in named.files if f.endswith(CODE_SUFFIXES)} - run
+            run |= {f for f in named.files if f.endswith(CODE_SUFFIXES)}
         found.files |= run
         found.data |= named.files - run
         found.folders |= named.folders
@@ -1053,7 +1051,7 @@ def escapes(inputs: Inputs, trace: str, root: Path) -> list[str]:
                 where = argv[argv.index("-C") + 1] if "-C" in argv[:-1] else cwd
                 where = os.path.join(cwd, where) if cwd else where
                 in_tree = not cwd or os.path.abspath(where) == str(root) or os.path.abspath(where).startswith(prefix)
-                if in_tree and any(w in GIT_READS for w in argv[1:5]) and not inputs.declared:
+                if in_tree and any(w in GIT_READS for w in argv[1:5]):
                     found.add(f"runs {' '.join(argv[:4])}")
             continue
         if not value.startswith(prefix):
@@ -1135,7 +1133,8 @@ def main(argv: list[str]) -> int:
             return 2
         inputs = inputs_of(tree, match[0])
         print(json.dumps({"whole": inputs.whole, "files": sorted(inputs.files), "folders": sorted(inputs.folders),
-                          "modules": sorted(inputs.modules)}, indent=2))
+                          "modules": sorted(inputs.modules), "patterns": sorted(inputs.patterns),
+                          "declared": inputs.declared}, indent=2))
         return 0
     if not args.base:
         parser.error("--base or --inputs")

@@ -25,7 +25,7 @@ workflow tests still cover the sweep's syntax. Of the feat-cmux-next merges from
 that touched a workflow file touched 10 or more, every one a CI-wide change.
 
 Whatever it cannot read (no merge commit, git fails, no path filter found) answers run=true: it starts more, never
-less. Stdlib only, plus workflow_filters.admits (the one GitHub paths-glob implementation in this tree).
+less. Stdlib only, plus workflow_paths_cover_inputs.admits (the one GitHub paths-glob implementation in this tree).
 Test: tests/test_ci_self_edit_sweep.py.
 """
 
@@ -41,7 +41,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import workflow_filters as filters  # noqa: E402
+import workflow_paths_cover_inputs as filters  # noqa: E402
 
 # A change that edits this many workflow files is a sweep. Each gated workflow's caller job pre-filters on the pull
 # request's `changed_files` with the same number (tests/test_ci_self_edit_sweep.py keeps them equal), so a smaller

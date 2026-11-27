@@ -40,7 +40,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workflow_filters as filters  # noqa: E402  (GitHub's paths glob, the one implementation)
+import workflow_paths_cover_inputs as filters  # noqa: E402  (GitHub's paths glob, the one implementation)
 
 ROOT = Path(__file__).resolve().parents[2]
 

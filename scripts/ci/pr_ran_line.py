@@ -10,7 +10,7 @@ changed files, and writes one line:
     on every PR: PR checks, cmux-next guards ...; not started: 61 (no changed file in their paths)
 
 A workflow is started when its `branches` / `branches-ignore` admit the base branch and its `paths` /
-`paths-ignore` admit at least one changed file, with GitHub's rules (workflow_filters.admits: `**`
+`paths-ignore` admit at least one changed file, with GitHub's rules (workflow_paths_cover_inputs.admits: `**`
 crosses directories, later patterns win, `!` negates). Its reason is the first changed file the filter admits,
 and "+N" more when several do. A workflow with no path filter is listed under "on every PR": that is the list a
 change to CI should keep short, since each of those starts for a Markdown typo too. A job inside a started
@@ -23,8 +23,6 @@ request's code.
 
     pr_ran_line.py --base-branch feat-cmux-next --changed-files FILE [--root DIR]   # print the line
 """
-# guard-inputs: .github/workflows/
-# plan() walks `root/.github/workflows`; root is ROOT or a test's own fixture tree.
 from __future__ import annotations
 
 import argparse
@@ -33,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from workflow_filters import admits, glob_regex, load_yaml, triggers  # noqa: E402
+from workflow_paths_cover_inputs import admits, glob_regex, load_yaml, triggers  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 EVENT = "pull_request"

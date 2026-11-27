@@ -43,7 +43,7 @@ start only when a changed file reaches them, or when the changed files are unkno
 adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
-it routes more, never less. Stdlib only, plus workflow_filters (the one GitHub paths-glob
+it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
 implementation in this tree).
 """
 
@@ -67,7 +67,7 @@ except Exception:  # noqa: BLE001
 import docs_only_paths  # noqa: E402
 import fast_track  # noqa: E402
 import head_tier  # noqa: E402
-import workflow_filters as filters  # noqa: E402
+import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
 # The step table's jobs that run only on a full-tier head (head_tier.py): a cheap head (a draft, a ready head before
