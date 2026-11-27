@@ -1033,12 +1033,18 @@ impl optchat_chief::cloud_vms::CloudVms for PerAgentVms {
 }
 
 fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
+    per_agent_on(h, vms, false)
+}
+
+/// [`per_agent`] on a host with (`fleet`) or without the fleet client.
+fn per_agent_on(h: &mut Harness, vms: &Arc<PerAgentVms>, fleet: bool) -> Arc<Spawner> {
     let dyn_vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(h, None))
             .ok()
             .unwrap()
             .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_fleet(fleet)
             .with_cloud_vms(Some(dyn_vms.clone())),
     );
     h.brain.set_sub_starter(Some(sp.queue_starter()));
@@ -2043,7 +2049,7 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
         ]
     }));
     let vms = Arc::new(PerAgentVms::default());
-    let sp = per_agent(&mut h, &vms);
+    let sp = per_agent_on(&mut h, &vms, true);
     auto_pause_on(&mut h);
     let fleet = Arc::new(FakeFleet::default());
     h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);

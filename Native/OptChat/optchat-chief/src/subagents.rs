@@ -578,6 +578,9 @@ pub struct Spawner {
     /// The subagent system text for a peer set at run time
     /// (`control cloud`) when the env set none.
     cloud_text: Option<String>,
+    /// Whether a peer set at run time gets the fleet note
+    /// ([`CloudPlacement::fleet`]): this host has the fleet client.
+    fleet: bool,
     /// The VMs behind cloud peers (B4): resumed before a subagent starts.
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
     /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
@@ -628,6 +631,7 @@ impl Clone for Spawner {
             refused: self.refused.clone(),
             cloud: self.cloud.clone(),
             cloud_text: self.cloud_text.clone(),
+            fleet: self.fleet,
             cloud_vms: self.cloud_vms.clone(),
             agent_keys: self.agent_keys.clone(),
             person: self.person.clone(),
@@ -666,6 +670,7 @@ impl Spawner {
             refused: Arc::new(Mutex::new(BTreeMap::new())),
             cloud: None,
             cloud_text: None,
+            fleet: crate::fleet_wait::client_here(),
             cloud_vms: None,
             agent_keys: None,
             person: None,
@@ -765,6 +770,13 @@ impl Spawner {
         self
     }
 
+    /// Whether a peer set at run time gets the fleet note (default: this
+    /// host has the fleet client, [`crate::fleet_wait::client_here`]).
+    pub fn with_fleet(mut self, fleet: bool) -> Spawner {
+        self.fleet = fleet;
+        self
+    }
+
     /// The placement on `peer`: the env's folder and harness when it set
     /// one, else the defaults (daemon-selected scratch folder, `claude`).
     fn placement(&self, peer: &str) -> CloudPlacement {
@@ -778,7 +790,7 @@ impl Spawner {
                 dir: PathBuf::new(),
                 harness: "claude".to_owned(),
                 instructions: self.cloud_text.clone().unwrap_or_default(),
-                fleet: crate::fleet_wait::client_here(),
+                fleet: self.fleet,
             },
         }
     }
