@@ -1583,15 +1583,33 @@ async fn dispatch_request_with_identity(
     {
         return crate::hub::file_uploads::web::handle(hub, m, params).await;
     }
+    // These methods can dispatch session/new while their own poll is still on the worker
+    // stack. Enter the large method match only for the child, after ordinary routing above.
+    match m {
+        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::CHAT_FIX_FROM_LINK => {
+            heap(|| super::fix_from_link::handle(hub, conn, params, false)).await
+        }
+        method::CHAT_FIX_FROM_LINK_PREPARE => {
+            heap(|| super::fix_from_link::handle(hub, conn, params, true)).await
+        }
+        other => {
+            heap(|| dispatch_method(hub, conn, other, params, resolved, fixed_id, received)).await
+        }
+    }
+}
+
+async fn dispatch_method(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
+    fixed_id: Option<String>,
+    received: tokio::time::Instant,
+) -> Result<Value, RpcError> {
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
-        method::CHAT_FIX_FROM_LINK => super::fix_from_link::handle(hub, conn, params, false).await,
-        method::CHAT_FIX_FROM_LINK_PREPARE => {
-            super::fix_from_link::handle(hub, conn, params, true).await
-        }
-        // Boxed: dispatch_brief's future is large, and inline it widens every request's future
-        // (a debug test thread's stack overflowed on an unrelated request).
-        method::MUX_DISPATCH => Box::pin(dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
@@ -1962,7 +1980,7 @@ async fn dispatch_request_with_identity(
             {
                 use crate::hub::admission_redirect as redirect;
                 let p = redirect::forwarded(&params, &placed);
-                match heap(|| new_on_peer(hub, conn, &p, &placed.host)).await {
+                match Box::pin(new_on_peer(hub, conn, &p, &placed.host)).await {
                     Ok(result) => {
                         redirect::log("redirected", placed.reason, Some(&placed.host), None);
                         return Ok(redirect::answer(result, &placed));
@@ -2734,7 +2752,7 @@ async fn dispatch_request_with_identity(
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                heap(|| hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
+                Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
                 // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`),
                 // from before its admission: a Cancel while it is admitted stops it too.
@@ -4159,8 +4177,8 @@ async fn dispatch_request_with_identity(
             crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
-        method::MUX_QUEUE_TEXT => heap(|| queue_text(hub, &params)).await,
-        method::MUX_ROWS => heap(|| rows(hub, conn, &params)).await,
+        method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
+        method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
