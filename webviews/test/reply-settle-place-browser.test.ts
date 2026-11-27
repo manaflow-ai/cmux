@@ -28,6 +28,7 @@ type Scenario = {
   name: string;
   /** Where the kept `worked-u` row was drawn before the turn ended, when it moves (a kept row sliding through the reply's place). */
   wasTop?: number;
+  keptTail?: boolean;
   after: Array<{ id: string; kind: string; top: number; height: number; className?: string }>;
 };
 
@@ -36,7 +37,7 @@ const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({
 const TIMES = Array.from({ length: 151 }, (_, index) => index * 4);
 
 function page() {
-  // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+  // Pin the shipped fade look so a local experiment override cannot change the probe.
   const dom = new JSDOM('<!doctype html><main data-turn-end-fold="fade"></main>', { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
   const proto = dom.window.HTMLElement.prototype;
@@ -176,7 +177,13 @@ function runScenario(scenario: Scenario) {
   p.draw("answer-old", "assistant", 294, 120);
   p.draw(LIVE_THINKING, "thinking", 414, 22);
   if (scenario.wasTop !== undefined) p.draw("worked-u", "worked", scenario.wasTop, 34);
-  const capture = captureTurnEnd(p.thread, p.thread, [row("worked-u", "worked"), row("answer-old")], "chat")!;
+  if (scenario.keptTail) p.draw("tail", "assistant", 700, 34);
+  const capture = captureTurnEnd(
+    p.thread,
+    p.thread,
+    [row("worked-u", "worked"), row("answer-old"), ...(scenario.keptTail ? [row("tail")] : [])],
+    "chat",
+  )!;
   p.thread.replaceChildren();
   for (const item of scenario.after) p.draw(item.id, item.kind, item.top, item.height, item.className);
   const fold = playTurnEnd(p.thread, capture, "chat", p.thread);
@@ -297,6 +304,16 @@ const scenarios: Scenario[] = [
     ],
   },
   {
+    name: "kept-row-crosses-reply-with-own-entrance",
+    wasTop: 520,
+    keptTail: true,
+    after: [
+      { id: "worked-u", kind: "worked", top: 300, height: 34 },
+      { id: "answer-new", kind: "assistant", top: 334, height: 120, className: "acpmux-row--message-enter" },
+      { id: "tail", kind: "assistant", top: 700, height: 34 },
+    ],
+  },
+  {
     name: "kept-row-slides-up-short",
     wasTop: 380,
     after: [
@@ -313,12 +330,11 @@ const scenarios: Scenario[] = [
   },
 ];
 
-test("T5: every reply new at settle paints in its final place, with no ink over a kept row", () => {
-  const report = scenarios.map(runScenario);
-  for (const result of report) console.log(`reply-settle ${JSON.stringify({ ...result, samples: undefined })}`);
-  for (const result of report) {
+for (const scenario of scenarios)
+  test(`T5: ${scenario.name}: new reply stays in place without overlapping`, () => {
+    const result = runScenario(scenario);
+    console.log(`reply-settle ${JSON.stringify({ ...result, samples: undefined })}`);
     expect(result.firstPaintedOffsetPx, result.name).toBeLessThanOrEqual(0.5);
     expect(result.inkWhileAway, result.name).toBeLessThanOrEqual(0.05);
     expect(result.overlapFrames, `${result.name} overlaps ${result.overlapWith}`).toBe(0);
-  }
-});
+  });
