@@ -4,7 +4,8 @@
 // be able to like thumb through them like a Rolodex or whatever at the top ... you hover over it, and
 // then on each one, it's like there's a slight pop and something ... perhaps the text itself maybe
 // changes like on the top of the composer hat". Every arm over three and eight running lines, at rest
-// and thumbed.
+// and pointed at: the sentence stays (Leo, 2026-11-27: "tdont think we should have this hover anymore
+// it's really bad").
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -99,13 +100,14 @@ const MARK = (n: number) => `.acpmux-hat-deck__mark:nth-child(${n})`;
 const folded = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
 };
-/// The pointer on the first mark, then run along to the `n`th: the line names that one.
-const thumbedTo = (n: number) => async (ctx: PlayContext) => {
+/// The pointer on the first mark, then run along to the `n`th: the words stay as they were (Leo,
+/// 2026-11-27, on the hover that swapped them for that line's name: "tdont think we should have this
+/// hover anymore it's really bad").
+const pointedAt = (n: number) => async (ctx: PlayContext) => {
   await folded(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(MARK(n)));
   await ctx.hover({ selector: MARK(1) });
   await ctx.hover({ selector: MARK(n) });
-  await ctx.waitFor(() => ctx.document.querySelector(`${MARK(n)}[data-peeked]`));
 };
 
 /// Words win over marks (Leo, 2026-11-27: "compact these and drop them away in favour of text when
@@ -154,7 +156,7 @@ export default agentPaneEntry({
     definition: hatLineLook,
     script: [
       { name: "folded", run: folded },
-      { name: "the pointer on the second mark", run: thumbedTo(2) },
+      { name: "the pointer on the second mark: the sentence stays", run: pointedAt(2) },
     ],
   },
   keywords: ["composer hat", "running tray", "subagents", "rolodex", "thumb", "hide"],
@@ -193,9 +195,9 @@ export default agentPaneEntry({
       snapshot: TEN,
       experiments: pins("lead"),
     },
-    "trail-thumb-eight": {
-      note: "The pick, thumbed to the fifth mark: it pops, the line reads that subagent's name and latest step; a click opens it.",
-      play: thumbedTo(5),
+    "trail-pointer-eight": {
+      note: "The pick, the pointer on the fifth mark: the sentence stays (Leo, 2026-11-27: no hover swap); a click opens that subagent.",
+      play: pointedAt(5),
       snapshot: EIGHT,
       experiments: pins("trail"),
     },
@@ -209,15 +211,15 @@ export default agentPaneEntry({
       snapshot: TWENTY,
       experiments: pins("trail"),
     },
-    "lead-thumb-eight": {
-      note: "Marks leading, thumbed to the fifth.",
-      play: thumbedTo(5),
+    "lead-pointer-eight": {
+      note: "Marks leading, the pointer on the fifth: the sentence stays.",
+      play: pointedAt(5),
       snapshot: EIGHT,
       experiments: pins("lead"),
     },
-    "cards-thumb-eight": {
-      note: "Fanned cards, the pointer on the fifth card: it flips to the front and names its line.",
-      play: thumbedTo(5),
+    "cards-pointer-eight": {
+      note: "Fanned cards, the pointer on the fifth card: the sentence stays.",
+      play: pointedAt(5),
       snapshot: EIGHT,
       experiments: pins("cards"),
     },

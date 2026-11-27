@@ -162,6 +162,7 @@ import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } 
 import type { TrayHandleSide } from "../chatDisplay";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { useHoverMarquee } from "../../../ui/hoverMarquee";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 const ROW_ICON = rowIconSize(12);
@@ -338,9 +339,6 @@ export const SubagentTray = memo(function SubagentTray({
   // The one-line hat's marks (hatLine.experiment.ts, design pass c-fadfd55bc5): the same deck, on the
   // line, and the hide control flush at the line's end.
   const [lineLook] = useState(() => lineDeckLook ?? experimentArm(hatLineLook));
-  // The line the header names while the pointer is on its mark (HatHeadDeck.tsx); a pointer event
-  // sets it, never the clock.
-  const [peeked, setPeeked] = useState<string | undefined>(undefined);
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
   const agentsById = useMemo(
@@ -421,6 +419,15 @@ export const SubagentTray = memo(function SubagentTray({
     headButton,
     ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > :not(.acpmux-hat-faces)",
   );
+  // A cut title or latest step scrolls once to show its end while the pointer rests on the header
+  // (Leo, 2026-11-27: "it shows all the way, and when you hover it pushes to the left"); words that
+  // fit never move (ui/hoverMarquee.ts, the tabs' marquee).
+  useHoverMarquee(headButton, (head) => [
+    ...head.querySelectorAll<HTMLElement>(
+      // The TextRoll cell's current words: its last span (the leaving words come first).
+      ":scope > :is(.acpmux-running-tray__title, .acpmux-running-tray__latest).ui-text-roll > span:last-child",
+    ),
+  ]);
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -664,7 +671,9 @@ export const SubagentTray = memo(function SubagentTray({
   // item's header already names it, so its one mark only opens it; with nothing running the header
   // keeps today's marks.
   // The one-line hat (hatLine.experiment.ts) draws its own deck: after the words (`trail`), or leading
-  // them (`lead`, `cards`). Its sentence never names a lone item, so a lone mark peeks too.
+  // them (`lead`, `cards`). Pointing at a mark changes nothing in the words (Leo, 2026-11-27, on the
+  // hover that swapped them for one subagent's title and latest step: "tdont think we should have this
+  // hover anymore it's really bad"); a click opens its line.
   const lineDeck = lineHead && leading.length > 0 && lineLook !== "words" ? lineLook : undefined;
   const deck =
     leading.length > 0
@@ -672,12 +681,7 @@ export const SubagentTray = memo(function SubagentTray({
         ? lineDeck && (lineDeck === "cards" ? "cards" : "strip")
         : deckOf(headerLook)
       : undefined;
-  const peeks = Boolean(deck) && (!lone || lineHead);
-  const peekItem = peeks && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
-  // What the header says while a mark is pointed at: that line's name and latest step, as a lone
-  // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
-  const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true, connectionQuiet) : undefined;
-  const headText = peekHead ? peekHead.title : workText;
+  const headText = workText;
   const headSince = itemsSince;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
@@ -735,8 +739,6 @@ export const SubagentTray = memo(function SubagentTray({
       chatHarness={chatHarness}
       look={deck}
       at={lineDeck === "trail" ? "trail" : "lead"}
-      peeked={peekItem ? peeked : undefined}
-      onPeek={peeks ? setPeeked : noPeek}
       onOpenItem={openItem}
     />
   ) : null;
@@ -984,17 +986,12 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
-          {/* A deck takes the counts' place, so its words stay: the summary, or the pointed-at line's name. */}
+          {/* A deck takes the counts' place, so its words stay: the summary. */}
           {(!kindsHead || deck) && (
             // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
             // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
-            // A fold or unfold, or pointing at a deck's mark, is the reader's own change: keyed by it, the
-            // words change at once.
-            <Dwelt
-              key={`${open ? "open" : "folded"}:${peekItem ? peeked : ""}`}
-              value={headText}
-              dwellMs={PHASE_DWELL_MS}
-            >
+            // A fold or unfold is the reader's own change: keyed by it, the words change at once.
+            <Dwelt key={open ? "open" : "folded"} value={headText} dwellMs={PHASE_DWELL_MS}>
               {(text) => (
                 <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
               )}
@@ -1013,28 +1010,20 @@ export const SubagentTray = memo(function SubagentTray({
                   slide
                 />
               )}
-          {/* A pointed-at mark's latest step, after its name, as a lone item's header shows its own. */}
-          {peekHead?.latest && peekHead.latest !== peekHead.title && (
-            <Tick
-              className={`acpmux-running-tray__latest${peekHead.latestCode ? " is-code" : ""}`}
-              text={peekHead.latest}
-              slide
-            />
-          )}
           {/* The one line's `trail` marks, after its words (hatLine.experiment.ts). */}
           {lineDeck === "trail" && headDeck}
 
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneEnd && !peekHead && !kindsHead && counts.failed > 0 && (
+          {!named && !loneEnd && !kindsHead && counts.failed > 0 && (
             <span className="acpmux-running-tray__failed">
               {title && <span aria-hidden="true">· </span>}
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
           {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneEnd && !peekHead && !kindsHead && trailingMarks.length > 0 && (
+          {!named && !loneEnd && !kindsHead && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
               {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
@@ -1043,7 +1032,7 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
-          {named && !peekHead && moreCount > 0 && (
+          {named && moreCount > 0 && (
             <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
               {(n) => (
                 <Tick
@@ -1778,8 +1767,6 @@ function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: stri
 
 type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
 const NO_MARKS: readonly HeadMark[] = [];
-/// A lone item's deck: its header already names it, so pointing at its mark changes nothing.
-const noPeek = () => {};
 /// How many lines' marks the header stacks; the counts after them say the rest.
 const STACK_MARKS = 4;
 
