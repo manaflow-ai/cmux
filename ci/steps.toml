@@ -3706,7 +3706,7 @@ alone = true
 # Mac, 20 on a cold one).
 timeout = 2700
 title = "CmuxMobileKit tests (macOS swift test)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's swift test on macOS"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet (whose build checks the checked-in bindings match), then runs the kit's swift test on macOS"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -3805,7 +3805,7 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+# The build fleet builds it (a fleet red is this step's red); only a run that cannot ask the fleet builds on this Mac.
 bash scripts/ci/ios_link_ffi.sh 8
 # The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
 # tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
@@ -3834,7 +3834,7 @@ alone = true
 # 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
 timeout = 4800
 title = "CmuxMobileKit tests (iOS simulator)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet (whose build checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -3938,7 +3938,7 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+# The build fleet builds it (a fleet red is this step's red); only a run that cannot ask the fleet builds on this Mac.
 bash scripts/ci/ios_link_ffi.sh 8
 # The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
 # tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
@@ -4035,7 +4035,7 @@ exit $(( status || sim ))
 
 [step.ios-phone-cells]
 job = "ios"
-# After the kit, on the same simulator; it builds the xcframework itself when the kit did not run.
+# After the kit, on the same simulator; it has the fleet build the xcframework when the kit did not run.
 alone = true
 timeout = 2700
 title = "iOS matrix: phone cells (iOS simulator)"
