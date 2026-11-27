@@ -62,13 +62,13 @@ scripts/ci/settings_catalog_keys.py
 .github/scripts/cmux-tui-fmt-changed.py
 scripts/cmux-next/rust_panic_ratchet.py
 
-# the workflows that run what a dispatch reruns (the webviews checks, web lint, the guards behind the crash ratchet,
-# the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
-# gates, so another workflow's change makes nothing stale that a dispatch could catch, and on 2026-10-21 144 of the
-# day's 1610 feat-cmux-next commits changed some workflow (with these five, 62 commits changed a check path).
-.github/workflows/ci-web.yml
-.github/workflows/cmux-next-web.yml
-.github/workflows/cmux-next-web-lint.yml
-.github/workflows/cmux-next-guards.yml
+# the workflows a fast gate reads as input: the crash-class rules' --rules file (CRASH_CLASS_INPUTS in
+# scripts/ci/cmux_next_fast_gates.py) and the fast gates' own workflow. Not the workflows a gate stands in for
+# (cmux-next-web.yml, cmux-next-web-lint.yml, cmux-next-guards.yml, ci-web.yml): the fast gates run the scripts those
+# workflows run (listed above), never the workflow file, so a change to one makes every open pull request's fast
+# gates stale for a rerun that cannot differ. On 2026-11-26 after 12:00Z ci-web.yml changed in 21 feat-cmux-next
+# commits, cmux-next-guards.yml in 9, cmux-next-web.yml in 4 and cmux-next-web-lint.yml in 3; next-autoland's passes
+# at 23:5xZ, 00:0xZ (ci-web.yml) and 02:0xZ (cmux-next-guards.yml) judged only that staleness and landed nothing.
+# tests/test_check_paths.py keeps every workflow here one a gate script names as a path.
 .github/workflows/cmux-next-crash-class.yml
 .github/workflows/cmux-next-fast-gates.yml
