@@ -95,6 +95,7 @@ pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;
 mod digest;
 pub(crate) mod dispatch;
+pub(crate) mod draft_attachments;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 mod acp_version;
@@ -506,7 +507,7 @@ mod wait_reason_tests;
 mod wake_place;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
