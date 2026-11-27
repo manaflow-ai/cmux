@@ -30,6 +30,17 @@ class ManifestTests(unittest.TestCase):
 
 
 class SelectTests(unittest.TestCase):
+    def test_webrtc_screen_changes_run_synthetic_package_test(self):
+        for path in [
+            "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift",
+            "Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKit/ScreenSession.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/ScreenSharingPage.swift",
+        ]:
+            with self.subTest(path=path):
+                result = self.sel(path)
+                self.assertIn("screen-share-webrtc-synthetic", result["flows"])
+                self.assertIn({"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "SyntheticScreenStreamTests"}, result["swift"])
+
     def sel(self, *paths):
         return fs.select(MANIFEST, list(paths))
 

@@ -28,6 +28,21 @@
   },
   "flows": [
     {
+      "id": "screen-share-webrtc-synthetic",
+      "title": "Synthetic screen pixels traverse real WebRTC and reach the Mac viewer display layer",
+      "source": ["aziz:screen-sharing", "leo:mock-phone-checks"],
+      "kit": [],
+      "ui": [],
+      "swift": [
+        {"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "SyntheticScreenStreamTests"}
+      ],
+      "paths": [
+        "Packages/Shared/CmuxVNCWebRTC/**",
+        "Packages/Shared/CmuxScreenKit/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/**"
+      ]
+    },
+    {
       "id": "smoke-launch-sign-in",
       "title": "The app launches, offers sign-in with Apple first, and every sign-in control responds",
       "source": ["aziz:app-store-readiness#3", "aziz:app-store-readiness#4"],
