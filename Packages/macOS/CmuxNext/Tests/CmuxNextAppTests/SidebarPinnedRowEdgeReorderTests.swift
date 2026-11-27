@@ -11,7 +11,8 @@ import Testing
 /// second neighbour as soon as it touched it, and a row dragged up had to reach its neighbour's top.
 ///
 /// The real list with the Pinned block's three rows (`SidebarHomePinnedDragHarness`), pressed and dragged with
-/// mouse events; the drop is the one move the document is sent.
+/// mouse events; the drop is the one move the document is sent. The rows are pinned links: a pinned workspace never
+/// drags (`aPinnedWorkspaceRowDoesNotLift`).
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarPinnedRowEdgeReorderTests {
     typealias Harness = SidebarHomePinnedDragHarness
@@ -53,11 +54,29 @@ struct SidebarPinnedRowEdgeReorderTests {
 
     static func sent(_ h: Harness) -> String { "\(h.drops.map { "\($0.0) -> \($0.1)" })" }
 
+    /// A pinned workspace never drags, as in classic cmux (Lucas 2026-11-26: "the pinned workspaces should also not be
+    /// movable, even if its moving to unpin"): a press and a long drag lift nothing and send no move.
+    @Test func aPinnedWorkspaceRowDoesNotLift() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.close() }
+        let view = try h.item(Harness.pins[0].id)
+        let start = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        view.mouseDown(with: try h.mouse(.leftMouseDown, at: start))
+        for down in stride(from: CGFloat(4), through: 120, by: 4) {
+            view.mouseDragged(with: try h.mouse(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - down)))
+        }
+        #expect(h.list.drag == nil, "the pinned workspace lifted")
+        view.mouseUp(with: try h.mouse(.leftMouseUp, at: NSPoint(x: start.x, y: start.y - 120)))
+        h.finishFlights()
+        #expect(h.drops.isEmpty, "a pinned workspace drag sent a move: \(Self.sent(h))")
+    }
+
     /// The first pinned row dragged down until its bottom is 2 pt short of the third row's middle: it passed the
     /// second row only (the third has not made way).
     @Test func aPinnedRowDraggedDownStaysBeforeARowItsBottomHasNotHalfCovered() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let first = try Self.frame(h, 0), third = try Self.frame(h, 2)
         try Self.drag(h, pin: 0, by: third.midY - 2 - first.maxY)
@@ -68,7 +87,7 @@ struct SidebarPinnedRowEdgeReorderTests {
     /// 4 pt further, its bottom is past the third row's middle: it goes after the third row.
     @Test func aPinnedRowDraggedDownPassesARowWhenItsBottomPassesThatRowsMiddle() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let first = try Self.frame(h, 0), third = try Self.frame(h, 2)
         try Self.drag(h, pin: 0, by: third.midY + 2 - first.maxY)
@@ -86,7 +105,7 @@ struct SidebarPinnedRowEdgeReorderTests {
     /// stays pinned (the list rows are drawn where they were: the gap holds the dragged row's place in the block).
     @Test func aPinnedRowStaysPinnedWhileItsBottomIsShortOfTheFirstListRowsMiddle() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let first = try Self.frame(h, 0), below = try Self.firstListRow(h)
         try Self.drag(h, pin: 0, by: below.midY - 2 - first.maxY)
@@ -97,7 +116,7 @@ struct SidebarPinnedRowEdgeReorderTests {
     /// 5 pt further, its bottom is past the first list row's middle: it leaves Pinned for the list.
     @Test func aPinnedRowLeavesPinnedWhenItsBottomPassesTheFirstListRowsMiddle() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let first = try Self.frame(h, 0), below = try Self.firstListRow(h)
         try Self.drag(h, pin: 0, by: below.midY + 3 - first.maxY)
@@ -108,7 +127,7 @@ struct SidebarPinnedRowEdgeReorderTests {
     /// The third pinned row dragged up until its top is 2 pt past the second row's middle: it goes before the second row.
     @Test func aPinnedRowDraggedUpPassesARowWhenItsTopPassesThatRowsMiddle() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let second = try Self.frame(h, 1), third = try Self.frame(h, 2)
         try Self.drag(h, pin: 2, by: second.midY - 2 - third.minY)
@@ -119,7 +138,7 @@ struct SidebarPinnedRowEdgeReorderTests {
     /// 4 pt less, its top is short of the second row's middle: it stays where it was, and no move is sent.
     @Test func aPinnedRowDraggedUpStaysWhileItsTopIsShortOfTheMiddleAbove() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true)
         defer { h.close() }
         let second = try Self.frame(h, 1), third = try Self.frame(h, 2)
         try Self.drag(h, pin: 2, by: second.midY + 2 - third.minY)

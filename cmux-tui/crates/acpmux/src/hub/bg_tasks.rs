@@ -41,6 +41,8 @@ struct BgSpawn<'a> {
     subagent: Option<Value>,
     /// The harness tool call that started it (`bg_run::Spec::tool_call_id`).
     tool_call_id: Option<String>,
+    /// Its CPU class (`bg_start`'s `class`): a filler task's scope runs at `CPUWeight=idle`.
+    class: crate::session_budget::TaskClass,
 }
 
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
@@ -120,8 +122,9 @@ impl Hub {
         result_line: bool,
         subagent: Option<Value>,
         tool_call_id: Option<String>,
+        class: crate::session_budget::TaskClass,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent, tool_call_id };
+        let spawn = BgSpawn { fixed_id: None, subagent, tool_call_id, class };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -140,7 +143,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent, tool_call_id: None };
+        let spawn = BgSpawn { fixed_id, subagent, tool_call_id: None, class: Default::default() };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -154,7 +157,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent, tool_call_id } = spawn;
+        let BgSpawn { fixed_id, subagent, tool_call_id, class } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -244,7 +247,7 @@ impl Hub {
             subagent,
             tool_call_id: tool_call_id.filter(|c| !c.trim().is_empty()),
         };
-        bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        bg_spawn(&runner, &spec, class).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
             bg_run::request_stop(&dir, &id, &spec.generation);
@@ -833,7 +836,11 @@ pub(super) fn bg_view_at(
 }
 
 /// Starts the runner in a session of its own and waits for its one-line answer: the task runs.
-async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec) -> Result<()> {
+async fn bg_spawn(
+    runner: &crate::self_command::SelfCommand,
+    spec: &bg_run::Spec,
+    class: crate::session_budget::TaskClass,
+) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let mut cmd = tokio::process::Command::from(runner.command(&[bg_run::RUN_ARG]));
     cmd.stdin(std::process::Stdio::piped())
@@ -862,7 +869,7 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         } else {
             None
         };
-        crate::agent_host::scope::place_in(pid, slice).await;
+        crate::agent_host::scope::place_in(pid, slice, class).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;
