@@ -553,6 +553,9 @@ const SCROLL_GUARD_IDLE_MS = 250;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
+/// Keys of rows gone from the list that the known-rows set keeps before it drops them (`knownRows`).
+const KNOWN_ROWS_SLACK = 512;
+
 /// How recent an empty chat's first prompt is when its transcript mounts for it to enter (above).
 const FIRST_SEND_FRESH_MS = 2000;
 
@@ -2363,6 +2366,12 @@ function TranscriptView({
       // trying to replay the animations").
       else if (!readerIsMoving && happenedAfterOpen(row, opened.at, clockOffset)) arrived.push(row);
     }
+    // The rows the client shed (direct/heldRecords.ts) leave the list for good: their keys go too, or
+    // this set grows by every row a chat ever had (20,000 keys, 0.6 MB a page at 10,000 turns; Leo
+    // 2026-11-14: "memory and cpu staying flat on infinite chats"). A shed row that comes back is
+    // a page of older history (above `oldFirst`, drawn in place) or one this page drew (`redrawn`).
+    // Rebuilt only past twice the rows held, so O(1) a row amortized.
+    if (knownRows.current.size > 2 * rows.length + KNOWN_ROWS_SLACK) knownRows.current = new Set(rows.map(rowFrameKey));
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
