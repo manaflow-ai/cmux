@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
@@ -97,7 +98,31 @@ final class CEFMessagePump {
     /// step's pass adds a pass and never holds one back: the timer runs at its deadlines between the steps, as without
     /// the lever. `steps` means the same: its old form held a due timer pass up to 16 ms for the next step's start, and
     /// a divider drag's page acks waited longer for it (R - P 6.8 ms p50 without the lever, 10.9 ms with it).
-    nonisolated static let runsAtStep = ["1", "steps"].contains(ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"])
+    nonisolated static let runsAtStep = stepPasses(ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"]).start
+
+    /// `CMUX_NEXT_CEF_PUMP_AT_STEP=2`: also a pass at the end of each window step's layout
+    /// (``ResizeStepTimes/stepDidLayOut``), for the work CEF asked for during the step.
+    nonisolated static let runsAtStepEnd = stepPasses(ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"]).end
+
+    /// Which resize step passes a `CMUX_NEXT_CEF_PUMP_AT_STEP` value turns on.
+    struct StepPasses: Equatable, Sendable {
+        let start: Bool
+        let end: Bool
+    }
+
+    /// `1` (and its old name `steps`): a pass at each step's start; `2`: at its start and its end; anything else: none.
+    nonisolated static func stepPasses(_ value: String?) -> StepPasses {
+        StepPasses(start: ["1", "steps", "2"].contains(value), end: false)
+    }
+
+    /// Hooks `pump`'s at-step pass (``runIfDueAtStep()``) to the resize steps' start and the window steps' end.
+    static func installStepPasses(_ pump: CEFMessagePump, start: Bool, end: Bool) {
+        if start {
+            ResizeStepTimes.live.stepWillLayOut = { [weak pump] _ in
+                ResizeStepTimes.pass("cef_pump") { pump?.runIfDueAtStep() }
+            }
+        }
+    }
 
     /// The start of a resize step, before its layout: one pass when work CEF already asked for is due (a request whose
     /// deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the main
