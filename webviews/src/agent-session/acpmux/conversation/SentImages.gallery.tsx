@@ -299,7 +299,7 @@ const placedInOrderNoShift: Play = async ({ waitFor, document }) => {
   if (kinds.join(",") !== "text,image,text,file,text")
     throw new Error(`the bubble draws ${kinds.join(",")}, not text,image,text,file,text`);
   await waitFor(() => {
-    const image = document.querySelector<HTMLImageElement>("img.cv-user__image");
+    const image = document.querySelector<HTMLImageElement>(SENT_IMAGE);
     return image !== null && image.complete && image.naturalWidth > 0;
   });
   const after = watched()!;
