@@ -1,0 +1,10 @@
+{
+  "window": ["2026-11-25T05:20:00.000Z", "2026-11-25T05:31:00.000Z"],
+  "zone": "America/Los_Angeles",
+  "hostBuild": "f3c7bad28 2026-11-24",
+  "capturedAt": "2026-11-25T05:47:07.643Z",
+  "records": 2060,
+  "leadIn": 0,
+  "inWindow": 3969,
+  "expect": {}
+}

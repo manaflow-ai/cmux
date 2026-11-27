@@ -43,6 +43,11 @@ public final class MacScreenSession {
         /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
         /// labels Ultra only from this, never from the quality it asked for.
         public var encodeProfile: String?
+        /// The frames the host says it has sent (its `stats` `frames`) and when that line arrived. The host
+        /// sends a line every second while frames flow and every two seconds on a still screen, so a fresh
+        /// line whose count the viewer has already decoded means the screen did not change, not a stall.
+        public var hostFrames: Double?
+        var hostStatsAt: Date?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -76,7 +81,7 @@ public final class MacScreenSession {
     @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
-    /// This approach never reconnects on its own: Try Again asks the hub again.
+    /// The session never reconnects itself: the pane asks the hub again (``MacScreenPane``'s retry, or Try Again).
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.
@@ -198,6 +203,7 @@ public final class MacScreenSession {
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
         connectDeadline.cancel()
+        lostDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
@@ -416,8 +422,10 @@ public final class MacScreenSession {
                         timings.sampleRtt(Double(rtt))
                     }
                 case let .ended(why):
+                    // Which transport end this was: the link bridge's socket closing (the carrier's "after N bytes") or the host's own.
+                    logger.notice("link transport ended at \(self.connectStage.name, privacy: .public): \(String(describing: why), privacy: .public)")
                     switch why {
-                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case .connectionLost: failLostUnlessLinkExplains(transport: transport)
                     case let .hostFailed(reason): hostFailed(reason)
                     case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     default: end(String(describing: why))
@@ -437,19 +445,37 @@ public final class MacScreenSession {
                 stats.lossPercent = report.lossPercent
                 stats.encodeMsP50 = report.encodeMsP50
                 stats.encodeProfile = report.encodeProfile
+                stats.hostFrames = Double(report.frames)
+                stats.hostStatsAt = Date()
             }
         })
         transport.connect()
     }
 
     private func end(_ reason: String) {
-        logger.info("session ended: \(reason, privacy: .public)")
+        logger.notice("session ended at \(self.connectStage.name, privacy: .public): \(reason, privacy: .public)")
         let wasConnected = phase == .connected
         disconnect()
         phase = wasConnected ? .ended : .failed(message: reason, needsSignIn: false)
     }
 
+    /// How long a lost stream waits for the link's own `ended` line (stdout) before the card says only "lost".
+    @ObservationIgnored var lostGrace: Duration = .seconds(1)
+    /// The pending lost-stream grace; `linkEnded` (through disconnect()) cancels it.
+    @ObservationIgnored let lostDeadline = DemandTimer(owner: "mac-screen.lost-grace")
+
+    /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
+    /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
+    func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
+        let stream = transport.map(ObjectIdentifier.init)
+        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self] in
+            guard let self, self.transport.map(ObjectIdentifier.init) == stream else { return }
+            fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+        }
+    }
+
     private func fail(_ message: String) {
+        logger.notice("session failed at \(self.connectStage.name, privacy: .public): \(message, privacy: .public)")
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
     }
@@ -470,7 +496,7 @@ public final class MacScreenSession {
     /// The host said it could not serve the session: a failure even after the picture started
     /// (the host stopped, and why), never a plain Disconnected.
     private func hostFailed(_ reason: String) {
-        logger.info("session ended: the host failed: \(reason, privacy: .public)")
+        logger.notice("session ended at \(self.connectStage.name, privacy: .public): the host failed: \(reason, privacy: .public)")
         fail(reason)
         failureCause = .host(reason)
     }

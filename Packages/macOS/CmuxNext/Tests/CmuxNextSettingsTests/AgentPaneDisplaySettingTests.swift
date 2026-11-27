@@ -41,6 +41,8 @@ struct AgentPaneDisplaySettingTests {
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
         Row(key: "agentPane.display.compactShortTurns", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // A sent prompt scrolls to the top with room below for the reply: off, the view follows the bottom.
+        Row(key: "agentPane.display.sendScrollsToTop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -82,7 +84,10 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
-        // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
+        // The chat detail ladder (Messages, Normal, Thinking, Verbose) of a chat without its own level.
+        Row(key: "agentPane.display.detail", fallback: .string("normal"),
+            accepted: [.string("messages"), .string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        // The two keys the ladder replaced: off the page, still read.
         Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
@@ -235,7 +240,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.minimap", "agentPane.display.detail", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
         "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {

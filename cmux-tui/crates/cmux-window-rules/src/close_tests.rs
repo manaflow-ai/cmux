@@ -166,3 +166,45 @@ fn tab_warnings_off_read_no_terminal() {
         Some(Reads { agents: vec![Some("Claude".to_owned())], others: vec![] })
     );
 }
+
+#[test]
+fn a_running_command_is_a_known_program() {
+    let command = ProgramFacts {
+        command_since_ms: Some(5),
+        prompt_since_ms: Some(9),
+        ..ProgramFacts::default()
+    };
+    assert!(runs_known_program(&command));
+    assert!(!runs_known_program(&ProgramFacts::default()));
+}
+
+#[test]
+fn an_agent_or_program_status_counts_only_without_a_prompt() {
+    let agent = ProgramFacts { agent_done: Some(false), ..ProgramFacts::default() };
+    assert!(runs_known_program(&agent));
+    assert!(!runs_known_program(&ProgramFacts { prompt_since_ms: Some(1), ..agent }));
+    // An agent whose session ended (`done`) runs nothing known.
+    assert!(!runs_known_program(&ProgramFacts {
+        agent_done: Some(true),
+        ..ProgramFacts::default()
+    }));
+    let status = ProgramFacts { program_status: true, ..ProgramFacts::default() };
+    assert!(runs_known_program(&status));
+    assert!(!runs_known_program(&ProgramFacts { prompt_since_ms: Some(1), ..status }));
+}
+
+#[test]
+fn known_to_ask_needs_a_working_agent_with_its_warning_or_a_known_program() {
+    let both = Warnings { warn_tab: true, warn_agent: true };
+    let agent_off = Warnings { warn_tab: true, warn_agent: false };
+    let agents = Reads { agents: vec![None], others: vec![] };
+    assert!(known_to_ask(&agents, &[], both));
+    assert!(!known_to_ask(&agents, &[], agent_off));
+    let shell = ProgramFacts { prompt_since_ms: Some(1), ..ProgramFacts::default() };
+    let running = ProgramFacts { command_since_ms: Some(1), ..ProgramFacts::default() };
+    let others = Reads { agents: vec![], others: vec![0, 1] };
+    assert!(!known_to_ask(&others, &[shell, shell], both));
+    assert!(known_to_ask(&others, &[shell, running], agent_off));
+    // An index past the tabs sent is no known program.
+    assert!(!known_to_ask(&Reads { agents: vec![], others: vec![2] }, &[running, running], both));
+}
