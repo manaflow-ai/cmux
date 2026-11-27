@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::auto_resume::RefusedRules;
 use super::exit_reason::explains_exit;
 use super::transcript::REPLAY_CHARS;
 use super::*;
@@ -845,6 +846,21 @@ impl Hub {
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate, cloud_mobile) =
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
+        // What a turn the store refuses on a full disk goes on under (`auto_resume/disk_wait.rs`).
+        let refused_prompt_text = super::session::prompt_text(&run.blocks);
+        let rules = RefusedRules {
+            control,
+            trust_gate,
+            from: run
+                .provenance
+                .as_ref()
+                .filter(|p| super::subsession_guard::is_family(Some(p)))
+                .and_then(|p| p["from"].as_str()),
+            slash: super::auto_resume::resent_command(&refused_prompt_text),
+            goes_on: !crate::prompt_provenance::is_trigger(run.provenance.as_ref())
+                && !super::idle::cache_compact::is_own(run.provenance.as_ref())
+                && !super::cold_wake::is_own(run.provenance.as_ref()),
+        };
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
@@ -1205,8 +1221,14 @@ impl Hub {
             Ok(started) => started,
             Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                let failed =
-                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                let failed = self.fail_unless_shutdown_settles(
+                    session,
+                    &prompt_id,
+                    &turn_id,
+                    &e,
+                    joined,
+                    Some(&rules),
+                );
                 if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
                 }
@@ -1250,7 +1272,14 @@ impl Hub {
             // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
             // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
             // after a read of its flag a shutdown could begin behind.
-            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+            if self.fail_unless_shutdown_settles(
+                session,
+                &prompt_id,
+                &turn_id,
+                &e,
+                joined,
+                Some(&rules),
+            ) {
                 if session.status() == SessionStatus::Disconnected {
                     self.set_status(session, NotWaiting::Ready);
                 }
@@ -1269,7 +1298,7 @@ impl Hub {
             Ok(gate) => gate,
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 if resumed {
                     child.kill().await;
                 }
@@ -1382,7 +1411,7 @@ impl Hub {
             Ok(wire) if !stopped => wire,
             Ok(_) => {
                 let e = stopped_before_prompt();
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 if resumed {
                     child.kill().await;
                 }
@@ -1392,7 +1421,7 @@ impl Hub {
                 return Err(e);
             }
             Err(e) => {
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 self.forum_turn_end(session, &told, false);
                 if resumed {
                     child.kill().await;
@@ -1416,7 +1445,7 @@ impl Hub {
         {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
             self.forum_turn_end(session, &told, false);
             if resumed {
                 child.kill().await;
@@ -1898,6 +1927,10 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 #[cfg(test)]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
+
+#[cfg(test)]
+#[path = "exit_notify_tests.rs"]
+mod exit_notify_tests;
 
 #[cfg(test)]
 #[path = "first_acceptance_tests.rs"]

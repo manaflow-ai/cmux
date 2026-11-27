@@ -231,6 +231,22 @@ fi
 # restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
+# oldest_unpinned PIN RELEASE: the commit time of the oldest commit in PIN..RELEASE that changes an FFI input. This
+# checkout is treeless (filter: tree:0), so that walk fetches the trees of every commit one at a time; with the pin
+# 501 min behind it ran from 13:19Z until the job's timeout cancelled it at 13:47Z, and nothing re-pinned (app FFI
+# release run 46002456039, 2026-11-27; GIT_HTTP_LOW_SPEED_TIME never fires, as bytes keep coming). Past
+# REPIN_INPUT_WALK_S it reads the oldest commit in the range instead, which needs no tree and is never younger, so the
+# bound below ends a hold no later than with the walk.
+oldest_unpinned() {
+  local walk_s="${REPIN_INPUT_WALK_S:-60}" oldest
+  if oldest="$(timeout -k 5 "$walk_s" git log --format=%ct "$1..$2" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+      [[ "$oldest" =~ ^[0-9]+$ ]]; then
+    echo "$oldest"
+    return 0
+  fi
+  echo "the walk of the FFI inputs in ${1:0:12}..${2:0:12} did not finish in $walk_s s: the clock reads the range's oldest commit" >&2
+  git log --format=%ct "$1..$2" 2>/dev/null | tail -n 1
+}
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh_retry gh api "$@"; }
 pending_newer() {
   local runs id head age jobs pin_time pin_age oldest
@@ -240,7 +256,7 @@ pending_newer() {
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
     if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
-        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+        oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
     fi
@@ -457,11 +473,26 @@ held_pr() {
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
+# The labels (why: at label_open_repin's call before the pin push below) go on a kept PR too: the hold exits before
+# that push, and cmux#60965 was kept from 06:59Z with neither label, so its compile sat in the background tier.
+stack_blocker_label() {
+  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
+    >/dev/null 2>&1 && return 0
+  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
+}
+label_open_repin() {
+  local open_pr
+  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
+    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
+  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
+  return 0
+}
 if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]]; then
   held=0
   held_pr || held=$?
   rate_limit_gate
   if (( held == 0 )); then
+    label_open_repin
     exit 0
   elif (( held == 2 )); then
     echo "::warning title=Re-pin::could not read the re-pin pull request's state at ${previous:0:12}; left $branch alone, and the next re-pin run decides"
@@ -518,16 +549,7 @@ git fetch --no-tags origin "$pin_commit"
 # rate_limit_failed and stop the pin itself. Its failure is a warning. `ready-to-land` goes on with it: the build
 # fleet's PR-head compile (cmux-next/compile, the last required check) does not start without it, and the cheap tier
 # skips it (land-judge on cmux#60965).
-stack_blocker_label() {
-  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
-    >/dev/null 2>&1 && return 0
-  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
-}
-if [[ -n "${GH_TOKEN:-}" ]]; then
-  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
-    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
-  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
-fi
+[[ -n "${GH_TOKEN:-}" ]] && label_open_repin
 if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_commit:refs/heads/$branch"; then
   # A lost push response is harmless only if the intended commit is published.
   [[ "$(remote_head "$branch")" == "$pin_commit" ]] || exit 1
