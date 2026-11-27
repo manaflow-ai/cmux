@@ -200,10 +200,6 @@ impl Serve {
     /// `stop`, then end of input; the process stops its session and exits (killed after 3 s).
     /// The helper's own end reason, when it gave one: a line it wrote before or as it stopped
     /// (a link that had already failed says so here, not "stopped by the host").
-    #[allow(
-        clippy::indexing_slicing,
-        reason = "serde_json's Value index reads Null for a missing ended field"
-    )]
     fn stop(mut self) -> Option<String> {
         self.send(&json!({ "stop": true }));
         self.stdin = None;
@@ -215,7 +211,7 @@ impl Serve {
         // The process is gone, so its stdout reader ends soon; never wait on it long.
         let mut ended = None;
         while let Ok(line) = self.lines.recv_timeout(Duration::from_millis(200)) {
-            if let Some(reason) = line["ended"].as_str() {
+            if let Some(reason) = line.get("ended").and_then(Value::as_str) {
                 ended.get_or_insert_with(|| reason.to_owned());
             }
         }

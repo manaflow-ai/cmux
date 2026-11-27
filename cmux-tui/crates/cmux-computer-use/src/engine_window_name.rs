@@ -100,10 +100,6 @@ fn listing<'a>(
 impl Engine {
     /// `args` with a `window_id` given by title or app name replaced by the
     /// window's id; None when there is nothing to replace.
-    #[allow(
-        clippy::indexing_slicing,
-        reason = "serde_json assignment creates the requested window_id path"
-    )]
     pub(super) fn window_by_name(&self, args: &Value) -> Result<Option<Value>, ToolOutput> {
         let Some(given) = args_str(args, "window_id") else { return Ok(None) };
         if looks_like_window_id(given) {
@@ -112,7 +108,9 @@ impl Engine {
         let windows = self.windows()?;
         let id = pick(&windows, &self.app_names(), given)?.id.clone();
         let mut out = args.clone();
-        out["window_id"] = json!(id);
+        if let Some(object) = out.as_object_mut() {
+            object.insert("window_id".into(), json!(id));
+        }
         Ok(Some(out))
     }
 }
