@@ -128,7 +128,7 @@ pub(super) fn gate(conn: &Conn, m: &str, params: Value) -> Result<Value, RpcErro
     if conn.auth != ConnAuth::ReadOnlyDevice {
         return Ok(params);
     }
-    if !crate::pairing::read_only_allows(m) {
+    if !crate::pairing::read_only_allows(m, &params) {
         return Err(RpcError::new(
             -32003,
             format!("{m}: this machine is paired read-only here; it can list and watch sessions, not change them"),

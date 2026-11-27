@@ -47,9 +47,11 @@ const ALLOWED: &[&str] = &[
     method::MUX_SYNC_PULL,
 ];
 
-/// Whether a read-only connection may call `m`.
-pub fn allows(m: &str) -> bool {
+/// Stored frames may be read, but requesting a new capture changes a turn.
+pub fn allows(m: &str, params: &Value) -> bool {
     ALLOWED.contains(&m)
+        && !(m == method::MUX_TURN_FRAMES
+            && (params.get("built").is_some() || params["look"].as_bool() == Some(true)))
 }
 
 /// The params a read-only request runs with: an attach never shows the

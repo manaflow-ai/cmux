@@ -4143,6 +4143,9 @@ async fn dispatch_request_with_identity(
             // a frame in the loop's chat and each chat that worked in its tree. A loop started from
             // a plain terminal names no chat, only its tree.
             if let Some(source) = str_param(&params, "built") {
+                if conn.origin != Origin::Local {
+                    return Err(RpcError::new(-32003, "a build frame requires the local socket"));
+                }
                 let tree = str_param(&params, "tree").map(std::path::Path::new);
                 let s = match str_param(&params, "sessionId").filter(|k| !k.is_empty()) {
                     Some(key) => Some(hub.resolve(key)?),
