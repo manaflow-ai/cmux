@@ -126,10 +126,16 @@ pub(crate) fn findings(output: &str) -> Option<Vec<String>> {
     let mut out = Vec::new();
     let mut clean = false;
     for line in output.lines() {
-        let t = line.trim().trim_start_matches(['-', '*', '•', ' ', '`']).trim_start();
+        let t = line.trim().trim_start_matches(['-', '*', '_', '•', ' ', '`']).trim_start();
         let upper = t.to_ascii_uppercase();
-        if let Some(rest) = upper.strip_prefix("BLOCKING:").map(|_| &t["BLOCKING:".len()..]) {
-            let rest = rest.trim().trim_end_matches('`').trim();
+        // `BLOCKING:`, also bolded or quoted (`**BLOCKING:**`, `**BLOCKING**:`): the markup is
+        // not part of the finding.
+        let marked = upper.strip_prefix("BLOCKING").and_then(|after| {
+            let after = after.trim_start_matches(['*', '_', '`']);
+            after.strip_prefix(':').map(|_| &t[t.len() - after.len() + 1..])
+        });
+        if let Some(rest) = marked {
+            let rest = rest.trim().trim_matches(['*', '_', '`']).trim();
             if !rest.is_empty() && out.len() < MAX_FINDINGS {
                 out.push(cap(rest, MAX_FINDING_CHARS));
             }

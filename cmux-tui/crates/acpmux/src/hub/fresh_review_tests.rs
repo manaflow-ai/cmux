@@ -47,13 +47,21 @@ fn cap_cuts_on_a_character_boundary() {
 #[test]
 fn blocking_lines_are_the_findings_and_a_clean_answer_is_none_found() {
     let out = "BLOCKING: src/a.rs:3 unwrap on user input panics\n\
-               - **BLOCKING:** ignored\n\
+               - **BLOCKING:** src/c.rs:5 bolded marker\n\
+               **BLOCKING**: `src/d.rs:7 bold before the colon`\n\
                * blocking: src/b.rs:9 the ask's second half is not done\n\
+               BLOCKINGLY: not a marker\n\
                some chatter\n";
     let f = findings(out).unwrap();
-    assert_eq!(f.len(), 2, "{f:?}");
-    assert_eq!(f[0], "src/a.rs:3 unwrap on user input panics");
-    assert_eq!(f[1], "src/b.rs:9 the ask's second half is not done");
+    assert_eq!(
+        f,
+        [
+            "src/a.rs:3 unwrap on user input panics",
+            "src/c.rs:5 bolded marker",
+            "src/d.rs:7 bold before the colon",
+            "src/b.rs:9 the ask's second half is not done",
+        ]
+    );
     assert_eq!(findings("NO BLOCKING FINDINGS\n"), Some(vec![]));
     assert_eq!(findings("`No blocking findings.`"), Some(vec![]));
     assert_eq!(findings("Looks good to me!"), None);
