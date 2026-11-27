@@ -197,7 +197,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
   const chat = chats.get(String(params.sessionId)) ?? chats.get(A)!;
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      // As acpmux (capabilities.rs): it serves the settled attach, so the app asks for it as it does on a person's Mac.
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [], capabilities: ["settled-attach-v1"] } },
+      };
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
@@ -217,6 +221,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         events,
         hasMore: events.length < chat.events.length,
         turnOpener,
+        // As acpmux's settled attach (server/requests/settled_attach.rs): the view written through the chat's last record.
+        settled: params.settled === true ? { lastSeq: lastSeq(chat), forkSeqs: [] } : null,
       };
     }
     case "_acpmux/events": {
