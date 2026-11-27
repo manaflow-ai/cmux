@@ -1,5 +1,5 @@
 //! Sidebar looks (`sidebar.look`): the sidebar drawn like another app's
-//! (`claude`, `codex`, `studio`), or cmux's own (`cmux`, the default).
+//! (`claude`, `codex`, `studio`, `rex`), or cmux's own (`cmux`, the default).
 //!
 //! A look is data: a shipped file of ordinary public settings
 //! (`Resources/sidebar-looks/<look>.json`, in the theme-file shape), so a
@@ -31,7 +31,7 @@ pub(crate) const GROUP_BACKGROUND: &str = "sidebar.groupHeader.background";
 /// cmux's own sidebar: no file, nothing filled.
 pub const DEFAULT: &str = "cmux";
 /// Every look, the default first: the setting's choices.
-pub const LOOKS: [&str; 4] = [DEFAULT, "claude", "codex", "studio"];
+pub const LOOKS: [&str; 5] = [DEFAULT, "claude", "codex", "studio", "rex"];
 /// The folder that holds the look files, in the repository's `Resources`
 /// and the app's `Contents/Resources`.
 pub const FOLDER_NAME: &str = "sidebar-looks";
@@ -39,7 +39,7 @@ pub const FOLDER_NAME: &str = "sidebar-looks";
 /// Keys a look may set: none of them changes a row's height, the sidebar's
 /// width, the trailing column or motion (the shared grid,
 /// docs/cmux-next/sidebar-customization.md "No shift").
-pub const GRID_KEYS: [&str; 12] = [
+pub const GRID_KEYS: [&str; 13] = [
     "sidebar.groupBy",
     GROUP_BACKGROUND,
     "sidebar.groupHeader.memberCount",
@@ -51,16 +51,19 @@ pub const GRID_KEYS: [&str; 12] = [
     "sidebar.showTimestamps",
     "sidebar.detailedStatusIcons",
     "appearance.statusIndicator.style",
+    // Where the status mark draws: the row keeps its leading slot while idle, so the name never moves.
+    "sidebar.workspaceRow.statusPlacement",
     "sidebar.showSpaces",
 ];
 
 /// Keys a file reads that are not settings.
 const RESERVED_KEYS: [&str; 3] = ["name", "description", "$schema"];
 
-const SHIPPED: [(&str, &str); 3] = [
+const SHIPPED: [(&str, &str); 4] = [
     ("claude", include_str!("../../../../Resources/sidebar-looks/claude.json")),
     ("codex", include_str!("../../../../Resources/sidebar-looks/codex.json")),
     ("studio", include_str!("../../../../Resources/sidebar-looks/studio.json")),
+    ("rex", include_str!("../../../../Resources/sidebar-looks/rex.json")),
 ];
 
 /// The text of look `name`'s file; `None` for `cmux` or an unknown name.
