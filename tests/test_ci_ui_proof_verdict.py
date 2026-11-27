@@ -9,11 +9,14 @@ NIGHTLY, and new visible UI only whole.
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import os
 import struct
 import sys
 import tempfile
 import unittest
+import urllib.error
 import zlib
 from pathlib import Path
 from unittest import mock
@@ -194,6 +197,54 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+class SwiftDrawsTest(unittest.TestCase):
+    """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
+    `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
+    feel like there's more we can simplify/etc". A Swift file that imports nothing that draws is not visual."""
+    P = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionArgument.swift"
+
+    def affects(self, text, base=None):
+        texts = [text] + ([base] if base is not None else [])
+        return u.affects([self.P], read=lambda p: texts)
+
+    def test_stdlib_only_imports_are_not_visual(self) -> None:
+        self.assertEqual(self.affects("import Foundation\nimport os\npublic struct A { nonisolated static let x = 1 }"), "")
+        self.assertEqual(self.affects("@preconcurrency import Foundation\nimport struct Darwin.Foo\n"), "")
+
+    def test_a_drawing_or_local_import_is_visual(self) -> None:
+        for mod in ("SwiftUI", "AppKit", "CoreGraphics", "QuartzCore", "WebKit", "CmuxNextDesign", "GhosttyKit"):
+            with self.subTest(mod=mod):
+                self.assertEqual(self.affects(f"import Foundation\nimport {mod}\n"), "app")
+
+    def test_no_import_unread_or_a_dropped_ui_import_stays_visual(self) -> None:
+        self.assertEqual(self.affects("struct A {}"), "app")
+
+        def unread(path):
+            raise OSError(path)
+        self.assertEqual(u.affects([self.P], read=unread), "app")
+        self.assertEqual(u.affects([self.P]), "app")
+        self.assertEqual(self.affects("import Foundation\n", base="import SwiftUI\nstruct V: View {}"), "app")
+
+    def test_only_swift_under_a_visual_root_is_read(self) -> None:
+        def boom(path):
+            raise AssertionError(path)
+        self.assertEqual(u.affects(["webviews/src/a.tsx"], read=boom), "web")
+        self.assertEqual(u.affects(["Assets.xcassets/I.imageset/Contents.json"], read=boom), "app")
+        self.assertEqual(u.affects(["Packages/iOS/X.swift"], read=boom), "")
+
+    def test_one_drawing_file_makes_the_head_visual(self) -> None:
+        texts = {"A.swift": "import Foundation\n", "B.swift": "import AppKit\n"}
+        root = "Packages/macOS/CmuxNext/Sources/M/"
+        read = lambda p: [texts[p[len(root):]]]  # noqa: E731
+        self.assertEqual(u.affects([root + "A.swift", root + "B.swift"], read=read), "app")
+        self.assertEqual(u.affects([root + "A.swift"], read=read), "")
+
+    def test_declared_none_still_passes_a_drawing_file(self) -> None:
+        state, why = u.verdict("app", "Visual: none (logging only)", {}, [], 7)
+        self.assertEqual(state, "success")
+        self.assertIn("logging only", why)
+
+
 class RevertedHistoryTest(unittest.TestCase):
     """Before -> after on the data the gate was added on (cmuxterm-hq docs/findings/ui-regressions.md): the 25
     desktop UI PRs reverted or fixed forward 2026-10-16..11-27. Before: none carried a look at its head, all merged.
@@ -231,6 +282,54 @@ class RevertedHistoryTest(unittest.TestCase):
                 with self.subTest(pr=pr):
                     self.assertEqual(u.verdict(u.affects([changed, added]), "", recs, u.new_ui([added]), pr)[0],
                                      "pending")
+
+
+class ReadFailureTest(unittest.TestCase):
+    def test_both_gates_report_http_metadata_without_secrets(self) -> None:
+        for code in (403, 429, 503):
+            for module, argv, target in ((u, ["gate"], "gate_now"),
+                                         (proof_record, ["gate", "--suite", "ios-flows"], "pr_comments")):
+                with self.subTest(code=code, module=module.__name__):
+                    error = urllib.error.HTTPError(
+                        "https://user:secret@api.github.com/repos/manaflow-ai/cmux/issues/7/comments?token=secret",
+                        code, "secret response reason", {"X-GitHub-Request-Id": "ABCD:1234", "Retry-After": "60",
+                        "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1795776600",
+                        "Authorization": "Bearer secret"}, io.BytesIO(b"secret response body"))
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with mock.patch.dict(os.environ, {"REPO": "manaflow-ai/cmux", "PR": "7", "SHA": HEAD,
+                                                      "GH_TOKEN": "secret"}), \
+                            mock.patch.object(module, target, side_effect=error), \
+                            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        self.assertEqual(module.main(argv), 0)
+                    self.assertTrue(stdout.getvalue().startswith("error\t"))
+                    self.assertIn(f"HTTPError {code}", stdout.getvalue())
+                    self.assertIn("see job log", stdout.getvalue())
+                    details = json.loads(stderr.getvalue())
+                    self.assertEqual(details["status"], code)
+                    self.assertEqual(details["endpoint"], "/repos/manaflow-ai/cmux/issues/7/comments")
+                    self.assertEqual(details["request_id"], "ABCD:1234")
+                    self.assertEqual(details["retry_after"], "60")
+                    self.assertEqual(details["rate_remaining"], "0")
+                    self.assertEqual(details["rate_reset"], "1795776600")
+                    self.assertNotIn("secret", stdout.getvalue() + stderr.getvalue())
+                    self.assertEqual(error.fp.tell(), 0)
+
+    def test_unknown_endpoint_and_unexpected_headers_are_omitted(self) -> None:
+        error = urllib.error.HTTPError("https://example.com/secret?token=secret", 403, "secret",
+                                       {"X-GitHub-Request-Id": "secret\nline", "Retry-After": "secret"}, None)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(proof_record.read_error(error), "HTTPError 403")
+        self.assertEqual(json.loads(stderr.getvalue()), {"error": "HTTPError", "status": 403})
+
+    def test_non_http_failure_keeps_its_type_without_exception_text(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(proof_record.read_error(TimeoutError("secret")), "TimeoutError")
+            self.assertEqual(proof_record.read_error(urllib.error.HTTPError(
+                "https://api.github.com/repos/manaflow-ai/cmux/pulls/7", 500, "secret", None, None)),
+                "HTTPError 500")
+        self.assertNotIn("secret", stderr.getvalue())
 
 
 class RouterTest(unittest.TestCase):
