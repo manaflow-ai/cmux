@@ -846,6 +846,14 @@ def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
     """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
     (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    if probe.job not in mine:
+        # A matrix leg ("s / health (0)") that never ran is listed by its bare name ("s / health"): the matrix
+        # did not expand. Probe run 45969411338 (gallery-health, 11-27): its plan lost its runner, health showed as
+        # skipped by its bare name, and the suite's worst job (the lost plan, a failure) was read as the leg's red,
+        # so the bisect moved to c5385caf with c6ff1246 judged bad on no evidence.
+        bare = re.sub(r" \([^()]*\)$", "", probe.job)
+        if bare != probe.job and bare in mine:
+            mine[probe.job] = mine[bare]
     if mine.get(probe.job) == "skipped" and any(c not in ("success", "skipped") for c in mine.values()):
         return ""  # skipped behind a job that failed or lost its runner: no verdict, worth running again
     return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
