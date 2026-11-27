@@ -123,7 +123,6 @@ final class AppOnboardingServices: OnboardingServices {
 
     /// The first-run Agents step's harnesses (`OnboardingService.signInHarnesses`).
     var agentSignIns: (any AgentSignInSource)? { owner.signInHarnesses }
-    var introWalkSplit: (any IntroWalkSplitSource)? { owner.introWalkSplit }
 
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG

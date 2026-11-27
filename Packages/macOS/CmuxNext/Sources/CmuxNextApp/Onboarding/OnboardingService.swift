@@ -75,10 +75,6 @@ final class OnboardingService {
     /// Make cmux Yours' choices over the settings owner (each pick one publish; the reload applies density's tokens); unset Opacity reads the window's.
     private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings },
         windowOpacity: { [weak services] in (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity })
-    /// Make cmux Yours' split: this install's bundle and the walk records (IntroWalkSplitLog).
-    private(set) lazy var introWalkSplit = IntroWalkSplitLog(file: NextSupport.applicationSupportDirectory()
-        .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", isDirectory: true)
-        .appendingPathComponent("intro-walk/outcomes.jsonl"))
     /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 

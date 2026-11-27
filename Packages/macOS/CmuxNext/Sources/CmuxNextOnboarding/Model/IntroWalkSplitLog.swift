@@ -1,4 +1,5 @@
 internal import CCmuxLayoutReducerFFI
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -11,6 +12,11 @@ import os
 @MainActor
 public final class IntroWalkSplitLog: IntroWalkSplitSource {
     public static let installKeyPreference = "introWalkInstallKey"
+    /// This Mac's log: `Application Support/<bundle id>/intro-walk/outcomes.jsonl` (each build its own).
+    public static let shared = IntroWalkSplitLog(file: NextSupport.applicationSupportDirectory()
+        .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", isDirectory: true)
+        .appendingPathComponent("intro-walk", isDirectory: true)
+        .appendingPathComponent("outcomes.jsonl", isDirectory: false))
 
     private let defaults: UserDefaults
     public let file: IntroWalkOutcomeFile
