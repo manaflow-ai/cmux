@@ -36,7 +36,11 @@
 //!
 //! Pushes never come here (`pushInsteadOf` keeps them on their own URL), and a proxy that is
 //! not listening has no include file, so git goes straight to GitHub as before.
+//!
+//! The same proxy caches GitHub release assets and source archives (`archive`): callers that
+//! read the base file it writes beside the include (`cmux_transport_rewrite`) try it first.
 
+pub mod archive;
 pub mod auth;
 pub mod cli;
 pub mod crates;

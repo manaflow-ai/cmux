@@ -152,11 +152,13 @@ struct KeyBarScrollerKey: View {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                 // It draws its own cap: no glass over it (`PasteKeyCap`).
+                // Glyph and the word "Paste": an icon-only cap between ⇧ and
+                // Tab read as an unlabeled key that did nothing (Leo, 11-22).
                 PasteKeyCap(model: model)
                     // A paste control's colours are fixed when it is made (writing them later throws),
                     // so a new Mac theme makes a new control.
                     .id(PasteKeyCap.ThemeKey(palette: CmuxMobileMacTheme.shared.palette))
-                    .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
+                    .frame(height: TerminalDockMetrics.keyRowHeight)
                     .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
                 KeyCap(key: key, model: model)
@@ -386,7 +388,10 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIPasteControl {
         let configuration = UIPasteControl.Configuration()
-        configuration.displayMode = .iconOnly
+        // Leo, 2026-11-22: "why the fuck is there a button that doesnt have a
+        // label/doesnt appear to fucking DO ANYTHING BESIDE SHIFT AND TAB ON
+        // IOS". The icon-only control was that key: it says Paste now.
+        configuration.displayMode = .iconAndLabel
         configuration.cornerStyle = .medium
         // Opaque, near the dark glass keys over the terminal's black.
         configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
@@ -399,6 +404,16 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func updateUIView(_ control: UIPasteControl, context: Context) {
         if control.target == nil { control.target = model.controller?.surface }
+    }
+
+    /// As wide as the system draws "Paste" with its glyph (localized), never
+    /// narrower than a glyph key; the row's height.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView control: UIPasteControl, context: Context) -> CGSize? {
+        let height = TerminalDockMetrics.keyRowHeight
+        let fit = control.systemLayoutSizeFitting(CGSize(width: UIView.layoutFittingCompressedSize.width, height: height),
+                                                  withHorizontalFittingPriority: .fittingSizeLevel,
+                                                  verticalFittingPriority: .required)
+        return CGSize(width: max(TerminalDockMetrics.minKeyWidth, ceil(fit.width)), height: height)
     }
 
     /// The Mac theme the control was made in: its `.id`, so a theme change makes a new control.
