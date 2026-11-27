@@ -1416,7 +1416,17 @@ job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
 about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
-inputs = ["**"]
+# `**` routes every change in the post-merge batch; on a pull request (--pr-scope) a whole-tree input routes
+# nothing, so the named inputs are what run tt-ci-step-table there when the table, a workflow or its rules change.
+inputs = [
+  "**",
+  "ci/steps.toml",
+  "ci/run",
+  ".github/workflows/*",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/web_subareas.py",
+  "tests/test_ci_step_table.py",
+]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
 sel=all

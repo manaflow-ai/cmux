@@ -31,7 +31,7 @@ A new push means the old record no longer counts, so the loop runs again.
 | `selection` | the selector's output: flows and the tests behind them |
 | `runs[]` | one per step: `name`, `result` (pass, fail, error, skipped), `worker`, `step` (the cmux-ci step id), `seconds` |
 | `captures[]` | each screenshot's sha256 and its verdict against `baseline`: same, changed, new, missing or unbaselined |
-| `visual` | `{screens, baselined, changed, video, diffed}`: what the land-judge visual tier checks. A visual change lands only with screens diffed against the last green build on a real simulator |
+| `visual` | `{screens, baselined, baseline_source, changed, video, diffed}`: what the land-judge visual tier checks. A visual change lands only with screens diffed on a real simulator against the NIGHTLY: `baseline_source` is `nightly` when the baseline is the newest passing proof of a PR whose merge commit is in the `nightly-next` tag, `merged` when no proof is in the NIGHTLY yet and the newest merged one stood in, `none` with no baseline |
 | `verdict` | pass only if no run failed and at least one ran. A changed capture is evidence, not a failure |
 | `timing` | `pushed_at` (the head commit's time), `proof_at`, `push_to_proof_s` |
 

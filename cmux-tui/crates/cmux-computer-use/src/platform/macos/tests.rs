@@ -94,7 +94,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.5+,
 /// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
@@ -104,7 +104,9 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("26.7", &[]));
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
-    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    assert!(gate("26.5.2", &[]), "26.5.2: the eval guest's image");
+    assert!(gate("26.5", &[]));
+    assert!(!gate("26.4.1", &[]), "before the verified 26 minor");
     // 27.0 and 27.0.1 verified live: on for every 27.
     assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));

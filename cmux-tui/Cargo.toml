@@ -226,6 +226,7 @@ members = [
     "crates/cmux-usage-patterns",
     "crates/cmux-usage-share",
     "crates/cmux-vault-egress",
+    "crates/cmux-vault-e2e",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/cmux-computer-use",
@@ -527,6 +528,7 @@ cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
 cmux-usage-share = { path = "crates/cmux-usage-share" }
 cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
+cmux-vault-e2e = { path = "crates/cmux-vault-e2e" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }

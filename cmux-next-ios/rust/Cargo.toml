@@ -85,6 +85,9 @@ cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
 # Mac and VMs, and the embedded tsnet node behind its `tsnet` feature.
 cmux-tailnet-join = { path = "../../cmux-tui/crates/cmux-tailnet-join" }
 cmux-tailnet = { path = "../../cmux-tui/crates/cmux-tailnet" }
+# The cmux vault (cmuxterm-hq docs/design/e2e-vault.md): end to end encrypted secrets, this phone one
+# enrolled device; it seals values to the machines it starts (crates/cmux-mobile-link-ffi/src/vault.rs).
+cmux-vault-e2e = { path = "../../cmux-tui/crates/cmux-vault-e2e" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
