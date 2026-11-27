@@ -81,6 +81,17 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("2 workspaces, 0 stale", result.stderr)
 
+    def test_optional_dependency_is_not_an_orphan(self):
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\n'
+                   'b = { path = "../core/b", optional = true }\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
     def test_a_manifest_change_in_one_workspace_fails_the_other_workspaces_lock(self):
         self.break_ffi()
 
@@ -145,6 +156,40 @@ class CargoLocksTests(unittest.TestCase):
         self.assertIn("fixed: core/Cargo.lock", fixed.stdout)
         self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
         self.assertEqual(self.locks("check").returncode, 0)
+
+    def test_an_optional_dependency_the_lock_lists_is_not_an_orphan(self):
+        """ffi takes a only behind a feature; the lock lists a (cargo locks every feature's dependencies), and
+        cargo metadata's default-feature resolve leaves it out. cmux#57506 called it an orphan and refused every push
+        into cmux-next-ios/rust (cmux-mobile-tailnet's `tsnet`) and cmux-tui (wasmtime, dhat)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a", optional = true }\n\n[features]\nwith-a = ["dep:a"]\n'
+                   '\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a behind a feature")
+        self.assertIn('name = "a"', (self.repo / "ffi/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("stale", result.stdout)
+
+    def test_a_deleted_crate_a_stale_lock_edge_still_lists_is_an_orphan(self):
+        """The lock from before cmux#57348's fix still had acpmux list cmux-coderouter; a walk through that edge
+        called the deleted crate reachable. b is gone from every manifest, a's lock entry still names it."""
+        self.drop_crate_b()
+        lock = self.repo / "core/Cargo.lock"
+        text = lock.read_text()
+        lock.write_text(text.replace('name = "a"\nversion = "0.1.0"\n', 'name = "a"\nversion = "0.1.0"\n'
+                                     'dependencies = [\n "b",\n]\n'))
+        self.assertIn('dependencies = [\n "b",', lock.read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a's lock entry still names b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lists packages its manifests no longer resolve: b 0.1.0", result.stdout)
 
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
@@ -237,6 +282,7 @@ class BusyFixture(unittest.TestCase):
         self.now = 0.0
         self.module.clock = lambda: self.now
         self.calls: list[tuple[str, bool, float]] = []
+        self.metadata_calls: dict[str, list[bool]] = {}
         self.running = 0
         self.most_running = 0
         self.lock = threading.Lock()
@@ -260,12 +306,25 @@ class BusyFixture(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", f"change {relative}")
 
-    def fake_cargo(self, args, cwd, env, timeout=None, **_):
+    def fake_cargo(self, args, cwd, env, timeout=None, out=None, **_):
+        if args[0] == "metadata":
+            # Kept out of self.calls, which counts the resolves (`cargo update`) and their limits.
+            root = Path(cwd).relative_to(self.repo).as_posix()
+            self.metadata_calls.setdefault(root, []).append("--offline" in args)
+            code, err = self.fake_cargo_call(args, cwd, timeout, record=False)
+        else:
+            code, err = self.fake_cargo_call(args, cwd, timeout)
+        if code == 0 and args[0] == "metadata" and out is not None:
+            out.append('{"packages": []}')  # the fixture's locks list no packages
+        return code, err
+
+    def fake_cargo_call(self, args, cwd, timeout, record=True):
         limit = 120 if timeout is None else timeout
         root = Path(cwd).relative_to(self.repo).as_posix()
         offline = "--offline" in args
         with self.lock:
-            self.calls.append((root, offline, limit))
+            if record:
+                self.calls.append((root, offline, limit))
             if not offline:
                 self.running += 1
                 self.most_running = max(self.most_running, self.running)
@@ -284,6 +343,12 @@ class BusyFixture(unittest.TestCase):
                 return 101, STALE_MESSAGE.format(lock=Path(cwd) / "Cargo.lock")
             if kind == "ok":
                 return 0, ""
+            if kind in ("metadata-cold", "metadata-broken"):
+                # `cargo update --locked` resolves from the index alone; `cargo metadata --all-features` needs every
+                # crate's source, which a cold cargo home lacks offline (and a broken registry lacks either way).
+                if args[0] != "metadata" or (kind == "metadata-cold" and not offline):
+                    return 0, ""
+                return 101, OFFLINE_MISS if offline else "error: failed to download from `https://index.crates.io`\n"
             if offline:
                 return 101, OFFLINE_MISS
             if kind == "slow" and limit > 120:
@@ -311,6 +376,27 @@ class BusyFixture(unittest.TestCase):
 
 class BusyRunnerTests(BusyFixture):
     """The busy-runner cases (BusyFixture's docstring)."""
+
+    def test_a_cold_cache_metadata_miss_is_judged_with_the_network(self):
+        """Mango on cmux#60140, 2026-11-27: orphans() returned [] when `cargo metadata` failed, so on a host without
+        the crates cached the check passed without checking anything. The offline miss now leaves the workspace to
+        the network pass, which fetches and judges it."""
+        self.behaviour["other"] = "metadata-cold"
+
+        code, output = self.run_check()
+
+        self.assertEqual(code, 0, output)
+        self.assertIn("0 unchecked", output)
+        self.assertEqual(self.metadata_calls["other"], [True, False])
+
+    def test_a_workspace_cargo_metadata_cannot_resolve_is_unchecked_never_ok(self):
+        self.behaviour["other"] = "metadata-broken"
+
+        code, output = self.run_check()
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: other (cargo metadata --format-version 1 --all-features --locked failed: "
+                      "error: failed to download", output)
 
     def test_a_stale_lock_still_fails(self):
         self.behaviour["ffi"] = "stale"
