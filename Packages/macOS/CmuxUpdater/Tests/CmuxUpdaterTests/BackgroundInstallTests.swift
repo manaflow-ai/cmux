@@ -97,6 +97,8 @@ import Testing
         harness.controller.disablesSparkleSilentStagingPreference = false
         harness.controller.installsUpdatesInBackground = true
         #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        #expect(!harness.updater.automaticallyDownloadsUpdates,
+                "the shared preference must not enable Sparkle's silent download driver in NEXT")
     }
 
     /// cmux NEXT leaves the shared Sparkle preference on, then intercepts Sparkle's silent

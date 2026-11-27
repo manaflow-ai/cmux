@@ -20,6 +20,7 @@ struct Harness {
         defaults.set(automaticDownloads, forKey: UpdateSettings.automaticallyUpdateKey)
         defaults.set(true, forKey: UpdateSettings.automaticInstallMigrationKey)
         let updater = FakeUpdater()
+        updater.automaticallyDownloadsUpdates = automaticDownloads
         let clock = TestDeadlineClock()
         self.updater = updater
         self.clock = clock
