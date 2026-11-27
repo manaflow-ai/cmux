@@ -422,21 +422,16 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The traffic lights' row over the header's band at its last layout (`homeLightsRow`).
     private var windowControls: CGRect?
 
-    /// Re-reads the traffic lights after the list moved in its window without a resize of its
-    /// header (the window's sidebar opened or closed beside the Home page); relays out the header
-    /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
-    public func updateWindowControlsAvoidance() {
-        // The panel's top follows the lights' line, which a density change moves with no resize. Laid out now, as the
-        // header below: the window re-checks after its layout pass (`WindowControlsAvoiders.batching`), and a mark
-        // alone waited for the next pass, a frame late.
-        if abs((bounds.height - panel.frame.maxY) - panelTopInset) > 0.25 {
-            needsLayout = true
-            layoutSubtreeIfNeeded()
-        }
+    /// Re-reads the traffic lights after the list moved in its window without a resize of its header (the window's
+    /// sidebar opened or closed beside the Home page); relays out the header only when what lies over it changed.
+    public func updateWindowControlsAvoidance() { updateWindowControlsAvoidance(layingOutNow: true) } // the window's, after its pass
+    /// `layingOutNow` false: in `HomeSidebarSplitView.layout()` before it places the list (the pass lays it out after, once, at its final width), or as it enters a window or shows.
+    func updateWindowControlsAvoidance(layingOutNow: Bool) {
+        // The panel's top follows the lights' line, which a density change moves with no resize: after the window's pass a mark alone waited a frame.
+        if abs((bounds.height - panel.frame.maxY) - panelTopInset) > 0.25 { needsLayout = true; if layingOutNow { layoutSubtreeIfNeeded() } }
         guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
-        // The header's layout also places the list under it (its height may change). Laid out
-        // now, not at the next display pass: an occluded window gets none until it shows, and
-        // the next frame on screen would still have the search field under the lights.
+        // The header's layout also places the list under it (its height may change). Laid out now, not at the next display
+        // pass: an occluded window gets none until it shows, and the next frame would still have the search field under the lights.
         list.headerView.needsLayout = true
         list.headerView.layoutSubtreeIfNeeded()
     }
@@ -709,13 +704,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         WindowControlsAvoiders.join(self)
         applyColors()
         // A new window has its own traffic lights (or none, in full screen).
-        updateWindowControlsAvoidance()
+        updateWindowControlsAvoidance(layingOutNow: false)
     }
 
     /// A hidden workspace skipped window updates; re-read its position when shown.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        updateWindowControlsAvoidance()
+        updateWindowControlsAvoidance(layingOutNow: false)
     }
 
     /// The panel's inset from the column's top: ``lightsBelowPanelTop`` above the traffic lights'
