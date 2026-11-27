@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { formatHotSwap, hotSwapStages, refreshRuntimeWithoutTimer } from "../dev-server/hotSwapTiming";
+import { refreshInMicrotask } from "../dev-server/refreshNow";
 
 // The runtime @vitejs/plugin-react serves at /@react-refresh, as installed.
 const runtime = fs.readFileSync(
@@ -11,6 +12,16 @@ const runtime = fs.readFileSync(
 );
 
 describe("dev server hot swap timing", () => {
+  it("preserves the preceding refreshNow microtask and reports its commit", () => {
+    const preceding = refreshInMicrotask(runtime);
+    expect(preceding.changed).toBe(true);
+    const patched = refreshRuntimeWithoutTimer(preceding.code);
+    expect(patched).toBeDefined();
+    expect(patched).toContain("queueMicrotask(() =>");
+    expect(patched).not.toContain("new MessageChannel()");
+    expect(patched).toContain('window.dispatchEvent(new Event("cmux:react-refreshed"))');
+  });
+
   it("takes the 16 ms timer out of the installed React Fast Refresh runtime", () => {
     // A runtime that no longer reads as expected is served as it is (the plugin warns): this
     // fails first when @vitejs/plugin-react changes its debounce.
