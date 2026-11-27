@@ -86,6 +86,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// density (``BrowserChromeTuning/closePlate(pillHeight:pillRadius:minimumSide:)``), unless the density's
     /// `closeCorner` is tuned or set.
     public var closeCornerRadius: CGFloat
+    /// Whether ``closeCornerRadius`` is the concentric default (no `closeCorner` tuning or density token): the cell then
+    /// takes the plate's corner from the inset it draws, after the pixel snap, so the curves share a center to the pixel.
+    public var closeCornerIsConcentric: Bool
     /// The side of the x's hover plate on a ``tabHeight`` pill: the pill less half its corner above and below, around the
     /// x's slot (``closeButtonSize``, which keeps the title's and the minimum width's room), at most a point short of the
     /// gap before the slot on each side.
@@ -245,7 +248,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         let plate = BrowserChromeTuning.closePlate(pillHeight: tabHeight, pillRadius: cornerRadius, slot: closeButtonSize,
                                                    maximumSide: closeButtonSize + 2 * max(0, titleCloseSpacing - 1))
         closePlateSide = plate.side
-        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius") ?? plate.corner
+        let setCorner = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
+        closeCornerRadius = setCorner ?? plate.corner
+        closeCornerIsConcentric = setCorner == nil
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)

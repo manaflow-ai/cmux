@@ -595,7 +595,11 @@ final class TabCell {
             let plate = CGRect(x: trailing ? pixel(bounds.width - gap - plateSide) : pixel(closeRect.midX - plateSide / 2),
                                y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
             closeBackgroundLayer.frame = plate
-            closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
+            // Concentric by default: the pill's corner less the inset as drawn, so a plate the pixel snap moved by a
+            // fraction of a point still shares the pill's centers (a tuned or token corner is used as set).
+            let drawnInset = min(plate.minY - bounds.minY, bounds.maxY - plate.maxY)
+            let corner = m.closeCornerIsConcentric ? max(0, backgroundLayer.cornerRadius - drawnInset) : m.closeCornerRadius
+            closeBackgroundLayer.cornerRadius = min(corner, plateSide / 2)
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
             let ink = m.closeGlyphInk, inset = m.closeGlyphPathInset
             let glyph = CGRect(x: pixel(plate.midX - ink / 2), y: pixel(plate.midY - ink / 2), width: ink, height: ink)
