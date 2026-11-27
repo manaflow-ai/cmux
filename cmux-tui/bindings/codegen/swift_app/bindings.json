@@ -2206,6 +2206,37 @@
       }
     },
     "Conversations": {
+      "requests": {
+        "conversation-thread": {
+          "name": "ConversationThreadRequest",
+          "doc": [
+            "`conversation-thread`: the root and up to `limit` (1...500) replies after `afterSeq`."
+          ],
+          "order": [
+            "conversation",
+            "root",
+            "after_seq",
+            "limit"
+          ],
+          "fields": {
+            "after_seq": {
+              "optional": false,
+              "encode": "always"
+            },
+            "limit": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500,
+                "constant": "maxLimit"
+              }
+            }
+          },
+          "response": "ConversationThread"
+        }
+      },
       "objects": {
         "ConversationList": {
           "result": "conversation-list",

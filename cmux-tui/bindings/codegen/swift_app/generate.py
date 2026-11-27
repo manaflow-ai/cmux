@@ -47,10 +47,21 @@ _DECLARATION = re.compile(
 )
 
 
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Refuse a key twice in one object: json keeps the last silently, so two branches that each add a
+    family's `requests` would merge into a file that drops one of them."""
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise BindingError(f"the key {key!r} appears twice in one object")
+        value[key] = item
+    return value
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
+    except (OSError, json.JSONDecodeError, BindingError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
         raise BindingError(f"{path} must be an object")

@@ -17,6 +17,9 @@ Wire rules (the same JSON the hand-written types sent):
 - an optional field is a Swift Optional, nil by default, and encoded only when set, so an unset field
   leaves the daemon's default in force;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
+- a request field's `clamp` ({minimum, maximum, constant}) clamps an integer in the init only, against a
+  `public static let` constant of the maximum; the property stays a plain `var`, so a value assigned after
+  init is sent as assigned. A nil Optional stays nil.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
 (`type`) or a command's result (`result`). A reference to a generated schema object resolves to its Swift
@@ -81,6 +84,10 @@ _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
+# A request field may also clamp its value in the init (`clamp`): see _clamp.
+_REQUEST_FIELD_KEYS = _FIELD_KEYS | {"clamp"}
+_CLAMP_KEYS = frozenset({"minimum", "maximum", "constant"})
+_INTEGERS = frozenset({"Int", "Int32", "Int64", "UInt16", "UInt32", "UInt64"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
@@ -211,6 +218,8 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
+    # Clamped in the init only (`clamp`): (minimum, maximum, the static constant naming the maximum).
+    clamp: tuple[int, int, str] | None = None
 
     @property
     def custom_read(self) -> bool:
@@ -228,6 +237,14 @@ class _Field:
             default = ".unchanged" if self.update else "nil" if self.optional else None
         return f"{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
 
+    def init_line(self) -> str:
+        if self.clamp is None:
+            return f"        self.{self.name} = {self.name}"
+        minimum, _, constant = self.clamp
+        if self.optional:
+            return f"        self.{self.name} = {self.name}.map {{ min(max($0, {minimum}), Self.{constant}) }}"
+        return f"        self.{self.name} = min(max({self.name}, {minimum}), Self.{constant})"
+
     def encode_line(self) -> str:
         if self.mutation:
             return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
@@ -236,6 +253,25 @@ class _Field:
 
     def coding_key(self) -> str:
         return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
+
+
+def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, int, str] | None:
+    """A request field's `clamp`: the init stores min(max(value, minimum), Self.constant), the constant a
+    `public static let` of the maximum. Only the init clamps: the property stays a plain `var`, so a value
+    assigned after init is sent as assigned (what the hand-written requests did)."""
+    if spec is None:
+        return None
+    spec = _check_keys(f"{where}.clamp", spec, _CLAMP_KEYS)
+    minimum, maximum, constant = spec.get("minimum"), spec.get("maximum"), spec.get("constant")
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in (minimum, maximum)):
+        raise BindingError(f"{where}.clamp: minimum and maximum are integers")
+    if minimum > maximum:
+        raise BindingError(f"{where}.clamp: minimum is above maximum")
+    if not isinstance(constant, str) or not _IDENTIFIER.fullmatch(constant) or constant in _KEYWORDS:
+        raise BindingError(f"{where}.clamp: constant is the Swift name of the maximum, like maxLimit")
+    if update or swift_type not in _INTEGERS:
+        raise BindingError(f"{where}.clamp: only an integer field (not an update) is clamped")
+    return minimum, maximum, constant
 
 
 class _Renderer:
@@ -338,7 +374,7 @@ class _Renderer:
         for wire in [*order, *rest]:
             spec = schema_fields[wire]
             override = _check_keys(
-                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
+                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _REQUEST_FIELD_KEYS
             )
             swift_type = override.get("type") or self.swift_type(
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
@@ -397,6 +433,7 @@ class _Renderer:
                 when=override.get("when"),
                 prefer=override.get("prefer"),
                 update=update,
+                clamp=None if read else _clamp(f"{where}.{wire}", override.get("clamp"), swift_type, update),
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:
@@ -483,6 +520,12 @@ class _Renderer:
         out.append(f"    public static let command = {json.dumps(command)}")
         if schema.get("capability"):
             out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
+        constants = [item for item in fields if item.clamp is not None]
+        if len({item.clamp[2] for item in constants}) != len(constants):
+            raise BindingError(f"{command}: two clamped fields name the same constant")
+        for item in constants:
+            typed = "" if item.swift_type == "Int" else f": {item.swift_type}"
+            out.append(f"    public static let {item.clamp[2]}{typed} = {item.clamp[1]}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if fields:
@@ -491,7 +534,7 @@ class _Renderer:
             out += _doc(item.doc, "    ")
             out.append(f"    public var {item.name}: {item.declared_type}")
         out += ["", f"    public init({', '.join(item.parameter() for item in fields)}) {{"]
-        out += [f"        self.{item.name} = {item.name}" for item in fields]
+        out += [item.init_line() for item in fields]
         out.append("    }")
         if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]

@@ -428,6 +428,48 @@ class FieldOverrideTests(unittest.TestCase):
             with self.subTest(label), self.assertRaises(BindingError):
                 rendered(mutation_document(), mutation_bindings(**fields))
 
+    def test_clamp_clamps_in_the_init_against_a_named_constant(self) -> None:
+        clamp = {"minimum": 1, "maximum": 500, "constant": "maxLimit"}
+        source = self.source(title={"update": True}, index={"type": "Int", "clamp": clamp})
+        self.assertIn("    public static let maxLimit = 500\n", source)
+        # A plain var: only the init clamps, so a value assigned later is sent as assigned.
+        self.assertIn("    public var index: Int\n", source)
+        self.assertIn("        self.index = min(max(index, 1), Self.maxLimit)\n", source)
+        self.assertIn("try container.encode(index, forKey: .index)", source)
+
+    def test_clamp_keeps_a_nil_optional_nil_and_types_a_non_int_constant(self) -> None:
+        clamp = {"minimum": 0, "maximum": 200, "constant": "maxIndex"}
+        source = self.source(title={"update": True}, index={"type": "UInt32", "optional": True, "clamp": clamp})
+        self.assertIn("    public static let maxIndex: UInt32 = 200\n", source)
+        self.assertIn("        self.index = index.map { min(max($0, 0), Self.maxIndex) }\n", source)
+        self.assertIn("try container.encode(index, forKey: .index)", source)
+
+    def test_a_bad_clamp_is_refused(self) -> None:
+        good = {"minimum": 1, "maximum": 5, "constant": "maxLimit"}
+        cases = {
+            "minimum above maximum": {"index": {"type": "Int", "clamp": {**good, "minimum": 9}}},
+            "a non-integer bound": {"index": {"type": "Int", "clamp": {**good, "maximum": 5.5}}},
+            "a boolean bound": {"index": {"type": "Int", "clamp": {**good, "minimum": True}}},
+            "a constant that is not a name": {"index": {"type": "Int", "clamp": {**good, "constant": "max-limit"}}},
+            "an unknown key": {"index": {"type": "Int", "clamp": {**good, "step": 1}}},
+            "a non-integer field": {"index": {"type": "Double", "clamp": good}},
+            "an update field": {"title": {"update": True, "type": "Int", "clamp": good}},
+        }
+        for label, fields in cases.items():
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(mutation_document(), mutation_bindings(**fields))
+
+    def test_two_clamps_naming_one_constant_are_refused(self) -> None:
+        document = mutation_document()
+        fields = document["commands"]["rename-pane"]["request"]["fields"]
+        fields["count"] = _field({"kind": "scalar", "name": "uint64"})
+        clamp = {"minimum": 1, "maximum": 5, "constant": "maxLimit"}
+        bindings = mutation_bindings(
+            title={"update": True}, index={"type": "Int", "clamp": clamp}, count={"type": "Int", "clamp": clamp}
+        )
+        with self.assertRaises(BindingError):
+            rendered(document, bindings)
+
     def test_mutation_without_the_identity_fields_is_refused(self) -> None:
         bindings = layout_bindings()
         bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
@@ -541,6 +583,13 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
             rendered(bindings=bindings or read_bindings(objects))
         self.assertIn(message, str(raised.exception))
 
+    def test_a_read_type_refuses_clamp(self) -> None:
+        bindings = read_bindings({"ZoomResult": {"result": "zoom-pane", "fields": {
+            "zoomed": {"clamp": {"minimum": 0, "maximum": 1, "constant": "maxZoomed"}},
+        }}})
+        with self.assertRaises(BindingError):
+            rendered(bindings=bindings)
+
     def test_read_options_refuse_what_has_no_swift_shape(self) -> None:
         self.assert_refused("when needs an optional field", {"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"zoomed": {"when": "true", "default": "false"}}}})
@@ -628,6 +677,15 @@ class OutAndCheckTests(unittest.TestCase):
                 with self.assertRaises(BindingError):
                     self.run_mode("out", out)
                 self.assertEqual(list(out.rglob("*.generated.swift")) if out.exists() else [], [])
+
+    def test_a_key_twice_in_one_object_is_refused(self) -> None:
+        # json keeps the last silently: two branches each adding a family's requests would drop one.
+        self.write_inputs(layout_bindings())
+        text = (self.root / "bindings.json").read_text(encoding="utf-8")
+        text = text.replace('"families": {', '"families": {"Layout": {}, ', 1)
+        (self.root / "bindings.json").write_text(text, encoding="utf-8")
+        with self.assertRaisesRegex(BindingError, "appears twice"):
+            self.run_mode("check")
 
     def test_a_sources_root_outside_the_repository_is_refused(self) -> None:
         for root in ("/abs/Sources", "../Sources", "Sources/../../X", ""):
