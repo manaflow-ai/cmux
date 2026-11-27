@@ -1256,14 +1256,13 @@
           "name": "virtualRows",
           "type": "{ estimate: number; sizeKey?(item: string): string; }",
           "optional": true,
-          "doc": "Only the scrolling rows near the viewport are in the DOM (TanStack Virtual over the list's own scroller), so a list of thousands (the Projects picker, Leo 2026-11-04: \"opening the project picker lags like shit since we have so many\") opens in a frame. `estimate` is a row's height in pixels before it is measured. `sizeKey` is a string that differs whenever a row's outer size can differ without its border box changing (a section heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured again, and its size for one value is never reused for another."
+          "doc": "Only the scrolling rows near the viewport are in the DOM (TanStack Virtual over the list's scroller), so a list of thousands (the Projects picker, Leo 2026-11-04: \"opening the project picker lags like shit since we have so many\") opens in a frame. With `pinnedSuggestions` this windows at any length; any list windows past COMBOBOX_VIRTUAL_AFTER rows without it. `estimate` is a row's height in pixels before it is measured (default 28). `sizeKey` is a string that differs whenever a row's outer size can differ without its border box changing (a section heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured again, and its size for one value is never reused for another."
         }
       ],
       "dataAttributes": [
         "data-disabled",
         "data-host-glass",
         "data-host-glass-cover",
-        "data-index",
         "data-placement",
         "data-popup-settle"
       ],
@@ -10116,13 +10115,13 @@
           "name": "activeIndex",
           "type": "number",
           "optional": true,
-          "doc": "The highlighted row: always rendered, scrolled into view when it changes."
+          "doc": "The highlighted row: always rendered, scrolled into view when its index or its row's React key (the count, for a row without a key) changes, so a filter that keeps the highlight at 0 still shows its first result."
         },
         {
           "name": "activeScrollKey",
           "type": "string",
           "optional": true,
-          "doc": "Changes when the same index names a different result set or active item."
+          "doc": "Changes when the same index names a different result set or active item (for rows without keys)."
         },
         {
           "name": "className",
@@ -10192,9 +10191,15 @@
         },
         {
           "name": "role",
-          "type": "\"listbox\" | \"list\" | \"grid\"",
+          "type": "\"listbox\" | \"grid\" | \"list\"",
           "optional": true,
           "doc": "The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow."
+        },
+        {
+          "name": "rowCount",
+          "type": "number",
+          "optional": true,
+          "doc": "With `role=\"grid\"`: the whole list's row count (aria-rowcount), since only some rows are mounted; rows then carry their own aria-rowindex."
         },
         {
           "name": "scrollParent",
