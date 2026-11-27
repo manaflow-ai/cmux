@@ -16,6 +16,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import subprocess
@@ -26,6 +27,9 @@ from dataclasses import dataclass
 
 HERE = Path(__file__).resolve().parent
 RUNNER = HERE / "run.py"
+IDLE_RUNNER = HERE / "idle_e2e.py"
+IDLE_VERDICTS = ("installed_v2", "automatic", "waited_idle_time", "hosts_counts_equal",
+                 "host_pids_unchanged", "agents_survived", "no_turn_cut")
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,8 @@ class MatrixCase:
     flags: tuple[str, ...]
     expected_failure_card: str | None = None
     expected_failure_content: str | None = None
+    runner: str = "standard"
+    artifact: str = "timeline.json"
 
 
 CASES = (
@@ -49,6 +55,8 @@ CASES = (
     MatrixCase("read-only-install", ("--readonly-install",)),
     MatrixCase("required-update", ("--required-update",)),
     MatrixCase("session-handoff", ("--handoff", "--sessions")),
+    MatrixCase("idle-install", ("--expect", "install", "--idle-minutes", "1"),
+               runner="idle", artifact="result.json"),
 )
 
 
@@ -57,10 +65,11 @@ def _slug(text: str) -> str:
 
 
 def command(app: Path, out: Path, tag: str, case: MatrixCase) -> list[str]:
+    runner = IDLE_RUNNER if case.runner == "idle" else RUNNER
     return [
         sys.executable,
         "-I",
-        str(RUNNER),
+        str(runner),
         "--app",
         str(app),
         "--tag",
@@ -75,7 +84,12 @@ def case_passed(case: MatrixCase, returncode: int | None, details: dict, error: 
     if error or returncode is None:
         return False
     if case.expected_failure_card is None:
-        return returncode == 0
+        if returncode != 0:
+            return False
+        if case.runner == "idle":
+            verdicts = details.get("verdicts", {})
+            return details.get("passed") is True and all(verdicts.get(key) is True for key in IDLE_VERDICTS)
+        return True
     scenario = details.get("scenario", {})
     status_card = scenario.get("status", {}).get("card")
     status_card_kind = status_card.get("kind") if isinstance(status_card, dict) else status_card
@@ -94,7 +108,7 @@ def run_case(app: Path, root: Path, tag_prefix: str, case: MatrixCase) -> dict:
     home.mkdir()
     tmpdir = case_dir / "tmp"
     tmpdir.mkdir()
-    tag = f"{tag_prefix}-{case.name}"
+    tag = app_tag(app) if case.runner == "idle" else f"{tag_prefix}-{case.name}"
     argv = command(app, case_dir, tag, case)
     started = time.monotonic()
     try:
@@ -114,13 +128,13 @@ def run_case(app: Path, root: Path, tag_prefix: str, case: MatrixCase) -> dict:
     (case_dir / "stdout.log").write_text(completed.stdout if completed else "", encoding="utf-8")
     (case_dir / "stderr.log").write_text(
         (completed.stderr if completed else "") + (f"\n{error}\n" if error else ""), encoding="utf-8")
-    timeline = case_dir / "timeline.json"
+    artifact = case_dir / case.artifact
     details = {}
-    if timeline.exists():
+    if artifact.exists():
         try:
-            details = json.loads(timeline.read_text(encoding="utf-8"))
+            details = json.loads(artifact.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            error = error or f"invalid timeline.json: {exc}"
+            error = error or f"invalid {case.artifact}: {exc}"
     passed = case_passed(case, completed.returncode if completed else None, details, error)
     return {
         "name": case.name,
@@ -131,10 +145,22 @@ def run_case(app: Path, root: Path, tag_prefix: str, case: MatrixCase) -> dict:
         "passed": passed,
         "error": error,
         "elapsed_seconds": elapsed,
-        "timeline": str(timeline) if timeline.exists() else None,
+        "timeline": str(artifact) if case.artifact == "timeline.json" and artifact.exists() else None,
+        "result": str(artifact) if case.artifact == "result.json" and artifact.exists() else None,
         "stdout": str(case_dir / "stdout.log"),
         "stderr": str(case_dir / "stderr.log"),
     }
+
+
+def app_tag(app: Path) -> str:
+    """Return the tag encoded in the DEV bundle identity required by idle_e2e.py."""
+    info_path = app / "Contents" / "Info.plist"
+    with info_path.open("rb") as stream:
+        bundle_id = plistlib.load(stream).get("CFBundleIdentifier", "")
+    prefix = "com.cmuxterm.app.debug."
+    if not bundle_id.startswith(prefix) or not bundle_id[len(prefix):]:
+        raise ValueError(f"idle matrix row needs a {prefix}<tag> bundle, got {bundle_id!r}")
+    return bundle_id[len(prefix):]
 
 
 def parse_args() -> argparse.Namespace:
