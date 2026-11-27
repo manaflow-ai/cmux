@@ -464,7 +464,7 @@ def flow_queue_edit(j):
     s = j.sim
     def type_send(text):
         f = (s.wait(kind="TextView", timeout=4) or s.wait(kind="TextField", timeout=2)
-             or s.wait(label="Reply to Claude", kind="Button", timeout=4))
+             or s.wait(label="Reply…", kind="Button", timeout=4))
         # While a long reply streams the accessibility tree can come back empty: the
         # composer is where it always is (above the toolbar).
         if f:
