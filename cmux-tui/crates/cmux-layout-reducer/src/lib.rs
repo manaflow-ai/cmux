@@ -54,7 +54,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod layout_model;
+pub mod pane_close;
 mod rows;
+pub mod screen_layout;
 pub mod sidebar_archive_marks;
 pub mod sidebar_chat_history;
 pub mod sidebar_doc_listing;
@@ -988,6 +991,7 @@ pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
+pub mod sidebar_item_info;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
