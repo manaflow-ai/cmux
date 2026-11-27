@@ -240,6 +240,20 @@ fn an_added_folder_at_or_above_agent_home_is_never_a_write_root() {
 }
 
 #[test]
+fn relative_credential_config_paths_are_resolved_from_the_chat_folder() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("chat");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([
+        (String::from("GH_CONFIG_DIR"), String::from(".gh")),
+        (String::from("XDG_CONFIG_HOME"), String::from(".xdg")),
+    ]);
+    let b = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(b.gh_config_dir, canonical(&cwd.join(".gh")));
+    assert_eq!(b.xdg_gh_config_dir, canonical(&cwd.join(".xdg/gh")));
+}
+
+#[test]
 fn profile_does_not_grant_tool_executable_write_roots() {
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.local"))"#));
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.cargo"))"#));
