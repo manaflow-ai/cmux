@@ -501,6 +501,11 @@ class Evidence(unittest.TestCase):
         rung, gcp = "cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"
         pools = runner_pools.load_pools()
         fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        # Read the leaders from runner-pools.json, not a copied list: cmux#59644 put GCP back in front of the 8 vCPU
+        # pools after this test named its own FREESTYLE_LED and GCP_LED, which left both names undefined on main.
+        FREESTYLE_LED = [name for name, pool in pools.items() if pool["members"][0] == rung]
+        GCP_LED = [name for name, pool in pools.items() if pool["members"][0] == gcp]
+        self.assertTrue(GCP_LED)
         for oldest, moves in ((runner_pools.OWNED_FREESTYLE_STALL_MINUTES - 0.5, False),
                               (runner_pools.OWNED_FREESTYLE_STALL_MINUTES, True), (3, True)):
             with self.subTest(oldest=oldest):
@@ -1700,6 +1705,71 @@ class FleetGates(unittest.TestCase):
         self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=after, now=NOW), 0)
         value = json.loads(dict(after.writes)["RUNNER_POOLS"])
         self.assertIn(RUNG, value["_dead"])
+        members = runner_pools.load_pools()["linux"]["members"]
+        self.assertEqual(value["linux"], members[members.index(RUNG) + 1])
+
+
+def cut_gates(as_of, finished, cancelled, *, queued=(0, 0)):
+    reading = gates(as_of, {RUNG: queued})
+    reading["queues"][RUNG].update(finished=finished, cancelled_after_start=cancelled, window_s=3 * 3600)
+    return reading
+
+
+class CutShare(unittest.TestCase):
+    """The rung is marked dead when the jobs it starts keep ending cancelled at their timeout, not only on a queue wait
+    (2026-11-26/27: 720 of 2,943 fsr-* jobs, 24%, against 2.1% on the GCP pool)."""
+
+    def test_threshold_and_sample_size(self) -> None:
+        cases = (
+            (2943, 720, True),    # 11-26 06Z..11-27 06Z on fsr-*
+            (486, 51, False),     # fsr-* the 4 h after the 08:31Z mark: 10.5%
+            (27379, 564, False),  # the GCP pool, same 4 h: 2.1%
+            (100, 15, True),      # at the mark
+            (100, 14, False),
+            (runner_pools.CUT_MIN_FINISHED - 1, runner_pools.CUT_MIN_FINISHED - 1, False),  # too few to judge
+            (runner_pools.CUT_MIN_FINISHED, runner_pools.CUT_MIN_FINISHED, True),
+        )
+        for finished, cancelled, dead in cases:
+            with self.subTest(finished=finished, cancelled=cancelled):
+                found = runner_pools.cut_share_dead(cut_gates(NOW, finished, cancelled), now=NOW)
+                self.assertEqual(RUNG in found, dead)
+
+    def test_only_a_fresh_well_formed_row_of_an_owned_lead_counts(self) -> None:
+        stale = NOW - runner_pools.FLEET_GATES_MAX_AGE - dt.timedelta(seconds=1)
+        self.assertEqual(runner_pools.cut_share_dead(cut_gates(stale, 400, 200), now=NOW), {})
+        self.assertEqual(runner_pools.cut_share_dead(gates(NOW, {RUNG: (5, 30)}), now=NOW), {})  # an older publisher
+        for bad in (None, {}, cut_gates(NOW, "many", 200), cut_gates(NOW, 100, 101)):
+            with self.subTest(bad=bad):
+                self.assertEqual(runner_pools.cut_share_dead(bad, now=NOW), {})
+        blacksmith = cut_gates(NOW, 400, 200)
+        blacksmith["queues"] = {"blacksmith-4vcpu-ubuntu-2404": blacksmith["queues"][RUNG]}
+        self.assertEqual(runner_pools.cut_share_dead(blacksmith, now=NOW), {})
+
+    def test_label_evidence_marks_the_rung_full_and_a_start_does_not_clear_it(self) -> None:
+        snapshot = FleetGates.snapshot(FleetGates(), 0)
+        snapshot["label_started"] = {RUNG: runner_pools.iso(NOW - dt.timedelta(minutes=1))}
+        dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW, gates=cut_gates(NOW, 400, 120))
+        self.assertIn(RUNG, dead)
+        self.assertNotIn(RUNG, started)
+        self.assertTrue(any("ended cancelled" in note for note in notes))
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW, gates=cut_gates(NOW, 400, 20))
+        self.assertNotIn(RUNG, dead)
+
+    def test_main_writes_the_dead_mark_and_moves_the_pools_off_the_rung(self) -> None:
+        gcp = "cmux-fleet-linux-x64"
+        snapshot = FleetGates.snapshot(FleetGates(), 0)
+        # GCP full (its own snapshot wait), so the pools would ride the rung but for its cut share.
+        snapshot["pools"][gcp] = {"queued": 40, "running": 600, "reserved_queued": 0, "oldest_queued_minutes": 30,
+                                  "idle": 0}
+        healthy = Main.Switch({runner_pools.FLEET_GATES_VARIABLE: json.dumps(cut_gates(NOW, 400, 20))})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=healthy, now=NOW), 0)
+        self.assertEqual(json.loads(dict(healthy.writes)["RUNNER_POOLS"])["linux"], RUNG)
+        cut = Main.Switch({runner_pools.FLEET_GATES_VARIABLE: json.dumps(cut_gates(NOW, 2943, 720))})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=cut, now=NOW), 0)
+        value = json.loads(dict(cut.writes)["RUNNER_POOLS"])
+        self.assertEqual(value["_dead"].get(RUNG), runner_pools.iso(NOW))
         members = runner_pools.load_pools()["linux"]["members"]
         self.assertEqual(value["linux"], members[members.index(RUNG) + 1])
 

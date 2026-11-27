@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
-        with: &request-tooling
+        with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -137,7 +137,12 @@ jobs:
         if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
-        with: *request-tooling
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          fetch-depth: 1
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
       # github.token as the fallback. Every workflow here shares github.token's budget; when
@@ -484,7 +489,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
-        with: &unstick-tooling
+        with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -497,7 +502,12 @@ jobs:
       - if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
-        with: *unstick-tooling
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          fetch-depth: 1
 
       # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
       # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its
