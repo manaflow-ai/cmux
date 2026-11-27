@@ -257,11 +257,7 @@ fn job_of(argv: &[&str], cwd: Option<&str>) -> Option<Job> {
         {
             Some(Job::Project(Project::Rustc))
         }
-        "bazel" | "bazelisk"
-            // A whole-tree target (`//...`, `//src/...`), not one target (`//foo:bar`).
-            if positional().next() == Some("build")
-                && args.iter().any(|a| a.starts_with("//") && a.ends_with("...")) =>
-        {
+        "bazel" | "bazelisk" if positional().next() == Some("build") && args.contains(&"//...") => {
             Some(Job::BigBuild)
         }
         "cargo" if positional().next() == Some("build") => Some(Job::BigBuild),
