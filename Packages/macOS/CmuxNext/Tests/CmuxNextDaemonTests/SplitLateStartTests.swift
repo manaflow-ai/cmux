@@ -23,7 +23,7 @@ struct SplitLateStartTests {
     mode = sys.argv[1]
     print('{"ok":true}', file=sys.stderr, flush=True)
     splits, panes, held = [], {}, []
-    caps = ['terminal-placement-env-v1', 'terminal-env-v1']
+    caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'viewport-splits-v1']
     if mode != 'legacy':
         caps.append('split-client-keys-v1')
     def reply(frame, data):
