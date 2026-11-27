@@ -10,6 +10,8 @@
 //   the reply's ink never jumps faster than a linear fade, and the fold stays marked until it is full.
 // - cmux#48689 F3: a reply that plays its own entrance (`acpmux-row--message-enter`) and that no kept
 //   row crosses gets no fade of the fold's.
+// - CMUX-896 F4: a reply inserted between kept rows still waits for a crossing row when it has
+//   either entrance class; the lower kept row exercises the swap-added branch rather than arrivals.
 // Rows are absolutely placed divs in a `position: relative` thread; no CSS is loaded, so the fold
 // runs on the settle fallback (180 ms) and nothing else animates.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -27,6 +29,8 @@ type Stage = {
   keptTop: number;
   replyTop: number;
   replyClass?: string;
+  /** A kept row below the reply makes the reply an insertion, rather than a tail arrival. */
+  lower?: { was: number; top: number };
   /** The frame on which the reply's row is placed again at `relayoutTop` (none: -1). */
   relayoutFrame: number;
   relayoutTop?: number;
@@ -76,7 +80,7 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
           const { LIVE_THINKING } = await import(turnsUrl);
           document.body.style.margin = "0";
           const thread = document.createElement("main");
-          // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+          // Pin the shipped fade look's slide mechanics (the opt-in wipe look slides nothing).
           thread.setAttribute("data-turn-end-fold", "fade");
           thread.style.cssText = "position: relative; height: 2000px; margin: 0; padding: 0; border: 0";
           document.body.append(thread);
@@ -94,17 +98,23 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
           // nothing leaves a copy and the fold has no exit lead: the move starts on its first frame).
           draw("worked-u", "worked", stage.keptWas, 34);
           draw(LIVE_THINKING, "thinking", stage.keptWas + 34, 22);
+          if (stage.lower) draw("kept-lower", "worked", stage.lower.was, 34);
           const row = (id: string, kind: string) => ({ id, version: 1, at: 1, kind });
           const capture = captureTurnEnd(
             thread,
             thread,
-            [row("worked-u", "worked"), row(LIVE_THINKING, "thinking")],
+            [
+              row("worked-u", "worked"),
+              row(LIVE_THINKING, "thinking"),
+              ...(stage.lower ? [row("kept-lower", "worked")] : []),
+            ],
             "chat",
           );
           if (!capture) throw new Error("captureTurnEnd gave no capture");
           thread.replaceChildren();
           const kept = draw("worked-u", "worked", stage.keptTop, 34);
           const reply = draw("answer-new", "assistant", stage.replyTop, 120, stage.replyClass);
+          if (stage.lower) draw("kept-lower", "worked", stage.lower.top, 34);
           const ms = Number.parseFloat(getComputedStyle(thread).getPropertyValue("--cmux-motion-settle")) || 180;
           const fold = playTurnEnd(thread, capture, "chat", thread);
           if (!fold) throw new Error("playTurnEnd played nothing");
@@ -219,4 +229,29 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
     expect(animated.length).toBe(0);
     expect(faint.length).toBe(0);
   });
+
+  for (const replyClass of ["acpmux-row--enter", "acpmux-row--message-enter"]) {
+    test(`F4: an inserted reply with ${replyClass} waits for the kept row crossing its place`, async () => {
+      // A retained row below the new reply keeps it out of the tail-arrival branch. The upper kept
+      // row crosses 334..454 as it moves 520 -> 300, so the reply's own entrance cannot expose ink yet.
+      const result = await run({
+        keptWas: 520,
+        keptTop: 300,
+        replyTop: 334,
+        replyClass,
+        lower: { was: 600, top: 454 },
+        relayoutFrame: -1,
+      });
+      const crossed = result.frames.filter((frame) => overlap(frame.kept, frame.reply) > 0.5);
+      const inkWhileCrossed = Math.max(0, ...crossed.map((frame) => frame.reply.opacity));
+      const final = result.frames.at(-1)!;
+      console.log(
+        `reply-settle-frames F4 ${JSON.stringify({ replyClass, frames: result.frames.length, crossedFrames: crossed.length, inkWhileCrossed, holds: result.holds, ms: result.ms })}`,
+      );
+      expect(crossed.length).toBeGreaterThan(0);
+      expect(inkWhileCrossed).toBeLessThanOrEqual(0.05);
+      expect(final.reply.opacity).toBe(1);
+      expect(final.reply.top).toBe(334);
+    });
+  }
 });
