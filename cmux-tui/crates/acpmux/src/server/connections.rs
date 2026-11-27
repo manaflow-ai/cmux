@@ -10,7 +10,7 @@
 //!
 //! Order: the person's (`connection_order` in `<acpmux home>/routes/bindings.json`) first, then
 //! the default order: the picker's default account of each family, then the other signed-in
-//! accounts, then keys, then the rest. `spread` (default on) lets the gateway move a thread to
+//! accounts, then keys, then the rest. `spread` (default off; the person turns it on) lets the gateway move a thread to
 //! the next connection that serves its model when one is out.
 //!
 //! Who may call: the list, also the local app; every change, every ChatGPT call and every
@@ -372,7 +372,7 @@ pub(super) fn state(dir: Option<&Path>, home: &Path) -> Value {
     let connections = ordered(list(dir, home, &b), &b.connection_order);
     json!({
         "connections": connections,
-        "spread": b.spread.unwrap_or(true),
+        "spread": b.spread.unwrap_or(false),
         "order_explicit": !b.connection_order.is_empty(),
     })
 }

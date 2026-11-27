@@ -116,6 +116,7 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -870,7 +871,8 @@ impl Peer {
                         marks.remove(id);
                     }
                 }
-                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+                let class = attach_failure_class(e);
+                tracing::warn!(peer = %self.name, session = %id, refused, class = %class, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
         }
         attached
@@ -904,11 +906,22 @@ impl Peer {
                         }
                         break;
                     }
-                    Err(e) if refuses_attach(&e) => break,
-                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
-                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    // A refusal is not tried again (its class is `gap_too_old`: the chat is
+                    // gone there, or `unknown`: the peer takes no such attach). Every other
+                    // class is, after each of `ATTACH_RETRY_AFTER`: that schedule is its bound.
+                    Err(e) if refuses_attach(&e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::info!(peer = %me.name, session = %id, class = %class, "the peer refused the chat's attach; it is not tried again");
+                        break;
                     }
-                    Err(_) => {}
+                    Err(e) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        let class = attach_failure_class(&e);
+                        tracing::warn!(peer = %me.name, session = %id, class = %class, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::debug!(peer = %me.name, session = %id, class = %class, attempt = n + 1, "the peer's chat was not attached; trying again");
+                    }
                 }
             }
             me.attach_retries.lock_or_recover().remove(&id);
