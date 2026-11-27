@@ -484,7 +484,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if pageFilesChosen != nil { runtime.applyFileDialogRoute(self) }
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
+        // A placeholder normally freezes from its settled loading-state event. Keep a next-turn
+        // fallback for an already-settled about:blank that emitted no loading transition.
+        if host.freezesPlaceholder, host.placeholder === self {
+            host.endOfTurn { [weak self] in self?.freezeNeverShownPageIfReady() }
+        }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         if machine.state.isAudioMuted { applyAudioMute() }

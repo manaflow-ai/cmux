@@ -160,6 +160,7 @@ final class CEFSpareWindow {
         let spare = runtime.host(for: key)
         let blank = CEFTab(id: .random(), profile: profile, host: spare, runtime: runtime)
         spare.placeholder = blank
+        spare.placeholderFrozen = false
         spare.freezesPlaceholder = true
         // The cmux pages' window: the next page takes the placeholder's browser (`CEFPaneHost.adoptPlaceholder`).
         spare.adoptablePlaceholder = offTheRecord
