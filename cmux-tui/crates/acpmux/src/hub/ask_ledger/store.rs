@@ -14,6 +14,11 @@ pub(crate) enum Work {
     Line(Box<Line>),
     /// Replace the whole file with these lines (after a purge).
     Rewrite(Vec<Line>),
+    /// Replace chat `sid`'s trace file with these ids, or remove it (`None`, a purge).
+    Trace {
+        sid: String,
+        ids: Option<String>,
+    },
     #[cfg(test)]
     Flush(std::sync::mpsc::SyncSender<()>),
 }
@@ -56,6 +61,17 @@ pub(crate) fn fold(path: &Path, state: &mut State) {
         }
     }
 }
+
+/// `<dir>/trace/<sid>`, for a chat id made only of characters a file name keeps as given.
+pub(crate) fn trace_path(dir: &Path, sid: &str) -> Option<PathBuf> {
+    let plain = !sid.is_empty()
+        && sid.len() <= 128
+        && !sid.starts_with('.')
+        && sid.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.');
+    plain.then(|| dir.join(TRACE_DIR).join(sid))
+}
+
+const TRACE_DIR: &str = "trace";
 
 fn encode(line: &Line) -> Option<String> {
     serde_json::to_string(line).ok().map(|mut s| {
@@ -122,6 +138,35 @@ impl Writer {
         }
     }
 
+    /// Writes chat `sid`'s trace file through a temporary file and a rename, so an agent reading it
+    /// sees the old list or the new one; `None` removes it.
+    fn trace(&self, sid: &str, ids: Option<&str>) {
+        let Some(path) = trace_path(&self.dir, sid) else { return };
+        let Some(ids) = ids else {
+            if let Err(e) = crate::home_fs::remove_file(&path)
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!("ask ledger: cannot remove {}: {e}", path.display());
+            }
+            return;
+        };
+        let dir = self.dir.join(TRACE_DIR);
+        let tmp = dir.join(format!(".{sid}.tmp"));
+        let written = crate::config::private_state_dir(&self.dir)
+            .and_then(|()| crate::config::private_state_dir(&dir))
+            .and_then(|()| crate::config::private_state_rw(&tmp))
+            .and_then(|mut file| {
+                file.set_len(0)?;
+                file.write_all(format!("{ids}\n").as_bytes())?;
+                Ok(())
+            })
+            .and_then(|()| crate::home_fs::rename(&tmp, &path).map_err(anyhow::Error::from));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&tmp);
+            tracing::warn!("ask ledger: trace file for {sid}: {e:#}");
+        }
+    }
+
     fn run(mut self, rx: Receiver<Work>) {
         while let Ok(first) = rx.recv() {
             let mut text = String::new();
@@ -137,6 +182,11 @@ impl Writer {
                         // The snapshot holds every line queued before it.
                         text.clear();
                         self.rewrite(&lines);
+                    }
+                    Work::Trace { sid, ids } => {
+                        // The events first, so a trace id in the file is always an ask on disk.
+                        self.write(&std::mem::take(&mut text));
+                        self.trace(&sid, ids.as_deref());
                     }
                     #[cfg(test)]
                     Work::Flush(done) => {

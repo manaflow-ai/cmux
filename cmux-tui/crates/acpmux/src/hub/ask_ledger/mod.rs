@@ -18,7 +18,7 @@ use super::{Hub, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -30,6 +30,14 @@ pub(crate) const DIR: &str = "ask-ledger";
 /// The newest asks one read returns.
 const LIMIT: usize = 200;
 const TEXT_CHARS: usize = 16_384;
+/// Most trace ids one chat's agent is given, newest first.
+pub(crate) const TRACE_IDS: usize = 8;
+/// The newest asks typed in this chat, as `ask-` and 10 hex digits, comma separated: in the agent's
+/// env at its start (`hub/spawn.rs`), so its pull request can carry them.
+pub(crate) const TRACE_IDS_ENV: &str = "ASK_TRACE_IDS";
+/// A file holding the same list, rewritten at each capture: an agent started before its chat's
+/// newest ask reads it there, since an env is fixed at the start.
+pub(crate) const TRACE_FILE_ENV: &str = "ASK_TRACE_FILE";
 
 /// What happened to an ask. `captured` carries the ask itself; the rest name their target.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -132,8 +140,11 @@ struct State {
     asks: HashMap<String, Ask>,
     /// Capture order, oldest first: a read takes the newest from the end.
     order: Vec<String>,
-    /// A purge was folded, so the file still holds that chat's words until it is rewritten.
-    stale: bool,
+    /// Each chat's newest asks, newest first, at most [`TRACE_IDS`]: what its trace ids read.
+    by_session: HashMap<String, VecDeque<String>>,
+    /// Chats whose purge was folded: the file still holds their words until it is rewritten,
+    /// and their trace files are removed.
+    purged: Vec<String>,
 }
 
 impl State {
@@ -147,17 +158,21 @@ impl State {
                     }
                 } else if matches!(kind, Kind::Captured { .. }) {
                     self.order.push(ask.clone());
+                    let ids = self.by_session.entry(sid.clone()).or_default();
+                    ids.push_front(ask.clone());
+                    ids.truncate(TRACE_IDS);
                     self.asks.insert(ask, Ask { sid, events: vec![(ts, by, kind)] });
                 }
             }
             Line::Purge { sid } => {
                 self.remove_session(&sid);
-                self.stale = true;
+                self.purged.push(sid);
             }
         }
     }
 
     fn remove_session(&mut self, sid: &str) -> bool {
+        self.by_session.remove(sid);
         let before = self.asks.len();
         self.asks.retain(|_, ask| ask.sid != sid);
         if self.asks.len() == before {
@@ -166,6 +181,12 @@ impl State {
         let asks = &self.asks;
         self.order.retain(|id| asks.contains_key(id));
         true
+    }
+
+    /// Chat `sid`'s newest asks in their short form, newest first, comma separated.
+    fn trace_ids(&self, sid: &str) -> String {
+        let ids = self.by_session.get(sid).into_iter().flatten();
+        ids.map(String::as_str).map(short_id).collect::<Vec<_>>().join(",")
     }
 
     /// Every line that rebuilds this state, in capture order.
@@ -211,8 +232,8 @@ impl AskLedger {
         if let Some(dir) = &dir {
             store::fold(&dir.join(store::FILE), &mut state);
         }
-        let stale = std::mem::take(&mut state.stale);
-        let lines = stale.then(|| state.lines());
+        let purged = std::mem::take(&mut state.purged);
+        let lines = (!purged.is_empty()).then(|| state.lines());
         let ledger = Self {
             state: Mutex::new(state),
             dir,
@@ -222,6 +243,9 @@ impl AskLedger {
         };
         if let Some(lines) = lines {
             ledger.send(store::Work::Rewrite(lines));
+        }
+        for sid in purged {
+            ledger.send(store::Work::Trace { sid, ids: None });
         }
         ledger
     }
@@ -256,15 +280,20 @@ impl AskLedger {
         if purged.is_some_and(|gone| gone.load(Ordering::SeqCst)) {
             return false;
         }
-        let Line::Event { ask, kind, .. } = &line else { return false };
+        let Line::Event { ask, kind, sid, .. } = &line else { return false };
         let known = state.asks.contains_key(ask);
         let captured = matches!(kind, Kind::Captured { .. });
         if known == captured {
             // A repeated capture, or an event on an ask this ledger never saw.
             return false;
         }
+        let sid = captured.then(|| sid.clone());
         state.apply(line.clone());
         self.send(store::Work::Line(Box::new(line)));
+        if let Some(sid) = sid {
+            let ids = state.trace_ids(&sid);
+            self.send(store::Work::Trace { sid, ids: Some(ids) });
+        }
         true
     }
 
@@ -274,6 +303,26 @@ impl AskLedger {
         if state.remove_session(sid) {
             let lines = state.lines();
             self.send(store::Work::Rewrite(lines));
+            self.send(store::Work::Trace { sid: sid.to_owned(), ids: None });
+        }
+    }
+
+    /// Chat `sid`'s trace ids for its agent's env at its start: `ASK_TRACE_IDS` when it has asks,
+    /// and `ASK_TRACE_FILE`, the list kept current as it gets more, wherever the ledger is kept
+    /// on disk. Constant work: at most [`TRACE_IDS`] ids, no scan.
+    pub(crate) fn apply_env(
+        &self,
+        sid: &str,
+        env: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        env.remove(TRACE_IDS_ENV);
+        env.remove(TRACE_FILE_ENV);
+        let ids = self.lock().trace_ids(sid);
+        if !ids.is_empty() {
+            env.insert(TRACE_IDS_ENV.to_owned(), ids);
+        }
+        if let Some(path) = self.dir.as_deref().and_then(|dir| store::trace_path(dir, sid)) {
+            env.insert(TRACE_FILE_ENV.to_owned(), path.to_string_lossy().into_owned());
         }
     }
 
@@ -339,6 +388,12 @@ fn identity(harness: &str, session: &str, message: &str) -> String {
         hash.update(part.as_bytes());
     }
     format!("ask-{:x}", hash.finalize())
+}
+
+/// An ask's trace id: `ask-` and the first 10 hex digits of its identity, the form a pull request
+/// body carries (`\bask-[0-9a-f]{10}\b`, RFD 0010's data model).
+pub(crate) fn short_id(id: &str) -> &str {
+    id.get(..14).unwrap_or(id)
 }
 
 /// The person at this machine, as an event's `by`.

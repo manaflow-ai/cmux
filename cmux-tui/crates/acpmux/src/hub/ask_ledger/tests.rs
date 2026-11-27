@@ -178,3 +178,46 @@ fn six_thousand_asks_fold_once_and_read_in_constant_pages() {
     assert!(fold < std::time::Duration::from_secs(5), "fold took {fold:?}");
     assert!(read < std::time::Duration::from_millis(500), "a page took {read:?}");
 }
+
+/// A chat's agent gets its newest asks' short trace ids in its env at the start, and a file that
+/// stays current as the chat gets more; a purge removes the file. Other chats' asks never show.
+#[test]
+fn trace_ids_reach_the_env_and_a_file_kept_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(DIR);
+    let ledger = AskLedger::open(Some(path.clone()));
+    let id = |n: u64| identity("claude", "s", &n.to_string());
+    let mut env = std::collections::BTreeMap::new();
+    env.insert(TRACE_IDS_ENV.to_owned(), "ask-0000000000".to_owned());
+    ledger.apply_env("s", &mut env);
+    assert!(env.get(TRACE_IDS_ENV).is_none(), "a chat with no asks kept a stale list");
+    let file = std::path::PathBuf::from(&env[TRACE_FILE_ENV]);
+    assert_eq!(file, path.join("trace").join("s"));
+    assert!(!path.exists(), "naming the file made the folder");
+
+    for n in 0..TRACE_IDS as u64 + 2 {
+        ledger.record(captured(&id(n), "s", n, "t"), None);
+    }
+    ledger.record(captured(&identity("claude", "other", "x"), "other", 99, "t"), None);
+    ledger.flush();
+    let newest: Vec<String> =
+        (2..TRACE_IDS as u64 + 2).rev().map(|n| short_id(&id(n)).to_owned()).collect();
+    let want = newest.join(",");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), format!("{want}\n"));
+    ledger.apply_env("s", &mut env);
+    assert_eq!(env[TRACE_IDS_ENV], want);
+    let short = regex::Regex::new(r"^ask-[0-9a-f]{10}$").unwrap();
+    assert!(env[TRACE_IDS_ENV].split(',').all(|id| short.is_match(id)), "{env:?}");
+
+    assert!(ledger.close(std::time::Duration::from_secs(5)));
+    let again = AskLedger::open(Some(path.clone()));
+    let mut env = std::collections::BTreeMap::new();
+    again.apply_env("s", &mut env);
+    assert_eq!(env[TRACE_IDS_ENV], want, "the list did not survive a restart");
+    again.purge("s");
+    again.flush();
+    assert!(!file.exists(), "a purged chat's trace file stayed");
+    again.apply_env("s", &mut env);
+    assert!(env.get(TRACE_IDS_ENV).is_none());
+    assert!(store::trace_path(&path, "../x").is_none());
+}

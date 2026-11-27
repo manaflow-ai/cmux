@@ -355,6 +355,9 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // The chat's newest asks' trace ids, after the session env so none can stand in for them
+        // (`hub/ask_ledger`, RFD 0010): an agent's pull request carries them.
+        self.ask_ledger.apply_env(&meta.id, &mut p.env);
         // A chat a person started asks sr2 for its person reserve (`sr2_priority.rs`), decided
         // here from who created it, after the session env: never a profile's or request's.
         crate::sr2_priority::mark(
