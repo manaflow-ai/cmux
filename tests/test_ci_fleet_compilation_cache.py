@@ -268,6 +268,27 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "2")
 
+    def test_the_build_service_crash_check_survives_pipefail_on_a_long_log(self):
+        """The nightly step runs under `set -o pipefail`. A crash line followed by megabytes of log made
+        `awk | grep -q` fail (grep exits early, awk gets a write error), so the check said "no crash" and the
+        no-cache retry never ran (runs 46074261734, 46076637784, ~100k lines)."""
+        lib = ROOT / "scripts/cmux-next/lib/compilation-cache.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "nightly-release-build.log"
+            filler = "CompileSwift normal arm64 /src/Some/Long/Path/File.swift (in target 'cmux')\n" * 100000
+            crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue.\n"
+            def check(text):
+                log.write_text(text)
+                return subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c",
+                                       'source "$1"; cmux_next_build_service_crashed "$2"', "_", str(lib), str(log)],
+                                      capture_output=True, text=True)
+            result = check(crash + filler + "xcodebuild exit status: 65\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("write error", result.stderr)
+            self.assertEqual(check(filler + "xcodebuild exit status: 65\n").returncode, 1)
+            # A crash text in the wrapper's dumps after the exit status is never read.
+            self.assertEqual(check(filler + "xcodebuild exit status: 65\n" + crash).returncode, 1)
+
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
         """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
         that hits the same diagnostic retries with the same local cache and says so."""

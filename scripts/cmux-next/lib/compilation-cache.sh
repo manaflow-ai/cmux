@@ -135,6 +135,10 @@ cmux_next_cas_bound() {
 # Usage: cmux_next_build_service_crashed <log>
 cmux_next_build_service_crashed() {
   [[ -f "$1" ]] || return 1
-  awk '/^xcodebuild exit status:/ { exit } { print }' "$1" \
-    | grep -Eq 'The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)'
+  # One awk, no pipe: the nightly step runs under `set -o pipefail`, and `awk | grep -q` let grep exit at the
+  # first crash line, so awk died writing the rest ("awk: write error on /dev/stdout", runs 46074261734 and
+  # 46076637784), the pipeline returned non-zero, and the no-cache retry never ran (nightly-30min).
+  awk '/^xcodebuild exit status:/ { exit }
+       /The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)/ { found = 1; exit }
+       END { exit !found }' "$1"
 }
