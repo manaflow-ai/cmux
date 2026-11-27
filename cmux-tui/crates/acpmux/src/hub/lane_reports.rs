@@ -497,6 +497,11 @@ impl Hub {
         self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
     }
 
+    /// Pull requests this link's reports named (`exit_notify.rs` hands them to the parent).
+    pub(super) fn lane_link_prs(link: &Link) -> Vec<String> {
+        link.prs.clone()
+    }
+
     pub(super) fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
