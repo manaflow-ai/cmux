@@ -1,4 +1,6 @@
+#if os(iOS)
 import CmuxMobileFeed
+#endif
 import CmuxMobileModel
 import Foundation
 import Testing
@@ -16,12 +18,15 @@ import Testing
         let clock = LinkTestClock()
         var looks = 0
         var online = false
+        /// The service does not answer (timeouts).
+        var failing = false
         lazy var poll = MacDiscoveryPoll(clock: clock)
 
         func start() {
             poll.start { [unowned self] in
                 looks += 1
-                return online
+                if failing { return .failed }
+                return online ? .online : .noMac
             }
         }
 
@@ -92,7 +97,7 @@ import Testing
         rig.finish()
     }
 
-    @Test func aWakeLooksAtOnceAndRestartsTheFastWait() async {
+    @Test func aWakeLooksAtOnceAndKeepsTheBackoff() async {
         let rig = Rig()
         rig.start()
         await rig.run(for: .seconds(300))
@@ -100,7 +105,59 @@ import Testing
         rig.poll.wake()
         await rig.settle()
         #expect(rig.looks == before + 1)
-        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.waitingPoll)
+        // Not a fresh fast minute: the next look is at the backed-off cadence.
+        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.idlePoll)
+        rig.finish()
+    }
+
+    /// Leo, 2026-11-27: "That's a loop that keeps going once it starts". Timeouts made no
+    /// Mac look online, so the 4 s cadence stayed on against the struggling service.
+    @Test func aFailingServiceBacksOffInsteadOfTheFastCadence() async {
+        let rig = Rig()
+        rig.failing = true
+        rig.start()
+        await rig.run(for: Self.hour)
+        print("phone-loop: discovery requests per hour against a failing service: \(rig.looks)")
+        // t = 0, 8, 24, 56, 116, then every 60 s up to 3596 (was 135: the no-Mac schedule).
+        #expect(rig.looks == 63)
+        // It answers again: the next look is at most a minute away, then the usual cadence.
+        rig.failing = false
+        rig.online = true
+        await rig.run(for: .seconds(60))
+        #expect(rig.looks == 64)
+        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } != nil)
+        rig.finish()
+    }
+
+    /// Three Macs reconnecting over and over send a presence frame each time; each frame
+    /// wakes discovery. A wake every second for an hour costs about the idle cadence, not a
+    /// look every 4 s (was 900 looks: every wake restarted the fast minute).
+    @Test func aWakeStormStaysNearTheIdleCadence() async {
+        for failing in [false, true] {
+            let rig = Rig()
+            rig.failing = failing
+            rig.start()
+            for _ in 0..<3600 {
+                rig.poll.wake()
+                await rig.run(for: .seconds(1))
+            }
+            print("phone-loop: discovery requests per hour with a wake every second (failing: \(failing)): \(rig.looks)")
+            #expect(rig.looks <= (failing ? 63 : 135))
+            rig.finish()
+        }
+    }
+
+    @Test func aWakeDuringTheSpacingWaitsForIt() async {
+        let rig = Rig()
+        rig.online = true
+        rig.start()
+        await rig.settle()
+        #expect(rig.looks == 1)
+        rig.poll.wake()
+        await rig.run(for: .seconds(3))
+        #expect(rig.looks == 1)
+        await rig.run(for: .seconds(1))
+        #expect(rig.looks == 2)
         rig.finish()
     }
 
@@ -124,6 +181,19 @@ import Testing
         #expect(MacDiscoveryPoll.delay(waitingLooks: 17) == .seconds(16))
         #expect(MacDiscoveryPoll.delay(waitingLooks: 18) == .seconds(30))
         #expect(MacDiscoveryPoll.delay(waitingLooks: 10_000) == .seconds(30))
+        // Failed looks win, whatever the no-Mac count.
+        #expect(MacDiscoveryPoll.delay(waitingLooks: 1, failedLooks: 1) == .seconds(8))
+        #expect(MacDiscoveryPoll.delay(waitingLooks: 1, failedLooks: 2) == .seconds(16))
+        #expect(MacDiscoveryPoll.delay(waitingLooks: 1, failedLooks: 3) == .seconds(32))
+        #expect(MacDiscoveryPoll.delay(waitingLooks: 1, failedLooks: 4) == .seconds(60))
+        #expect(MacDiscoveryPoll.delay(waitingLooks: 0, failedLooks: 10_000) == .seconds(60))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 0) == .seconds(4))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 1) == .seconds(4))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 2) == .seconds(8))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 3) == .seconds(16))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 4) == .seconds(30))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 10_000) == .seconds(30))
+        #expect(MacDiscoveryPoll.wakeSpacing(wakeLooks: 1, failedLooks: 4) == .seconds(60))
     }
 }
 

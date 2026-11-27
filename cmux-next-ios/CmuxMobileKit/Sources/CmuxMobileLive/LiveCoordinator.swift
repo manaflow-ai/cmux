@@ -960,8 +960,9 @@ public final class LiveCoordinator {
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
-            // A Mac came or went: discovery looks now (another team's Mac to follow, or the
-            // fast wait again) instead of at its backed-off cadence.
+            // A Mac came or went: discovery looks now (another team's Mac to follow) instead of
+            // at its backed-off cadence; the backoff stays, so Macs reconnecting over and over
+            // do not keep the phone on the fast cadence (MacDiscoveryPoll.wakeSpacing).
             discovery.wake()
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
@@ -1213,23 +1214,29 @@ public final class LiveCoordinator {
 
     // MARK: Discovery across spaces
 
-    /// One discovery look; says whether the active team has an online Mac (the poll's cadence).
-    private func lookForMacs() async -> Bool {
-        await discoverOnce()
-        return store.activeTeam?.macs.contains(where: \.isOnline) ?? false
+    /// One discovery look; says whether the active team has an online Mac (the poll's cadence),
+    /// or that the service did not answer: a timeout is not "no Mac online", so it backs the
+    /// poll off instead of keeping it on the 4 s cadence while the service is struggling.
+    private func lookForMacs() async -> MacDiscoveryPoll.Look {
+        guard await discoverOnce() else { return .failed }
+        return store.activeTeam?.macs.contains(where: \.isOnline) == true ? .online : .noMac
     }
 
     /// One look at the account's Macs everywhere: shows each in its team and
     /// moves to the team of an online Mac while the active team has none.
-    func discoverOnce() async {
+    /// False when the service did not answer.
+    @discardableResult
+    func discoverOnce() async -> Bool {
         do {
             let asked = removedMacs.mark
             let macs = try await api.myMacs()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             applyDiscovered(macs, askedAt: asked)
+            return true
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
