@@ -583,7 +583,7 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
-/// A page of the loopback listener: the cmux mark and a centered card, in light and dark.
+/// A page of the loopback listener: a centered card with the outcome's mark, in light and dark.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Page {
     pub ok: bool,
@@ -597,8 +597,8 @@ impl Page {
     pub(crate) fn signed_in() -> Self {
         Self {
             ok: true,
-            title: "Signed in to cmux".into(),
-            detail: "ChatGPT is connected. You can close this tab and return to cmux.".into(),
+            title: "Signed in to ChatGPT".into(),
+            detail: "You can close this tab and return to cmux.".into(),
             code: None,
         }
     }
@@ -613,7 +613,7 @@ impl Page {
         };
         Self {
             ok: false,
-            title: "Sign-in didn\u{2019}t finish".into(),
+            title: "Couldn\u{2019}t sign in to ChatGPT".into(),
             detail: detail.into(),
             code: Some(code.to_owned()),
         }
@@ -639,36 +639,55 @@ pub(crate) fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>)
     } else {
         format!("<p class=\"body\">{}</p>", escape(detail))
     };
-    let code = code.map(|c| format!("<p class=\"code\">{}</p>", escape(c))).unwrap_or_default();
+    let code = code
+        .map(|c| format!("<p class=\"code\">Error code <span>{}</span></p>", escape(c)))
+        .unwrap_or_default();
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
 <meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
 <title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
-<body><main><section data-auth-state=\"{state}\"><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+<body><main><section class=\"card\" data-auth-state=\"{state}\">\
+<div class=\"mark\" aria-hidden=\"true\">{mark}</div><h1>{title}</h1>{detail}{code}</section></main></body></html>",
         title = escape(title),
         state = if ok { "ok" } else { "error" },
+        mark = if ok { AUTH_MARK_OK } else { AUTH_MARK_ERROR },
     )
 }
 
-/// web/app/globals.css's tokens and the Tailwind classes of the sign-in page, written out, in
-/// the site's Geist (system fonts until it loads, or offline).
+/// The loopback sign-in page: a centered card in the system font, with web/app/globals.css's
+/// light and dark tokens, the outcome as an inline check or alert mark (no logo, no fetched
+/// asset: the page renders the same offline).
 pub(crate) const AUTH_PAGE_CSS: &str = "\
-@import url(\"https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap\");\
-:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5}\
-@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626}}\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5;--card:#ffffff;\
+--ok:#10a37f;--error:#d93025}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626;\
+--card:#171717;--ok:#19c37d;--error:#f28b82}}\
 *,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
 html{line-height:1.5;-webkit-text-size-adjust:100%;\
-font-family:Geist,ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
+font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,\"Segoe UI\",system-ui,Helvetica,Arial,sans-serif;\
 -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
 body{background:var(--background);color:var(--foreground)}\
 main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
-section{width:100%;max-width:340px}\
-h1{font-size:22px;font-weight:600;letter-spacing:-0.02em}\
-.body{margin-top:6px;font-size:14px;line-height:24px;color:var(--muted)}\
-.code{display:inline-block;margin-top:24px;border:1px solid var(--border);padding:0 6px;\
-font-family:\"Geist Mono\",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
-color:var(--muted)}";
+.card{width:100%;max-width:400px;padding:40px 32px 36px;text-align:center;background:var(--card);\
+border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06)}\
+.mark{display:flex;justify-content:center;margin-bottom:20px}\
+.mark svg{width:44px;height:44px}\
+[data-auth-state=ok] .mark{color:var(--ok)}\
+[data-auth-state=error] .mark{color:var(--error)}\
+h1{font-size:22px;font-weight:600;line-height:30px;letter-spacing:-0.01em}\
+.body{margin-top:8px;font-size:15px;line-height:24px;color:var(--muted)}\
+.code{margin-top:20px;font-size:12px;line-height:18px;color:var(--muted)}\
+.code span{margin-left:4px;padding:1px 6px;border:1px solid var(--border);border-radius:6px;\
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace}";
+
+/// The success mark: a check in a circle, in the page's own color.
+const AUTH_MARK_OK: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m7.5 12.5 3 3 6-6.5\"/></svg>";
+
+/// The failure mark: an exclamation in a circle.
+const AUTH_MARK_ERROR: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 7.5v5.5\"/><path d=\"M12 16.5h.01\"/></svg>";
 
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());

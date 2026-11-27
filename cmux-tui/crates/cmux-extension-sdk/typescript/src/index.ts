@@ -94,8 +94,35 @@ export function section(render: (context: MountContext) => View): (context: Moun
   return render
 }
 
-/** A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a section. */
-export function pane(render: (context: MountContext) => View): (context: MountContext) => View {
+/**
+ * The whole workspace list (`cmux.sidebar/1`), drawn in place of the built-in one once the person
+ * names the extension in `sidebar.workspaceListApp`. The built-in list stays the fallback: cmux
+ * draws it while this one loads, fails or is removed. examples/extensions/workspace-list is the
+ * built-in list rebuilt on this SDK, to copy and change.
+ *
+ *     // cmux-app.json: "implements": { "cmux.sidebar/1": { "export": "renderSidebar", "title": "Workspaces" } }
+ *     export const renderSidebar = sidebar(() => VStack([...]))
+ */
+export function sidebar(render: (context: MountContext) => View): (context: MountContext) => View {
+  return render
+}
+
+/**
+ * A pane's context (`cmux.pane/1`): `args` from `cmux.app.openPane(args)` (null when the person opened
+ * it), `close(result)` to answer that open, `onOpen(fn)` and `onClose(fn)`.
+ */
+export type PaneContext = CmuxPaneContext
+/** What `cmux.app.openPane` resolves with. */
+export type PaneResult<T = unknown> = CmuxPaneResult<T>
+
+/**
+ * A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a
+ * section. Another view of the extension opens it with arguments and waits for its result:
+ *
+ *     const { result, dismissed } = await cmux.app.openPane({ id: "issue-42" })
+ *     export const renderPane = pane((ctx) => Button("Pick", () => ctx.close({ picked: ctx.args?.id })))
+ */
+export function pane(render: (context: PaneContext) => View): (context: PaneContext) => View {
   return render
 }
 

@@ -2104,6 +2104,101 @@ class VolatileTokens(unittest.TestCase):
         self.assertIn("fail differently", verdict.reasons[0])
 
 
+CHECKOUT_DEATH_LOG = FIXTURES / "51655-changes-checkout-job-514215463833.log"
+
+
+class DiedInCheckout(unittest.TestCase):
+    """A job that died in actions/checkout before any step of the change ran (cmux#51655 at fd3c0b17, 'changes'):
+    infra to re-run, read as leo-workspace tools/ws-check's failed_in_checkout reads it."""
+
+    def test_the_real_checkout_death_is_read_with_its_first_error(self):
+        said = reds.died_in_checkout(CHECKOUT_DEATH_LOG.read_text())
+        self.assertIsNotNone(said)
+        self.assertIn("Operation too slow", said)
+
+    def test_the_gh_run_view_shape_reads_the_same(self):
+        text = "\n".join(f"changes\tUNKNOWN STEP\t{line}" for line in CHECKOUT_DEATH_LOG.read_text().splitlines())
+        self.assertIn("Operation too slow", reds.died_in_checkout(text))
+
+    def test_a_later_step_failure_keeps_its_verdict(self):
+        text = "\n".join([
+            "2026-11-25T19:16:19Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+            "2026-11-25T19:16:20Z Checking out the ref",
+            "2026-11-25T19:16:21Z ##[group]Run python3 tests/test_x.py",
+            "2026-11-25T19:16:22Z ##[error]Process completed with exit code 1.",
+            "2026-11-25T19:16:23Z A job completed hook has been configured by the self-hosted runner administrator",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_a_step_that_ran_after_a_checkout_error_keeps_its_verdict(self):
+        # A checkout with continue-on-error, then the change's own step: that step ran, so its red is judged.
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]fatal: could not fetch abc from promisor remote",
+            "##[group]Run python3 tests/test_x.py",
+            "##[error]Process completed with exit code 1.",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_the_runners_job_completed_hook_is_no_step_of_the_job(self):
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]The process '/usr/local/bin/git' failed with exit code 128",
+            "A job completed hook has been configured by the self-hosted runner administrator",
+            "##[group]Run '/opt/cmux-job-clean.sh'",
+        ])
+        self.assertIn("exit code 128", reds.died_in_checkout(text))
+
+    def test_no_error_or_no_log_is_no_checkout_death(self):
+        self.assertIsNone(reds.died_in_checkout(None))
+        self.assertIsNone(reds.died_in_checkout("##[group]Run actions/checkout@v4\nok"))
+        self.assertIsNone(reds.died_in_checkout("##[error]before any step"))
+
+
+ENOSPC_JOBS = ("139341128013", "139340766008")  # cmux#50809 (run 45639356121), cmux#50827 (run 45649635922)
+
+
+class RunnerWorkerCrashed(unittest.TestCase):
+    """A job whose runner's worker crashed under it on a full disk (`No space left on device` on its own _diag trace,
+    then `Unhandled exception.` in GitHub.Runner.Worker) is infra to re-run, never the PR's own red."""
+
+    def real(self, job_id):
+        return (json.loads((FIXTURES / f"runner-enospc-job-{job_id}.json").read_text()),
+                json.loads((FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text()))
+
+    def test_both_real_jobs_read_as_a_worker_crash(self):
+        for job_id in ENOSPC_JOBS:
+            job, notes = self.real(job_id)
+            said = reds.runner_worker_crashed(job, notes)
+            self.assertIn("No space left on device", said)
+            self.assertIn("/actions-runner/_diag/Worker_", said)
+            self.assertIn("worker crashed", reds.lost_runner(job, notes))
+            # As cmuxterm-hq's next-autoland infra_noted asks: a conclusion and the annotations, nothing else.
+            self.assertIn("worker crashed", reds.lost_runner({"conclusion": "failure"}, notes))
+            self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in notes]))
+
+    def test_the_unhandled_worker_exception_alone_is_a_crash(self):
+        _, notes = self.real(ENOSPC_JOBS[0])
+        tail = notes[0]["message"][notes[0]["message"].index("Unhandled exception."):]
+        alone = tail.replace("No space left on device", "Broken pipe")
+        self.assertIn("Unhandled exception", reds.runner_worker_crashed({"conclusion": "failure"}, [alone]))
+
+    def test_a_failed_step_keeps_its_verdict(self):
+        job, notes = self.real(ENOSPC_JOBS[0])
+        job["steps"][20] = dict(job["steps"][20], status="completed", conclusion="failure")
+        self.assertIsNone(reds.runner_worker_crashed(job, notes))
+
+    def test_a_test_quoting_the_words_is_no_crash(self):
+        job = {"conclusion": "failure"}
+        for message in ("Unhandled exception. TypeError: x is undefined\n    at Object.<anonymous> (a.test.ts:3:1)",
+                        "No space left on device : '/tmp/build/out.bin'",
+                        "Process completed with exit code 1."):
+            self.assertIsNone(reds.runner_worker_crashed(job, [{"annotation_level": "failure", "message": message}]))
+        _, notes = self.real(ENOSPC_JOBS[0])
+        self.assertIsNone(reds.runner_worker_crashed(job, [dict(notes[0], annotation_level="warning")]))
+        self.assertIsNone(reds.runner_worker_crashed({"conclusion": "cancelled"}, notes))
+
+
 class LostRunner(unittest.TestCase):
     """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
 
@@ -2573,3 +2668,32 @@ class CutShortWordsAreWords(unittest.TestCase):
                      "##[error]2 test(s) never finished"):
             with self.subTest(line=line):
                 self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])
+
+
+class UnittestOutputQuotingADiagnosticIsNotACrash(unittest.TestCase):
+    """hq#26226, run 45717138906 job 139565977393: parallel_suite printed 4 FAILED modules, but a test's own output
+    on its `name (mod.Cls.name) ... ` line quoted `crash report cmux-1.ips: EXC_BAD_ACCESS`, and the log read as
+    "the test process crashed (no signal named)", so land-judge refused a normal exit 1 with named failures."""
+
+    QUOTE = ("test_a_gone_app (m.RelaunchTests.test_a_gone_app) ...            ok fresh/first-launch 1 ms\n"
+             "           ok library/base 0 ms: relaunched (was gone: crash report cmux-1.ips: EXC_BAD_ACCESS)\n"
+             "ok\n")
+    FAILS = ("FAIL: test_b (m.T.test_b)\nTraceback (most recent call last):\nAssertionError: 1 != 2\n"
+             "FAILED module m: failures=1\n##[error]Process completed with exit code 1.\n")
+
+    def test_a_quoted_diagnostic_in_a_tests_output_is_no_crash(self):
+        found = reds.read(self.QUOTE + self.FAILS)
+        self.assertEqual(found.crashes, [])
+        self.assertIn("test_b (m.T.test_b)", " ".join(found.failed))
+
+    def test_the_same_line_outside_a_test_still_crashes(self):
+        found = reds.read("crash report cmux-1.ips: EXC_BAD_ACCESS\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_fatal_python_error_in_a_tests_output_still_crashes(self):
+        found = reds.read("test_a (m.T.test_a) ... Fatal Python error: Segmentation fault\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_signal_exit_after_named_failures_still_crashes(self):
+        found = reds.read(self.QUOTE + self.FAILS.replace("exit code 1", "exit code 139"))
+        self.assertTrue(found.crashes)

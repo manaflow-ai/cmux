@@ -466,45 +466,6 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head {
   flex: none;
 }
-/* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
-   the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
-   own inside the tray's glass. Up to eight steps show whole (a sixth step hid under five rows with no
-   sign it was there, cmux#51039); past that it scrolls in place with the step at work kept in view
-   (SubagentTray.tsx `planBox`). In a short pane it gives up height alongside the lines, so neither
-   one is pushed out of the clipped tray. */
-.acpmux-running-tray__plan {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: calc(8 * var(--ui-row-height, 28px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.acpmux-running-tray__plan .cv-plan {
-  margin: 0;
-  padding: 0 var(--acpmux-tray-inset) 0 var(--acpmux-tray-inset-start);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-/* One line per step in the hat: the step's first line ends in an ellipsis (its tooltip holds the
-   rest), its detail shows under it muted on one line, and the mark sits on the first line's centre
-   whether a detail follows or not (Leo, 2026-11-22: ">1 line is ok IFF it's rendered and styled
-   properly"). */
-.acpmux-running-tray__plan .cv-plan__item {
-  align-items: flex-start;
-  min-height: var(--ui-row-height, 28px);
-  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
-}
-.acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: var(--grid-half-step);
-}
-.acpmux-running-tray__plan .cv-plan__title,
-.acpmux-running-tray__plan .cv-plan__detail {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
    the stack never scrolls the transcript. Every line is in it, what ended too: no View all under it
@@ -613,18 +574,6 @@ button.cv-subagent > :last-child {
   column-gap: var(--ds-space-3, 12px);
   row-gap: 0;
 }
-.acpmux-running-tray__kinds[data-tally] > .acpmux-running-tray__kind-unit:has(> [data-kind="plan"]) {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] {
-  min-width: 0;
-}
-.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] > .acpmux-running-tray__kind-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* The `summary` arm (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "x subagents running
    y commands running etc with full text when you have space and it gradually shrinks when there is
    none... and have it not shift too much"). The line takes the header's free room, so its width is the
@@ -639,16 +588,6 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__summary ~ .acpmux-running-tray__time {
   flex: none;
   text-align: right;
-}
-.acpmux-running-tray__summary > [data-kind="plan"] {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 50%;
-}
-.acpmux-running-tray__summary > [data-kind="plan"] > .acpmux-running-tray__kind-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .acpmux-running-tray__summary-line {
   position: relative;
@@ -1876,18 +1815,22 @@ button.cv-subagent > :last-child {
   position: relative;
   color: var(--agent-status-failure);
 }
-/* The agent's mark is its harness's own glyph, which takes no text color: the failure is a red dot
-   on its corner, so the line reads failed at a glance (cmux#54927: "the failed subagent shown as a
-   clear failed state"). */
-.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] .cv-tool__icon::after {
-  content: "";
+/* The agent's mark is its harness's own glyph, which takes no text color: the failure is its own
+   glyph badged on the mark's corner, ringed in the page's color so it reads as a badge, not a stray
+   dot (Leo, 2026-11-25: "dot on left weird"; cmux#54927: "the failed subagent shown as a clear
+   failed state"). */
+.cv-subagent-done__failed-mark {
   position: absolute;
-  inset-inline-end: calc(-1 * var(--cmux-hairline));
-  inset-block-end: calc(-1 * var(--cmux-hairline));
-  width: calc(var(--ds-space-2) - var(--cmux-hairline));
-  height: calc(var(--ds-space-2) - var(--cmux-hairline));
+  inset-inline-end: calc(-1 * var(--ds-space-1));
+  inset-block-end: calc(-1 * var(--ds-space-1));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
-  background: var(--agent-status-failure);
+  background: var(--agent-page-bg);
+  box-shadow: 0 0 0 var(--cmux-hairline) var(--agent-page-bg);
+  color: var(--agent-status-failure);
+  line-height: 0;
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-done__time {
   color: var(--cv-text-dim);
@@ -2966,7 +2909,7 @@ button.cv-subagent > :last-child {
   top: calc((var(--acpmux-tray-head-height) - var(--acpmux-tray-control)) / 2);
   height: var(--acpmux-tray-control);
 }
-/* The lines and the plan's steps under the header keep its columns: each mark centred in +'s box, its
+/* The lines under the header keep its columns: each mark centred in +'s box, its
    words at the prompt's start. */
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
   box-sizing: border-box;
@@ -2976,30 +2919,6 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
   margin-left: calc(var(--acpmux-tray-lead-box) + var(--acpmux-tray-lead-gap) + var(--acpmux-tray-indent, 0px));
 }
-/* The steps' marks (rings, the check, the spinner) are the header glyph's ink size at every density:
-   12 px at Default, as the cropped 14 px header glyph inks (the person, 2026-11-24: the card's and the
-   plan's icons on the + axis, the same size). */
-.acpmux-running-tray {
-  --acpmux-tray-mark: calc(var(--acpmux-tray-glyph) * 12 / 14);
-}
-.acpmux-running-tray__plan .cv-plan__item {
-  gap: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2 + var(--acpmux-tray-lead-gap));
-}
-.acpmux-running-tray__plan .cv-plan__mark {
-  width: var(--acpmux-tray-mark);
-  height: var(--acpmux-tray-mark);
-  /* Centred on the step's first line, as the 12 px mark's half step centred it. */
-  margin-top: calc((var(--grid-icon-box) - var(--acpmux-tray-mark)) / 2);
-  margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2);
-}
-.acpmux-running-tray__plan .cv-plan__mark > svg {
-  width: 100%;
-  height: 100%;
-}
-.acpmux-running-tray__plan .cv-plan__item[data-status="completed"] .cv-plan__mark > svg {
-  width: calc(100% * 10 / 12);
-  height: calc(100% * 10 / 12);
-}
 
 /* The hat's one caret (HatChevron.tsx): the Goal row's and the header's, one size at every density. */
 .acpmux-hat-chevron {
@@ -3007,22 +2926,43 @@ button.cv-subagent > :last-child {
   height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
 }
 
-/* The `fade` arm (earlierPlanHat.experiment.ts): an earlier turn's collapsed chip fades out a few
-   seconds after the new turn starts, and takes no clicks once gone. Reduced motion: it leaves at once. */
-.acpmux-running-tray[data-earlier-chip="fade"] {
-  --acpmux-earlier-chip-linger: 4s; /* motion-allow: how long the chip stays readable, not a motion step */
-  animation: acpmux-earlier-chip-fade var(--cmux-motion-large) var(--cmux-ease-out)
-    var(--acpmux-earlier-chip-linger) forwards;
+/* The `line` header (trayFoldHead.experiment.ts, the default): one muted sentence flush on the
+   composer, "10 subagents working, 2 background commands running", in the transcript's metadata
+   style, as Claude Code's (Leo, 2026-11-25: "there's tons of unnecessary space to the point where it's
+   just... not great"). Folded it is only that line: no glass, no rim, no marks, time or chevron, and
+   one line of height. Hovered or pressed, the words take the accent on a small rounded chip. Open, the
+   tray keeps its card and its list, the line heading it. */
+.acpmux-running-tray[data-line] {
+  --acpmux-tray-head-height: calc(var(--ui-row-height, 28px) - var(--ds-space-2, 8px));
 }
-@keyframes acpmux-earlier-chip-fade {
-  to {
-    opacity: 0;
-    visibility: hidden;
-  }
+.acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
+  min-height: 0;
+  padding-block: var(--grid-half-step);
+  background: transparent;
+  box-shadow: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-running-tray[data-earlier-chip="fade"] {
-    animation: none;
-    visibility: hidden;
-  }
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head {
+  justify-content: flex-start;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:hover {
+  background: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: calc(-1 * (var(--ds-space-1) + var(--grid-half-step)));
+  padding: calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
+  border-radius: var(--ds-radius-control, 6px);
+  color: var(--agent-muted);
+  font-size: var(--cv-font-size);
+  transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
+    background-color var(--cv-actions-out) var(--cv-actions-out-ease);
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
+  > .acpmux-running-tray__title {
+  color: var(--agent-link, var(--agent-accent));
+  background: var(--agent-control-hover);
+}
+.acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
+  display: none;
 }

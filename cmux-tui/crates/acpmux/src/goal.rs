@@ -243,61 +243,6 @@ impl GoalState {
         self.status.lifecycle()
     }
 
-    /// Build a goal from Claude Code's ACP `plan` update. TodoWrite emits
-    /// entries with `pending`, `in_progress`, or `completed` statuses; the
-    /// common lifecycle remains running until every entry is completed.
-    pub fn from_plan_update(update: &Value) -> Option<Self> {
-        if update.get("sessionUpdate").and_then(Value::as_str) != Some("plan") {
-            return None;
-        }
-        let entries = update.get("entries")?.as_array()?;
-        if entries.is_empty() {
-            return None;
-        }
-        let objective = entries
-            .iter()
-            .find(|entry| entry.get("status").and_then(Value::as_str) == Some("in_progress"))
-            .or_else(|| entries.first())
-            .and_then(|entry| entry.get("content").or_else(|| entry.get("title")))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|content| !content.is_empty())?
-            .to_owned();
-        let stalled = entries.iter().any(|entry| {
-            matches!(
-                entry.get("status").and_then(Value::as_str),
-                Some("blocked" | "stalled" | "failed" | "cancelled")
-            )
-        });
-        let complete = entries.iter().all(|entry| {
-            matches!(
-                entry.get("status").and_then(Value::as_str),
-                Some("completed" | "complete" | "done")
-            )
-        });
-        Some(Self {
-            objective,
-            status: if stalled {
-                GoalStatus::Stalled
-            } else if complete {
-                GoalStatus::Done
-            } else {
-                GoalStatus::Running
-            },
-            provider: GoalProvider::Claude,
-            steps: Some(entries.clone()),
-            token_budget: None,
-            tokens_used: None,
-            elapsed_seconds: None,
-            created_at: None,
-            updated_at: None,
-            // Keep a plan distinct from Claude's actionable /loop. The web
-            // projection uses this marker together with the provider to keep
-            // ordinary TodoWrite plans read-only.
-            extra: BTreeMap::from([(String::from("kind"), Value::String(String::from("plan")))]),
-        })
-    }
-
     pub fn to_value(&self) -> Value {
         let mut value = serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()));
         // Older clients only understand Codex's status spellings. Keep that

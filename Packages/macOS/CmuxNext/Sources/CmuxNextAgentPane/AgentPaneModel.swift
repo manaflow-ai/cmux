@@ -128,6 +128,9 @@ public final class AgentPaneModel {
     /// (``AgentPaneCloudRepick``): the App moves the chat there and sends its first prompt again.
     @ObservationIgnored public var onCloudRepickChat: (@MainActor (AgentPaneCloudRepick) async -> [String: Any])?
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
+    /// "Fork first" on a risky step (``AgentPaneForkFirst``): the App forks the chat's Cloud machine with the
+    /// person's token and answers `{fork, forkMs}` or a refusal. Nil: no Fork first in this app.
+    @ObservationIgnored public var onCloudForkFirst: (@MainActor (AgentPaneForkFirst) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
     /// Shared web owns each compose's warm request; native only forwards it to Rust.
@@ -293,7 +296,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard, firstLaunchWidth: AgentPaneTabRow.firstLaunchWidth)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
@@ -756,8 +759,9 @@ public final class AgentPaneModel {
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
-        // Nor the paths of files dropped or pasted from this Mac.
-        case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
+        // Nor the paths of files dropped or pasted from this Mac. Before its handshake a page
+        // reached over a remote route still reads `remoteChat == false`, so refuse it too.
+        case .attachDropped where remoteChat || !hasHandshake: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
         // A chat on another machine, or a page before its handshake, gets the pasteboard's claim
         // only, never this Mac's file metadata (`attachSource`).
@@ -867,6 +871,7 @@ public final class AgentPaneModel {
             }
             if sessionId == nil { handoffSession = session }
             return await onCloudHandoffTurn(session)
+        case .cloudForkFirst(let fork): return await forkFirst(fork)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudRepository(let request):
             return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
@@ -921,7 +926,10 @@ public final class AgentPaneModel {
             return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
-            if request.action == "update" || request.action == "create", !transport.gestures.consume() {
+            // The person's own click; or, on a Mac whose administrator's profile forces "Computer use can act
+            // as me", a click another process posted (``AgentPaneActAsMe/managedCovers``).
+            if request.action == "update" || request.action == "create", !transport.gestures.consume(),
+               !transport.gestures.consumePosted(for: "cloud.environment.\(request.action)") {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onCloudEnvironment(request)

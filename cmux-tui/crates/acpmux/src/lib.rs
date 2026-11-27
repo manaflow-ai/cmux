@@ -16,7 +16,6 @@
 
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
-pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
 pub mod adopt;
@@ -30,6 +29,7 @@ pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
 pub mod agent_text;
@@ -40,6 +40,7 @@ pub mod attach;
 pub mod author;
 /// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
 pub mod auto_session;
+pub mod autocloud_enroll;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -70,6 +71,7 @@ pub mod close_why;
 pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
+pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -110,6 +112,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -122,6 +125,7 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_budget;
 #[cfg(unix)]
 pub mod github_lane_mint;
 #[cfg(unix)]
@@ -169,6 +173,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -195,6 +200,7 @@ pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
+pub mod lane_death_watch;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -279,11 +285,15 @@ pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod fleet_elastic;
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -412,7 +422,6 @@ pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
-pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -426,6 +435,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub mod todo_tools;
 pub(crate) mod tool_env;
 pub mod tool_mentions;
 pub mod tools_mcp;
@@ -440,6 +450,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

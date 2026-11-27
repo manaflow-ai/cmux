@@ -18,7 +18,7 @@
     },
     "local-pty-output": {
       "what": "one PTY read of a terminal the daemon runs in-process (--ephemeral, Windows fallback; surface/spawn.rs reader): the read, the bytes already waiting read into the same buffer, one parse",
-      "bench": "cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
+      "bench": "cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
       "owner": "terminal host"
     },
     "chats-window-query": {
@@ -216,10 +216,20 @@
       "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each for a picture, each live wallpaper, idle, occluded, minimized and Low Power)",
       "owner": "design"
     },
+    "scene-evaluate": {
+      "what": "one motion scene evaluate on the main thread (CmuxNextDesign BackdropLiveView evaluateScene, LiveWallpaperScenePlayer.evaluate): step the scene's physics to now with the pointer and button, then pack the 2048-byte Scene block in Rust (cmux_wallpaper_scene_evaluate)",
+      "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac with a scene wallpaper selected (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each), plus cargo test -p cmux-wallpaper scene for the Rust evaluate alone",
+      "owner": "design"
+    },
     "feed-mirror-commit": {
       "what": "one commit of the feed client's mirror (client/mirror.rs commit: every owner event, intent and frame tick): recompute the touched ids, wake due snoozes (ledger.rs woken), keep the badge counts",
       "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (N | p50 | p95 at 1k, 10k and 100k items with a snooze backlog; fails when the 100k p95 passes 3x the 1k p95, or a hook of the 1k/s storm passes 100 us p95)",
       "owner": "feed"
+    },
+    "transcript-scroll-frame": {
+      "what": "one display frame of a transcript scroll (webviews acpmux/VirtualTranscript.tsx scrollDrawsAt): the scroll pacer's frame works out what the offset draws (mounted rows, view, Jump to latest, soft edges) in a few layout searches and renders the transcript only when that changed",
+      "bench": "cd webviews && bun bench/transcript-scroll-frame.bench.ts [rows=3000] (frame intervals and vt.renders per frame, fling and wheel)",
+      "owner": "agent chat"
     }
   }
 }

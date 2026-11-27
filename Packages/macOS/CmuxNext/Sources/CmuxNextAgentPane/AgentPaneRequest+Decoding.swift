@@ -457,6 +457,8 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.forkFirst":
+            if let fork = AgentPaneForkFirst(params: params) { self = .cloudForkFirst(fork) } else { self = .unsupported(method) }
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
         case "cloud.plan.subscribe":
             // Only the plans the cards may name; anything else is refused here.

@@ -111,6 +111,16 @@
       "size": 2674
     },
     {
+      "path": "AppsCloudMachineEvent.java",
+      "sha256": "29e472400e8cc4d2466e8bd8dbe249bf72244a9e374e17ee683fcf3aab0786e1",
+      "size": 3702
+    },
+    {
+      "path": "AppsCloudMachineEventKind.java",
+      "sha256": "bf67f21a09a721f336ddf1498c8712ebb8a6626235b4cf5b9da193f1db549b0e",
+      "size": 963
+    },
+    {
       "path": "AttachSurfaceRequest.java",
       "sha256": "d9dbed614b45cac0d8ab679e315b69eb1515e49fec7e0ee249811b509feccdb2",
       "size": 16042
@@ -787,8 +797,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "18c4838c494139d1cbccca1f4dc108fd9186341294d1f455461716d1ce508cd5",
-      "size": 87497
+      "sha256": "cad4b7591db224391a9a02d90de852250d0c8319aa4107c8a1196c3632b2f81f",
+      "size": 87656
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1382,8 +1392,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "108b2f4a57b8e150440c655e41140c49291b6b5a3443eff64419d2fe1054b8fa",
-      "size": 21023
+      "sha256": "849f7788a1d2179b6806b8ac0b63562e578492354657e0c155ebcd2dbd141974",
+      "size": 21226
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1672,13 +1682,18 @@
     },
     {
       "path": "IdentifyRequest.java",
-      "sha256": "3251e325f31a9b8adde1ca82d219b351130a548291927a87ed603f9b04b6efc7",
-      "size": 2730
+      "sha256": "f642e26d7ea152fb2528ac96b0f61bbbac89e16127ceae3cf4a0656102961346",
+      "size": 3498
+    },
+    {
+      "path": "IdentifyRestore.java",
+      "sha256": "d08745b1996e52abc9a465f93e4f7c2ea8e943cf0c05a936089ba4f1d61a2497",
+      "size": 4757
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "a67d6a745aeb18dfbddc3f09df92fe64b84ae00f2b681790285f4819dd7a4a48",
-      "size": 24779
+      "sha256": "3ecbb59aaff91a0328d4ba40b6cf161d756781702db3ab582be21f91470858bb",
+      "size": 25412
     },
     {
       "path": "IdsRequest.java",
@@ -2297,8 +2312,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "8571e9789d80e57bc6e063d4f4c82c4fb6b2c43ce705f82f8cbfe22be0e69d6a",
-      "size": 8511
+      "sha256": "2f27e159eebbbb0cb0a60ebfd3cba99636e67487c89c056bf90b4570ec3aaf59",
+      "size": 8591
     },
     {
       "path": "ProtocolEvent.java",
@@ -2757,8 +2772,13 @@
     },
     {
       "path": "ServerStatsDisk.java",
-      "sha256": "6553b111b97dea5e564c8a24dcce65a65e5ec2bb253b954d71bc221a46fed0e5",
-      "size": 10460
+      "sha256": "fe27ef6b83fd37002b6b65532425441e6ff8a7a77a2b1445ac338dfbb6007d01",
+      "size": 11260
+    },
+    {
+      "path": "ServerStatsDiskCheckpoints.java",
+      "sha256": "9c1cc2d2ded32a5c24b7c6a5e2b18e042963b3d83193aee6ccc5d390fde572ff",
+      "size": 5166
     },
     {
       "path": "ServerStatsDiskFile.java",
@@ -2852,8 +2872,8 @@
     },
     {
       "path": "ServerStatsRequest.java",
-      "sha256": "bce0f505b81b6cb95b2a3f92d794077345676f15727edd02a1113b3a5061b76b",
-      "size": 2112
+      "sha256": "5aa23063ae3b724986387264c48d4dd2d42d9b70c301befd6e475e404b05587c",
+      "size": 2883
     },
     {
       "path": "ServerStatsResourceProjection.java",
@@ -3062,8 +3082,8 @@
     },
     {
       "path": "SetWorkspaceMetadataRequest.java",
-      "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
-      "size": 9057
+      "sha256": "7efa8f7b69cfa589b920ccc8ca331b96b0d9bd280e06b9c8f0937e88e425f2f4",
+      "size": 9761
     },
     {
       "path": "SettingsChangedEvent.java",
@@ -3857,7 +3877,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315",
+  "ir_sha256": "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

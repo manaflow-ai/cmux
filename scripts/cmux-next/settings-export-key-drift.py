@@ -126,7 +126,7 @@ def git_show(repo: str, rev: str, path: str) -> bytes | None:
 
 
 def git_show_many(repo: str, rev: str, paths: list[str]) -> dict[str, bytes | None]:
-    """{path: its blob at REV, or None} in one `cat-file --batch`: a `git show` a file cost about 0.5 s on big-red's
+    """{path: its blob at REV, or None} in one `cat-file --batch`: a `git show` a file cost about 0.5 s on a Linux workstation's
     cmux mirror (2026-11-21: this check's 120 of them took 106 s of a merge push's pre-push gate). The request goes
     through a file, never a pipe (git_batch.py: a big piped stdin can hang)."""
     if not paths:

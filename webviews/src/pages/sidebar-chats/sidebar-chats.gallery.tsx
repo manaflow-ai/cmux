@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import { FIXTURE_METRICS, FIXTURE_STRINGS, fixtureBlock, fixtureRows } from "./fixtures";
-import type { SidebarChatsBlock, SidebarChatsSlice } from "./model";
+import { sliceSurface, type SidebarChatsBlock, type SidebarChatsSlice } from "./model";
 
 type Props = { block: SidebarChatsBlock; hover?: number; slice?: Omit<SidebarChatsSlice, "revision"> };
 
@@ -28,7 +28,7 @@ function SidebarChatsGallery(props: Props) {
         dispose = chats.unmount;
         // Drawn now, not after the mock's stream answers, so the stage's first frame has the rows.
         chats.show(block);
-        if (slice) chats.showSlice({ ...slice, revision: block.revision });
+        if (slice) chats.showVisibleSlice(sliceSurface(block.part), { ...slice, revision: block.revision });
         if (hover !== undefined) root.querySelectorAll(".sc-row")[hover]?.classList.add("sc-gallery-hover");
       },
     );

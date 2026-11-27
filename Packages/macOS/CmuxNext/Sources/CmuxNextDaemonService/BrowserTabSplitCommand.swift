@@ -19,16 +19,26 @@ public struct BrowserTabSplitCommand: Sendable {
     public let url: String
     /// Set for Insert New at a divider: the split wraps `around` and shows its sizing instead of the even one.
     public let insertion: DividerInsertion?
+    /// The tab's engine tag (`cef`, `webkit`) when the app renders its stand-in's page in the click's turn (this
+    /// Mac's daemon); nil: the stand-in has no page until the daemon's tab makes it.
+    public let engine: String?
+    /// Its browser profile id (with `engine`); nil is `default`.
+    public let profile: String?
 
     /// - Parameters:
     ///   - pane: the pane the split is made from.
     ///   - direction: the side of `pane` the new pane goes.
     ///   - url: the address the tab opens.
-    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String, insertion: DividerInsertion? = nil) {
+    ///   - engine: the stand-in's page engine (``engine``); nil for no page until the reply.
+    ///   - profile: its browser profile id.
+    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String, insertion: DividerInsertion? = nil,
+                engine: String? = nil, profile: String? = nil) {
         self.pane = pane
         self.direction = direction
         self.url = url
         self.insertion = insertion
+        self.engine = engine
+        self.profile = profile
     }
 
     /// Whether `daemon` opens a browser tab straight into a split; else the caller makes it in
@@ -46,14 +56,19 @@ public struct BrowserTabSplitCommand: Sendable {
     /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page;
     /// `settled` runs with that id and the daemon's surface once a reply names it. Not on an error: a timeout or a
     /// lost connection can follow a commit whose reply is dropped, and its pane must still mount marked (review of #37733).
+    /// `handOver` (a stand-in with a page, ``engine``) runs once with the stand-in's tab id and the daemon's surface
+    /// once its tab is listed, or nil when the split was refused or closed first: the caller moves the stand-in's page
+    /// to the daemon's tab (if no pane asked for it first) or releases it.
     @MainActor
     public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
+                          handOver: (@MainActor (_ standIn: String, _ surface: SurfaceID?) -> Void)? = nil,
                           minted: (@MainActor (_ paneID: String) -> Void)? = nil,
                           settled: (@MainActor (_ paneID: String, _ surface: SurfaceID?) -> Void)? = nil)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
         let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
-        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url)).wrapping(insertion?.around)
+        let tab = ProvisionalTab(), handOver = engine == nil ? nil : handOver
+        let provisional = ProvisionalPane(holding: tab.browser(url, engine: engine, profile: profile)).wrapping(insertion?.around)
         minted?(provisional.paneID)
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
@@ -63,6 +78,7 @@ public struct BrowserTabSplitCommand: Sendable {
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
+                handOver?(tab.id, nil)
                 store.rejectIntent(transaction)
                 if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error
@@ -77,10 +93,12 @@ public struct BrowserTabSplitCommand: Sendable {
             }
             let cancelled = store.creations.wasCancelled(transaction)
             if let sizing { if cancelled { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
-            if cancelled { return nil }
+            if cancelled { handOver?(tab.id, nil); return nil }
             // The reply can come before the pane's events: the next open beside this pane must find the
             // daemon's pane, not the provisional one (a create aimed at it is refused), as the move did.
-            return await Self.listed(surface, in: store) ? surface : nil
+            let made = await Self.listed(surface, in: store) ? surface : nil
+            handOver?(tab.id, made)
+            return made
         }
     }
 

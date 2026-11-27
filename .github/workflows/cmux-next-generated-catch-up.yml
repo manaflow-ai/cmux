@@ -44,6 +44,9 @@ jobs:
   # vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE = '0' catches up on every move again.
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-generated-catch-up
@@ -62,10 +65,12 @@ jobs:
     outputs:
       prs: ${{ steps.select.outputs.prs }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/generated_catch_up.py
+          sparse-checkout: |
+            scripts/cmux-next/generated_catch_up.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Select PRs that conflict with feat-cmux-next
@@ -99,7 +104,7 @@ jobs:
       # The classifier and the generated patterns come from the base, never
       # from the PR being merged.
       - name: Check out the base's catch-up script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           persist-credentials: false
@@ -114,10 +119,11 @@ jobs:
             scripts/merge-cargo-lock.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr

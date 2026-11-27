@@ -797,6 +797,19 @@ impl Hub {
                 crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
             p.argv.extend(rules);
         }
+        // The response style and commit attribution the cmux settings choose for the agents cmux
+        // starts (`agent_launch_choices.rs`): Claude Code's `outputStyle` and `attribution` in its
+        // one `--settings`, Codex's `personality` as a `-c`. Unset passes nothing. A remote
+        // chain refuses a profile `--settings`, so a remote-origin chat keeps the agent's own.
+        if !meta.remote_origin {
+            let choices = crate::agent_launch_choices::LaunchChoices::current();
+            if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+                let cwd = std::path::Path::new(&meta.cwd);
+                crate::agent_launch_choices::apply_claude(&mut p.argv, cwd, &choices);
+            } else if crate::codex_app_server::is_profile_launch(&p.argv) {
+                crate::agent_launch_choices::apply_codex(&mut p.argv, &choices);
+            }
+        }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool
         // for it (agent_tools::lists_all_tools). A profile's own value wins.
@@ -810,7 +823,8 @@ impl Hub {
         // Claude Code keeps the prompt cache one hour only on a Claude
         // subscription, five minutes on an API key or any other endpoint:
         // acpmux starts it on the cache `agents.promptCache` names (one
-        // hour by default, prompt_cache_env.rs). A profile's own value wins.
+        // hour by default, prompt_cache_env.rs; a trusted project's
+        // `.cmux/cmux-next.json` over the user's). A profile's own value wins.
         // The login shell's values are applied after this env (agent/command.rs), so one it
         // sets counts as set; a remote-origin chat gets no login env.
         if crate::agent_tools::is_claude_code(&meta.harness, profile) {
@@ -822,7 +836,7 @@ impl Hub {
             };
             crate::prompt_cache_env::apply(
                 &mut p.env,
-                crate::prompt_cache_env::PromptCache::current(),
+                crate::prompt_cache_env::PromptCache::for_cwd(std::path::Path::new(&meta.cwd)),
                 &login,
             );
             // Per-turn context in the user turn, not a trailing system message the
