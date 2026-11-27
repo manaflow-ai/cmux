@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A workspace on a machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
@@ -66,7 +66,11 @@ pub struct Ledger {
 impl Ledger {
     /// Keeps the submissions of the listed workspaces only.
     pub fn list(&mut self, slots: &[Slot]) {
-        self.submitted.retain(|slot, _| slots.contains(slot));
+        if self.submitted.is_empty() {
+            return;
+        }
+        let listed: HashSet<&Slot> = slots.iter().collect();
+        self.submitted.retain(|slot, _| listed.contains(slot));
     }
 
     /// A plan of `slot` read `target` and, when the rule asks for one, `candidate`. A live
