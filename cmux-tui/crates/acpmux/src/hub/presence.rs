@@ -318,6 +318,11 @@ impl RemoteSnapshot {
     /// The attach response supplies a baseline only if no live note arrived during its request.
     pub fn seed(&self, note: &Value, since: u64) {
         let mut latest = self.latest.lock_or_recover();
+        // A reconnect baseline is delivered on the reader's ordered notice stream. The
+        // attach task may finish first; its response must not replace that pending baseline.
+        if latest.2 {
+            return;
+        }
         if latest.0 == since {
             let mut note = note.clone();
             if let Some(object) = note.as_object_mut() {
@@ -963,8 +968,9 @@ mod tests {
 
         presence.reset_remote("peer");
         held.seed(&none("chat"), held.revision());
-        presence.publish_remote_baseline(&active, "peer");
         assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"][0]["id"], "ana");
     }
 
     #[test]
