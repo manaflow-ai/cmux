@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use cmux_cloud_config::{auth, config, identity, install_key_slots};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::ERR_INVALID;
 

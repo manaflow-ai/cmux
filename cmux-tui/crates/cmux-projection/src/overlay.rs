@@ -1744,13 +1744,7 @@ impl Overlay {
     }
 
     /// Writes the lower file `entry` (its bytes when `bytes`) into the new scratch file `temp`.
-    fn fill_scratch(
-        &self,
-        temp: &Path,
-        index: u32,
-        entry: &crate::manifest::Entry,
-        bytes: bool,
-    ) -> Result<(), i32> {
+    fn fill_scratch(&self, temp: &Path, index: u32, entry: &Entry, bytes: bool) -> Result<(), i32> {
         let mut file = fs::File::create(temp).map_err(|error| io_errno(&error))?;
         if bytes && entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
