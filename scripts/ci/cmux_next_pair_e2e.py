@@ -465,7 +465,6 @@ def main():
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
     a = ap.parse_args()
-    drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
 
     def note(line):
         print(line, flush=True)
@@ -480,6 +479,8 @@ def main():
 
 
 def run_pair(a, note, share):
+    # The reconnect leg's drop lengths (--reconnect-drops), read here where the leg runs.
+    drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
