@@ -375,6 +375,13 @@ CONFLICT_CHECK = "Merge conflict markers"
 # nightly.yml input description, every push made a 0-job failed run and no nightly built for 3.5 hours.
 WORKFLOW_CHECK = "Workflow YAML parses (.github/workflows, .github/actions)"
 WORKFLOW_FILE = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
+# A Cargo.toml TOML cannot load stops its whole workspace: #60612 (2026-11-27) merged a second `url.workspace = true`
+# into cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml, cargo refused the manifest, and every pull request's
+# `plan (changed Cargo workspaces)` failed in rust-workspaces.py's tomllib read until #62073 dropped the key.
+CARGO_MANIFEST_CHECK = "Cargo manifests parse (Cargo.toml)"
+CARGO_MANIFEST_HINT = ("Fix the manifest: a key may appear once per table (a duplicate dependency line is the usual "
+                       "cause), then push. Cargo cannot load a Cargo.toml that does not parse, so no crate of its "
+                       "workspace builds and no skip reason passes it.")
 WORKFLOW_HINT = ("Fix the workflow: quote a value that holds `: ` or ` #` (description: \"a: b\"), then push. GitHub "
                  "cannot load a workflow that does not parse and runs none of its jobs, so no skip reason passes it.")
 # Ruby's Psych (libyaml), the parser a Mac without PyYAML still has: it parses only, it builds no objects.
@@ -3088,6 +3095,38 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     return found
 
 
+def cargo_manifest_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`file: problem` for each Cargo.toml BASE..HEAD changes that HEAD leaves unparsable as TOML.
+
+    Constant cost: only the manifests the range changes, read from git objects with tomllib (tomli on Python 3.9 and
+    3.10). Only the head counts, as with the workflow parse: cargo loads the pushed head's file. Not skippable by
+    CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode().split("\0")
+    files = sorted(n for n in names if n and (n == "Cargo.toml" or n.endswith("/Cargo.toml"))
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    try:
+        import tomllib as toml
+    except ModuleNotFoundError:
+        try:
+            import tomli as toml  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            log(f"prepush-gate: WARNING: no TOML parser here (Python 3.11+ or tomli), so {', '.join(files)} went "
+                "unchecked; CI's fast gates still check it.")
+            return []
+    found = []
+    for path in files:
+        data = blob_at(repo, head, path)
+        if data is None:
+            continue
+        try:
+            toml.loads(data.decode("utf-8", "replace"))
+        except toml.TOMLDecodeError as error:
+            found.append(f"{path}: {error} (the TOML does not parse; cargo refuses this manifest)")
+    return found
+
+
 def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
     """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
     unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
@@ -3667,6 +3706,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Every run, CI's too: git objects only, and only the manifests the range changes.
+    if (only is None or "cargo-manifests" in only) and want(CARGO_MANIFEST_CHECK):
+        unparsable = cargo_manifest_problems(repo, base, head, restrict)
+        if unparsable:
+            reserved.append((CARGO_MANIFEST_CHECK, unparsable))
     # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
     if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
         generated = new_generated_files(repo, base, head, trusted_scripts)
@@ -4726,6 +4770,8 @@ def _main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CARGO_MANIFEST_CHECK}. {CARGO_MANIFEST_HINT}")
     elif skip and any(name == WORKFLOW_CHECK for name, _ in found_any):
         # A workflow GitHub cannot load stops every run of it (all its jobs, on every push), not one check.
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {WORKFLOW_CHECK}. {WORKFLOW_HINT}")
@@ -4772,6 +4818,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(PANIC_ALLOW_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(CARGO_MANIFEST_HINT)
     if any(name == REDEFINITION_CHECK for name, _ in found_any):
         print(REDEFINITION_HINT)
     print(HOW_TO_FIX)

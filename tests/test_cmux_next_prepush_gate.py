@@ -1793,6 +1793,33 @@ let package = Package(
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_with_an_unparsable_cargo_manifest_is_refused_even_with_a_skip_reason(self):
+        # #60612 (2026-11-27) merged a second `url.workspace = true` into cmux-mobile-link-ffi/Cargo.toml; cargo refused
+        # the manifest and every pull request's `plan (changed Cargo workspaces)` failed until #62073.
+        before = self.remote_head()
+        self.write("crates/ffi/Cargo.toml",
+                   '[package]\nname = "ffi"\n\n[dependencies]\nurl.workspace = true\nuuid.workspace = true\n'
+                   'url.workspace = true\n')
+        self.commit("duplicate dependency key")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the broken manifest must not reach origin")
+        self.assertIn("Cargo manifests parse (Cargo.toml)", output)
+        self.assertIn("crates/ffi/Cargo.toml: Cannot overwrite a value", output)
+
+    def test_push_with_a_parsable_cargo_manifest_passes_the_manifest_check(self):
+        self.write("crates/ffi/Cargo.toml",
+                   '[package]\nname = "ffi"\n\n[dependencies]\nurl.workspace = true\nuuid.workspace = true\n')
+        self.commit("one url key")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotIn("Cargo manifests parse (Cargo.toml)", output)
+
     def test_push_that_adds_conflict_markers_is_refused_even_with_a_skip_reason(self):
         # c779988d57d (2026-10-22) landed an unresolved merge in a test file; no scanner reads tests.
         before = self.remote_head()
