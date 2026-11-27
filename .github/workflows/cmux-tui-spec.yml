@@ -186,6 +186,8 @@ jobs:
       run: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.route.outputs.run) }}
       acpmux_protocol_ir: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir) }}
       acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
+      remote_web_wasm: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.remote_web_wasm || steps.gate.outputs.remote_web_wasm) }}
+      remote_web_wasm_tree: ${{ steps.graph.outputs.remote_web_wasm_tree }}
       acpmux_tests: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests) }}
       acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
       acpmux_sim: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim) }}
@@ -1353,10 +1355,15 @@ jobs:
   # The browser client is a wasm32 crate but keeps native compilation for its protocol tests.
   # Keep this check on the Linux path so a cmux-tui change cannot land with a wasm-only compile
   # failure hidden behind the native package checks.
+  # By the crate graph (scripts/ci/affected-jobs.json remote-web-wasm: cmux-remote-web, its path dependencies, the
+  # workspace inputs), not by this workflow's paths: 2026-11-27 00:30-01:30Z it ran on 49% of pull request heads,
+  # 540 job-min in the hour, most of them changes that reach no input of the wasm build (Leo, ci-min-per-pr-14: "de
+  # facto, im asking for 99% fewer minutes of ci time, period."). A green build for the same input tree is reused
+  # (tree-result). A router that failed or was skipped never skips it, and neither does a missing output.
   remote-web-wasm:
     name: cmux remote web wasm
     needs: changes
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
@@ -1365,18 +1372,40 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the build is skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: remote-web-wasm
+          key: ${{ needs.changes.outputs.remote_web_wasm_tree }}
+
       - name: Install the wasm compiler dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: bash scripts/ci/apt-ensure.sh clang
 
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install wasm32 target
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: rustup target add wasm32-unknown-unknown
 
       - name: Build cmux-remote-web for wasm32
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: cargo build --locked --target wasm32-unknown-unknown -p cmux-remote-web
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: remote-web-wasm
+          key: ${{ needs.changes.outputs.remote_web_wasm_tree }}
 
   # PR CI never runs cmux-tui.yml (dispatch only), whose workspace clippy is the only
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
