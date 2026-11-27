@@ -719,9 +719,7 @@ export function CloudStartView({
   const stage = look === "thinking" ? undefined : quietStage(start, rows, t);
   const openEnvironment = () => {
     const options = {
-      ...((start.environmentId ?? start.environment)
-        ? { environmentId: start.environmentId ?? start.environment }
-        : {}),
+      ...(start.environmentId ? { environmentId: start.environmentId } : {}),
       ...(start.repository ? { repository: start.repository } : {}),
       section: "script" as const,
     };
@@ -954,21 +952,12 @@ export function CloudStartView({
                   {step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}
                   {step.id === "setup" && step.action ? (
                     <span className="acpmux-cloud-start__detail">
-                      {step.detail && start.setup?.hasScript !== false && <span>{step.detail} </span>}
                       {onOpenEnvironment ? (
                         <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
-                          {t(
-                            start.setup?.hasScript === false
-                              ? "cloudStartup.setupHint"
-                              : "cloudRepository.editEnvironment",
-                          )}
+                          {t("cloudStartup.setupHint")}
                         </button>
                       ) : (
-                        t(
-                          start.setup?.hasScript === false
-                            ? "cloudStartup.setupHint"
-                            : "cloudRepository.editEnvironment",
-                        )
+                        t("cloudStartup.setupHint")
                       )}
                     </span>
                   ) : step.detail ? (
