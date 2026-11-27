@@ -1171,6 +1171,7 @@ export const SubagentTray = memo(function SubagentTray({
           className="acpmux-hat-hide"
           data-at="line"
           data-open={open || undefined}
+          data-with-panel={opensPanel === "button" || undefined}
           aria-label={t("tray.tuck")}
           title={t("tray.tuck")}
           onClick={onTuck}

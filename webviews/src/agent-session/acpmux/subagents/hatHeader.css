@@ -272,6 +272,12 @@
   width: var(--acpmux-tray-chevron-width);
   height: var(--acpmux-tray-head-height);
 }
+.acpmux-hat-hide[data-at="line"][data-with-panel] {
+  right: calc(
+    var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + 2 * var(--acpmux-tray-gap) +
+      var(--acpmux-tray-stop-width)
+  );
+}
 .acpmux-hat-hide[data-at="line"][data-open] {
   top: 0;
 }
