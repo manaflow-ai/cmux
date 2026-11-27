@@ -217,6 +217,14 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+[step.update-replay-diagnostics]
+job = "linux"
+timeout = 60
+title = "Signed update replay diagnostics"
+about = "staging failures retain bounded status and check-response evidence without changing the replay verdict"
+inputs = ["scripts/cmux-next/update-e2e.py", "tests/test_update_e2e_diagnostics.py"]
+run = "python3 tests/test_update_e2e_diagnostics.py"
+
 # A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
 # The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
 # full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
@@ -254,8 +262,12 @@ title = "Compile preflight rules"
 about = "the compile preflight runs on every tier, skips only heads no web bundle reads, and names the bundler's errors"
 inputs = [
   ".github/workflows/cmux-next-compile-preflight.yml",
+  ".github/workflows/cmux-next-size-budget.yml",
+  ".github/workflows/pr-pipeline.yml",
   ".github/workflows/pr-router.yml",
+  ".github/actions/r2-artifact/**",
   "scripts/ci/compile_preflight.py",
+  "scripts/ci/react-apps-check-fleet.sh",
   "scripts/ci/pr_router.json",
   "scripts/ci/pr_router.py",
   "scripts/ci/workflow_paths_cover_inputs.py",
@@ -472,19 +484,24 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
-# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
-# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
-# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
-# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
-# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
-# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
-# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
-# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+# Every page's strings, non-blocking in the table, for a catalog or setting change. The bounded catch-value audit
+# found no sampled compile/build catch for the strict translation debt gate; its known red was 80 missing
+# translations before the webview checks ran. The PR workflows intentionally do not schedule this advisory entry:
+# the strict generator's only execution is cmux-next-guards.yml's blocking post-merge static-checks copy. That push
+# check is the safety net for settings/catalog changes that later affect Release: #51725 (11-23, 3 h) and #55301
+# (11-26, 3 h; fixed by #58991).
+# The export is regenerated first, as the PR autofix and base-autofix do, because a pull request edits the settings
+# sources, not the export the generator reads. Exit 2 from the Linux export (a Swift shape it cannot read) leaves
+# the Mac to decide: the committed export is checked instead. It runs alone: both write into the checkout (the
+# export, the gitignored tables) while no other step reads it.
 [step.page-strings]
-job = "linux"
+job = "advisory"
+blocks = false
+class = "idle"
 timeout = 300
 alone = true
-# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+# Its ** globs retain the whole-tree route when the table is used by a pull-request caller; the post-merge static
+# check always runs it at the merged tip.
 pr_scope = false
 title = "Page strings generate with no missing translation"
 about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
@@ -638,12 +655,14 @@ exit "$rc"
 [step.unix-only-on-windows]
 job = "linux"
 timeout = 120
-title = "acpmux builds on Windows (unix-only uses)"
-about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+title = "acpmux, cmux-tui-core and cmux-tui build on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate, main-less target or use of a crate module or item declared only under cfg(unix) in acpmux (or its dev-dependency cmux-fault), cmux-tui-core or cmux-tui outside a cfg(unix) item or module"
 inputs = [
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/acpmux/**",
   "cmux-tui/crates/cmux-fault/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui/**",
   "scripts/ci/unix_only_on_windows.py",
   "scripts/ci/libc_windows_gnu.txt",
   "tests/test_ci_unix_only_on_windows.py",
@@ -919,12 +938,13 @@ exit "$status"
 # Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
 # (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
 # retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
-# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
+# published settings key is a row or retired (the cmux_next_ daemon tests step); this step runs the same settings
+# row/ledger check on the pull request before a publisher can serve it. Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; every live settings row is published, and every published key is live or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
   "persisted-formats/**",
@@ -1378,6 +1398,7 @@ fi
 want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
 status=0
 if want tt-app-crate-licenses; then python3 tests/test_app_crate_licenses.py || status=1; fi
+if want tt-bench-coverage-map; then python3 -I tests/test_bench_coverage_map.py || status=1; fi
 if want tt-objc-selectors-step; then python3 tests/test_check_objc_selectors_step.py || status=1; fi
 if want tt-package-lane-prebuild; then python3 tests/test_ci_package_lane_prebuild.py || status=1; fi
 if want tt-ios-sim-runtime; then python3 -I tests/test_ios_sim_runtime.py || status=1; fi
@@ -2618,6 +2639,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/cpu_class/*",
   "cmux-tui/crates/acpmux/src/daemon/*",
   "cmux-tui/crates/acpmux/src/daemon/router_owner/*",
+  "cmux-tui/crates/acpmux/src/death_route/*",
   "cmux-tui/crates/acpmux/src/deps/*",
   "cmux-tui/crates/acpmux/src/gauges/*",
   "cmux-tui/crates/acpmux/src/hand/*",
@@ -2898,6 +2920,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/src/app/window_docks/*",
   "cmux-tui/crates/cmux-tui/src/app/window_frame/*",
   "cmux-tui/crates/cmux-tui/src/bin/*",
+  "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/*",
   "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/*",
   "cmux-tui/crates/cmux-tui/src/build_adopt/*",
   "cmux-tui/crates/cmux-tui/src/carrier/*",
