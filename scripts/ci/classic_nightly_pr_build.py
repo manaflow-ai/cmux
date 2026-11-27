@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Route and key .github/workflows/classic-nightly-pr-build.yml.
+"""Route and key .github/workflows/classic-pr-build.yml.
 
 The classic NIGHTLY (.github/workflows/nightly.yml) compiles the app in Release
-for arm64 and x86_64 and builds the cmux-tui client in release. A pull request
+for arm64 and builds the cmux-tui client in release. A pull request
 into main runs neither: ci.yml's release-build job needs the full suite, and
 pull requests run compile-only. A change that breaks only the Release compile
 then shows up hours later as a NIGHTLY that does not publish.
 
   route --base B --head H   swift=true|false, helpers=true|false
-  keys --rev H              keys={"arm64": ..., "x86_64": ..., "helpers": ...}
+  keys --rev H              keys={"arm64": ..., "helpers": ...}
 
 Swift routing is detect_ci_change_areas.py's release_build area, the same
 decision ci.yml uses for its Release compile, so the two cannot disagree.
@@ -27,9 +27,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ".github/workflows/classic-nightly-pr-build.yml"
+WORKFLOW = ".github/workflows/classic-pr-build.yml"
 COMPILE_SCRIPT = "scripts/ci/classic-nightly-release-compile.sh"
-ARCHS = ("arm64", "x86_64")
+ARCHS = ("arm64",)
 
 # Top-level entries the app's Release compile never reads. Everything else at
 # the top level is part of the Swift key, so a miss only costs a rebuild.
@@ -56,9 +56,16 @@ HELPER_INPUTS = (
     "cmux-tui",
     "ghostty",
     ".cargo",
+    ".gitmodules",
     "scripts/ghostty-zig-version.sh",
     ".github/actions/setup-cmux-tui-rust",
     ".github/actions/ghostty-zig-packages",
+    ".github/actions/runner-cargo-home",
+    ".github/actions/cache-restore",
+    ".github/actions/cache-save",
+    "scripts/ci/fetch-ghostty-zig-packages.sh",
+    "scripts/ci/cache_restore_receipt.py",
+    "scripts/ci/r2-cache.sh",
     WORKFLOW,
     "scripts/ci/classic_nightly_pr_build.py",
 )
@@ -146,7 +153,7 @@ def main(argv: list[str]) -> int:
     keys_parser.add_argument("--rev", required=True)
     args = parser.parse_args(argv)
     if args.command == "route":
-        changed = [p for p in git("diff", "--name-only", args.base, args.head).splitlines() if p]
+        changed = [p for p in git("diff", "--no-renames", "--name-only", "-z", args.base, args.head).split("\0") if p]
         for name, value in route(changed).items():
             print(f"{name}={'true' if value else 'false'}")
         return 0

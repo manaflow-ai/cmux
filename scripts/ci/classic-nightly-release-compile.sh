@@ -3,7 +3,7 @@
 # .github/workflows/nightly.yml's "Build nightly app (Release)" step compiles
 # it: scheme cmux, Release, CMUX_SKIP_ZIG_BUILD=1 against the pinned prebuilt
 # GhosttyKit, unsigned, through run-xcodebuild-with-diagnostics.sh. The pull
-# request workflow .github/workflows/classic-nightly-pr-build.yml runs it as a
+# request workflow .github/workflows/classic-pr-build.yml runs it as a
 # fleet job, so a change that only the Release compile rejects fails at its pull
 # request instead of hours later in a NIGHTLY that does not publish.
 #
@@ -65,7 +65,7 @@ echo "classic-nightly-release-compile: Release $archs at $(git rev-parse HEAD) i
   -packageCachePath "$state/classic-nightly-spm/.package-cache" \
   -showBuildTimingSummary \
   ARCHS="$archs" \
-  ONLY_ACTIVE_ARCH=YES \
+  ONLY_ACTIVE_ARCH=NO \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
   COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
   COMPILER_INDEX_STORE_ENABLE=NO \
