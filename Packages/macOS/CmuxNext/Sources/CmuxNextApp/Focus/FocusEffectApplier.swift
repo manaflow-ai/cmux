@@ -200,11 +200,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { FocusRoute(.system, "focus model: page window").moveKeyboard(in: window, to: nil) }
-            // Another of this window's Chromium page windows took the keys without a click (the New
-            // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
-            // Its own window being key ends it, so the ask runs once.
+            // Another Chromium page took the keys, or a click returned them to this window while
+            // the selected page stayed recorded: ask again so typing reaches the selected page.
+            // Its own child window taking the keys ends the ask; hidden pages keep it for later.
             if pageFocus.page === page {
-                if anotherPageWindowIsKey(than: page, in: window) || NSApp.keyWindow === window { pageFocus.refocus(page) }
+                if anotherPageWindowIsKey(than: page, in: window) || controller.services.keyWindowSource() === window { pageFocus.refocus(page) }
                 return
             }
             // One key change (#24913): the old page blurs without this window taking the keys
