@@ -174,6 +174,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WORKTREE_RESTORE,
     method::SESSION_SIGNATURE,
     super::super::peer_forward::TRUST_PEER_EXTENSION,
+    method::MUX_TEST_TAMPERING_RESTORE,
 ];
 
 /// The features every connection is offered; `initialize` adds the ones only some connections
@@ -300,6 +301,7 @@ pub(super) fn initialize(
         // This connection is the person (`hub/person.rs`): never yet,
         // as the proof comes after this reply.
         "person": conn.is_person(),
+        "testTamperingRestore": conn.auth.authenticated() && (conn.is_person() || conn.origin == Origin::LocalApp),
         // Only a verified first-initialize caller token supplies this ID.
         "callerSessionId": conn.caller(),
         // The challenge a local connection proves the person key against.

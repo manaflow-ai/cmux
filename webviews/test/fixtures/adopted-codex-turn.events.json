@@ -254,6 +254,7 @@
                   "fragment": true
                 }
               },
+              "line": 1,
               "newText": "# Changelog\n\n## 1.3.0\n- Bump the version to 1.3.0\n\n## 1.2.0\n",
               "oldText": "# Changelog\n\n## 1.2.0\n",
               "path": "/home/dev/demo/CHANGELOG.md",
@@ -266,6 +267,7 @@
                   "fragment": true
                 }
               },
+              "line": 1,
               "newText": "[package]\nname = \"demo\"\nversion = \"1.3.0\"\nedition = \"2021\"\n",
               "oldText": "[package]\nname = \"demo\"\nversion = \"1.2.0\"\nedition = \"2021\"\n",
               "path": "/home/dev/demo/Cargo.toml",

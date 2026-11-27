@@ -397,12 +397,8 @@ def debt_kind(error: str) -> str:
 
 
 def catalog_name(path: Path, root: Path) -> str:
-    """A catalog's baseline key: its path from the repository root. An entry file of a one-file-per-key table
-    (`<Table>.xcstrings.d/<key>.xcstrings`, scripts/cmux-next/string_catalogs.py) counts toward its table,
-    `<Table>.xcstrings`, so its debt is the table's as before the split."""
+    """A catalog's baseline key: its path from the repository root."""
     path, root = path.resolve(), root.resolve()
-    if path.parent.name.endswith(".xcstrings.d"):
-        path = path.parent.with_name(path.parent.name[: -len(".d")])
     return path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
 
 

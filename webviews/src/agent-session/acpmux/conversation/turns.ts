@@ -22,7 +22,7 @@ import { continuesTurn, opensTurn } from "../turnStart";
 import { RowMemo } from "../../shared/rowMemo";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -36,7 +36,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -91,6 +91,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { testTamperingTurn } from "./testTamperingTurn";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
@@ -1282,6 +1283,7 @@ const NO_ASKS: readonly AcpmuxRow[] = [];
 type ShapedTurn = {
   /// The turn's rows after its prompt, held prompts included, as last shaped.
   source: readonly AcpmuxRow[];
+  tampering?: AcpmuxRow;
   /// Which of its folds are open (`openFolds`).
   open: string;
   /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
@@ -1427,7 +1429,9 @@ function shapedTurn(
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
-  const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
+  const turnSource = rows.slice(start + 1, end);
+  const tampering = testTamperingTurn(user, turnSource);
+  const source = turnSource.filter((row) => !hiddenInBackground(row, foldedBackground));
   // The person's own prompt opened the turn after this one: a turn with no summary ended there
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
@@ -1435,6 +1439,7 @@ function shapedTurn(
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
+    cached.tampering === tampering &&
     cached.open === open &&
     cached.background === background &&
     cached.messageRuns === messageRuns &&
@@ -1601,12 +1606,14 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
+  if (tampering) shaped.splice(date.length + drawnUser.length, 0, tampering);
   // Shaped anew (a running turn, or a finished one whose cache key moved: the turn after it opened,
   // a row came into it), each row equal to the one it drew last time keeps that object.
   shaped = steadyRows(user, shaped);
   if (!live)
     shapedTurns.set(user, {
       source,
+      tampering,
       open,
       background,
       messageRuns,

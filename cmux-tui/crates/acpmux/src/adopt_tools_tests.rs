@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn adopted_test_update_keeps_reproducible_alarm_with_its_settled_diff() {
+    let changes = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -42,1 +42,1 @@\n-expect(count).toEqual(3);\n+expect(count).toBeTruthy();\n"}});
+    let tool = codex_file_change("edit-1", &changes, "completed", None, Some(9)).unwrap();
+    assert!(tool.call.get("tampering").is_none());
+    assert_eq!(tool.done["content"][0]["line"], 42);
+    let report = tool.done.get("tampering").expect("weakened assertion alarm");
+    assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+    assert_eq!(report["files"][0]["findings"][0]["line"], 42);
+    assert_eq!(report["files"][0]["findings"][0]["kind"], "weakened-assertion");
+}
+
+#[test]
+fn adopted_test_deletion_is_detected_from_whole_file_content() {
+    let changes = json!({"tests/check.rs":{"type":"delete","content":"#[test]\nfn checks() { assert_eq!(count(), 3); }\n"}});
+    let tool = codex_file_change("delete-1", &changes, "completed", None, None).unwrap();
+    let report = tool.done.get("tampering").expect("removed test alarm");
+    assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+    assert_eq!(report["files"][0]["findings"][0]["kind"], "removed-test");
+    assert_eq!(tool.done["content"][0]["line"], 1);
+}
+
+#[test]
+fn failed_or_normal_adopted_edits_have_no_alarm() {
+    let stronger = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -1 +1 @@\n-expect(count).toBeTruthy();\n+expect(count).toEqual(3);\n"}});
+    let normal = codex_file_change("stronger", &stronger, "completed", None, None).unwrap();
+    assert!(normal.done.get("tampering").is_none());
+    assert!(crate::test_tampering::detect_diffs(&normal.done["content"]).is_none());
+    let weakened = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -1 +1 @@\n-expect(count).toEqual(3);\n+expect(count).toBeTruthy();\n"}});
+    let failed =
+        codex_file_change("failed", &weakened, "failed", Some("not applied"), None).unwrap();
+    assert!(failed.call.get("tampering").is_none());
+    assert!(failed.done.get("tampering").is_none());
+    assert!(crate::test_tampering::detect_diffs(&failed.done["content"]).is_none());
+}
+
+#[test]
+fn adopted_claude_alarm_waits_for_confirmed_edit_and_shares_its_evidence() {
+    let edit = json!([{"type":"tool_use", "id":"test-edit", "name":"Edit", "input":{
+        "file_path":"/p/suite.test.ts", "old_string":"expect(count).toEqual(3);", "new_string":"expect(count).toBeTruthy();"
+    }}]);
+    let mut tool = claude_tool_uses(&edit, Some(1)).remove(0);
+    assert!(tool.call.get("tampering").is_none());
+    assert!(tool.done.get("tampering").is_none());
+    tool.settle(&result("test-edit", false), Some(2));
+    let report = tool.done.get("tampering").expect("settled edit alarm");
+    assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+    let mut failed = claude_tool_uses(&edit, Some(1)).remove(0);
+    failed.settle(&result("test-edit", true), Some(2));
+    assert!(failed.done.get("tampering").is_none());
+}
+
+#[test]
+#[test]
 fn a_codex_read_parsed_from_a_loop_never_titles_its_shell_variable() {
     let item = json!({
         "command": ["/bin/zsh", "-lc", "for f in a.md b.md; do cat $f; done"],

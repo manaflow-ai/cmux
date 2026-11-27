@@ -3,6 +3,7 @@
   "pane_origin": "cmux-agent://pane",
   "initialize": "initialize",
   "requests": [
+    "_acpmux/test_tampering_restore",
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
     "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/seen", "_acpmux/typing", "_acpmux/warm",
     "_acpmux/sessions",
@@ -77,6 +78,7 @@
   "servers_key": "mcpServers",
   "gesture_ticket_key": "cmuxGesture",
   "session_scoped": [
+    "_acpmux/test_tampering_restore",
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
@@ -153,6 +155,7 @@
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
+    "_acpmux/test_tampering_restore": {"params": ["sessionId", "eventSeq", "fileIndex", "findingIndex"], "acpmux": []},
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"]},
     "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"], "acpmux": []},
@@ -317,6 +320,7 @@
       "@doc": ["Requests (`id` present)."],
       "session/new": ["Sessions (direct.ts)."],
       "_acpmux/watch": ["acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash."],
+      "_acpmux/test_tampering_restore": ["Restore only durable test evidence in a pane-owned session. The daemon authenticates the local app and re-derives the inverse; the page cannot supply paths or patch text. One click may restore several findings, so these bounded inverses share no gesture ticket."],
       "_acpmux/sessions": ["The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers, read by cursor after watch's first page."],
       "_acpmux/usage": ["Session Info's Usage: every listed chat's usage alone (sessionPages.ts `usageByDigest`; acpmux hub/usage_answer.rs), in place of every page of `_acpmux/sessions` with `usage`."],
       "_acpmux/peer_snapshot": ["A peer chat drawn from this Mac's copy while its machine is down (direct.ts drawPeerCopy, peerCopy.ts; acpmux hub/peer_snapshot/read.rs). A read like `_acpmux/events`, before the attach that brings the chat into scope, so not session-scoped; acpmux answers it to this Mac's app and unix socket only. Only `sessionId` (``knownParams``): never `host`, which would name any peer's session by its own id."],

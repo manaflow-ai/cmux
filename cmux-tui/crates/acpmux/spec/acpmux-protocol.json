@@ -1400,6 +1400,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/test_tampering_restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/paused_files",
       "params": true,
       "result": true

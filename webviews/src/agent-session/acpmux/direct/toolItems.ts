@@ -135,6 +135,7 @@ export function mergeToolItem(
   callId: string,
   output: string,
   at?: number,
+  eventSeq?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
   const provenance =
@@ -207,6 +208,8 @@ export function mergeToolItem(
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
+      tampering: update.tampering ?? before?.tampering,
+      tamperingEventSeq: update.tampering ? eventSeq : before?.tamperingEventSeq,
       ...(provenance ? { provenance } : {}),
       ...(recipient ? { recipient } : {}),
     },

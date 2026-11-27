@@ -1,0 +1,8 @@
+--- a/tests/upload.test.ts
++++ b/tests/upload.test.ts
+@@ -1,4 +1,5 @@
+ test("uploads", async () => {
++  const details = "test.skip('example', () => {})";
+-  expect(await upload()).toEqual({ ok: true });
++  expect(await upload()).toBeTruthy();
+ });

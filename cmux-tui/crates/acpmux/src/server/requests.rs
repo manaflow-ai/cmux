@@ -3408,6 +3408,9 @@ async fn dispatch_method(
             let s = hub.resolve(session_key(&params)?)?;
             Ok(super::session_files::describe(hub, &s))
         }
+        super::test_tampering_restore::METHOD => {
+            super::test_tampering_restore::handle(hub, conn, &params).await
+        }
         method::MUX_WAIT if params.get("until") == Some(&json!(["promptOutcome"])) => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let prompt_id = str_param(&params, "promptId")
