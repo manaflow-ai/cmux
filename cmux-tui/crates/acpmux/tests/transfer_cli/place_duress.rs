@@ -173,13 +173,28 @@ fn tree(root: u32) -> Vec<u32> {
     out
 }
 
+/// `sig` to each of `pids` (a [`tree`] snapshot). A descendant that exited between the snapshot
+/// and the signal (the `cmux vm new` step ending, a short helper the agent ran) is gone, not a
+/// failure: `kill -STOP` of the whole list exited 1 for that one pid and failed the test
+/// (`place_duress.rs:182`, jobs 140712197510 and the `_carrying_changes` runs, 2026-11-27),
+/// though every live process was stopped. The daemon itself, `pids[0]`, must take it.
 fn signal(pids: &[u32], sig: &str) {
-    let status = Command::new("kill")
-        .arg(format!("-{sig}"))
-        .args(pids.iter().map(u32::to_string))
-        .status()
-        .unwrap();
-    assert!(status.success() || sig == "KILL", "kill -{sig} {pids:?}");
+    let number = match sig {
+        "STOP" => libc::SIGSTOP,
+        "CONT" => libc::SIGCONT,
+        "KILL" => libc::SIGKILL,
+        other => panic!("no signal {other}"),
+    };
+    for (i, pid) in pids.iter().enumerate() {
+        let pid = libc::pid_t::try_from(*pid).expect("a pid");
+        // SAFETY: kill(2) with a pid from /proc and a valid signal number reads no memory.
+        if unsafe { libc::kill(pid, number) } == 0 {
+            continue;
+        }
+        let error = std::io::Error::last_os_error();
+        let gone = error.raw_os_error() == Some(libc::ESRCH);
+        assert!(gone && (i > 0 || sig == "KILL"), "kill -{sig} {pid} of {pids:?}: {error}");
+    }
 }
 
 /// The source machine dies: its daemon and everything under it, SIGKILL; then it starts again

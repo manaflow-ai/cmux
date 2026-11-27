@@ -91,6 +91,27 @@ impl Daemon {
         Self::spawn_as(tag, peer, json!({}), harness).await
     }
 
+    /// [`Self::with_peer`], the test agent also under each name in `also`, in config.json from
+    /// the start: a test that edits config.json after the daemon starts races the daemon's own
+    /// first save of it (its WebSocket token, made once the socket already answers).
+    async fn with_peer_also(tag: &str, target: Option<&Daemon>, also: &[&str]) -> Self {
+        let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
+        let none = &[][..];
+        Self::spawn_keyed(
+            tag,
+            peer,
+            json!({}),
+            "fake",
+            false,
+            None,
+            none,
+            "approve-all",
+            None,
+            also,
+        )
+        .await
+    }
+
     /// `with_peer`, with `harness_env` in the fake harness's env, `vars` in the daemon's, and
     /// `policy` its permission policy.
     async fn with_env(
@@ -163,7 +184,7 @@ impl Daemon {
         key: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_keyed(tag, peer, harness_env, "fake", false, None, vars, policy, Some(key))
+        Self::spawn_keyed(tag, peer, harness_env, "fake", false, None, vars, policy, Some(key), &[])
             .await
     }
 
@@ -179,10 +200,12 @@ impl Daemon {
         vars: &[(&str, &str)],
         policy: &str,
     ) -> Self {
-        Self::spawn_keyed(tag, peer, agent_env, harness, linked, link, vars, policy, None).await
+        Self::spawn_keyed(tag, peer, agent_env, harness, linked, link, vars, policy, None, &[])
+            .await
     }
 
-    /// [`Self::spawn_full`]; `key`: the person key it gets on `--person-key-fd 3`.
+    /// [`Self::spawn_full`]; `key`: the person key it gets on `--person-key-fd 3`; `also`: more
+    /// harness names for the same test agent.
     #[allow(clippy::too_many_arguments)]
     async fn spawn_keyed(
         tag: &str,
@@ -194,6 +217,7 @@ impl Daemon {
         vars: &[(&str, &str)],
         policy: &str,
         key: Option<&str>,
+        also: &[&str],
     ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
@@ -208,6 +232,9 @@ impl Daemon {
             profile["family"] = family;
         }
         let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
+        for name in also {
+            config["harnesses"][*name] = config["harnesses"][harness].clone();
+        }
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();
