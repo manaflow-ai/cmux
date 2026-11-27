@@ -103,6 +103,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// shim refused (empty when all went in).
     @MainActor func installInRenderer(_ shim: CEFShimLibrary) -> [String] {
         guard let addPageChannel = shim.addPageChannel, let addDocumentScript = shim.addDocumentScript else { return ["shim has no renderer paths"] }
+        if ProcessInfo.processInfo.environment["CMUX_BENCH_NO_DOCUMENT_SCRIPTS"] != nil || true { return [] } // A/B experiment (not for merge): no document scripts or channels
         var refused: [String] = []
         for channel in CEFPageMessage.Channel.allCases where addPageChannel(channel.world, channel.name) != 1 {
             refused.append("channel \(channel.name)")
