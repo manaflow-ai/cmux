@@ -428,6 +428,17 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
+      "type" : "string"
+    },
     "agentPane.display.subagentOf" : {
       "default" : false,
       "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
@@ -4605,16 +4616,16 @@
       "title" : "Cloud Disk Bar",
       "type" : "boolean"
     },
-    "experiments.compactionThresholdInsight" : {
-      "default" : false,
-      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
-      "title" : "Compaction Threshold Insight",
-      "type" : "boolean"
-    },
     "experiments.cloudToggle" : {
       "default" : false,
       "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
       "title" : "Cloud Toggle",
+      "type" : "boolean"
+    },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
       "type" : "boolean"
     },
     "experiments.composerButtonsVisible" : {
