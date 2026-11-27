@@ -18,7 +18,7 @@ export const VM_HEALTH_ALERT_MIN_INTERVAL_MS = 60 * 60 * 1000;
  * existing TLS rule-capacity alert own those.
  */
 export function vmHealthAlert(report: VmHealthReport, pageUrl: string | null): AlertInput | null {
-  const hung = report.hung.filter((vm) => confirmedHungThisSweep(vm, report.coverage));
+  const hung = report.hung.filter(confirmedHungThisSweep);
   const stuck = report.stuck;
   if (hung.length === 0 && stuck.length === 0) return null;
   const lines: string[] = [];
@@ -95,7 +95,8 @@ export async function deliverVmHealthAlert(
 
 /** True when the sweep listed every VM, probed every running one it could, and hit no stage error. */
 export function sweepSawFleet(report: VmHealthReport): boolean {
-  return report.errors.length === 0 && report.coverage.inventoryComplete && allProbesConclusive(report.coverage);
+  return report.errors.length === 0 && report.coverage.inventoryComplete
+    && allProbesConclusive(report.coverage) && report.hung.every(confirmedHungThisSweep);
 }
 
 async function readLastSentAt(key: string): Promise<Date | null> {

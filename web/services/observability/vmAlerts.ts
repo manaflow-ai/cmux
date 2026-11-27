@@ -479,15 +479,17 @@ async function recentHungEvidence(
   };
   if (report.coverage?.inventoryComplete !== true || report.coverage.skippedBudget !== 0
     || !Array.isArray(report.errors) || report.errors.length > 0 || !Array.isArray(report.hung)) return null;
-  const providerVmIds = new Set<string>();
-  for (const entry of report.hung) {
-    if (!entry || typeof entry !== "object") continue;
-    const hung = entry as { readonly vmId?: unknown; readonly confirmedThisSweep?: unknown };
-    if (typeof hung.vmId === "string" && hung.vmId && confirmedHungThisSweep(hung, report.coverage)) {
-      providerVmIds.add(hung.vmId);
-    }
-  }
-  return { canClear: allProbesConclusive(report.coverage), providerVmIds: [...providerVmIds] };
+  const ids = report.hung.map(confirmedProviderVmId);
+  return {
+    canClear: allProbesConclusive(report.coverage) && !ids.includes(null),
+    providerVmIds: [...new Set(ids.filter((id): id is string => id !== null))],
+  };
+}
+
+function confirmedProviderVmId(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const hung = entry as { readonly vmId?: unknown; readonly confirmedThisSweep?: unknown };
+  return typeof hung.vmId === "string" && hung.vmId && confirmedHungThisSweep(hung) ? hung.vmId : null;
 }
 
 function healthAlerts(

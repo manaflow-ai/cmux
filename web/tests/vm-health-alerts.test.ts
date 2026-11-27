@@ -26,6 +26,7 @@ function report(overrides: Partial<VmHealthReport> = {}): VmHealthReport {
 
 const hungReport = report({
   hung: [{
+    confirmedThisSweep: true,
     vmId: "vm-1", workload: "app:chatmux2", owner: null, snapshot: null,
     size: { cpu: null, memoryMib: null, storageMib: null },
     firstSeenHungAt: "2026-10-12T11:00:00.000Z", providerUpdatedAt: "2026-10-12T10:00:00.000Z", dbUpdatedAt: null, detail: "timeout",
@@ -88,14 +89,16 @@ describe("vm health alert", () => {
     expect(alert.body).not.toContain("vm-carried");
   });
 
-  test("legacy hung records page only with explicit conclusive coverage", () => {
-    expect(vmHealthAlert(hungReport, null)).not.toBeNull();
+  test("legacy unmarked hung records never page, even with clean coverage", () => {
+    const legacyHung = { ...hungReport.hung[0]! };
+    delete (legacyHung as { confirmedThisSweep?: boolean }).confirmedThisSweep;
+    expect(vmHealthAlert(report({ hung: [legacyHung] }), null)).toBeNull();
     expect(vmHealthAlert(report({
-      hung: hungReport.hung,
+      hung: [legacyHung],
       coverage: { ...report().coverage, probeErrors: 1 },
     }), null)).toBeNull();
     expect(vmHealthAlert(report({
-      hung: hungReport.hung,
+      hung: [legacyHung],
       coverage: { ...report().coverage, skippedBudget: 1 },
     }), null)).toBeNull();
   });

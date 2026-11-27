@@ -7,8 +7,7 @@ export function allProbesConclusive(coverage: ProbeCoverage): boolean {
   return coverage.skippedBudget === 0 && coverage.probeErrors === 0;
 }
 
-export function confirmedHungThisSweep(entry: { readonly confirmedThisSweep?: unknown }, coverage: ProbeCoverage): boolean {
-  // A legacy report could only carry a hung entry after a probe error or budget skip.
-  if (entry.confirmedThisSweep === undefined) return allProbesConclusive(coverage);
+/** Legacy entries cannot distinguish a guest request timeout from a provider-state lookup timeout. */
+export function confirmedHungThisSweep(entry: { readonly confirmedThisSweep?: unknown }): boolean {
   return entry.confirmedThisSweep === true;
 }

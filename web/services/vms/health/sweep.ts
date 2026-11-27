@@ -162,30 +162,25 @@ export function probeRunningVms(
     const probeOne = (vm: ProviderInventoryVm): Effect.Effect<VmProbeRecord> => {
       if (!options.probeIdleVms && hasFiniteIdleTimeout(vm)) return Effect.succeed({ vmId: vm.id, outcome: "skipped_idle" });
       return Effect.flatMap(Clock.currentTimeMillis, (nowMs): Effect.Effect<VmProbeRecord> => {
-        if (!probe || nowMs + options.probeTimeoutMs > options.deadlineAtMs) {
+        const remainingMs = options.deadlineAtMs - nowMs;
+        // Provider state and guest fs/stat each have an independent deadline.
+        const requestBudgetMs = 2 * options.probeTimeoutMs;
+        if (!probe || requestBudgetMs > remainingMs) {
           return Effect.succeed({ vmId: vm.id, outcome: "skipped_budget" });
         }
         return probe(VM_HEALTH_PROVIDER, vm.id, { timeoutMs: options.probeTimeoutMs }).pipe(
           // The driver already bounds the request; this guards a fetch that ignores its signal.
           Effect.timeoutFail({
-            duration: options.probeTimeoutMs + PROBE_GUARD_SLACK_MS,
-            onTimeout: () => new Error(`timeout after ${options.probeTimeoutMs}ms`),
+            duration: Math.min(requestBudgetMs + PROBE_GUARD_SLACK_MS, remainingMs),
+            onTimeout: () => new Error("control probe exceeded its deadline"),
           }),
           Effect.map((outcome): VmProbeRecord => ({ vmId: vm.id, ...outcome })),
-          Effect.catchAll((cause) => Effect.succeed(probeFailure(vm.id, cause, options.probeTimeoutMs))),
+          Effect.catchAll((cause) => Effect.succeed<VmProbeRecord>({ vmId: vm.id, outcome: "error", latencyMs: 0, detail: errorMessage(cause) })),
         );
       });
     };
     return yield* Effect.forEach(running, probeOne, { concurrency: options.concurrency });
   });
-}
-
-function probeFailure(vmId: string, cause: unknown, timeoutMs: number): VmProbeRecord {
-  const message = errorMessage(cause);
-  // Only our own guard timeout means the VM did not answer; anything else is
-  // a probe that could not be sent and says nothing about the VM.
-  if (message.startsWith("timeout after")) return { vmId, outcome: "hung", latencyMs: timeoutMs, detail: message };
-  return { vmId, outcome: "error", latencyMs: 0, detail: message };
 }
 
 function hasFiniteIdleTimeout(vm: ProviderInventoryVm): boolean {
