@@ -384,6 +384,8 @@ impl Hub {
                         // (`fresh_review.rs`, off by default).
                         self.fresh_review_turn_end(session, turn_id);
                     }
+                    // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
+                    self.goal_turn_ended(session, prompt_id, status == "completed");
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
                     // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
@@ -401,6 +403,7 @@ impl Hub {
                     }
                     self.append(session, "mux", "turn_error", record);
                     self.note_model_refusal(session, &e.message);
+                    self.goal_turn_ended(session, prompt_id, false);
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
