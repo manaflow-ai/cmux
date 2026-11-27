@@ -173,9 +173,10 @@ TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPR
                               *JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
-# GitHub-hosted. No input can select a persistent runner.
+# GitHub-hosted. No input can select a persistent runner: the input is compared with
+# the one size, and the label it yields is that literal, not the input.
 FAST_CHECKS_ADMISSION_EXPRESSION = (
-    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
+    "${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
@@ -185,6 +186,11 @@ TRUSTED_RUNNER_LINE = re.compile(
 PR_CONTROL_JIT_LINE = re.compile(
     r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                      "'cmux-gcp-pr-control-jit-x64' }}") + r"\s*(?:#.*)?$")
+# A trusted selector written out as the label it resolves to: the fork branch, then one Blacksmith or one-job JIT
+# literal (OWNED_EPHEMERAL_LABELS, checked where it is used), and no variable.
+LITERAL_EPHEMERAL_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ")
+    + r"'(blacksmith-\d+vcpu-ubuntu-2404|cmux-gcp-[a-z-]+-jit-x64)' \}\}\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -216,6 +222,9 @@ BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
+# The selector written out as the label it yields today (LINUX_RUNNER names none of the sizes, so 4 vCPU): no variable
+# is read, so no value can move the job at all.
+BOUNDED_LINUX_FROZEN = "'blacksmith-4vcpu-ubuntu-2404' }}"
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
 BOUNDED_SELECTOR_JOBS = {
@@ -275,6 +284,9 @@ def without_fleet_first(runs_on: str) -> str:
 OWNED_EPHEMERAL_LABELS = frozenset({
     "cmux-gcp-nightly-jit-x64", "cmux-gcp-repair-jit-x64", "cmux-gcp-pr-control-jit-x64", "cmux-gcp-deploy-jit-x64",
     "cmux-gcp-queue-jit-x64", "cmux-gcp-secret-jit-x64",
+    # The required merge gates' label (GATE_JIT_LABEL): the same one-job JIT VMs, which backend-migrations' trusted
+    # jobs now name as a literal.
+    "cmux-gcp-gate-jit-x64",
 })
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
@@ -1128,7 +1140,9 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
               and not TRUSTED_RUNNER_LINE.match(line)
-              and not PR_CONTROL_JIT_LINE.match(line)):
+              and not PR_CONTROL_JIT_LINE.match(line)
+              and not ((m := LITERAL_EPHEMERAL_LINE.match(line))
+                       and (m.group(1).startswith("blacksmith-") or m.group(1) in OWNED_EPHEMERAL_LABELS))):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -1705,13 +1719,16 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertIsNotNone(block, f"{workflow} has no job {job}")
                 runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
                 self.assertEqual(len(runs_on), 1, runs_on)
-                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+                if not LITERAL_EPHEMERAL_LINE.match(runs_on[0]):
+                    self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
                 if workflow in {"cla.yml", "cla-policy-guard.yml"}:
                     self.assertIn(runs_on[0].strip(), ("runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION,
                                                        "runs-on: " + GATE_CLA_TRUSTED_RUNNER_EXPRESSION))
                 if workflow == "backend-migrations.yml":
                     # The required gates' reserved label leads (test_ci_required_gate_label.py).
-                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + GATE_TRUSTED_RUNNER_EXPRESSION)
+                    # Written out as a literal, the label the gate switch and trusted selector resolved to.
+                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(),
+                                     "runs-on: " + FORK_BRANCH_PREFIX + "'" + GATE_JIT_LABEL + "' }}")
 
     def test_the_gate_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
         # A trusted-token gate may lead with cmux-gcp-gate-jit-x64 (one VM per job, deleted after it). Only that
@@ -1724,13 +1741,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(runner_label_errors(
             GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64")), [])
         for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
-                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
-                        GATE_JIT_LABEL):
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER")):
             with self.subTest(runs_on=refused):
                 self.assertNotEqual(runner_label_errors(refused), [])
-        # Not the repair workflows' switch: a variable named for the other label cannot turn this one off.
-        self.assertNotEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION.replace(
-            "CI_GATE_SKIP_FLEET", "CI_REPAIR_SKIP_FLEET")), [])
+        # The switch's name no longer matters here: the gate label is itself a one-job JIT label
+        # (OWNED_EPHEMERAL_LABELS), so any switch in front of it yields only ephemeral labels.
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1744,7 +1759,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for workflow, job, runs_on in jobs:
             if (workflow, job) in APP_KEY_RUNNER_EXCEPTIONS:
                 continue
-            bounded += BOUNDED_LINUX_SELECTOR in runs_on
+            bounded += BOUNDED_LINUX_SELECTOR in runs_on or ("vars." not in runs_on
+                                                             and runs_on.endswith(BOUNDED_LINUX_FROZEN))
             with self.subTest(workflow=workflow, job=job):
                 self.assertEqual(runner_label_errors(runs_on), [], f"{workflow}:{job} holds an App key")
         self.assertGreater(bounded, 0)
@@ -1825,6 +1841,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                if "vars." not in runs_on[key]:
+                    # The queue workflows' frozen form is their reserved label (CI_QUEUE_RESERVED was on); a
+                    # secret-bearing job's is the secret one-job JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+                    self.assertTrue(runs_on[key].endswith((BOUNDED_LINUX_FROZEN, "'cmux-gcp-queue-jit-x64' }}",
+                                                           "'cmux-gcp-secret-jit-x64' }}")),
+                                    runs_on[key])
+                    continue
                 self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:

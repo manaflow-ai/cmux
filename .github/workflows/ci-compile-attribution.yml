@@ -58,7 +58,7 @@ jobs:
     # Analysis only reads trusted main history and the Actions/PR APIs, but it
     # mints App tokens to read on their budget, so it runs on a literal
     # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -199,7 +199,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: attribution must follow a failed compile within a minute
     timeout-minutes: 10
     permissions:
       actions: write # dispatches main-compile-probe.yml
@@ -296,7 +296,7 @@ jobs:
     name: Fix forward or revert
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds the Claude token and the fix PR App key
     timeout-minutes: 30
     concurrency:
       group: ci-compile-attribution-fix
