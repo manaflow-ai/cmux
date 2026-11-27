@@ -2150,7 +2150,19 @@ impl Brain {
     /// cx-oqnw3: a compactor fault is a system notice (the app reads
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
+    ///
+    /// A compactor that cannot run because its agent is not installed is no fault: the Set Up
+    /// card already says Claude Code is missing, with its Install button. First-run findings: a
+    /// clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
+    /// answers." under the card from the first launch on.
     fn compactor_status(&mut self, status: Result<(), String>) {
+        let status = match status {
+            Err(text) if crate::harness_gate::harness_missing(&text) => {
+                (self.log)(&text);
+                Ok(())
+            }
+            status => status,
+        };
         self.stuck_fault = false;
         self.probe_fault = status.is_err();
         if let Some(settle) = &self.settle_status {

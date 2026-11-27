@@ -334,3 +334,22 @@ fn the_build_folder_search_never_reads_inside_a_folder_macos_guards() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// The guarded folders are acpmux's one list, read whole: a folder in it and one inside it are
+/// guarded, the home folder's other folders are not, and a name that only starts like one is not.
+#[test]
+fn guarded_folders_follow_the_one_protected_folder_list() {
+    let home = Path::new("/Users/someone");
+    for guarded in [
+        "Desktop",
+        "Documents/app",
+        "Downloads",
+        "Library/Mobile Documents",
+        "Library/Containers/x",
+    ] {
+        assert!(guarded_folder(home, &home.join(guarded)), "{guarded}");
+    }
+    for open in ["code", "Library", "Desktopper", "site/Documents"] {
+        assert!(!guarded_folder(home, &home.join(open)), "{open}");
+    }
+    assert!(!guarded_folder(home, Path::new("/elsewhere/Desktop")));
+}

@@ -36,9 +36,11 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
+    // An agent that is not installed is the Set Up card's to say, not a memory notice.
     let lasting = |e: &str| {
-        e.starts_with(optchat_host::SETUP_ERROR)
-            || optchat_host::error_class(e).is_some_and(|c| c.permanent())
+        !crate::harness_gate::harness_missing(e)
+            && (e.starts_with(optchat_host::SETUP_ERROR)
+                || optchat_host::error_class(e).is_some_and(|c| c.permanent()))
     };
     let node = status
         .stuck

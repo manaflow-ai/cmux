@@ -149,14 +149,12 @@ fn a_missing_claude_code_is_the_set_up_cards_not_a_memory_notice() {
     let dir = tempfile::tempdir().unwrap();
     let fault = dir.path().join("state/compactor.json");
     let mut h = Harness::new(default_script());
-    h.brain = h
-        .brain
-        .with_compactor_messages(true)
-        .with_settle_status(optchat_chief::settle_status::SettleStatus::new(
-            &dir.path().join("state/settle.json"),
-        ));
+    h.brain = h.brain.with_compactor_messages(true).with_settle_status(
+        optchat_chief::settle_status::SettleStatus::new(&dir.path().join("state/settle.json")),
+    );
     h.connect();
-    h.brain.step(Input::CompactorStatus(Err(NO_CLAUDE_CODE.to_owned())));
+    h.brain
+        .step(Input::CompactorStatus(Err(NO_CLAUDE_CODE.to_owned())));
     h.settle_posts();
     assert!(!fault.exists(), "no memory notice in the app");
     assert!(sends(&h).is_empty(), "{:?}", sends(&h));

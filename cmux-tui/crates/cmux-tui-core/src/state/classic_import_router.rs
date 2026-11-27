@@ -149,13 +149,17 @@ impl Places {
     }
 
     /// Check known paths using metadata. Tagged palette plists have unknown names
-    /// and can only be discovered by the accepted import.
+    /// and can only be discovered by the accepted import. This app's own preferences
+    /// file is no sign of classic: cmux NEXT NIGHTLY shares classic nightly's bundle id
+    /// and writes `com.cmuxterm.app.nightly.plist` itself at its first launch, so a Mac
+    /// that never had classic was asked "Import from classic cmux?" (first-run findings).
     fn classic_settings_present(&self, bundle_id: &str) -> bool {
         let prefs = self.probe_home.join("Library/Preferences");
         self.config_home.join("cmux/cmux.json").is_file()
             || cmux_classic_import::ghostty::source_path(&self.support, bundle_id).is_some()
             || cmux_classic_import::source::CHANNELS
                 .iter()
+                .filter(|id| **id != bundle_id)
                 .any(|id| prefs.join(format!("{id}.plist")).is_file())
     }
 

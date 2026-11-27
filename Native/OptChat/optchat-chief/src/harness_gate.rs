@@ -178,6 +178,13 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
+/// Whether `reason` says the agent is not installed on this Mac (acpmux has no harness for it):
+/// the Set Up card's case, which it already shows with an Install button.
+pub fn harness_missing(reason: &str) -> bool {
+    let lower = reason.to_ascii_lowercase();
+    lower.contains("has no harness named") || lower.contains("acpmux has none")
+}
+
 /// The text the Chief gives for a refused turn: plain sentences a person can act on, never the
 /// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
 /// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
@@ -194,7 +201,7 @@ pub fn refusal(reason: &str) -> String {
     } else {
         None
     };
-    let missing = lower.contains("has no harness named") || lower.contains("acpmux has none");
+    let missing = harness_missing(reason);
     let (what, fix) = match (agent, missing) {
         (Some(agent), true) => (
             format!("Chief answers through {agent}, which is not on this Mac yet."),
