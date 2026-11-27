@@ -98,6 +98,8 @@ export async function runComposerLoad(
     typing?: { start(): Promise<void>; stop(): Promise<void> };
     /// Each key's time by phase, from the page's own event timestamps (keyPhases.ts; a `KEY-PHASES` line).
     phases?: boolean;
+    /// A script file the page runs before its own code; its `window.__probe()` prints as a `PROBE` line after the keys.
+    probe?: string;
   },
 ) {
   const { port, mode, length, keys, gap } = options;
@@ -105,6 +107,7 @@ export async function runComposerLoad(
   // collected from the goto onward so a pane that never installs its hook reports what it held instead.
   const pageErrors = watchPageErrors(page);
   if (options.phases) await page.addInitScript(keyPhasesProbe);
+  if (options.probe) await page.addInitScript({ path: options.probe });
   const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
   const status = response?.status();
   // A static server that answers `/` with a 404 body loads as a page: without this the bench waits
@@ -246,6 +249,8 @@ export async function runComposerLoad(
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
+  if (options.probe)
+    console.log(`PROBE ${JSON.stringify({ mode, length, probe: await page.evaluate(() => (window as any).__probe?.()) })}`);
   if (options.phases) console.log(`KEY-PHASES ${JSON.stringify({ mode, length, phases: await readKeyPhases(page) })}`);
   const after = await readLoads();
   for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
