@@ -158,6 +158,13 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c.split()[0] for c in calls], ["app", "pool1", "pool2"])
 
+    def test_an_empty_pool_says_so(self) -> None:
+        # 2026-11-25 to 11-27 secrets.CI_POOL_TOKEN_1/2 were never set and POOL_TOKENS ran empty, unseen
+        _, _, out = self.run_post("app", fail="")
+        self.assertIn("::warning title=CI pool tokens::POOL_TOKENS is empty", out)
+        _, _, out = self.run_post("app", fail="", pools="pool1 pool2")
+        self.assertNotIn("CI pool tokens", out)
+
     def test_the_post_reads_the_pool_tokens(self) -> None:
         env = step("Post the land tier status")["env"]
         self.assertIn("secrets.CI_POOL_TOKEN_1", env["POOL_TOKENS"])

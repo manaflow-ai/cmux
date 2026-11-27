@@ -760,6 +760,10 @@ jobs:
           # failed job posts it instead of a green run that posted nothing. Other API failures stay red at once,
           # except on a pool token, which is passed over.
           throttled='rate limit exceeded|secondary rate limit|too many requests|HTTP 429'
+          # An empty pool is the key home's push not setting CI_POOL_TOKEN_1/2 (leo-workspace gh-app-roles.json
+          # push.actions_secrets), not this job's: 2026-11-25 to 11-27 they were never set and every post ran on two
+          # budgets, waiting 7.7 min p90 or failing (job 140219559972). Said on every run, so it is seen.
+          [[ "${POOL_TOKENS:-}" =~ [^[:space:]] ]] || echo "::warning title=CI pool tokens::POOL_TOKENS is empty: secrets.CI_POOL_TOKEN_1/2 are unset, so $CONTEXT posts on the App token and GITHUB_TOKEN only"
           deadline=$((SECONDS + ${POST_WAIT_SECONDS:-480}))
           tries=0
           while :; do
