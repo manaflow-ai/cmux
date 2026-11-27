@@ -723,6 +723,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, cli.json),
             }
         }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Conformance { cases, dir, keep })) => {
+            match crate::placement::exec_conformance::main(&cases, dir, keep, cli.json).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),

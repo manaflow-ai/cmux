@@ -238,6 +238,19 @@ impl Setup {
         .unwrap()
     }
 
+    /// `control <action>` with no id (the summary).
+    fn control_all(&mut self, action: &str) -> String {
+        let a = self.sp.clone();
+        let action = action.to_owned();
+        run(&mut self.h, move || {
+            a.control(ControlCall {
+                action,
+                ..ControlCall::default()
+            })
+        })
+        .unwrap()
+    }
+
     fn sub(&self) -> optchat_chief::state::SubRecord {
         self.h.brain.state().sub("a1").unwrap().1.clone()
     }
@@ -379,6 +392,36 @@ fn status_names_the_task_the_work_and_the_pushes() {
         status.contains("pushed: 1a2b3c4d5e..9f8e7d6c5b -> feat-cmux-next"),
         "{status}"
     );
+}
+
+#[test]
+fn the_summary_reads_the_same_heartbeats_as_per_id_status() {
+    // 2026-11-27 13:30 PT (acp-chief-issues.md): `control status` with no id marked all 10 subagents
+    // [stalled] while per-id status showed them running-tool, a heartbeat under 30 s ago. The summary read
+    // each watch as the last per-id read (or tick) left it, never folding in the events since.
+    let t0 = now_ms();
+    let mut s = setup(vec![
+        prompt("optchat-sub:a1", t0),
+        started(t0),
+        bash("t", "cargo test -p optchat-chief", t0 + 1000),
+        beat("t", t0 + 60_000),
+    ]);
+    s.at(t0 + 70_000);
+    // A per-id read makes the watch, as a tick does.
+    let first = s.control("status", None);
+    assert!(first.contains("[running-tool]"), "{first}");
+    // The tool beats on every 30 s for 40 minutes, well past STALL_AFTER since that read.
+    let beats: Vec<Value> = (1..=80)
+        .map(|i| beat("t", t0 + 60_000 + i * 30_000))
+        .collect();
+    s.h.agents.append_events(&s.session, beats);
+    s.at(t0 + 60_000 + 80 * 30_000 + 5_000);
+    let summary = s.control_all("status");
+    assert!(summary.contains("a1 [running-tool]"), "{summary}");
+    assert!(summary.contains("1 running-tool"), "{summary}");
+    assert!(!summary.contains("stalled"), "{summary}");
+    let one = s.control("status", None);
+    assert!(one.contains("[running-tool]"), "{one}");
 }
 
 #[test]

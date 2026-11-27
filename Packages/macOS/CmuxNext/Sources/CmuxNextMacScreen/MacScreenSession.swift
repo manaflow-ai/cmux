@@ -373,6 +373,7 @@ public final class MacScreenSession {
             socketPath = path
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
+                                turnStream: servers.turnStream,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
             for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
             laterCandidates = nil
@@ -612,6 +613,8 @@ public final class MacScreenSession {
         var peerKey: String
         var stun: [String]
         var turn: [MacScreenRdServers.Turn]
+        /// TCP and TLS relays, after the UDP ones, for a network that blocks UDP.
+        var turnStream: [MacScreenRdServers.Turn]
         var candidates: [String]
         var socket: String
         var relayOnly: Bool
@@ -619,6 +622,7 @@ public final class MacScreenSession {
         enum CodingKeys: String, CodingKey {
             case session, stun, turn, candidates, socket
             case peerKey = "peer_key"
+            case turnStream = "turn_stream"
             case relayOnly = "relay_only"
         }
     }
