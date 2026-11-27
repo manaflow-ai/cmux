@@ -364,7 +364,10 @@ pub fn toast_message(tabs: usize, title: &str) -> ToastMessage {
 /// Whether the closes of `daemons` (each part's daemon index) are one group: two or more
 /// parts, all on one daemon. Else each pane's part is its own.
 pub fn one_group(daemons: &[usize]) -> bool {
-    daemons.len() > 1 && daemons.iter().all(|daemon| *daemon == daemons[0])
+    match daemons {
+        [first, rest @ ..] => !rest.is_empty() && rest.iter().all(|daemon| daemon == first),
+        [] => false,
+    }
 }
 
 // MARK: Workspace closes
