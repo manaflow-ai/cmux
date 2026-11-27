@@ -353,7 +353,9 @@ pub fn outline(pack: &Pack) -> Result<String> {
                 .or_else(|| v.pointer("/msg/prompt"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if v.get("kind").is_some() && prompt.is_empty() {
+            let has_prompt_field =
+                v.pointer("/msg/promptLine").is_some() || v.pointer("/msg/prompt").is_some();
+            if v.get("kind").is_some() && has_prompt_field && prompt.is_empty() {
                 again.push(i);
             }
             (v.get("at").and_then(Value::as_u64).unwrap_or(0), prompt.to_owned())

@@ -312,7 +312,6 @@ fn a_transcript_reads_back_and_has_an_outline_and_digests() {
     assert_eq!(m.tail_turns(2), t.starts[118]);
 }
 
-
 #[test]
 fn an_acpmux_outline_restores_long_prompt_fields() {
     for field in ["promptLine", "prompt"] {

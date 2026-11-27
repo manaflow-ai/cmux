@@ -7,7 +7,7 @@
 
 use crate::Result;
 use std::fs;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 /// A chunk's id.
@@ -28,7 +28,7 @@ const HEADER: usize = 6;
 /// This is also the upper bound passed to zstd when a received chunk declares its
 /// expanded size.  Bundle and peer readers apply a corresponding bound to the
 /// stored representation before allocating it.
-pub(crate) const MAX_CHUNK_BYTES: usize = 128 << 20;
+pub(crate) const MAX_CHUNK_BYTES: usize = 256 << 20;
 pub(crate) const MAX_STORED_CHUNK_BYTES: usize = MAX_CHUNK_BYTES + HEADER;
 /// zstd's window is 8 MiB at level 19; a chunk larger than that (one huge line) gets a window
 /// that covers it, up to the 128 MiB every decoder accepts.
@@ -76,7 +76,8 @@ pub fn encode_chunk(kind: u8, payload: &[u8], level: i32) -> Result<Vec<u8>> {
     if payload.len() > MAX_CHUNK_BYTES {
         return Err(format!(
             "a chunk of {} bytes is over the {} byte chunk limit",
-            payload.len(), MAX_CHUNK_BYTES
+            payload.len(),
+            MAX_CHUNK_BYTES
         )
         .into());
     }
@@ -108,7 +109,8 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
     if file.len() > MAX_STORED_CHUNK_BYTES {
         return Err(format!(
             "a chunk file of {} bytes is over the {} byte chunk limit",
-            file.len(), MAX_STORED_CHUNK_BYTES
+            file.len(),
+            MAX_STORED_CHUNK_BYTES
         )
         .into());
     }
@@ -128,9 +130,18 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
             body.to_vec()
         }
         CODEC_ZSTD => {
-            let mut d = zstd::bulk::Decompressor::new()?;
-            d.set_parameter(zstd::zstd_safe::DParameter::WindowLogMax(27))?;
-            d.decompress(body, len)?
+            let mut d = zstd::stream::read::Decoder::new(body)?;
+            d.window_log_max(27)?;
+            let mut payload = Vec::with_capacity(len.min(64 << 10));
+            d.take(len as u64 + 1).read_to_end(&mut payload)?;
+            if payload.len() != len {
+                return Err(format!(
+                    "a zstd chunk says {len} bytes and expands to {}",
+                    payload.len()
+                )
+                .into());
+            }
+            payload
         }
         other => {
             return Err(

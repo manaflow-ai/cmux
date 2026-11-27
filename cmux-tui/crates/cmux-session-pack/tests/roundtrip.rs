@@ -126,7 +126,6 @@ fn an_appended_log_repacks_to_the_same_chunks_and_ships_only_the_new_ones() {
     assert!(back == bytes);
 }
 
-
 #[test]
 fn a_bundle_cannot_allocate_from_untrusted_lengths() {
     let dir = tempfile::tempdir().unwrap();
@@ -134,18 +133,16 @@ fn a_bundle_cannot_allocate_from_untrusted_lengths() {
 
     let mut manifest = b"CSPB1\n".to_vec();
     manifest.extend_from_slice(&u32::MAX.to_le_bytes());
-    let err = ship::unbundle(&store, &mut &manifest[..], ship::Lacking::Allow)
-        .unwrap_err()
-        .to_string();
+    let err =
+        ship::unbundle(&store, &mut &manifest[..], ship::Lacking::Allow).unwrap_err().to_string();
     assert!(err.contains("manifest") && err.contains("limit"), "{err}");
 
     let mut chunk = b"CSPB1\n".to_vec();
     chunk.extend_from_slice(&0u32.to_le_bytes());
     chunk.extend_from_slice(&[0u8; 32]);
     chunk.extend_from_slice(&u32::MAX.to_le_bytes());
-    let err = ship::unbundle(&store, &mut &chunk[..], ship::Lacking::Allow)
-        .unwrap_err()
-        .to_string();
+    let err =
+        ship::unbundle(&store, &mut &chunk[..], ship::Lacking::Allow).unwrap_err().to_string();
     assert!(err.contains("stored chunk") && err.contains("limit"), "{err}");
     assert!(!store.manifest_path("s").exists());
 }

@@ -151,12 +151,8 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
             _ => input.read_exact(&mut id[1..])?,
         }
         input.read_exact(&mut len)?;
-        let file = read_bounded(
-            input,
-            u32::from_le_bytes(len),
-            MAX_STORED_CHUNK_BYTES,
-            "stored chunk",
-        )?;
+        let file =
+            read_bounded(input, u32::from_le_bytes(len), MAX_STORED_CHUNK_BYTES, "stored chunk")?;
         store.receive(&id, &file)?;
     }
     let Some(manifest) = manifest else { return Ok(None) };
