@@ -26,7 +26,7 @@ struct SidebarInterruptedDragLookTests {
     @Test(arguments: [false, true])
     func theWindowResigningKeyWithTheButtonUpEndsIt(_ drags: Bool) throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
         defer { h.close() }
         _ = try press(h, drags: drags)
         h.list.pointerWindowLostKey() // what the list's `NSWindow.didResignKeyNotification` observer runs
@@ -38,7 +38,7 @@ struct SidebarInterruptedDragLookTests {
     @Test(arguments: [false, true])
     func theAppDeactivatingEndsIt(_ drags: Bool) throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
         defer { h.close() }
         _ = try press(h, drags: drags)
         h.list.pointerFocusLost() // what the list's `NSApplication.didResignActiveNotification` observer runs
@@ -50,7 +50,7 @@ struct SidebarInterruptedDragLookTests {
     @Test(arguments: [false, true])
     func escapeEndsIt(_ drags: Bool) throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
         defer { h.close() }
         _ = try press(h, drags: drags)
         h.list.keyDown(with: try h.escape())
@@ -63,7 +63,7 @@ struct SidebarInterruptedDragLookTests {
     /// reloaded under the drag): after its dispatch the held drag has lost its release, and it ends as a cancel.
     @Test func aReleaseThatNeverReachesTheDragEndsIt() async throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
         defer { h.close() }
         let pin = try press(h, drags: true)
         let release = try h.event(.leftMouseUp, on: pin, down: 40)
@@ -79,7 +79,7 @@ struct SidebarInterruptedDragLookTests {
     /// The release went to another app's window (outside this one): the drag ends after that dispatch.
     @Test func aReleaseOutsideTheWindowEndsIt() async throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
+        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
         defer { h.close() }
         _ = try press(h, drags: true)
         _ = h.list.pointerEventSeen(.leftMouseUp, in: nil, at: NSPoint(x: -400, y: -400))

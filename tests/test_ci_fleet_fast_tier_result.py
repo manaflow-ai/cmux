@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("fleet_fast_tier_result", ROOT / "scripts/ci/fleet_fast_tier_result.py")
 m = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(m)
@@ -146,6 +148,23 @@ class Read(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
+    def test_batch_registry_selects_every_swift_suite_and_rejects_partial_coverage(self):
+        home, app = "Packages/Shared/CmuxHomeRender", "Packages/macOS/CmuxNext"
+        entries = [{"kind": "swift", "package": app, "filter": "OneTests"},
+                   {"kind": "script"}, {"kind": "swift", "package": home, "filter": "TwoTests"},
+                   {"kind": "swift", "package": app, "filter": "ThreeTests"}]
+        self.assertEqual(m.registry_suites(entries), {app: "OneTests,ThreeTests", home: "TwoTests"})
+        for unsupported in (entries[:1], entries + [{"kind": "swift", "package": "New", "filter": "FourTests"}]):
+            with self.assertRaises(ValueError):
+                m.registry_suites(unsupported)
+
+    def test_batch_does_not_accept_another_suite_set_at_the_same_sha(self):
+        steps = [step("Packages/macOS/CmuxNext", "pass"), step("Packages/Shared/CmuxHomeRender", "pass")]
+        expected = {s["package"]: s["suites"] for s in steps}
+        self.assertEqual(run([(200, record("pass", steps))], expected_suites=expected)[0], "pass")
+        steps[0]["suites"] = "OtherTests"
+        self.assertEqual(run([(200, record("pass", steps))], expected_suites=expected)[0], "unavailable")
+
     def test_bad_args_print_unavailable(self):
         import contextlib
         import io
@@ -167,7 +186,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(job["name"], "cmux-next fast tier (build fleet)")
         self.assertEqual(job["runs-on"], "cmux-linux")
         self.assertIn("verdict", job["outputs"])
-        text = "\n".join(s.get("run", "") for s in job["steps"])
+        text = "\n".join(step_run(s) for s in job["steps"])
         self.assertIn("fleet_fast_tier_result.py", text)
         self.assertNotIn("gateway_runner", str(job.get("if", "")))
 
@@ -177,7 +196,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("fast-tier-fleet", job["needs"])
         self.assertIn("needs.fast-tier-fleet.outputs.verdict == 'unavailable'", job["if"])
         self.assertIn("gateway_runner", str(job["runs-on"]))
-        text = "\n".join(s.get("run", "") for s in job["steps"])
+        text = "\n".join(step_run(s) for s in job["steps"])
         self.assertIn("::warning title=mac fallback::", text)
         self.assertIn("verdict", job["outputs"])
 

@@ -146,7 +146,9 @@ enum AgentPaneHandshakeReply {
             var details: [String: Any] = [:]
             // The web pane shows nothing while a daemon starts or restarts and its retries can
             // outlast it (``AgentPaneHostError/isTransient``); a refusal they cannot is said at once.
-            if (error as? AgentPaneHostError)?.isTransient == true { details["reconnecting"] = true }
+            let hostError = error as? AgentPaneHostError
+            let unclassified = hostError == nil && !(error is any AgentPaneHostRefusal)
+            if hostError?.isTransient == true || unclassified { details["reconnecting"] = true }
             // A restart the host carries out (an update's handoff, a start under way): the page's
             // link is not down, so it shows no chip (webviews hostRetry.ts `hostPlannedRestart`).
             if (error as? AgentPaneHostError)?.isPlannedRestart == true { details["handoff"] = true }
@@ -179,4 +181,5 @@ enum AgentPaneHandshakeReply {
         guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
-    }}
+    }
+}
