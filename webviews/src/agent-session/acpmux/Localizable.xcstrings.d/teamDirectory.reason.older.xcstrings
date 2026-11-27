@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "prCard.checksFailingNames" : {
-      "comment" : "Agent pane: a pull request's hover card, the title over the names of its failing CI checks",
+    "teamDirectory.reason.older" : {
+      "comment" : "Agent pane: team directory with an older acpmux",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac's acpmux predates the team directory."
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "الفاشلة"
+            "value" : "acpmux على هذا الـ Mac أقدم من دليل الفريق."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Neuspjele"
+            "value" : "acpmux na ovom Macu je stariji od imenika tima."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fejler"
+            "value" : "Denne Macs acpmux er ældre end teamkataloget."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fehlgeschlagen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failing"
+            "value" : "Das acpmux dieses Macs ist älter als das Teamverzeichnis."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fallando"
+            "value" : "El acpmux de este Mac es anterior al directorio del equipo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En échec"
+            "value" : "L'acpmux de ce Mac est antérieur à l'annuaire de l'équipe."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In errore"
+            "value" : "L'acpmux di questo Mac è precedente alla directory del team."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "失敗中"
+            "value" : "この Mac の acpmux はチームディレクトリより古いバージョンです。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បរាជ័យ"
+            "value" : "acpmux របស់ Mac នេះចាស់ជាងបញ្ជីក្រុម។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "실패 중"
+            "value" : "이 Mac의 acpmux는 팀 디렉터리 이전 버전입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Feiler"
+            "value" : "Denne Macens acpmux er eldre enn teamkatalogen."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Niezaliczone"
+            "value" : "acpmux tego Maca jest starszy niż katalog zespołu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Com falha"
+            "value" : "O acpmux deste Mac é anterior ao diretório da equipe."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не пройдены"
+            "value" : "acpmux этого Mac старше каталога команды."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ที่ล้มเหลว"
+            "value" : "acpmux ของ Mac เครื่องนี้เก่ากว่าไดเรกทอรีของทีม"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Başarısız olanlar"
+            "value" : "Bu Mac'in acpmux'u ekip dizininden eski."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не пройдені"
+            "value" : "acpmux цього Mac старіший за каталог команди."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đang lỗi"
+            "value" : "acpmux của máy Mac này cũ hơn danh bạ nhóm."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "失败项"
+            "value" : "此 Mac 的 acpmux 早于团队目录。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "失敗項目"
+            "value" : "此 Mac 的 acpmux 早於團隊目錄。"
           }
         }
       }

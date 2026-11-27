@@ -17187,6 +17187,16 @@ export class AcpmuxDirectClient {
   async teamAudit(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/team_audit", params, 45_000);
   }
+  /// RFD 0170's team directory (`_acpmux/team/navigator`, `_acpmux/team/pick`,
+  /// `_acpmux/team/session_info`, acpmux server/team_directory.rs): each answer is the
+  /// cmux-team-messaging view, built and permission-filtered in Rust; the pane only draws it
+  /// (teamDirectory/TeamDirectoryScreen.tsx). Off while `meshRelay.teamMessaging` is off.
+  async teamDirectory(
+    method: "navigator" | "pick" | "session_info",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    return this.request(`_acpmux/team/${method}`, params, 15_000);
+  }
   /// Every ask waiting on the person across agents and machines, for History > Waiting on you
   /// (`_acpmux/review_queue`, queue/queueModel.ts).
   async reviewQueue(params: Record<string, unknown> = {}): Promise<unknown> {
