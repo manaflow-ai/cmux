@@ -503,12 +503,11 @@ jobs:
       id-token: write
 
   web-pipeline:
-    # Keep the public check prefix and rerun receipt grouping unchanged; only web-browser runs here.
-    name: pr pipeline
+    name: pr web pipeline
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
     # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
     needs: [route, fast-gates, compile-preflight]
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && needs.compile-preflight.result == 'success' && contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && needs.compile-preflight.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') && contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: '["web-browser"]'

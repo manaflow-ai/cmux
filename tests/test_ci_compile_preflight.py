@@ -120,6 +120,30 @@ class BuildErrors(unittest.TestCase):
         self.assertEqual(out.returncode, 1, out.stdout)
         self.assertIn("::error title=web bundle build::✘ [ERROR]", out.stdout)
         self.assertIn("NIGHTLY red", out.stdout)
+        receipt = json.loads(next(line.removeprefix("CMUX_WEB_BUILD ") for line in out.stdout.splitlines()
+                                  if line.startswith("CMUX_WEB_BUILD ")))
+        self.assertEqual((receipt["builds"], receipt["exit_code"]), (1, 1))
+        self.assertGreaterEqual(receipt["cpu_seconds"], 0)
+        self.assertGreaterEqual(receipt["wall_seconds"], 0)
+        self.assertIsNone(receipt["source_sha"])
+
+    def test_receipt_binds_the_built_tree_instead_of_the_event_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/cmux-next").mkdir(parents=True)
+            (root / "scripts/cmux-next/build-web-bundles.sh").write_text("#!/bin/bash\nexit 0\n")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                            "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "source tree"], check=True)
+            source_sha = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+            out = subprocess.run([sys.executable, "-I", str(SCRIPT), "web-build", str(root), str(root / "out")],
+                                 capture_output=True, text=True, check=True,
+                                 env={**os.environ, "GITHUB_SHA": "different-event-tree", "CMUX_WEB_SOURCE_KEY": "bundle-key"})
+        receipt = json.loads(next(line.removeprefix("CMUX_WEB_BUILD ") for line in out.stdout.splitlines()
+                                  if line.startswith("CMUX_WEB_BUILD ")))
+        self.assertEqual(receipt["source_sha"], source_sha)
+        self.assertEqual(receipt["event_sha"], "different-event-tree")
+        self.assertEqual(receipt["source_key"], "bundle-key")
 
 
 class NeverSkipped(unittest.TestCase):
@@ -137,11 +161,23 @@ class NeverSkipped(unittest.TestCase):
         self.assertNotRegex(block, r"^    if:", "a job-level if: would report the check skipped")
         self.assertIn("name: web bundle build", block)
         self.assertIn("compile_preflight.py web-build", block)
-        self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
+        self.assertIn('compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD', block)
         self.assertIn("fetch-depth: 2", block)
 
 
 class SharedWebArtifact(unittest.TestCase):
+    def test_an_older_source_tree_keeps_current_transport_helpers(self) -> None:
+        import yaml
+        document = yaml.safe_load(CALLEE.read_text())
+        steps = document["jobs"]["web"]["steps"]
+        checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+        self.assertEqual(len(checkouts), 2)
+        self.assertNotIn("ref", checkouts[0]["with"])
+        self.assertEqual(checkouts[1]["with"]["path"], "web-source")
+        self.assertEqual(checkouts[1]["with"]["ref"], "${{ inputs.source_ref }}")
+        build = next(step for step in steps if step.get("name") == "Build the web bundles (the build NIGHTLY runs)")
+        self.assertIn('scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT"', build["run"])
+
     def test_manifest_accepts_copy_and_rejects_wrong_key_changed_missing_or_extra_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -170,13 +206,17 @@ class SharedWebArtifact(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "scripts/cmux-next").mkdir(parents=True)
-            checker = root / "scripts/build-webviews-app.sh"
+            (root / "webviews").mkdir()
+            checker = root / "scripts/check-webviews-bun-version.sh"
             checker.write_text("#!/bin/bash\necho checked >> source-checks\n")
             checker.chmod(0o755)
+            bun = root / "scripts/bun"
+            bun.write_text('#!/bin/bash\ntest "$*" = "run verify:tanstack-router"\n')
+            bun.chmod(0o755)
             builder = root / "scripts/cmux-next/build-web-bundles.sh"
             builder.write_text("#!/bin/bash\nif [ \"$1\" = --from ]; then echo install >> events; else echo build >> events; fi\n")
             builder.chmod(0o755)
-            env = dict(os.environ, CMUX_WEB_BUNDLES_FROM="")
+            env = dict(os.environ, CMUX_WEB_BUNDLES_FROM="", PATH=str(root / "scripts") + os.pathsep + os.environ["PATH"])
             subprocess.run(["bash", "-c", body + "\nbuild\nbuild"], cwd=root, env=env, check=True)
             self.assertEqual((root / "events").read_text().splitlines().count("build"), 2)
             (root / "events").write_text("")
@@ -206,6 +246,104 @@ class SharedWebArtifact(unittest.TestCase):
             self.assertIn("inputs.web_bundle_transport == 'r2'", text)
             self.assertIn("inputs.web_bundle_transport == 'github'", text)
             self.assertIn("pr-web-bundles-${{ inputs.web_bundle_key }}-${{ github.run_attempt }}", text)
+
+    def test_outage_is_not_hidden_by_rebuilding_or_switching_transport(self) -> None:
+        import yaml
+        for filename, job_name in (("cmux-next-compile-preflight.yml", "web"),
+                                   ("cmux-next-size-budget.yml", "web-head"),
+                                   ("pr-pipeline.yml", "web-browser")):
+            job = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())["jobs"][job_name]
+            transfers = [step for step in job["steps"] if "/r2-artifact/" in step.get("uses", "")]
+            self.assertTrue(transfers)
+            for step in transfers:
+                self.assertNotIn("continue-on-error", step)
+                self.assertIn("== 'r2'", step["if"])
+        size = job_block((ROOT / ".github/workflows/cmux-next-size-budget.yml").read_text(), "web-head")
+        self.assertIn("steps.web-bundle-run.outputs.hit != 'true'", size)
+        self.assertIn('if [[ "$WEB_BUNDLE_HIT" != true ]]; then', size)
+
+
+class R2WebTransport(unittest.TestCase):
+    """Exercise the real archive client with only the remote store replaced."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "r2_web_artifact", ROOT / ".github/actions/r2-artifact/artifact.py")
+        self.client = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.client)
+
+    def test_directory_roundtrip_preserves_bundle_and_manifest_layout(self):
+        import io
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "bundles"
+            (source / "webviews/assets").mkdir(parents=True)
+            (source / "webviews/assets/app.js").write_text("bundle bytes")
+            (source / "manifest.json").write_text('{"source_key":"source"}')
+            uploaded = []
+            requests = []
+
+            def endpoint(token, body):
+                self.assertEqual(token, "test-oidc")
+                requests.append(body)
+                return {"key": "same-run-product", "put_url": "https://store.invalid/product",
+                        "get_url": "https://store.invalid/product"}
+
+            def urlopen(request, timeout):
+                self.assertEqual(timeout, 600)
+                if request.get_method() == "PUT":
+                    uploaded.append(request.data.read())
+                    response = io.BytesIO()
+                    response.status = 200
+                    return response
+                self.assertEqual(request.get_method(), "GET")
+                return io.BytesIO(uploaded[0])
+
+            inputs = {"INPUT_NAME": "pr-web-bundles-source-1", "INPUT_PATH": str(source),
+                      "INPUT_RETENTION_DAYS": "1", "INPUT_IF_NO_FILES_FOUND": "error",
+                      "RUNNER_TEMP": str(root), "GITHUB_RUN_ID": "101"}
+            with mock.patch.dict(os.environ, inputs, clear=True), \
+                    mock.patch.object(self.client, "oidc_token", return_value="test-oidc"), \
+                    mock.patch.object(self.client, "endpoint", side_effect=endpoint), \
+                    mock.patch.object(self.client.urllib.request, "urlopen", side_effect=urlopen), \
+                    mock.patch.object(self.client, "note"):
+                self.client.upload()
+                os.environ["INPUT_PATH"] = str(root / "downloaded")
+                self.client.download()
+            self.assertEqual(len(uploaded), 1)
+            self.assertEqual(requests, [
+                {"op": "put", "name": "pr-web-bundles-source-1", "retention_days": 1},
+                {"op": "get", "name": "pr-web-bundles-source-1", "run_id": 101}])
+            dest = root / "downloaded"
+            self.assertEqual((dest / "webviews/assets/app.js").read_text(), "bundle bytes")
+            self.assertEqual((dest / "manifest.json").read_bytes(), (source / "manifest.json").read_bytes())
+            self.assertFalse((dest / "bundles").exists())
+
+    def test_archive_traversal_and_links_are_rejected(self):
+        import io
+        import tarfile
+        from unittest import mock
+
+        for kind in ("traversal", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                archive = root / "unsafe.tar.gz"
+                with tarfile.open(archive, "w:gz") as tar:
+                    item = tarfile.TarInfo("../escape" if kind == "traversal" else "link")
+                    if kind == "symlink":
+                        item.type = tarfile.SYMTYPE
+                        item.linkname = "../escape"
+                        tar.addfile(item)
+                    else:
+                        item.size = 1
+                        tar.addfile(item, io.BytesIO(b"x"))
+                with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(root)}), \
+                        mock.patch.object(self.client, "note"), self.assertRaises(SystemExit):
+                    self.client.extract(archive.as_uri(), root / "dest", "unsafe")
+                self.assertFalse((root / "escape").exists())
+                self.assertFalse((root / "dest/link").is_symlink())
 
 
 if __name__ == "__main__":

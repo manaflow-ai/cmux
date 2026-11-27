@@ -1000,7 +1000,8 @@ class PipelineTest(unittest.TestCase):
             self.assertIn('table=["web-browser"]\n', out.read_text())
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
-        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
+        self.assertEqual(router["jobs"]["pipeline"]["with"], {
+            "jobs": "${{ needs.route.outputs.table || '' }}", "defer_web_browser": True})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
