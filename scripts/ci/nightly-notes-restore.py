@@ -32,8 +32,12 @@ def fail(message: str) -> "NoReturn":
     raise SystemExit(f"nightly-notes-restore: {message}")
 
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+HEX = re.compile(r"^[0-9a-f]{64}$")
+PREFIX = "nightly-next/notes/"
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def load_provenance(path: Path) -> dict:
@@ -43,7 +47,8 @@ def load_provenance(path: Path) -> dict:
         fail(f"invalid provenance {path}: {error}")
     if not isinstance(value, dict):
         fail("provenance must be a JSON object")
-    required = ("source_run", "source_attempt", "source_sha", "build", "withdrawn")
+    required = ("source_run", "source_attempt", "source_sha", "build", "withdrawn",
+                "notes_sha256", "signature_sha256")
     missing = [key for key in required if key not in value]
     if missing:
         fail(f"provenance is missing {', '.join(missing)}")
@@ -58,19 +63,22 @@ def load_provenance(path: Path) -> dict:
         fail(f"build {value['build']} does not encode source_run/attempt {value['source_run']}/{value['source_attempt']}")
     if value["withdrawn"] is not False:
         fail("refusing a withdrawn or unknown build")
+    for key in ("notes_sha256", "signature_sha256"):
+        if not HEX.fullmatch(str(value[key])):
+            fail(f"{key} must be a 64-character lowercase SHA-256 digest")
     return value
 
 
-def verify(notes: Path, signature: Path, public_key: str) -> None:
-    if not notes.is_file() or not signature.is_file():
+def verify(notes: bytes, signature: bytes, name: str, public_key: str) -> None:
+    if not notes or not signature:
         fail("both notes JSON and notes JSON.sig are required; unsigned records need release-owner signing")
     # Keep the canonical verifier in release-notes.py so this tool cannot drift
     # from the nightly release gate's Ed25519 contract.
     with tempfile.TemporaryDirectory(prefix="nightly-notes-verify-") as scratch:
-        copy = Path(scratch) / notes.name
+        copy = Path(scratch) / name
         sig = Path(str(copy) + ".sig")
-        copy.write_bytes(notes.read_bytes())
-        sig.write_bytes(signature.read_bytes())
+        copy.write_bytes(notes)
+        sig.write_bytes(signature)
         result = subprocess.run(
             [sys.executable, str(NOTES), "verify", "--public-key", public_key, str(copy)],
             text=True, capture_output=True,
@@ -79,10 +87,15 @@ def verify(notes: Path, signature: Path, public_key: str) -> None:
             fail(f"signature verification failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def validate(notes: Path, signature: Path, provenance: dict, public_key: str) -> tuple[str, str]:
-    verify(notes, signature, public_key)
+def validate(notes: Path, signature: Path, provenance: dict, public_key: str) -> tuple[str, bytes, bytes]:
     try:
-        value = json.loads(notes.read_text(encoding="utf-8"))
+        notes_bytes = notes.read_bytes()
+        signature_bytes = signature.read_bytes()
+    except OSError as error:
+        fail(f"both notes JSON and notes JSON.sig are required; unsigned records need release-owner signing ({error})")
+    verify(notes_bytes, signature_bytes, notes.name, public_key)
+    try:
+        value = json.loads(notes_bytes.decode("utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         fail(f"invalid notes JSON: {error}")
     build = str(provenance["build"])
@@ -90,7 +103,29 @@ def validate(notes: Path, signature: Path, provenance: dict, public_key: str) ->
         fail(f"notes build {value.get('build') if isinstance(value, dict) else None} does not match provenance {build}")
     if value.get("head") != provenance["source_sha"]:
         fail("notes head does not match the original source_sha")
-    return build, digest(notes)
+    notes_sha256 = digest(notes_bytes)
+    signature_sha256 = digest(signature_bytes)
+    if provenance["notes_sha256"] != notes_sha256:
+        fail(f"notes SHA-256 {notes_sha256} does not match provenance {provenance['notes_sha256']}")
+    if provenance["signature_sha256"] != signature_sha256:
+        fail(f"signature SHA-256 {signature_sha256} does not match provenance {provenance['signature_sha256']}")
+    return build, notes_bytes, signature_bytes
+
+
+def load_approval(path: Path, provenance: dict) -> None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"invalid release-owner approval receipt {path}: {error}")
+    if not isinstance(value, dict) or value.get("kind") != "nightly-notes-restore" or value.get("approved") is not True:
+        fail("release-owner approval receipt must be an approved nightly-notes-restore record")
+    for key in ("source_run", "source_attempt", "source_sha", "build", "notes_sha256", "signature_sha256"):
+        if str(value.get(key)) != str(provenance[key]):
+            fail(f"approval receipt does not exactly match provenance {key}")
+    if value.get("withdrawn") is not False:
+        fail("approval receipt does not confirm the build is not withdrawn")
+    if not isinstance(value.get("approved_by"), str) or not value["approved_by"].strip():
+        fail("approval receipt is missing approved_by")
 
 
 def main() -> int:
@@ -98,39 +133,45 @@ def main() -> int:
     parser.add_argument("--notes", required=True, type=Path)
     parser.add_argument("--signature", required=True, type=Path)
     parser.add_argument("--provenance", required=True, type=Path)
-    parser.add_argument("--public-key", required=True)
+    parser.add_argument("--public-key", default=os.environ.get("CONTENT_PUBLIC_KEY", ""),
+                        help="only for dry-run fixtures; production uses CONTENT_PUBLIC_KEY")
     parser.add_argument("--endpoint-url", default=os.environ.get("R2_ENDPOINT", ""))
     parser.add_argument("--bucket", default=os.environ.get("NIGHTLY_NEXT_R2_BUCKET", "cmux-nightly-next"))
-    parser.add_argument("--prefix", default="nightly-next/notes/")
     parser.add_argument("--approval-receipt", type=Path,
                         help="release-owner approval receipt required for a real upload")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     provenance = load_provenance(args.provenance)
-    build, notes_digest = validate(args.notes, args.signature, provenance, args.public_key)
+    if not args.public_key:
+        fail("CONTENT_PUBLIC_KEY is required")
+    build, notes_bytes, signature_bytes = validate(args.notes, args.signature, provenance, args.public_key)
     if not args.dry_run:
         if not args.approval_receipt or not args.approval_receipt.is_file():
             fail("a release-owner approval receipt is required for upload")
-        receipt = args.approval_receipt.read_text(encoding="utf-8")
-        for marker in (str(provenance["source_run"]), str(provenance["source_attempt"]),
-                       provenance["source_sha"], build):
-            if marker not in receipt:
-                fail(f"approval receipt does not name {marker}")
+        load_approval(args.approval_receipt, provenance)
         if not args.endpoint_url:
             fail("R2 endpoint is required for upload")
         if not os.environ.get("AWS_ACCESS_KEY_ID") or not os.environ.get("AWS_SECRET_ACCESS_KEY"):
             fail("use the established release-owner R2 credentials")
-    files = ((args.notes, f"{args.prefix}{build}.json", "application/json"),
-             (args.signature, f"{args.prefix}{build}.json.sig", "text/plain"))
+    files = ((args.notes, f"{PREFIX}{build}.json", "application/json", digest(notes_bytes)),
+             (args.signature, f"{PREFIX}{build}.json.sig", "text/plain", digest(signature_bytes)))
     print(json.dumps({"build": build, "source_run": str(provenance["source_run"]),
                       "source_attempt": str(provenance["source_attempt"]),
-                      "source_sha": provenance["source_sha"], "notes_sha256": notes_digest,
-                      "signature_sha256": digest(args.signature),
-                      "withdrawn": False, "objects": [key for _, key, _ in files],
+                      "source_sha": provenance["source_sha"], "notes_sha256": digest(notes_bytes),
+                      "signature_sha256": digest(signature_bytes),
+                      "withdrawn": False, "objects": [key for _, key, _, _ in files],
                       "create_only": True, "dry_run": args.dry_run}, sort_keys=True))
     if args.dry_run:
         return 0
-    for path, key, content_type in files:
+    # Check both immutable keys before writing either one.  The uploader repeats
+    # this check on every write to close the race between preflight and PUT.
+    for path, key, content_type, expected_digest in files:
+        subprocess.run([sys.executable, str(UPLOADER), "--file", str(path),
+                        "--endpoint-url", args.endpoint_url, "--bucket", args.bucket,
+                        "--key", key, "--content-type", content_type,
+                        "--cache-control", "no-cache, no-store, must-revalidate",
+                        "--preflight-only", "--expected-sha256", expected_digest], check=True)
+    for path, key, content_type, _ in files:
         subprocess.run([sys.executable, str(UPLOADER), "--file", str(path),
                         "--endpoint-url", args.endpoint_url, "--bucket", args.bucket,
                         "--key", key, "--content-type", content_type,
