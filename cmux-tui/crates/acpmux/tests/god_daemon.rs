@@ -72,6 +72,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    "ACPMUX_GOD_DHAT_FRAMES",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
     // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
