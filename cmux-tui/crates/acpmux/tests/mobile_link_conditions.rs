@@ -48,6 +48,10 @@ const KEPT: &[&str] = &[
     "NETCOND_ATTACH_SENDS",
     "NETCOND_ATTACH_BYTES",
     "NETCOND_ATTACH_ROWS",
+    "NETCOND_CANCEL_SENDS",
+    "NETCOND_CANCEL_BYTES",
+    "NETCOND_CANCEL_AFTER",
+    "NETCOND_CANCEL_ROWS",
     "NETCOND_AWAY",
     "NETCOND_LOADS",
     "NETCOND_CHAT_MAX_TURNS",
@@ -90,7 +94,7 @@ mod app_ws;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message as RpcMessage, method};
-use acpmux::server::{AGENT_PANE_ORIGIN, Origin, serve_connection_with};
+use acpmux::server::{AGENT_PANE_ORIGIN, Origin, WS_MAX_MESSAGE_BYTES, serve_connection_with};
 use cmux_composer_send::chat::{self, PromptOutbox};
 use cmux_fault::Trace;
 use cmux_fault::shaper::{Disruption, LinkProfile, ProfileFile, Shaper};
@@ -512,18 +516,45 @@ fn hub(home: &Path) -> Arc<Hub> {
 }
 
 /// An in-process unix-socket-like connection: seeds the chat and starts the agent's streams.
+///
+/// Its reader never stops: a task takes every line the hub writes, keeps the answers and drops
+/// the notifications (counted in `dropped`). The hub ends a connection whose reader holds more
+/// than its fair share (`outbound.rs` `FAIR_SHARE`, 4 MiB) and takes nothing for
+/// `READER_STALL` (10 s). Read only inside `call`, this one took nothing while a row's phone legs
+/// ran; at video sizes a row runs for minutes, the hub ended it, and the next row's
+/// `session/new` panicked on a closed channel (the idle row at 62 MB, 2026-11-27).
 struct Control {
     tx: mpsc::Sender<String>,
-    rx: mpsc::Receiver<String>,
+    rx: mpsc::UnboundedReceiver<String>,
+    dropped: Arc<std::sync::atomic::AtomicU64>,
     next: i64,
 }
 
 impl Control {
     fn new(hub: &Arc<Hub>) -> Self {
         let (tx, in_rx) = mpsc::channel(64);
-        let (out_tx, rx) = mpsc::channel(65536);
+        let (out_tx, mut out_rx) = mpsc::channel::<String>(65536);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-        Self { tx, rx, next: 0 }
+        let (answers, rx) = mpsc::unbounded_channel();
+        let dropped = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counted = dropped.clone();
+        tokio::spawn(async move {
+            while let Some(line) = out_rx.recv().await {
+                let answer = serde_json::from_str::<Value>(&line)
+                    .is_ok_and(|v| v.get("id").is_some() && v.get("method").is_none());
+                if !answer {
+                    counted.fetch_add(line.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                } else if answers.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Self { tx, rx, dropped, next: 0 }
+    }
+
+    /// The notification bytes the reader took and dropped so far.
+    fn dropped_bytes(&self) -> u64 {
+        self.dropped.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn post(&mut self, m: &str, params: Value) -> i64 {
@@ -904,7 +935,7 @@ async fn reconnect(
     let path_change = matches!(disruption, Some(Disruption::AddressChange { .. }));
     let dark_ms = match disruption {
         Some(Disruption::Blackout { duration_ms }) => duration_ms,
-        Some(Disruption::AddressChange { stall_ms }) => stall_ms[1],
+        Some(Disruption::AddressChange { stall_ms, .. }) => stall_ms[1],
         // The LAN link this bench dials never drops; nothing here rides the internet path yet.
         Some(Disruption::InternetDown) | None => return,
     };
@@ -1811,6 +1842,22 @@ fn send_bound() -> Duration {
     Duration::from_secs(env_u64("NETCOND_SEND_BOUND_S", 45))
 }
 
+/// The slowest upload rate an attachment's bound allows for: a quarter of the lte profile's
+/// (5 MiB went up in about 6.5 s, 2026-11-27), so a duress row's slower link still fits.
+const ATTACH_FLOOR_BYTES_PER_S: u64 = 256 << 10;
+
+/// An attachment send's bound: the send's, or as long as `bytes` take at
+/// [`ATTACH_FLOOR_BYTES_PER_S`] when that is longer. A photo (286107 B, 5 MiB) keeps the send's
+/// 45 s; 62 MB gets about 236 s, 170 MB about 648 s.
+fn attach_bound(bytes: usize) -> Duration {
+    send_bound().max(Duration::from_secs((bytes as u64).div_ceil(ATTACH_FLOOR_BYTES_PER_S)))
+}
+
+/// The bytes of the text frame `Link::post` writes for this request.
+fn request_bytes(m: &str, params: &Value) -> usize {
+    json!({"jsonrpc": "2.0", "id": i64::MAX, "method": m, "params": params}).to_string().len()
+}
+
 /// Threads that keep every core busy until dropped: the Mac under load.
 struct Spin {
     stop: Arc<std::sync::atomic::AtomicBool>,
@@ -1884,11 +1931,12 @@ async fn chat_send_once(
     tap: Instant,
 ) -> (Option<f64>, u64) {
     let build = |resend: bool| prompt_params(session, "ping", prompt_id, resend);
-    chat_send_with(link, addr, token, session, prompt_id, last, tap, &build, &mut None).await
+    let bound = send_bound();
+    chat_send_with(link, addr, token, session, prompt_id, last, tap, bound, &build, &mut None).await
 }
 
-/// `chat_send_once` with the prompt built by `build(resend)`; `written` gets the ms from the tap
-/// to the first write of it returning (the socket took every byte).
+/// `chat_send_once` with the prompt built by `build(resend)`, not visible past `bound`; `written`
+/// gets the ms from the tap to the first write of it returning (the socket took every byte).
 #[allow(clippy::too_many_arguments)]
 async fn chat_send_with(
     link: &mut Link,
@@ -1898,10 +1946,11 @@ async fn chat_send_with(
     prompt_id: &str,
     last: &mut u64,
     tap: Instant,
+    bound: Duration,
     build: &dyn Fn(bool) -> Value,
     written: &mut Option<f64>,
 ) -> (Option<f64>, u64) {
-    let deadline = tap + send_bound();
+    let deadline = tap + bound;
     let mut retries = 0;
     let mut request = link.post(method::SESSION_PROMPT, build(false)).await.ok();
     *written = Some(ms(Instant::now() - tap));
@@ -2226,102 +2275,56 @@ async fn chat_attach_under_link_conditions() {
             Err(_) => None,
         };
         let tag = std::process::id();
+        let bound = attach_bound(bytes);
+        let row_started = Instant::now();
+        let dropped_before = control.dropped_bytes();
+        // The inline legs send the image as base64 in one WebSocket message; past the listener's
+        // message cap the server closes the link on it and the send can never show. Those legs
+        // are skipped for the row with an error naming the cap; the upload leg still runs.
+        let inline = request_bytes(
+            method::SESSION_PROMPT,
+            &image_prompt(&session, "photo", &format!("img-q-{row}-{tag}-{sends}"), true, bytes),
+        );
+        let inline_fits = inline <= WS_MAX_MESSAGE_BYTES;
+        if !inline_fits {
+            let k = Key { profile: &label, phase: "attach", scale: row, run: 0, seed: seed_base };
+            let why = format!(
+                "skipped: the inline image prompt is {inline} bytes (a {bytes} B image as \
+                 base64), over the WebSocket message cap WS_MAX_MESSAGE_BYTES of \
+                 {WS_MAX_MESSAGE_BYTES} bytes; only the upload leg runs"
+            );
+            for metric in [
+                "attach_written_ms",
+                "attach_visible_ms",
+                "text_behind_attach_visible_ms",
+                "queue_attach_visible_ms",
+                "queue_text_beside_attach_visible_ms",
+            ] {
+                emit_error(&k, metric, &why);
+            }
+        }
         for i in 0..sends {
             let k =
                 Key { profile: &label, phase: "attach", scale: row, run: i, seed: seed_base + i };
-            let image_id = format!("img-{row}-{tag}-{i}");
-            let text_id = format!("txt-{row}-{tag}-{i}");
-            let tap = Instant::now();
-            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
-            let mut written = None;
-            let (visible, _) = chat_send_with(
-                &mut link,
-                addr,
-                &listener.token,
-                &session,
-                &image_id,
-                &mut last,
-                tap,
-                &build,
-                &mut written,
-            )
-            .await;
-            emit(&k, "attach_written_ms", written);
-            emit(&k, "attach_visible_ms", visible);
-            if visible.is_none() {
-                emit_error(&k, "attach_visible_ms", "the image prompt's user_message did not show");
-            }
-            // The text, tapped at the same instant, goes once the image has been written.
-            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
-            let (text_visible, _) = chat_send_with(
-                &mut link,
-                addr,
-                &listener.token,
-                &session,
-                &text_id,
-                &mut last,
-                tap,
-                &text_build,
-                &mut None,
-            )
-            .await;
-            emit(&k, "text_behind_attach_visible_ms", text_visible);
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            link.pending.clear();
-
-            // The same pair through the one Rust send queue (`cmux_composer_send::chat`): the
-            // image's bytes go up beside the queue (the uploader; here the same blob written on a
-            // second connection through the same shaped radio), and the text, tapped at the same
-            // instant, goes as soon as the queue hands it out. It shares the radio with the upload.
-            let Some(upload_link) = upload_link.as_mut() else { continue };
-            let image_id = format!("img-q-{row}-{tag}-{i}");
-            let text_id = format!("txt-q-{row}-{tag}-{i}");
-            let tap = Instant::now();
-            let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed_base + i);
-            let std_tap = tap.into_std();
-            outbox.set_link(true, std_tap);
-            outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
-            outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
-            let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
-            assert_eq!(first.as_deref(), Some(text_id.as_str()), "the text waits on no upload");
-            outbox.wrote(&text_id);
-            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
-            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
-            let mut upload_last = last;
-            let (mut upload_written, mut text_written) = (None, None);
-            let (upload, text) = tokio::join!(
-                chat_send_with(
-                    upload_link,
-                    addr,
-                    &listener.token,
-                    &session,
-                    &image_id,
-                    &mut upload_last,
-                    tap,
-                    &build,
-                    &mut upload_written,
-                ),
-                chat_send_with(
+            if inline_fits {
+                inline_legs(
                     &mut link,
+                    upload_link.as_mut(),
                     addr,
                     &listener.token,
                     &session,
-                    &text_id,
+                    &k,
+                    &format!("{row}-{tag}-{i}"),
                     &mut last,
-                    tap,
-                    &text_build,
-                    &mut text_written,
-                ),
-            );
-            last = last.max(upload_last);
-            emit(&k, "queue_attach_visible_ms", upload.0);
-            emit(&k, "queue_text_beside_attach_visible_ms", text.0);
-            if text.0.is_none() {
-                emit_error(&k, "queue_text_beside_attach_visible_ms", "the text did not show");
+                    bound,
+                    bytes,
+                )
+                .await;
+                // As before: a run with no uploader link of its own sends nothing more.
+                if upload_link.is_none() {
+                    continue;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            link.pending.clear();
-            upload_link.pending.clear();
 
             // The phone's send by reference (AcpmuxHub `sendPrompt`): the image's bytes go up as
             // an acpmux prompt upload on the one connection, a chunk at a time, and the text,
@@ -2344,6 +2347,146 @@ async fn chat_attach_under_link_conditions() {
             tokio::time::sleep(Duration::from_millis(400)).await;
             link.pending.clear();
         }
+        eprintln!(
+            "netcond: attach row {row}: {sends} runs of {bytes} B in {:?} (bound {bound:?}); the control connection read and dropped {} notification bytes",
+            row_started.elapsed(),
+            control.dropped_bytes() - dropped_before
+        );
+    }
+}
+
+/// The two inline legs of one attach run: the image as base64 in the prompt, then the text tapped
+/// at the same instant behind it; and the same pair through the one Rust send queue, the image on
+/// the uploader's own link. `run` names the run's prompt ids.
+#[allow(clippy::too_many_arguments)]
+async fn inline_legs(
+    link: &mut Link,
+    upload_link: Option<&mut Link>,
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    k: &Key<'_>,
+    run: &str,
+    last: &mut u64,
+    bound: Duration,
+    bytes: usize,
+) {
+    let image_id = format!("img-{run}");
+    let text_id = format!("txt-{run}");
+    let tap = Instant::now();
+    let build = |resend: bool| image_prompt(session, "photo", &image_id, resend, bytes);
+    let mut written = None;
+    let (visible, _) = chat_send_with(
+        link,
+        addr,
+        token,
+        session,
+        &image_id,
+        last,
+        tap,
+        bound,
+        &build,
+        &mut written,
+    )
+    .await;
+    emit(k, "attach_written_ms", written);
+    emit(k, "attach_visible_ms", visible);
+    if visible.is_none() {
+        emit_error(k, "attach_visible_ms", "the image prompt's user_message did not show");
+    }
+    // The text, tapped at the same instant, goes once the image has been written.
+    let text_build = |resend: bool| prompt_params(session, "after", &text_id, resend);
+    let (text_visible, _) = chat_send_with(
+        link,
+        addr,
+        token,
+        session,
+        &text_id,
+        last,
+        tap,
+        bound,
+        &text_build,
+        &mut None,
+    )
+    .await;
+    emit(k, "text_behind_attach_visible_ms", text_visible);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    link.pending.clear();
+
+    // The same pair through the one Rust send queue (`cmux_composer_send::chat`): the image's
+    // bytes go up beside the queue (the uploader; here the same blob written on a second
+    // connection through the same shaped radio), and the text, tapped at the same instant, goes
+    // as soon as the queue hands it out. It shares the radio with the upload.
+    let Some(upload_link) = upload_link else { return };
+    let image_id = format!("img-q-{run}");
+    let text_id = format!("txt-q-{run}");
+    let tap = Instant::now();
+    let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, k.seed);
+    let std_tap = tap.into_std();
+    outbox.set_link(true, std_tap);
+    outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
+    outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
+    let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
+    assert_eq!(first.as_deref(), Some(text_id.as_str()), "the text waits on no upload");
+    outbox.wrote(&text_id);
+    let build = |resend: bool| image_prompt(session, "photo", &image_id, resend, bytes);
+    let text_build = |resend: bool| prompt_params(session, "after", &text_id, resend);
+    let mut upload_last = *last;
+    let (mut upload_written, mut text_written) = (None, None);
+    let (upload, text) = tokio::join!(
+        chat_send_with(
+            upload_link,
+            addr,
+            token,
+            session,
+            &image_id,
+            &mut upload_last,
+            tap,
+            bound,
+            &build,
+            &mut upload_written,
+        ),
+        chat_send_with(
+            link,
+            addr,
+            token,
+            session,
+            &text_id,
+            last,
+            tap,
+            bound,
+            &text_build,
+            &mut text_written,
+        ),
+    );
+    *last = (*last).max(upload_last);
+    emit(k, "queue_attach_visible_ms", upload.0);
+    emit(k, "queue_text_beside_attach_visible_ms", text.0);
+    if text.0.is_none() {
+        emit_error(k, "queue_text_beside_attach_visible_ms", "the text did not show");
+    }
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    link.pending.clear();
+    upload_link.pending.clear();
+}
+
+/// A photo keeps the send's bound and its inline legs; a video's bound grows with its bytes and
+/// its inline prompt is over the WebSocket cap (it skips those legs, naming the cap).
+#[test]
+fn attach_bound_and_inline_cap_by_size() {
+    if std::env::var_os("NETCOND_SEND_BOUND_S").is_some() {
+        return;
+    }
+    let inline = |bytes| {
+        request_bytes(method::SESSION_PROMPT, &image_prompt("s", "photo", "p", true, bytes))
+    };
+    for photo in [286_107, 5 << 20] {
+        assert_eq!(attach_bound(photo), send_bound(), "{photo} B keeps the send's bound");
+        assert!(inline(photo) <= WS_MAX_MESSAGE_BYTES, "{photo} B goes inline");
+    }
+    for (video, at_least) in [(62_000_000, 200), (170_000_000, 600)] {
+        assert!(attach_bound(video) >= Duration::from_secs(at_least), "{video} B");
+        assert!(inline(video) > WS_MAX_MESSAGE_BYTES, "{video} B is over the cap");
     }
 }
 
@@ -2364,7 +2507,7 @@ async fn upload_leg(
     bytes: usize,
 ) -> (Option<f64>, Option<f64>) {
     use base64::Engine as _;
-    let deadline = tap + send_bound();
+    let deadline = tap + attach_bound(bytes);
     let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
     let name = "photo.png";
     let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
@@ -2456,6 +2599,215 @@ async fn upload_leg(
         }
     }
     (image, text)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cancel mid-send (Leo, 2026-11-24 08:29Z: "i also couldnt cancel out of the send. i need to be
+// able to do that otherwise i cant edit or anything to retry or delete and remove."). The phone
+// taps Send on a text with a large attachment (NETCOND_CANCEL_BYTES, 100 MiB), its bytes go up a
+// chunk at a time as AcpmuxHub's prompt upload does (one in flight), and once
+// NETCOND_CANCEL_AFTER bytes are on the Mac the person taps Stop on the pending bubble: the Rust
+// outbox (`PromptOutbox::cancel`) hands the draft back and names the upload to cancel, and the
+// phone sends `_acpmux/file_put_cancel` with its owner token. A late chunk for the same upload
+// follows (the one a slow uploader still had queued) to check the Mac takes no more bytes.
+// Metrics, phase `cancel`, scale = the row (lte, duress: lte with a loaded Mac):
+// - `cancel_tap_to_cancelled_ms`: the tap to the Mac's answer to the cancel (the upload gone).
+// - `cancel_bytes_after`: bytes the Mac accepted after it answered the cancel (want 0).
+// - `cancel_inflight_bytes`: the chunk already on the wire at the tap that the Mac took.
+// - `cancel_draft_restored`: 1 when the outbox gave back the draft's text and attachment and
+//   named the upload to cancel, else 0.
+// Env: `NETCOND_CANCEL_SENDS` (20), `NETCOND_CANCEL_ROWS` (lte,duress).
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the cancel bench: cargo test -p acpmux --test mobile_link_conditions chat_cancel -- --ignored"]
+async fn chat_cancel_mid_upload_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-cancel");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_CANCEL_SENDS", 20);
+    let bytes = env_u64("NETCOND_CANCEL_BYTES", 100 << 20) as usize;
+    let after =
+        (env_u64("NETCOND_CANCEL_AFTER", 2 << 20) as usize).min(bytes.saturating_sub(UPLOAD_CHUNK));
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let rows_wanted = env_list("NETCOND_CANCEL_ROWS", &["lte", "duress"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let (profile, loaded) = match row.as_str() {
+            "idle" => (None, false),
+            "duress" => (file.get("lte").cloned(), true),
+            other => (file.get(other).cloned(), false),
+        };
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("cancel-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        let _spin = if loaded {
+            control.seed(&session, 0, 100).await;
+            let other = control
+                .call(
+                    method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "cancel-stream"}}}),
+                )
+                .await;
+            let other = other["result"]["sessionId"].as_str().unwrap().to_owned();
+            let _ = control.prompt(&other, "ticking:6000:20").await;
+            Some(Spin::start())
+        } else {
+            control.seed(&session, 0, BASE_TURNS).await;
+            None
+        };
+        let shaper = match &profile {
+            Some(p) => Shaper::start(upstream, p.clone(), seed_base, &trace).await.ok(),
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else {
+            let k = Key { profile: &label, phase: "cancel", scale: row, run: 0, seed: seed_base };
+            emit_error(&k, "cancel_tap_to_cancelled_ms", "the link did not open");
+            continue;
+        };
+        let _ = link.attach(&session, None, opened).await;
+        let tag = std::process::id();
+        let row_started = Instant::now();
+        for i in 0..sends {
+            let k =
+                Key { profile: &label, phase: "cancel", scale: row, run: i, seed: seed_base + i };
+            match cancel_leg(
+                &mut link,
+                &session,
+                &format!("cancel-{row}-{tag}-{i}"),
+                bytes,
+                after,
+                k.seed,
+            )
+            .await
+            {
+                Ok(r) => {
+                    emit(&k, "cancel_tap_to_cancelled_ms", Some(r.tap_to_cancelled_ms));
+                    emit(&k, "cancel_bytes_after", Some(r.bytes_after as f64));
+                    emit(&k, "cancel_inflight_bytes", Some(r.inflight_bytes as f64));
+                    emit(&k, "cancel_draft_restored", Some(if r.restored { 1.0 } else { 0.0 }));
+                }
+                Err(why) => emit_error(&k, "cancel_tap_to_cancelled_ms", &why),
+            }
+            link.pending.clear();
+        }
+        eprintln!(
+            "netcond: cancel row {row}: {sends} cancels of a {bytes} B upload after {after} B in {:?}",
+            row_started.elapsed()
+        );
+    }
+}
+
+struct CancelRun {
+    tap_to_cancelled_ms: f64,
+    bytes_after: u64,
+    inflight_bytes: u64,
+    restored: bool,
+}
+
+/// The bytes of a synthetic attachment at `[from, to)`, as base64 (made per chunk: a 100 MiB
+/// file is never held whole).
+fn synthetic_chunk(from: usize, to: usize) -> String {
+    use base64::Engine as _;
+    let data: Vec<u8> = (from..to).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    base64::engine::general_purpose::STANDARD.encode(data)
+}
+
+/// One cancel run: begin, chunks one in flight until `after` bytes are on the Mac, the next chunk
+/// posted, then the tap: the outbox's Stop, the Mac's cancel, and a late chunk.
+async fn cancel_leg(
+    link: &mut Link,
+    session: &str,
+    prompt_id: &str,
+    bytes: usize,
+    after: usize,
+    seed: u64,
+) -> Result<CancelRun, String> {
+    let deadline = Instant::now() + attach_bound(after + 2 * UPLOAD_CHUNK) + BOUND;
+    let name = "video.mov";
+    let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
+    let begin = link.post(method::MUX_FILE_PUT_BEGIN, begin).await?;
+    let (_, began) = link.answer(begin, deadline).await?;
+    let upload = began["uploadId"].as_str().ok_or("begin named no uploadId")?.to_owned();
+    let owner = began["ownerToken"].as_str().map(str::to_owned);
+
+    // The tap on Send: the draft goes into the one send queue, waiting on its upload.
+    let draft = format!("draft {prompt_id}");
+    let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed);
+    let sent_at = std::time::Instant::now();
+    outbox.set_link(true, sent_at);
+    outbox.push(prompt_id, &draft, vec![upload.clone()], false, sent_at, sent_at);
+
+    let chunk = |offset: usize| {
+        let end = (offset + UPLOAD_CHUNK).min(bytes);
+        let params = json!({"sessionId": session, "uploadId": upload, "offset": offset,
+                            "data": synthetic_chunk(offset, end)});
+        (end, params)
+    };
+    let mut sent_to = 0;
+    while sent_to < after {
+        let (end, params) = chunk(sent_to);
+        let id = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+        link.answer(id, deadline).await?;
+        outbox.upload_progressed(&upload, std::time::Instant::now());
+        sent_to = end;
+    }
+    // The next chunk is on the wire when the person taps Stop.
+    let (inflight_end, params) = chunk(sent_to);
+    let inflight = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+    let inflight_len = (inflight_end - sent_to) as u64;
+
+    let tap = Instant::now();
+    let restored = match outbox.cancel(prompt_id) {
+        Some(chat::CancelStep::Returned(done)) => {
+            done.outcome == chat::PromptOutcome::Cancelled
+                && done.text == draft
+                && done.attachments.iter().any(|a| a.id == upload)
+                && done.cancel_uploads.contains(&upload)
+                && outbox.pending(std::time::Instant::now()).is_empty()
+        }
+        _ => false,
+    };
+    let mut cancel = json!({"sessionId": session, "uploadId": upload});
+    if let Some(owner) = &owner {
+        cancel["ownerToken"] = json!(owner);
+    }
+    let cancel = link.post(method::MUX_FILE_PUT_CANCEL, cancel).await?;
+    let inflight_bytes =
+        if link.answer(inflight, deadline).await.is_ok() { inflight_len } else { 0 };
+    let (cancelled_at, _) = link.answer(cancel, deadline).await?;
+    let tap_to_cancelled_ms = ms(cancelled_at - tap);
+
+    // A late chunk (and the one after it) for the cancelled upload: the Mac must refuse both.
+    let mut bytes_after = 0;
+    let mut offset = inflight_end;
+    for _ in 0..2 {
+        if offset >= bytes {
+            break;
+        }
+        let (end, params) = chunk(offset);
+        let id = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+        if link.answer(id, deadline).await.is_ok() {
+            bytes_after += (end - offset) as u64;
+        }
+        offset = end;
+    }
+    Ok(CancelRun { tap_to_cancelled_ms, bytes_after, inflight_bytes, restored })
 }
 
 // ---------------------------------------------------------------------------------------------

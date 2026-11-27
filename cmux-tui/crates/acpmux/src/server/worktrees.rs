@@ -47,6 +47,7 @@ pub(super) async fn retention(
     if m != method::MUX_RETENTION
         && m != method::MUX_HISTORY_DELETE
         && m != method::MUX_HISTORY_OFFLOAD
+        && m != method::MUX_LIFECYCLE
         && m != method::MUX_TRANSCRIPT_OFFLOAD
     {
         return None;
@@ -68,6 +69,15 @@ pub(super) async fn retention(
         },
     };
     let dry_run = params.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    if m == method::MUX_LIFECYCLE {
+        if let Some(id) = str_param(params, "restore") {
+            return Some(match hub.resolve(id) {
+                Ok(session) => hub.lifecycle_restore(session).await,
+                Err(e) => Err(e),
+            });
+        }
+        return Some(hub.lifecycle_now(crate::hub::LifecycleRequest { dry_run }).await);
+    }
     if m == method::MUX_HISTORY_OFFLOAD {
         let req = crate::hub::HistoryOffloadRequest { dry_run, older_than_days: days };
         return Some(hub.history_offload_now(req).await);
