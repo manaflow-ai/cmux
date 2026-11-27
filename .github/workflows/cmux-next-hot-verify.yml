@@ -422,6 +422,8 @@ jobs:
             /scripts/cmux-next/hot-verify-pr.sh
             /scripts/ci/gh_budget_wait.sh
             /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
             /.gitmodules
           sparse-checkout-cone-mode: false
       # A stalled git transport clones once more (see the plan job).
@@ -439,6 +441,8 @@ jobs:
             /scripts/cmux-next/hot-verify-pr.sh
             /scripts/ci/gh_budget_wait.sh
             /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
             /.gitmodules
           sparse-checkout-cone-mode: false
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
@@ -516,6 +520,8 @@ jobs:
           sparse-checkout: |
             /scripts/ci/gh_budget_wait.sh
             /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
             /.gitmodules
           sparse-checkout-cone-mode: false
       - name: Mint the CI pool's tokens
@@ -769,6 +775,8 @@ jobs:
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             .gitmodules
           sparse-checkout-cone-mode: false
       # A stalled git transport clones once more (see the plan job).
@@ -792,6 +800,8 @@ jobs:
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: "Pool mirror: checkout the publisher"

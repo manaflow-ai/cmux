@@ -116,7 +116,7 @@ final class AppControl {
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
-        service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
+        service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }, CloudPlaceControl.method { [weak services] in services?.cloud.place.moveView(of: $0) }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
         errorJournal = errors
