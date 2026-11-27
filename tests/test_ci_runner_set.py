@@ -87,6 +87,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'app-store-upload'}),
     'stable-next-rollback.yml': ('holds the stable feed R2 token: an ephemeral label the secret-runner rule (test_ci_fork_runner_routing) checks literally',
      {'rollback'}),
+    'cloud-mvp-nightly-readback.yml': ('signs the production agent Stack account in: an ephemeral Mac the paid-queue pin (PAID_ONLY_JOBS) checks literally',
+     {'readback'}),
     'nightly-next-rollback.yml': ('not yet on a pool; moves in its own PR',
      {'rollback'}),
     'nightly-next-rollback-drill.yml': ('publish and receipt hold the feed\'s R2 token: an ephemeral label the secret rule checks literally',
