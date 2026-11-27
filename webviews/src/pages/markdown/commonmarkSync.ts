@@ -1,8 +1,8 @@
 // Milkdown's commonmark preset keeps heading ids and ordered list labels in sync with a walk of
 // the whole document on each edit (syncHeadingIdPlugin, syncListOrderPlugin): a keystroke in a
 // 10,000-line file visited every node twice. These do the same work over only the top-level blocks
-// the edit changed, when the document before it was in sync; otherwise they walk all of it, as
-// Milkdown's do.
+// the edit changed (and, for ids, the headings sharing an id with one it changed), when the
+// document before it was in sync; otherwise they check all of it, as Milkdown's do.
 //
 // On an @milkdown upgrade (written against @milkdown/kit and @milkdown/preset-commonmark 7.22.2),
 // re-check against preset-commonmark's src/plugin/sync-heading-id-plugin.ts (`updateId`: which
@@ -11,7 +11,9 @@
 // non-generic transaction, the bullet-to-ordered conversion, `label` and `listType`), that
 // src/composed/plugins.ts still holds both (`boundedCommonmark` filters them out by identity), and
 // that `headingIdGenerator` is still the ctx key for ids. markdown-commonmark-sync.test.ts runs
-// Milkdown's plugins beside these over the same edits.
+// Milkdown's plugins beside these over the same edits. Two deliberate divergences: `milkdownIds`
+// for ids that are Object.prototype keys, and `listOrderPlugin` for an ordered list's bullet item
+// whose label is already right; see each.
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -26,84 +28,80 @@ import {
   syncListOrderPlugin,
 } from "@milkdown/kit/preset/commonmark";
 import { $prose } from "@milkdown/kit/utils";
-import { blocksAround, type BlockRange } from "./redecorate";
+import { BlockIndex, changedSpan, headingsIn, type Entry } from "./headingIndex";
 
-/** The whole top-level blocks that differ between `a` and `b` (in each), or null when they are equal. */
-function changedSpan(a: ProseNode, b: ProseNode): { before: BlockRange; after: BlockRange } | null {
-  const start = a.content.findDiffStart(b.content);
-  if (start === null) return null;
-  let { a: endA, b: endB } = a.content.findDiffEnd(b.content)!;
-  // A change in repeated text matches its end before its start (prosemirror-view's readDOMChange).
-  const adjust = Math.max(0, start - Math.min(endA, endB));
-  endA += adjust;
-  endB += adjust;
-  return { before: blocksAround(a, start, endA), after: blocksAround(b, start, endB) };
-}
-
-/** Documents whose heading ids are Milkdown's: an edit of one needs only its changed blocks checked. */
+/** Documents whose heading ids are Milkdown's: an edit of one needs only the ids it touched checked. */
 const headingIdsSynced = new WeakSet<ProseNode>();
 const headingIdKey = new PluginKey("cmuxMarkdownHeadingId");
 
-/** syncHeadingIdPlugin, checking only the changed blocks of a document that was in sync. */
+/**
+ * Milkdown's ids for headings with these ids from their text, in order (its `updateId`): the first
+ * of an id keeps it, the rest get `-#2` and on. A deliberate divergence: Milkdown counts on a plain
+ * object, so a heading whose id is an Object.prototype key ("constructor", "__proto__") counts as
+ * a repeat from the first and gets `constructor-#function Object() {…}1`; a Map gives it its own.
+ */
+function milkdownIds(bases: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return bases.map((base) => {
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}-#${count}`;
+  });
+}
+
+/**
+ * syncHeadingIdPlugin over an index of the headings (headingIndex.ts): an edit of a document in
+ * sync checks only the headings whose id from their text it added or removed, and the others with
+ * that id (their `-#n` follows the count before them). An id depends only on the headings with the
+ * same one, so the rest still hold.
+ */
 const headingIdPlugin = $prose((ctx) => {
   const headingType = () => headingSchema.type(ctx);
-  /** Each heading with text in `from`..`to`: its id from its text, and the id it has. */
-  const headings = (doc: ProseNode, { from, to }: BlockRange) => {
-    const getId = ctx.get(headingIdGenerator.key);
-    const out: Array<{ base: string; id: unknown }> = [];
-    doc.nodesBetween(from, to, (node) => {
-      if (node.type !== headingType()) return !node.isTextblock;
-      if (node.textContent.trim().length) out.push({ base: getId(node), id: node.attrs.id });
-      return false;
-    });
-    return out;
-  };
-  /** The same headings, by id from their text, with the ids they had: the ids of the rest still hold. */
-  const kept = (before: ProseNode, after: ProseNode): boolean => {
-    const span = changedSpan(before, after);
-    if (!span) return true;
-    const old = headings(before, span.before);
-    const now = headings(after, span.after);
-    return (
-      old.length === now.length &&
-      old.every((heading, at) => heading.base === now[at]!.base && heading.id === now[at]!.id)
-    );
-  };
-  // Milkdown's own: every heading with text gets its id, `-#2` and on for a repeat.
-  const updateId = (view: EditorView) => {
-    if (view.composing) return;
-    const getId = ctx.get(headingIdGenerator.key);
+  const index = new BlockIndex<ProseNode>({
+    // A block's ids from text are read once: a headingIdGenerator set after the editor starts would
+    // not reach the blocks read before it (cmux sets none).
+    find: (block) => {
+      const getId = ctx.get(headingIdGenerator.key);
+      return headingsIn(
+        block,
+        (node) => node.type === headingType(),
+        (heading) => (heading.textContent.trim().length ? getId(heading) : null),
+      );
+    },
+    ids: milkdownIds,
+  });
+  /** Sets each of `headings` whose id is not the one it gets; the document is then in sync. */
+  const sync = (view: EditorView, headings: readonly Entry<ProseNode>[]) => {
     const tr = view.state.tr.setMeta("addToHistory", false);
     let found = false;
-    const seen: Record<string, number> = {};
-    view.state.doc.descendants((node, pos) => {
-      if (node.type !== headingType() || node.textContent.trim().length === 0) return;
-      let id = getId(node);
-      if (seen[id]) {
-        seen[id] += 1;
-        id += `-#${seen[id]}`;
-      } else seen[id] = 1;
-      if (node.attrs.id !== id) {
-        found = true;
-        tr.setMeta(headingIdKey, true).setNodeMarkup(pos, undefined, { ...node.attrs, id });
-      }
-    });
-    if (found) view.dispatch(tr);
-    else headingIdsSynced.add(view.state.doc);
+    for (const heading of headings) {
+      if (heading.value.attrs.id === heading.id) continue;
+      found = true;
+      tr.setMeta(headingIdKey, true).setNodeMarkup(heading.pos, undefined, { ...heading.value.attrs, id: heading.id });
+    }
+    if (!found) {
+      headingIdsSynced.add(view.state.doc);
+      return;
+    }
+    headingIdsSynced.add(tr.doc);
+    view.dispatch(tr);
   };
   return new Plugin({
     key: headingIdKey,
     view: (view) => {
-      updateId(view);
+      if (!view.composing) sync(view, index.entries(view.state.doc));
       return {
         update: (view, prevState) => {
           const doc = view.state.doc;
-          if (headingIdsSynced.has(doc)) return;
-          if (!view.composing && headingIdsSynced.has(prevState.doc) && kept(prevState.doc, doc)) {
-            headingIdsSynced.add(doc);
+          // Carried on each update, so the next edit reads only its own blocks.
+          const change = index.step(prevState.doc, doc);
+          if (headingIdsSynced.has(doc) || view.composing) return;
+          if (!headingIdsSynced.has(prevState.doc)) {
+            // Milkdown's: a document out of sync is checked whole, unless the update changed nothing.
+            if (!doc.eq(prevState.doc)) sync(view, index.entries(doc));
             return;
           }
-          if (!doc.eq(prevState.doc)) updateId(view);
+          sync(view, change ? change.regrouped : index.entries(doc));
         },
       };
     },
@@ -113,7 +111,11 @@ const headingIdPlugin = $prose((ctx) => {
 /** Documents whose ordered list labels are Milkdown's (or that a list sync left as they were). */
 const listOrderSynced = new WeakSet<ProseNode>();
 
-/** syncListOrderPlugin, walking only the changed blocks of a document that was in sync. */
+/**
+ * syncListOrderPlugin, walking only the changed blocks of a document that was in sync. One
+ * deliberate divergence: an ordered list's item with listType "bullet" and the right label is made
+ * "ordered" (Milkdown's label check overwrites the listType change and leaves it a bullet).
+ */
 const listOrderPlugin = $prose(
   (ctx) =>
     new Plugin({
@@ -163,7 +165,9 @@ const listOrderPlugin = $prose(
               attrs.listType = "ordered";
               changed = true;
             }
-            if (parent?.maybeChild(0)) changed = handleNodeItem(attrs, index, parent?.attrs.order ?? 1);
+            // A deliberate divergence: Milkdown's `changed = handleNodeItem(...)` drops the listType
+            // change, so an item with listType "bullet" and the right label stayed a bullet.
+            if (parent?.maybeChild(0)) changed = handleNodeItem(attrs, index, parent?.attrs.order ?? 1) || changed;
             if (changed) {
               tr = tr.setNodeMarkup(pos, undefined, attrs);
               needDispatch = true;

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.accentGlow.dark.help" : {
+      "comment" : "Settings row help for the dark accent glow color.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "توهج ناعم بهذا اللون حول اللوحة المحددة في المظهر الداكن. إذا لم يُحدَّد، فلا توهج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blagi sjaj ove boje oko fokusiranog okna u tamnom izgledu. Ako nije postavljeno, nema sjaja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En blød glød i denne farve omkring den fokuserede rude i det mørke udseende. Hvis den ikke er angivet, er der ingen glød."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein sanftes Leuchten in dieser Farbe um den fokussierten Bereich im dunklen Erscheinungsbild. Nicht gesetzt: kein Leuchten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un resplandor suave de este color alrededor del panel enfocado en la apariencia oscura. Sin definir, no hay resplandor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un halo doux de cette couleur autour du panneau actif en apparence sombre. Non défini : aucun halo."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un lieve bagliore di questo colore attorno al riquadro attivo nell'aspetto scuro. Se non impostato, nessun bagliore."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク表示で、フォーカス中のペインの周りにこの色の柔らかなグローを表示します。未設定ならグローはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពន្លឺរះទន់ៗពណ៌នេះជុំវិញផ្ទាំងដែលផ្ដោតក្នុងរូបរាងងងឹត។ ពេលមិនបានកំណត់ គ្មានពន្លឺរះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다크 모드에서 포커스된 패널 주위에 이 색상의 은은한 광채를 표시합니다. 설정하지 않으면 광채가 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En myk glød i denne fargen rundt den fokuserte ruten i det mørke utseendet. Hvis den ikke er angitt, er det ingen glød."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delikatna poświata w tym kolorze wokół aktywnego panelu w ciemnym wyglądzie. Gdy nie ustawiono, brak poświaty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um brilho suave nesta cor ao redor do painel em foco na aparência escura. Se não definido, sem brilho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мягкое свечение этого цвета вокруг панели в фокусе в тёмном оформлении. Если не задано, свечения нет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสงเรืองนุ่มๆ สีนี้รอบบานหน้าต่างที่โฟกัสในลักษณะที่ปรากฏแบบมืด หากไม่ได้ตั้งค่า จะไม่มีแสงเรือง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koyu görünümde odaklanan bölmenin çevresinde bu renkte yumuşak bir parıltı. Ayarlanmazsa parıltı olmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "М'яке сяйво цього кольору навколо панелі у фокусі в темному вигляді. Якщо не задано, сяйва немає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quầng sáng mềm màu này quanh khung đang được tiêu điểm trong giao diện tối. Khi chưa đặt, không có quầng sáng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外观中，聚焦窗格周围以此颜色呈现柔和光晕。未设置时不显示光晕。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外觀中，聚焦窗格周圍以此顏色呈現柔和光暈。未設定時不顯示光暈。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

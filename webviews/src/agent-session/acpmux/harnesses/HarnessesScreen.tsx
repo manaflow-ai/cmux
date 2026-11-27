@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -238,7 +238,7 @@ export function HarnessesScreen({
         mark(row.harness, { kind: "done" });
       } catch (error) {
         // The installer's last line becomes plain words (a dropped network, a terminal-only hint
-        // such as "--force"); the line itself stays in the tooltip. Retry runs the command again.
+        // such as "--force"); the line itself stays in the tooltip. retry-prompt-ok: Retry runs the install again.
         const line = error instanceof HostCommandFailed ? error.line : undefined;
         const reason =
           error instanceof HostCommandFailed
@@ -393,7 +393,7 @@ export function HarnessesScreen({
             : finished?.kind === "done"
               ? undefined
               : finished;
-          // A failed login launch retries the login; a failed install offers Retry, then its setup
+          // retry-prompt-ok: a failed login launch retries the login; a failed install offers Retry, then its setup
           // page or another look; one that finished but still cannot run offers setup or a look.
           const otherFix =
             doing?.kind === "failed"
@@ -408,7 +408,8 @@ export function HarnessesScreen({
                 : doing.retryLaunch && action(row)
                   ? { label: action(row)!, run: () => act(row) }
                   : doing.retryInstall
-                    ? { label: t("harnesses.retry"), run: () => runInPlace(row, doing.retryInstall!) }
+                    ? // retry-prompt-ok: runs the install or update command again, a command with side effects.
+                      { label: t("harnesses.retry"), run: () => runInPlace(row, doing.retryInstall!) }
                     : stuck
                       ? { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
                       : otherFix
@@ -469,7 +470,7 @@ export function HarnessesScreen({
               {/* One group: when the words need the row's width, the actions move under them together. */}
               {(spinning || label || secondFix) && (
                 <span className="acpmux-harness-actions">
-                  {spinning && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+                  {spinning && <WaitSpinner size={12} className="acpmux-harness-spinner" />}
                   {label && (
                     <button
                       type="button"

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.cloudToggle.help" : {
+      "comment" : "Settings > Experiments: the Cloud Toggle taste prototype row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "زر سحابة في محرر الدردشة يختار مكان تشغيل الدردشة: هذا الـMac أو السحابة أو تلقائي. يضيء بألوان قوس قزح عند تشغيله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dugme oblaka u polju za pisanje bira gdje razgovor radi: ovaj Mac, Cloud ili Automatski. Kada je uključeno, svijetli u duginim bojama."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En sky-knap i chattens skrivefelt vælger, hvor chatten kører: denne Mac, Cloud eller Auto. Den lyser i regnbuefarver, når den er slået til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Wolken-Taste im Eingabefeld des Chats wählt, wo der Chat läuft: dieser Mac, Cloud oder Automatisch. Eingeschaltet leuchtet sie in Regenbogenfarben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un botón de nube en el editor del chat elige dónde se ejecuta: este Mac, Cloud o Automático. Se ilumina con los colores del arcoíris cuando está activado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un bouton nuage dans la zone de saisie du chat choisit où il s’exécute : ce Mac, Cloud ou Auto. Activé, il s’illumine aux couleurs de l’arc-en-ciel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un pulsante a forma di nuvola nell’editor della chat sceglie dove gira la chat: questo Mac, Cloud o Automatico. Quando è attivo si illumina con i colori dell’arcobaleno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットの入力欄にあるクラウドボタンで、チャットを実行する場所（この Mac、クラウド、自動）を選べます。オンにすると虹色に光ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប៊ូតុង Cloud ក្នុងប្រអប់សរសេររបស់ការជជែក ជ្រើសរើសកន្លែងដែលការជជែកដំណើរការ៖ Mac នេះ, Cloud ឬ ស្វ័យប្រវត្តិ។ វាភ្លឺពណ៌ឥន្ទធនូនៅពេលបើក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅 입력창의 클라우드 버튼으로 채팅이 실행될 곳(이 Mac, 클라우드, 자동)을 고릅니다. 켜면 무지개색으로 빛납니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En sky-knapp i chattens skrivefelt velger hvor chatten kjører: denne Macen, Cloud eller Auto. Den lyser i regnbuefarger når den er på."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przycisk chmury w polu pisania czatu wybiera, gdzie działa czat: ten Mac, Cloud lub Auto. Po włączeniu świeci w kolorach tęczy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um botão de nuvem no campo de escrita do chat escolhe onde o chat roda: este Mac, Cloud ou Automático. Ele acende nas cores do arco-íris quando ligado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кнопка облака в поле ввода чата выбирает, где работает чат: этот Mac, облако или авто. Когда включена, она светится цветами радуги."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ปุ่มคลาวด์ในช่องพิมพ์ของแชทใช้เลือกว่าแชทจะทำงานที่ใด: Mac เครื่องนี้ คลาวด์ หรืออัตโนมัติ เมื่อเปิดจะเรืองแสงเป็นสีรุ้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetin yazma alanındaki bulut düğmesi sohbetin nerede çalışacağını seçer: bu Mac, Cloud veya Otomatik. Açıkken gökkuşağı renkleriyle parlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кнопка хмари в полі введення чату вибирає, де працює чат: цей Mac, хмара чи авто. Коли увімкнена, вона світиться кольорами веселки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nút đám mây trong ô soạn tin của cuộc trò chuyện chọn nơi cuộc trò chuyện chạy: máy Mac này, Cloud hoặc Tự động. Khi bật, nút sáng lên màu cầu vồng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天输入框中的云按钮用来选择聊天在哪里运行：这台 Mac、云端或自动。打开时会亮起彩虹色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天輸入框中的雲端按鈕用來選擇聊天在哪裡執行：這台 Mac、雲端或自動。開啟時會亮起彩虹色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -443,7 +443,7 @@
   justify-content: center;
   gap: 10px;
   border: 1px dashed var(--page-text-3);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   color: var(--page-text-2);
 }
 
@@ -453,7 +453,7 @@
 
 .icon-asset-choose {
   padding: 4px 12px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--page-selection);
   color: var(--page-text);
 }
@@ -468,7 +468,7 @@
   min-width: 0;
   height: 28px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   outline: none;

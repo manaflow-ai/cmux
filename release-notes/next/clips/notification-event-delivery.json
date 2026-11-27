@@ -14,7 +14,8 @@
           "action": "openSettings",
           "arguments": {
             "setting": "notifications.delivery.permissionRequest"
-          }
+          },
+          "focus": true
         }
       },
       "wait": 2,

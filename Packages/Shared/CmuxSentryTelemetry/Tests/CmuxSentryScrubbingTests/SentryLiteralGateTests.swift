@@ -6,8 +6,8 @@ import Testing
 /// The literal gate (``SentryLiteralProbe``) only skips regexes that cannot match: a gated scrubber
 /// gives the same output as the ungated rules on every text, and still redacts every secret.
 @Suite struct SentryLiteralGateTests {
-    private let gated = SentryScrubber(homeDirectory: "/Users/dev", gatesByLiterals: true)
-    private let ungated = SentryScrubber(homeDirectory: "/Users/dev", gatesByLiterals: false)
+    private let gated = SentryScrubber(homeDirectory: "/Users/dev", gatesByLiterals: true, memoCapacity: 0)
+    private let ungated = SentryScrubber(homeDirectory: "/Users/dev", gatesByLiterals: false, memoCapacity: 0)
 
     /// Pieces that make up secrets, near-misses and plain text, in both cases, with non-ASCII
     /// characters ICU's case folding matches to ASCII letters (Kelvin sign, long s).
