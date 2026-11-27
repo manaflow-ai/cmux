@@ -45,89 +45,7 @@ sw_vers | tr '\n' ' '; echo
 echo "load_before=$(sysctl -n vm.loadavg)"
 xcrun swiftc --version 2>&1 | head -1
 
-mkdir -p "$WORK/HelloFloor.app/Contents/MacOS"
-cat >"$WORK/HelloFloor.app/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>HelloFloor</string>
-<key>CFBundleIdentifier</key><string>$APP_ID</string>
-<key>CFBundleName</key><string>HelloFloor</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSHighResolutionCapable</key><true/>
-</dict></plist>
-PLIST
-
-cat >"$WORK/app.swift" <<'SWIFT'
-import AppKit
-import Darwin
-import QuartzCore
-
-let tMain = clock_gettime_nsec_np(CLOCK_REALTIME)
-let outPath = ProcessInfo.processInfo.environment["HELLO_FLOOR_OUT"] ?? "/tmp/hello-floor-out.json"
-
-func procStartNs() -> UInt64 {
-  var kp = kinfo_proc()
-  var size = MemoryLayout<kinfo_proc>.stride
-  var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-  guard sysctl(&mib, 4, &kp, &size, nil, 0) == 0 else { return 0 }
-  let tv = kp.kp_proc.p_starttime
-  return UInt64(tv.tv_sec) * 1_000_000_000 + UInt64(tv.tv_usec) * 1000
-}
-
-final class Delegate: NSObject, NSApplicationDelegate {
-  var window: NSWindow!
-  var marks: [String: UInt64] = ["main": tMain]
-  var written = false
-  func mark(_ k: String) { if marks[k] == nil { marks[k] = clock_gettime_nsec_np(CLOCK_REALTIME) } ; maybeFinish() }
-  func maybeFinish() {
-    guard !written, marks["commit"] != nil, marks["visible"] != nil else { return }
-    written = true
-    marks["proc_start"] = procStartNs(); marks["pid"] = UInt64(getpid())
-    let body = marks.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",")
-    let tmp = outPath + ".tmp"
-    try? ("{" + body + "}\n").write(toFile: tmp, atomically: false, encoding: .utf8)
-    rename(tmp, outPath)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exit(0) }
-  }
-  func applicationDidFinishLaunching(_ n: Notification) {
-    mark("did_finish_launching")
-    window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 320),
-                      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    window.title = "HelloFloor"
-    let v = NSView(frame: window.contentLayoutRect)
-    v.wantsLayer = true
-    v.layer?.backgroundColor = NSColor.systemTeal.cgColor
-    window.contentView = v
-    NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
-      guard let self else { return }
-      if self.window.occlusionState.contains(.visible) { self.mark("visible") }
-    }
-    CATransaction.begin()
-    CATransaction.setCompletionBlock { [weak self] in self?.mark("commit") }
-    window.makeKeyAndOrderFront(nil)
-    mark("ordered_front")
-    CATransaction.commit()
-    NSApp.activate(ignoringOtherApps: true)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-      // Never hang the harness: write what we have.
-      self?.marks["visible"] = self?.marks["visible"] ?? 0
-      self?.marks["commit"] = self?.marks["commit"] ?? 0
-      self?.maybeFinish()
-    }
-  }
-}
-
-let app = NSApplication.shared
-let d = Delegate()
-app.delegate = d
-app.setActivationPolicy(.regular)
-app.run()
-SWIFT
+source scripts/measure/hello-floor-app.sh
 
 cat >"$WORK/launcher.swift" <<'SWIFT'
 import AppKit
@@ -218,9 +136,8 @@ SWIFT
 
 echo "== build"
 t=$(date +%s)
-xcrun swiftc -O -o "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor" "$WORK/app.swift"
-xcrun swiftc -O -o "$WORK/launcher" "$WORK/launcher.swift"
-codesign --force --sign - "$WORK/HelloFloor.app"
+hello_floor_app "$WORK" "$APP_ID"
+xcrun swiftc -O -target "$(uname -m)-apple-macos13.0" -o "$WORK/launcher" "$WORK/launcher.swift"
 codesign -dv "$WORK/HelloFloor.app" 2>&1 | grep -E 'Signature|Identifier' || true
 echo "built in $(( $(date +%s) - t ))s; exe $(stat -f %z "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor") bytes"
 
@@ -236,11 +153,11 @@ echo "== launch-ready probe arm reps=$REPS"
 xcrun swiftc -O -o "$WORK/launch-ready" scripts/measure/launch-ready.swift >"$WORK/probe-swiftc.log" 2>&1 \
   || { echo "probe build failed"; cat "$WORK/probe-swiftc.log"; exit 3; }
 mkdir -p "$WORK/probe-home"
-"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 /tmp/hf-$$.sock >"$WORK/probe-prime.txt" 2>&1 || true
+"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 "$WORK/hf.sock" >"$WORK/probe-prime.txt" 2>&1 || true
 : >"$WORK/probe.jsonl"
 for i in $(seq 1 "$REPS"); do
   sleep "$(awk "BEGIN{print $GAP_MS/1000}")"
-  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 /tmp/hf-$$.sock 2>/dev/null \
+  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 "$WORK/hf.sock" 2>/dev/null \
     | grep '^LR-RUN ' | sed 's/^LR-RUN //' | tee -a "$WORK/probe.jsonl" \
     | python3 -I -c 'import json,sys; r=json.loads(sys.stdin.read()); print("probe", r["label"], "request_to_start=%s window_on_screen=%s finished_launching=%s" % (r["request_to_start"], r["window_on_screen"], r["finished_launching"]))' || echo "probe run$i failed"
 done
@@ -257,6 +174,12 @@ for k in ("request_to_start", "finished_launching", "window_on_screen", "request
     xs = [x for x in xs if x is not None]
     print("probe_summary n=%d %s p50=%.1f p95=%.1f min=%.1f" % (len(xs), k, statistics.median(xs), p(xs, 0.95), min(xs)) if xs else "probe_summary %s none" % k)
 ' "$WORK/probe.jsonl"
+# A floor with no samples is no floor: fail the step so a receipt never reads it as a measurement.
+if ! grep -q . "$WORK/probe.jsonl"; then
+  echo "hello-appkit-floor: no launch produced a sample (see the open errors above)" >&2
+  rm -f "$OUT" "$OUT.tmp"
+  exit 4
+fi
 
-rm -f "$OUT" "$OUT.tmp" "/tmp/hf-$$.sock"
+rm -f "$OUT" "$OUT.tmp"
 echo "load_after=$(sysctl -n vm.loadavg)"

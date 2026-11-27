@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.importEnabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض استيراد الإشارات المرجعية والسجل وكلمات المرور وجلسات تسجيل الدخول. الإيقاف يخفي هذه العروض."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nudi uvoz oznaka, historije, lozinki i prijava. Isključeno skriva ponude."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilbyder at importere bogmærker, historik, adgangskoder og logins. Fra skjuler tilbuddene."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bietet an, Lesezeichen, Verlauf, Passwörter und Anmeldungen zu importieren. Aus blendet die Angebote aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ofrece importar marcadores, historial, contraseñas e inicios de sesión. Desactivado oculta las ofertas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Propose d’importer signets, historique, mots de passe et connexions. Désactivé masque ces propositions."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Propone di importare segnalibri, cronologia, password e accessi. Disattivato nasconde le proposte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブックマーク、履歴、パスワード、ログイン情報を取り込むよう提案します。オフにすると提案を非表示にします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្តល់ជូនការនាំចូលចំណាំ ប្រវត្តិ ពាក្យសម្ងាត់ និងការចូលគណនី។ បិទ នឹងលាក់ការផ្តល់ជូន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "북마크, 방문 기록, 암호, 로그인 정보를 가져오도록 제안합니다. 끄면 제안이 숨겨집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilbyr å importere bokmerker, historikk, passord og pålogginger. Av skjuler tilbudene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Proponuje import zakładek, historii, haseł i logowań. Wyłączone ukrywa propozycje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oferece importar favoritos, histórico, senhas e logins. Desativado oculta as ofertas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Предлагает импортировать закладки, историю, пароли и входы. Если выключено, предложения скрыты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เสนอให้นำเข้าบุ๊กมาร์ก ประวัติ รหัสผ่าน และการลงชื่อเข้าใช้ เมื่อปิดจะซ่อนข้อเสนอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yer işaretlerini, geçmişi, parolaları ve oturum açma bilgilerini içe aktarmayı önerir. Kapalıyken öneriler gizlenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пропонує імпортувати закладки, історію, паролі та входи. Якщо вимкнено, пропозиції приховано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đề xuất nhập dấu trang, lịch sử, mật khẩu và thông tin đăng nhập. Tắt sẽ ẩn các đề xuất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提议导入书签、历史记录、密码和登录信息。关闭则隐藏这些提议。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提議匯入書籤、瀏覽記錄、密碼和登入資訊。關閉則隱藏這些提議。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

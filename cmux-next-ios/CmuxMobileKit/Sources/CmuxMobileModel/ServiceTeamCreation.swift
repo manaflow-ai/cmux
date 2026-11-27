@@ -1,5 +1,8 @@
 public import CMUXAuthCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Create Team through the cmux service (`POST /v1/teams`, PROTOCOL.md).
 /// Stack refuses team creation from the client (`client_team_creation_enabled`

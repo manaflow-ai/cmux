@@ -38,7 +38,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux/cmux-next.json}"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
+# The app's settings file, whose folder holds web-dev.json: a DEV build's own (its CMUX_NEXT_CONFIG_FILE,
+# which `cmux live` passes on), else NEXT's ~/.config/cmux-next since #53567 (BuildStatePaths.configDirectory).
+# Writing web-dev.json into the Classic config folder pointed no release or nightly app anywhere (#56156).
+config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux-next/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
 overlay="${CMUX_WEB_OVERLAY_DIR:-$HOME/Library/Application Support/cmux-next/web-overlay}"
@@ -344,8 +349,13 @@ start_local() {
   answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
-  # The generated string tables are gitignored; the dev server imports them.
-  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
+  # The generated string tables are gitignored; the dev server imports them. A failure says its own
+  # words: silenced, set -e ended this script with no output at all (hot-verify's empty
+  # "web-overlay.sh server --local:", 2026-11-22).
+  local said
+  if ! said="$(cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort 2>&1)"; then
+    echo "webviews/scripts/pages/gen-strings.mjs failed in $tree: $(tail -n 20 <<<"$said")" >&2; exit 1
+  fi
   # Each module's React Compiler output, kept across starts (webviews/reactCompiler.mjs keys it by
   # the file's text, path and bun.lock), so a second start serves the agent pane in seconds, not
   # half a minute. About 50 MB per tree; entries older than 14 days go at each start.
@@ -365,7 +375,8 @@ start_local() {
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
   if ! answers "$port" 60 || ! ours_listens "$port"; then
-    echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
+    # Its own last words, not only where they are: `cmux app try .` shows this line alone.
+    echo "the dev server did not start: $(grep -E 'Error|error' "$state/dev-server.log" 2>/dev/null | head -n 3 | tr '\n' ' ')(log: $state/dev-server.log)" >&2; exit 1
   fi
   trap - EXIT
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
@@ -638,14 +649,20 @@ case "$cmd" in
             # The slot's server sends the token of web-dev.json on its own machine.
             remote_token="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" python3 - <<'PY' 2>/dev/null || true
 import json, os
-try:
-    print(json.load(open(os.path.expanduser("~/.config/cmux/web-dev.json"))).get("token") or "")
-except Exception:
-    print("")
+# The NEXT folder since #53567 first, then the one a host from before it still writes.
+token = ""
+for folder in ("cmux-next", "cmux"):
+    try:
+        token = json.load(open(os.path.join(os.path.expanduser("~"), ".config", folder, "web-dev.json"))).get("token") or ""
+    except Exception:
+        continue
+    if token:
+        break
+print(token)
 PY
 )"
             if [[ ${#remote_token} -lt 32 ]]; then
-              echo "warning: $host has no token in ~/.config/cmux/web-dev.json; start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+              echo "warning: $host has no token in its web-dev.json (~/.config/cmux-next, or the Classic config folder before #53567); start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
             fi
             point_at "$port" "$remote_token"; exit 0
           fi
@@ -794,9 +811,14 @@ PY
     ;;
   status)
     # First the answer (what the app loads its web UI from, and why), then the details.
-    setting=unknown
-    if command -v cmux >/dev/null 2>&1; then
-      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    # `cmux live status` reads the setting itself, from the app it was pointed at (--app-socket),
+    # and passes it in CMUX_LIVE_WEB_RELOAD; run by hand, this asks the `cmux` on PATH.
+    setting="${CMUX_LIVE_WEB_RELOAD:-}"
+    if [[ -z "$setting" ]]; then
+      setting=unknown
+      if command -v cmux >/dev/null 2>&1; then
+        setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+      fi
     fi
     explain "$setting" "$(live_pid dev-server)"
     echo

@@ -22,6 +22,9 @@ case "${1:-}" in
     python3 -c 'import json, sys; sys.exit(json.loads(sys.argv[1]) != ["arm64"])' "$VARIANTS" \
       || { echo "nightly-next-one builds arm64 only, not $VARIANTS" >&2; exit 1; }
     { echo "CHANNEL_APP_PATH=build-universal/Build/Products/Release/$APP_NAME.app"; echo "TMPDIR=$RUNNER_TEMP"; } >> "$GITHUB_ENV"
+    # The keyless prebuild's deltas outlive this job for nightly-next-deltas, the job after the feed that signs them
+    # when it lands on this Mac (its `done` names the build and the DMG's digest; anything else is rebuilt there).
+    echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
     leftover="$HOME/Library/Keychains/build.keychain-db"
     if [ -e "$leftover" ]; then
       echo "Deleting the signing keychain an ended job left: $leftover"
@@ -88,6 +91,11 @@ case "${1:-}" in
     if [ "${LANGUAGE_PACKS:-false}" = true ]; then
       mkdir -p language-packs
       cp "$RUNNER_TEMP"/language-packs/*.tar.zst "$RUNNER_TEMP/language-packs/language-packs.json" language-packs/
+      # The tool packs (tool-packs.py, sign-cmux-bundle.sh 4c) sit in its tools/ when the app has them.
+      if [ -f "$RUNNER_TEMP/language-packs/tools/tool-packs.json" ]; then
+        mkdir -p language-packs/tools
+        cp "$RUNNER_TEMP"/language-packs/tools/*.tar.zst "$RUNNER_TEMP/language-packs/tools/tool-packs.json" language-packs/tools/
+      fi
     fi
     printf '%s\n' source=own "build=$NIGHTLY_BUILD" "build_sha=$BUILD_SHA" "build_short_sha=${BUILD_SHA:0:7}" \
       "tip_sha=$TIP_SHA" "behind=$BEHIND" "behind_hours=$BEHIND_HOURS" "variant_pattern=cmux-nightly-variant-*" \

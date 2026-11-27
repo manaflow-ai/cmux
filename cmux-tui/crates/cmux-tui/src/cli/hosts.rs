@@ -11,6 +11,8 @@ use serde_json::json;
 
 use super::OutputMode;
 use super::hosts_check::{self, DEFAULT_TIMEOUT, MAX_TIMEOUT, Status};
+use super::hosts_edit;
+use cmux_config::hosts_edit::HostEdit;
 
 const USAGE: &str = "\
 cmux hosts: the computers declared in cmux-next.json (this build's config), under machines.hosts:
@@ -19,7 +21,13 @@ cmux hosts: the computers declared in cmux-next.json (this build's config), unde
   cmux hosts check [LABEL...] [--timeout SECS] [--json]
       which hosts answer from here: every endpoint at once, each with up to SECS (default 3)
       reachable: an ssh server answered; down: a machine answered, but not ssh;
-      unreachable: nothing answered (it may work from another network); unchecked: ssh goes through a proxy";
+      unreachable: nothing answered (it may work from another network); unchecked: ssh goes through a proxy
+  cmux hosts add LABEL ENDPOINT... [--icon NAME]     declare a host (endpoints tried in order)
+  cmux hosts rename OLD NEW                          give a host another label
+  cmux hosts set-endpoints LABEL ENDPOINT...         replace a host's endpoints
+  cmux hosts remove LABEL                            stop declaring a host
+      an endpoint is ssh://[user@]host[:port], [user@]host or an ~/.ssh/config alias; the edits keep
+      the file's comments and other keys, and the person runs them (an agent is refused)";
 
 /// Handles `cmux hosts` before the daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -35,6 +43,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 enum Request {
     List,
     Check { labels: Vec<String>, timeout: Duration },
+    Edit(HostEdit),
     Help,
 }
 
@@ -79,7 +88,10 @@ fn parse(rest: &[String]) -> Result<Request, String> {
             }
             Ok(Request::Check { labels, timeout })
         }
-        Some((verb, _)) => Err(format!("unknown verb {verb}")),
+        Some((verb, args)) => match hosts_edit::parse(verb, args) {
+            Some(edit) => edit.map(Request::Edit),
+            None => Err(format!("unknown verb {verb}")),
+        },
     }
 }
 
@@ -89,6 +101,7 @@ fn run(output: OutputMode, rest: &[String]) -> i32 {
             println!("{USAGE}");
             return 0;
         }
+        Ok(Request::Edit(edit)) => return hosts_edit::run(output, &edit),
         Ok(request) => request,
         Err(error) => {
             eprintln!("cmux hosts: {error}\n\n{USAGE}");
@@ -140,7 +153,7 @@ fn run(output: OutputMode, rest: &[String]) -> i32 {
             }
             0
         }
-        Request::Help => 0,
+        Request::Help | Request::Edit(_) => 0,
     }
 }
 
@@ -205,32 +218,5 @@ fn print_check(results: &[hosts_check::HostResult]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn words(text: &str) -> Vec<String> {
-        text.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn verbs_parse() {
-        assert_eq!(parse(&[]), Ok(Request::List));
-        assert_eq!(parse(&words("list --json")), Ok(Request::List));
-        assert_eq!(
-            parse(&words("check studio --timeout 1.5 --json")),
-            Ok(Request::Check {
-                labels: vec!["studio".into()],
-                timeout: Duration::from_millis(1500)
-            })
-        );
-        assert_eq!(
-            parse(&words("check")),
-            Ok(Request::Check { labels: vec![], timeout: DEFAULT_TIMEOUT })
-        );
-        assert!(parse(&words("check --timeout 99")).is_err());
-        assert!(parse(&words("check --bogus")).is_err());
-        assert!(parse(&words("frobnicate")).is_err());
-        assert_eq!(parse(&words("check --help")), Ok(Request::Help));
-        assert_eq!(parse(&words("--help")), Ok(Request::Help));
-    }
-}
+#[path = "hosts_tests.rs"]
+mod tests;

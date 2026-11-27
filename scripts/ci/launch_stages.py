@@ -16,13 +16,19 @@ import statistics
 
 # (stage, its marks), in launch order.
 TABLE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("dyld", ("premain.first_initializer",)),
     ("premain", ("main_start",)),
+    ("main_setup", ("main.setup_done",)),
     ("did_finish_launching", ("did_finish_launching_start",)),
     ("daemon_connected", ("daemon_connected",)),
     ("first_window_shown", ("launch_snapshot_shown", "first_window_flushed", "dfl.windows")),
     ("first_frame", ("first_window_frame_committed",)),
     ("webview_ready", ("cef.ready",)),
+    ("first_page_navigation", ("first_page.navigation_start",)),
+    ("first_page_dom_content_loaded", ("first_page.dom_content_loaded",)),
+    ("first_page_contentful_paint", ("first_page.first_contentful_paint",)),
     ("first_chat_paint", ("agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page")),
+    ("first_browser_paint", ("browser_pane.first_paint",)),
     ("first_interaction", ("terminal_echo", "agent_pane.input_echoed", "window_usable")),
 )
 STAGES = tuple(stage for stage, _ in TABLE)

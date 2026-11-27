@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.guidance.userSkills.help" : {
+      "comment" : "Settings > Agents > Guidance and Skills: toggle help; ~/.config/cmux/skills and SKILL.md stay as written",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تصل المهارات في ~/.config/cmux/skills (لكل منها مجلد يحتوي على SKILL.md) إلى كل محادثة جديدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vještine u ~/.config/cmux/skills (po jedan folder sa SKILL.md) stižu u svaki novi razgovor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Færdigheder i ~/.config/cmux/skills (én mappe med en SKILL.md hver) når frem til hver ny chat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skills in ~/.config/cmux/skills (je ein Ordner mit einer SKILL.md) erreichen jeden neuen Chat."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las habilidades de ~/.config/cmux/skills (una carpeta con un SKILL.md cada una) llegan a cada chat nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les compétences de ~/.config/cmux/skills (un dossier avec un SKILL.md chacune) sont transmises à chaque nouvelle discussion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le Skill in ~/.config/cmux/skills (una cartella con un SKILL.md ciascuna) arrivano a ogni nuova chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~/.config/cmux/skills のスキル（それぞれ SKILL.md を含むフォルダー）が、新しいチャットすべてに届きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជំនាញក្នុង ~/.config/cmux/skills (ថតនីមួយៗមាន SKILL.md មួយ) ទៅដល់គ្រប់ការជជែកថ្មី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~/.config/cmux/skills의 스킬(각각 SKILL.md가 있는 폴더)은 모든 새 채팅에 전달됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ferdigheter i ~/.config/cmux/skills (én mappe med en SKILL.md hver) når fram til hver ny chat."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Umiejętności w ~/.config/cmux/skills (każda w folderze z plikiem SKILL.md) trafiają do każdego nowego czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As Skills em ~/.config/cmux/skills (uma pasta com um SKILL.md cada) chegam a todo novo chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Навыки в ~/.config/cmux/skills (по папке с файлом SKILL.md) попадают в каждый новый чат."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทักษะใน ~/.config/cmux/skills (โฟลเดอร์ละหนึ่งทักษะพร้อมไฟล์ SKILL.md) จะส่งไปถึงแชทใหม่ทุกแชท"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~/.config/cmux/skills içindeki beceriler (her biri içinde bir SKILL.md olan bir klasör) her yeni sohbete ulaşır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Навички в ~/.config/cmux/skills (кожна — тека з файлом SKILL.md) потрапляють у кожен новий чат."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các kỹ năng trong ~/.config/cmux/skills (mỗi kỹ năng một thư mục có SKILL.md) sẽ đến mọi cuộc trò chuyện mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~/.config/cmux/skills 中的技能（每个一个文件夹，内含 SKILL.md）会送到每个新聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~/.config/cmux/skills 中的技能（每個資料夾內含一個 SKILL.md）會送到每個新聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

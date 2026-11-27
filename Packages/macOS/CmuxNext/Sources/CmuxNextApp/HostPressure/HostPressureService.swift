@@ -1,7 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import AppKit
 import Observation
 import os
@@ -177,11 +177,11 @@ final class HostPressureService {
         }
     }
 
-    /// The forced level's numbers: the cosmic-gray incident (cmuxterm-hq#2995) at critical, a
-    /// busy-but-fine 12-core Mac at warning.
+    /// The forced level's numbers: an overloaded 12-core Mac (load 146) at critical, a
+    /// busy-but-fine one at warning. The host is a neutral name, not one of our own machines.
     static func sample(_ level: HostPressureLevel) -> HostBudgetVerdict {
         let critical = level == .critical
-        var verdict = HostBudgetVerdict(host: "cosmic-gray", cores: 12, load1: critical ? 146 : 9.6,
+        var verdict = HostBudgetVerdict(host: "This Mac", cores: 12, load1: critical ? 146 : 9.6,
                                         pressure: critical ? .warn : .normal, availableRAMFraction: critical ? 0.04 : 0.31,
                                         swapMBPerMin: critical ? 410 : 0)
         verdict.localTurns = critical ? 39 : 14

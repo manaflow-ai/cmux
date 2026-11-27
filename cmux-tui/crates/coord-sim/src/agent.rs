@@ -34,14 +34,14 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// ACP `sessionUpdate`s the agent sends as themselves.
+/// ACP `sessionUpdate`s the agent sends as themselves. Not `plan`: acpmux drops an agent to-do
+/// list before the log (`todo_tools.rs`), so a recorded one is sent as a thought.
 pub const SHAPED: &[&str] = &[
     "agent_message_chunk",
     "agent_thought_chunk",
     "user_message_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "usage_update",
     "available_commands_update",
     "session_info_update",
@@ -122,8 +122,6 @@ pub fn update_json(update: &str, tagged: &str, bytes: u64, seed: u64, tool_id: &
             "kind": "execute", "status": "in_progress", "rawInput": {"command": text}}),
         "tool_call_update" => json!({"sessionUpdate": "tool_call_update", "toolCallId": tool_id,
             "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": text}}]}),
-        "plan" => json!({"sessionUpdate": "plan", "entries": [
-            {"content": text, "priority": "medium", "status": "in_progress"}]}),
         "usage_update" => json!({"sessionUpdate": "usage_update", "used": 1000 + seed % 100_000,
             "size": 200_000, "_meta": {"coordSim": text}}),
         "available_commands_update" => json!({"sessionUpdate": "available_commands_update",

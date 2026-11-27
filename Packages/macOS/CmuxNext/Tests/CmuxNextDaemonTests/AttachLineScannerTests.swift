@@ -55,4 +55,27 @@ import Testing
         let streamed = try #require(AttachLineScanner.scanOutput(line(#"{"type":"stream_item","event":"x"}"#), decodeData: false))
         #expect(streamed.hasType)
     }
+
+    @Test func badByteInTheMiddleOrEscapeRefusesTheLine() {
+        let good = Data((0..<600).map { UInt8(truncatingIfNeeded: $0) }).base64EncodedString()
+        var chars = Array(good)
+        chars[100] = "*"
+        #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"\#(String(chars))"}"#)) == nil)
+        #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"AA\/A"}"#)) == nil)
+        #expect(AttachLineScanner.scanOutput(line(#"{"data":"AA==","event":"output"}"#), decodeData: false)?.event == "output")
+        #expect(AttachLineScanner.scanOutput(line(#"{"data":"A\"A","event":"output"}"#), decodeData: false)?.event == "output")
+    }
+
+    /// Timing, printed not asserted: 1000 lines of 64 KiB (an `output` burst) scanned and decoded.
+    @Test func decodeCostOfABurst() throws {
+        let payload = Data((0..<65_536).map { UInt8(truncatingIfNeeded: $0 &* 131 &+ 7) })
+        let json = line(#"{"event":"output","surface":3,"generation":1,"data":"\#(payload.base64EncodedString())"}"#)
+        let start = ContinuousClock.now
+        for _ in 0..<1000 {
+            let fields = try #require(AttachLineScanner.scanOutput(json))
+            #expect(fields.data?.count == payload.count)
+        }
+        let elapsed = start.duration(to: .now)
+        print("AttachLineScanner burst: 64 MiB decoded in \(elapsed)")
+    }
 }

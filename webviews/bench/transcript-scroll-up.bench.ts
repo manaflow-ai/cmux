@@ -91,6 +91,7 @@ const prompts = FLAT ? chatTurns : log.events.filter((event) => event.kind === "
 const FIRST_PROMPT = FLAT ? "user-1" : `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
 /// `mounted`: rows (`.acpmux-row`) that came into the DOM since the frame before (a full mount each).
+<<<<<<< ours
 type Frame = {
   scrollTop: number;
   scrollHeight: number;
@@ -100,6 +101,19 @@ type Frame = {
   mounted: number;
   writes?: string;
 };
+=======
+/// `shifted`: mounted rows whose `aria-posinset` changed since the frame before: rows came in above them, an
+/// older page drawn. A full held window sheds as many rows below as a page brings above, and in the flat
+/// fixture every turn is as tall as the next, so the content height alone does not say a page landed.
+type Frame = {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  paint: number;
+  mounted: number;
+  shifted: number;
+};
+>>>>>>> theirs
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -115,6 +129,7 @@ async function run(name: string, engine: BrowserType) {
     turns: chatTurns,
     running: false,
     lead,
+    ready: FLAT ? ".acpmux-row" : undefined,
     attachPage: 160,
     session: { turnCount: prompts },
     eventsLatencyMs: LATENCY,
@@ -262,11 +277,30 @@ async function run(name: string, engine: BrowserType) {
       }
       // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
       let mounted = 0;
+      let shifted = 0;
       const rowsIn = new MutationObserver((records) => {
-        for (const record of records)
+        for (const record of records) {
+          if (record.type === "attributes") {
+            const node = record.target as HTMLElement;
+            if (
+              node.classList.contains("acpmux-row") &&
+              Number(node.getAttribute("aria-posinset")) > Number(record.oldValue ?? Infinity)
+            )
+              shifted += 1;
+            continue;
+          }
           for (const node of record.addedNodes)
             if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) mounted += 1;
+        }
       });
+      rowsIn.observe(scroller, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["aria-posinset"],
+        attributeOldValue: true,
+      });
+<<<<<<< ours
       rowsIn.observe(scroller, { childList: true, subtree: true });
       // LANDINGS=1: what each frame wrote under the transcript, by attribute and by nodes added or removed.
       let writes = new Map<string, number>();
@@ -299,6 +333,8 @@ async function run(name: string, engine: BrowserType) {
         childList: true,
         characterData: true,
       });
+=======
+>>>>>>> theirs
       const stopPaint = window.cmuxAfterPaint((paint) => {
         let written: string | undefined;
         if (mutations) {
@@ -321,8 +357,10 @@ async function run(name: string, engine: BrowserType) {
           // The mounted rows, first and last: a frame that mounts or unmounts rows changes them.
           rows: `${scroller.querySelector("[data-row-id]")?.getAttribute("data-row-id")}..${scroller.querySelectorAll("[data-row-id]").length}`,
           mounted,
+          shifted,
         });
         mounted = 0;
+        shifted = 0;
       });
       const stop = () => {
         stopPaint();
@@ -586,6 +624,18 @@ async function run(name: string, engine: BrowserType) {
         );
         drawnAsks.push({ askAt: ask.askAt, settledAt: ask.settledAt, drawnAt: drawn.paint });
       } else undrawnAsks += 1;
+    }
+    // Each ask to the first painted frame after it whose rows moved down in the list (`shifted`): an older
+    // page drawn above them, whatever the content height did (the window sheds below what a page adds above).
+    const askToShifted: number[] = [];
+    let unshiftedAsks = 0;
+    const askAts = wire.asks.map((ask) => ask.askAt).sort((a, b) => a - b);
+    for (const [at, askAt] of askAts.entries()) {
+      const next = askAts[at + 1] ?? Infinity;
+      const drawn = watched.frames.find((frame) => frame.paint > askAt && frame.shifted > 0);
+      // A shift past the next ask may be that ask's page: this one drew nothing of its own before it.
+      if (drawn && drawn.paint <= next + 1000) askToShifted.push(drawn.paint - askAt);
+      else unshiftedAsks += 1;
     }
     const wireMs = wire.pages.map((each) => each.recvAt - each.sentAt);
     // A frame the reader asked to go up and the view moved less (held at the loaded rows' top, or a wheel
@@ -863,6 +913,7 @@ async function run(name: string, engine: BrowserType) {
         );
       })(),
       frameMax: round2(Math.max(0, ...intervals)),
+      lateFrames: intervals.filter((interval) => interval > 1000 / 120).length,
       longTasks: watched.longtasks ? watched.long.length : null,
       longTaskMs: watched.longtasks ? Math.round(watched.long.reduce((sum, ms) => sum + ms, 0)) : null,
       thumbSizeStartPct: round2(first * 100),
@@ -877,6 +928,11 @@ async function run(name: string, engine: BrowserType) {
       askToDrawnP95: round2(percentile(askToDrawn, 95)),
       askToDrawnMax: round2(Math.max(0, ...askToDrawn)),
       undrawnAsks,
+      askToShiftedP50: round2(percentile(askToShifted, 50)),
+      askToShiftedP95: round2(percentile(askToShifted, 95)),
+      askToShiftedMax: round2(Math.max(0, ...askToShifted)),
+      unshiftedAsks,
+      shiftedFrames: watched.frames.filter((frame) => frame.shifted > 0).length,
       loadingFrames,
       wirePages: wire.pages.length,
       wireMsP50: round2(percentile(wireMs, 50)),

@@ -85,20 +85,15 @@ public actor MobileHostSupervisor {
     private var state = MobileHostState()
     private var run: Task<Void, Never>?
     private var process: MobileHostProcess?
-    private struct ExposureWaiter {
-        var sessionID: String
-        var allowed: Bool
-        var continuation: CheckedContinuation<Void, Error>
-    }
-    private var nextExposureRequest: UInt64 = 0
-    private var exposureWaiters: [UInt64: ExposureWaiter] = [:]
-    private var exposureTimeouts: [UInt64: DemandTimer] = [:]
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
     /// hostd's exit status after the owner removed this Mac (`host.rs` `EXIT_REMOVED`).
     static let exitRemoved: Int32 = 78
     static let removedReason = "removed"
+    /// hostd's exit status after the service refused this Mac's device id (`host.rs` `EXIT_NOT_OWNED`).
+    static let exitDeviceIDTaken: Int32 = 79
+    static let deviceIDTakenReason = "device-id-taken"
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
@@ -155,11 +150,6 @@ public actor MobileHostSupervisor {
 
     /// Ends the current run and waits for its hostd to exit.
     private func halt() async {
-        let waiters = exposureWaiters
-        exposureWaiters.removeAll()
-        exposureTimeouts.values.forEach { $0.cancel() }
-        exposureTimeouts.removeAll()
-        waiters.values.forEach { $0.continuation.resume(throwing: SessionExposureError.hostUnavailable) }
         let task = run
         run = nil
         task?.cancel()
@@ -175,89 +165,6 @@ public actor MobileHostSupervisor {
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
-    }
-
-    public enum SessionExposureError: Error, LocalizedError, Equatable, Sendable {
-        case hostUnavailable
-        case rejected(String)
-        case timedOut
-
-        public var errorDescription: String? {
-            switch self {
-            case .hostUnavailable: return "cmux-mobile-host is not running"
-            case let .rejected(reason): return reason
-            case .timedOut: return "cmux-mobile-host did not confirm the Remote Control change"
-            }
-        }
-    }
-
-    /// Changes one chat's Remote Control exposure and waits for the Rust host's exact state
-    /// acknowledgement. A dead host never reports success; persistence remains Rust-owned.
-    public func setSessionExposure(sessionID: String, allowed: Bool) async throws {
-        guard let process else { throw SessionExposureError.hostUnavailable }
-        let id = nextExposureRequest
-        nextExposureRequest &+= 1
-        try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                exposureWaiters[id] = ExposureWaiter(sessionID: sessionID, allowed: allowed, continuation: continuation)
-                guard process.send(MobileHostLaunch.sessionExposureLine(sessionID: sessionID, allowed: allowed)) else {
-                    exposureWaiters.removeValue(forKey: id)
-                    continuation.resume(throwing: SessionExposureError.hostUnavailable)
-                    return
-                }
-                let timeout = DemandTimer(owner: "MobileHostSupervisor.sessionExposure")
-                exposureTimeouts[id] = timeout
-                timeout.schedule(after: .seconds(3)) { [weak self] in
-                    await self?.timeoutExposureRequest(id)
-                }
-            }
-        }, onCancel: {
-            // task-owner: one actor hop resolves this cancelled request; it never waits or repeats.
-            Task { [weak self] in await self?.cancelExposureRequest(id) }
-        })
-    }
-
-    private func timeoutExposureRequest(_ id: UInt64) {
-        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
-        exposureTimeouts.removeValue(forKey: id)?.cancel()
-        waiter.continuation.resume(throwing: SessionExposureError.timedOut)
-    }
-
-    private func cancelExposureRequest(_ id: UInt64) {
-        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
-        exposureTimeouts.removeValue(forKey: id)?.cancel()
-        waiter.continuation.resume(throwing: CancellationError())
-    }
-
-    private func resolveExposureRequests(for event: MobileHostEvent) {
-        switch event {
-        case let .sessionExposureState(available, configured, sessions, blockedSessions):
-            let exposed = Set(sessions)
-            let blocked = Set(blockedSessions)
-            let resolved = exposureWaiters.compactMap { id, waiter in
-                (available && (waiter.allowed
-                    ? (configured ? exposed.contains(waiter.sessionID) : true)
-                    : blocked.contains(waiter.sessionID))) ? id : nil
-            }
-            for id in resolved {
-                guard let waiter = exposureWaiters[id] else { continue }
-                exposureWaiters.removeValue(forKey: id)
-                exposureTimeouts.removeValue(forKey: id)?.cancel()
-                waiter.continuation.resume()
-            }
-        case let .sessionExposureError(sessionID, allowed, reason):
-            let resolved = exposureWaiters.compactMap { id, waiter in
-                (waiter.sessionID == sessionID && waiter.allowed == allowed) ? id : nil
-            }
-            for id in resolved {
-                guard let waiter = exposureWaiters[id] else { continue }
-                exposureWaiters.removeValue(forKey: id)
-                exposureTimeouts.removeValue(forKey: id)?.cancel()
-                waiter.continuation.resume(throwing: SessionExposureError.rejected(reason))
-            }
-        default:
-            break
-        }
     }
 
     /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
@@ -346,7 +253,22 @@ public actor MobileHostSupervisor {
             // stopped; registering again would undo the removal.
             if state.phase == .removed || reason == Self.removedReason {
                 logger.notice("this Mac was removed from the account's devices; cmux-mobile-host stays stopped")
-                publish { $0.reset(to: .removed) }
+                let stopped = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .removed)
+                    $0.stoppedDevice = stopped
+                }
+                return
+            }
+            // Another account owns the device id hostd registered: restarting with it would be
+            // refused again. The iPhone host renews the id and starts a new hostd.
+            if state.phase == .deviceIDTaken || reason == Self.deviceIDTakenReason {
+                logger.notice("another account owns this Mac's device id; cmux-mobile-host waits for a new one")
+                let refused = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .deviceIDTaken)
+                    $0.stoppedDevice = refused
+                }
                 return
             }
             if Self.resetsBackoff(started: started, online: onlineSince, ended: now()) { backoff.reset() }
@@ -389,6 +311,7 @@ public actor MobileHostSupervisor {
             return "stopped"
         }
         if status == Self.exitRemoved { return Self.removedReason }
+        if status == Self.exitDeviceIDTaken { return Self.deviceIDTakenReason }
         return "cmux-mobile-host exited with status \(status ?? -1)"
     }
 
@@ -465,8 +388,12 @@ public actor MobileHostSupervisor {
             default:
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
-                publish { $0.apply(event, at: at) }
-                resolveExposureRequests(for: event)
+                let refused = event == .deviceIDTaken || event == .removed
+                    ? MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID) : nil
+                publish {
+                    $0.apply(event, at: at)
+                    if let refused { $0.stoppedDevice = refused }
+                }
             }
         }
     }

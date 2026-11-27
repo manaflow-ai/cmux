@@ -573,7 +573,7 @@ fn route(words: &[&str], app: bool) -> NewRoute {
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["machine", "new"], true), NewRoute::App);
     assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
     assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
@@ -583,6 +583,31 @@ fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--label", "fleet=lanes"], true), NewRoute::VmApi);
+}
+
+/// Headless (no app), `vm new` takes `--size`, `--persistent`, `--bootstrap lane
+/// --bootstrap-script`, `--machine-config` and `--wait` on the VM API route, so an agent makes a
+/// lane VM with no app (Leo: "we want to be able to do with GCP what we can do with Freestyle").
+/// They used to send it to the app, which was not there. With the app they still go to the app;
+/// `--repo` (the app's GitHub link) always does.
+#[test]
+fn headless_vm_new_takes_size_persistent_bootstrap_and_machine_config() {
+    for flags in [
+        &["--size", "large"][..],
+        &["--persistent"],
+        &["--bootstrap", "lane", "--bootstrap-script", "b.sh", "--name", "lane-1"],
+        &["--bootstrap-script=b.sh"],
+        &["--machine-config", "m.toml", "--wait"],
+    ] {
+        let words: Vec<&str> = ["vm", "new"].into_iter().chain(flags.iter().copied()).collect();
+        assert_eq!(route(&words, false), NewRoute::VmApi, "{words:?}");
+        assert_eq!(route(&words, true), NewRoute::App, "{words:?}");
+    }
+    assert_eq!(route(&["vm", "new", "--repo", "o/n"], false), NewRoute::App);
+    assert_eq!(
+        route(&["vm", "new", "--bootstrap-script", "b.sh", "--snapshot", "snap_1"], true),
+        NewRoute::VmApi
+    );
 }
 
 #[test]
@@ -608,6 +633,29 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
         created_line(&json!({ "action": "share chat" }), &created, &GlobalArgs::default())
             .is_none()
     );
+}
+
+/// 2026-11-25: `cmux vm new` answered a VM the server made 7 minutes before the call as
+/// "Created". A machine the answer marks `reused` says so, with when it was made.
+#[test]
+fn a_reused_cloud_machine_is_not_called_created() {
+    let params = json!({ "action": "cloud new-machine" });
+    let reused = json!({ "result": {
+        "machine_id": "vm_57a7e6bc0337b978d609", "title": "dev", "status": "running",
+        "target": "machine:vm_57a7e6bc0337b978d609", "reused": true,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &reused, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Got Cloud VM dev (vm_57a7e6bc0337b978d609): running."), "{text}");
+    assert!(text.contains("made at 2026-11-25T10:00:00Z, before this request"), "{text}");
+    assert!(!text.contains("Created"), "{text}");
+    assert!(text.contains("cmux vm ssh vm_57a7e6bc0337b978d609"), "{text}");
+    let own = json!({ "result": {
+        "machine_id": "vm-abc", "status": "running", "reused": false,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &own, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Created Cloud VM vm-abc: running."), "{text}");
 }
 
 /// #32227 (1): a bootstrap or machine config that ran keeps the full field
@@ -894,14 +942,15 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
 }
 
 /// A DEV build names its own `vm.json` (`CMUX_VM_DEFAULT_CONFIG`, BuildStatePaths): the person's
-/// `~/.config/cmux/vm.json` is NIGHTLY's and stable's, never a DEV build's credential.
+/// `~/.config/cmux-next/vm.json` (`cmux` off macOS) is NIGHTLY's and stable's, never a DEV build's
+/// credential.
 #[test]
 fn dev_build_own_vm_config_is_the_one_counted() {
     let base = std::env::temp_dir().join(format!("cmux-vm-dev-config-{}", std::process::id()));
-    std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+    let config = base.join("home/.config").join(cmux_config::NEXT_DIR);
+    std::fs::create_dir_all(&config).unwrap();
     std::fs::create_dir_all(base.join("build")).unwrap();
-    std::fs::write(base.join("home/.config/cmux/vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#)
-        .unwrap();
+    std::fs::write(config.join("vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#).unwrap();
     let own = base.join("build/vm.json");
     let home = base.join("home").to_string_lossy().into_owned();
     let own_text = own.to_string_lossy().into_owned();
@@ -914,4 +963,26 @@ fn dev_build_own_vm_config_is_the_one_counted() {
     std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
     assert!(has_own_credential(&env), "the DEV build's own vm.json did not count");
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// `cmux vm resize --help` is `resize-machine`'s help (exit 0), and an alias's help names the
+/// alias before the VM API's help of the verb it runs (the Cloud and remote command matrix).
+#[test]
+fn alias_and_redirect_verbs_have_their_own_help() {
+    let Some(HelpNote::Whole(resize)) = verb_help_note("resize", false) else {
+        panic!("resize redirects")
+    };
+    assert!(resize.contains("cmux vm resize"), "{resize}");
+    assert!(resize.contains("resize-machine"), "{resize}");
+    for (alias, long) in
+        [("ls", "list"), ("show", "get"), ("key", "token"), ("access", "client-session")]
+    {
+        assert_eq!(
+            verb_help_note(alias, false),
+            Some(HelpNote::Before(format!("`cmux vm {alias}` is `cmux vm {long}`.\n\n")))
+        );
+    }
+    assert_eq!(verb_help_note("list", false), None);
+    assert!(verb_asks_help(&args(&["--help"])));
+    assert!(!verb_asks_help(&args(&["--", "--help"])));
 }

@@ -163,6 +163,9 @@ public struct SettingsSchemaExport {
             row["kind"] = "string_list"
             row["choices"] = choices(list)
             row["ordered"] = false
+        case .json(let shape):
+            row["kind"] = "json"
+            row["shape"] = foundation(shape)
         }
         // How another validator checks the value: portable, or a domain only the app knows (theme
         // names, installed fonts, system sounds) or with its own shape (row-facts.json).

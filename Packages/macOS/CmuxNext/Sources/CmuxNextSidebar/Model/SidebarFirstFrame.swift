@@ -31,7 +31,7 @@ public nonisolated struct SidebarFirstFrame: Sendable {
             switch state {
             case .placeholder: self = .loadingRow
             case .stale: self = .savedRow
-            case .live, .creating: return nil
+            case .live, .creating, .moving: return nil
             }
         }
     }

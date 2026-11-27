@@ -15,6 +15,10 @@ pub const MAX_VARIANTS: usize = 16;
 pub const MAX_ID_LEN: usize = 48;
 /// The largest `wallpaper.json` read.
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024;
+/// `idle_after` when the manifest has none: the scheduler's `IDLE_AFTER_S`.
+pub const DEFAULT_IDLE_AFTER_S: f32 = 20.0;
+/// The shortest `idle_after`.
+pub const MIN_IDLE_AFTER_S: f32 = 1.0;
 
 /// One float the program reads from `frame.params` (in manifest order).
 #[derive(Clone, Debug, PartialEq)]
@@ -55,14 +59,27 @@ pub struct Manifest {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// The program, relative to the wallpaper's folder.
+    /// The program, relative to the wallpaper's folder; empty for a scene
+    /// (`scene` or `lottie` is set instead: plans/cmux-next/motion-scenes.md).
     pub shader: String,
+    /// A motion scene (`scene.json`), drawn by the first-party scene engine.
+    pub scene: Option<String>,
+    /// A Lottie file, translated to a scene when the wallpaper loads.
+    pub lottie: Option<String>,
+    /// The pack it belongs to in the picker ("Blueprint Gradient"), if any.
+    pub pack: Option<String>,
     /// The program's own frame cap, 1..=60.
     pub fps: u32,
     /// The backing scale it renders at, 0.25..=1.
     pub scale: f32,
     /// Whether pointer motion wakes it.
     pub interactive: bool,
+    /// Whether agent activity wakes it (`agents`, default false): the program
+    /// reads `Frame.activity`.
+    pub agents: bool,
+    /// Seconds of nothing before it holds (`idle_after`, 1..=20, default 20):
+    /// a wallpaper with no motion of its own holds soon after the pointer stops.
+    pub idle_after: f32,
     pub params: Vec<Param>,
     pub still: Still,
     pub variants: Vec<Variant>,
@@ -106,7 +123,7 @@ impl fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
-fn err(
+pub(crate) fn err(
     kind: ManifestErrorKind,
     pointer: impl Into<String>,
     message: impl Into<String>,
@@ -114,17 +131,17 @@ fn err(
     ManifestError { kind, pointer: pointer.into(), message: message.into() }
 }
 
-type Result<T> = std::result::Result<T, ManifestError>;
+pub(crate) type Result<T> = std::result::Result<T, ManifestError>;
 
-fn escape(key: &str) -> String {
+pub(crate) fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-fn object<'a>(v: &'a Value, at: &str) -> Result<&'a Map<String, Value>> {
+pub(crate) fn object<'a>(v: &'a Value, at: &str) -> Result<&'a Map<String, Value>> {
     v.as_object().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be an object"))
 }
 
-fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
+pub(crate) fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
     match o.keys().find(|k| !allowed.contains(&k.as_str())) {
         Some(k) => Err(err(
             ManifestErrorKind::UnknownKey,
@@ -135,11 +152,11 @@ fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
     }
 }
 
-fn required<'a>(o: &'a Map<String, Value>, at: &str, key: &str) -> Result<&'a Value> {
+pub(crate) fn required<'a>(o: &'a Map<String, Value>, at: &str, key: &str) -> Result<&'a Value> {
     o.get(key).ok_or_else(|| err(ManifestErrorKind::Missing, at, format!("{key} is required")))
 }
 
-fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
+pub(crate) fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
     let s = v.as_str().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be a string"))?;
     let n = s.chars().count();
     if n == 0 || n > max_chars {
@@ -155,7 +172,7 @@ fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
     Ok(s.to_string())
 }
 
-fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
+pub(crate) fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
     let n = v.as_f64().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be a number"))?;
     // Compare at the precision the value is stored in: a param's `min` of 0.1 is kept as
     // 0.1f32 (0.10000000149...), so a `default` or variant value of 0.1 must compare as
@@ -192,7 +209,7 @@ fn is_param_name(s: &str) -> bool {
 }
 
 /// A relative path inside the folder: no leading `/`, no `..`, no backslash.
-fn is_relative_path(s: &str) -> bool {
+pub(crate) fn is_relative_path(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 256
         && !s.starts_with('/')
@@ -231,9 +248,14 @@ impl Manifest {
                 "name",
                 "description",
                 "shader",
+                "scene",
+                "lottie",
+                "pack",
                 "fps",
                 "scale",
                 "interactive",
+                "agents",
+                "idle_after",
                 "params",
                 "still",
                 "variants",
@@ -254,17 +276,45 @@ impl Manifest {
         }
         let name = string(required(o, "", "name")?, "/name", 60)?;
         let description = string(required(o, "", "description")?, "/description", 300)?;
-        let shader_v = required(o, "", "shader")?;
-        let shader = shader_v
-            .as_str()
-            .ok_or_else(|| err(ManifestErrorKind::WrongType, "/shader", "must be a string"))?;
-        if !is_relative_path(shader) || !shader.ends_with(".wgsl") {
-            return Err(err(
-                ManifestErrorKind::BadFormat,
-                "/shader",
-                format!("{shader:?} must be a .wgsl file inside the wallpaper's folder"),
-            ));
+        let source_path = |key: &str, ext: &str| -> Result<Option<String>> {
+            let Some(v) = o.get(key) else { return Ok(None) };
+            let at = format!("/{key}");
+            let path = v.as_str().ok_or_else(|| {
+                err(ManifestErrorKind::WrongType, at.as_str(), "must be a string")
+            })?;
+            if !is_relative_path(path) || !path.ends_with(ext) {
+                return Err(err(
+                    ManifestErrorKind::BadFormat,
+                    at,
+                    format!("{path:?} must be a {ext} file inside the wallpaper's folder"),
+                ));
+            }
+            Ok(Some(path.to_string()))
+        };
+        let shader = source_path("shader", ".wgsl")?;
+        let scene = source_path("scene", ".json")?;
+        let lottie = source_path("lottie", ".json")?;
+        match [&shader, &scene, &lottie].iter().filter(|s| s.is_some()).count() {
+            0 => {
+                return Err(err(
+                    ManifestErrorKind::Missing,
+                    "",
+                    "shader is required (or scene, or lottie)",
+                ));
+            }
+            1 => {}
+            _ => {
+                return Err(err(
+                    ManifestErrorKind::Duplicate,
+                    "",
+                    "name only one of shader, scene and lottie",
+                ));
+            }
         }
+        let pack = match o.get("pack") {
+            None => None,
+            Some(p) => Some(string(p, "/pack", 40)?),
+        };
         let fps_v = required(o, "", "fps")?;
         let fps = fps_v
             .as_u64()
@@ -276,6 +326,21 @@ impl Manifest {
         let interactive = required(o, "", "interactive")?.as_bool().ok_or_else(|| {
             err(ManifestErrorKind::WrongType, "/interactive", "must be true or false")
         })?;
+        let agents = match o.get("agents") {
+            None => false,
+            Some(a) => a.as_bool().ok_or_else(|| {
+                err(ManifestErrorKind::WrongType, "/agents", "must be true or false")
+            })?,
+        };
+        let idle_after = match o.get("idle_after") {
+            None => DEFAULT_IDLE_AFTER_S,
+            Some(n) => number(
+                n,
+                "/idle_after",
+                f64::from(MIN_IDLE_AFTER_S),
+                f64::from(DEFAULT_IDLE_AFTER_S),
+            )?,
+        };
         let params = match o.get("params") {
             None => Vec::new(),
             Some(p) => parse_params(p)?,
@@ -289,10 +354,15 @@ impl Manifest {
             id: id.to_string(),
             name,
             description,
-            shader: shader.to_string(),
+            shader: shader.unwrap_or_default(),
+            scene,
+            lottie,
+            pack,
             fps: u32::try_from(fps).unwrap_or(30),
             scale,
             interactive,
+            agents,
+            idle_after,
             params,
             still,
             variants,
@@ -314,14 +384,32 @@ impl Manifest {
     /// The manifest as JSON with every optional key filled in: the shape the
     /// app reads (`cmux_wallpaper_validate_manifest`).
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_common();
+        // Only the source that applies, and no null: the parser refuses both.
+        if let Some(o) = v.as_object_mut() {
+            let source = match (&self.scene, &self.lottie) {
+                (Some(s), _) => ("scene", s.clone()),
+                (None, Some(l)) => ("lottie", l.clone()),
+                (None, None) => ("shader", self.shader.clone()),
+            };
+            o.insert(source.0.into(), json!(source.1));
+            if let Some(p) = &self.pack {
+                o.insert("pack".into(), json!(p));
+            }
+        }
+        v
+    }
+
+    fn to_json_common(&self) -> Value {
         json!({
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "shader": self.shader,
             "fps": self.fps,
             "scale": self.scale,
             "interactive": self.interactive,
+            "agents": self.agents,
+            "idle_after": self.idle_after,
             "params": self.params.iter().map(|p| json!({
                 "name": p.name,
                 "title": p.title.clone().unwrap_or_else(|| p.name.clone()),
@@ -507,217 +595,5 @@ fn parse_variants(v: &Value, params: &[Param]) -> Result<Vec<Variant>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn base() -> Value {
-        json!({
-            "id": "grain-silk",
-            "name": "Grain and Silk",
-            "description": "Film grain.",
-            "shader": "wallpaper.wgsl",
-            "fps": 30,
-            "scale": 0.5,
-            "interactive": true,
-            "params": [{ "name": "speed", "title": "Speed", "default": 0.4, "min": 0, "max": 2 }],
-            "still": { "time": 14.0, "pointer": [0.62, 0.42] },
-            "variants": [{ "name": "Cobalt", "accent": "#3D7BFF", "params": { "speed": 1 }, "themes": ["dark"] }]
-        })
-    }
-
-    fn refuse(edit: impl FnOnce(&mut Value)) -> ManifestError {
-        let mut v = base();
-        edit(&mut v);
-        match Manifest::from_value(&v) {
-            Ok(m) => panic!("accepted {m:?}"),
-            Err(e) => e,
-        }
-    }
-
-    #[test]
-    fn the_spec_example_parses() {
-        let m = Manifest::from_value(&base()).unwrap();
-        assert_eq!(m.id, "grain-silk");
-        assert_eq!(m.fps, 30);
-        assert_eq!(m.params.len(), 1);
-        assert_eq!(m.still.pointer, [0.62, 0.42]);
-        assert_eq!(m.variants[0].params["speed"], 1.0);
-        let back = Manifest::from_value(&m.to_json()).unwrap();
-        assert_eq!(back.id, m.id);
-        assert_eq!(back.params[0].title.as_deref(), Some("Speed"));
-    }
-
-    #[test]
-    fn decimal_endpoints_are_in_range() {
-        // 0.1 and 0.3 are not exact in f32: a default or variant value at a decimal limit is valid.
-        let mut v = base();
-        v["params"][0] = json!({ "name": "speed", "default": 0.1, "min": 0.1, "max": 0.3 });
-        v["variants"][0]["params"] = json!({ "speed": 0.3 });
-        let m = Manifest::from_value(&v).unwrap();
-        assert_eq!((m.params[0].min, m.params[0].max, m.params[0].default), (0.1, 0.3, 0.1));
-        v["variants"][0]["params"] = json!({ "speed": 0.1 });
-        Manifest::from_value(&v).unwrap();
-        v["variants"][0]["params"] = json!({ "speed": 0.31 });
-        assert_eq!(Manifest::from_value(&v).unwrap_err().kind, ManifestErrorKind::OutOfRange);
-    }
-
-    #[test]
-    fn a_variant_may_carry_its_own_still() {
-        let mut v = base();
-        v["variants"][0]["still"] = json!({ "time": 3.0, "pointer": [0.2, 0.8] });
-        let m = Manifest::from_value(&v).unwrap();
-        assert_eq!(m.variants[0].still, Some(Still { time: 3.0, pointer: [0.2, 0.8] }));
-        let back = Manifest::from_value(&m.to_json()).unwrap();
-        assert_eq!(back.variants[0].still, m.variants[0].still);
-        let plain = Manifest::from_value(&base()).unwrap();
-        assert_eq!(plain.variants[0].still, None);
-        assert_eq!(Manifest::from_value(&plain.to_json()).unwrap(), plain);
-        let mut bare = base();
-        bare["variants"][0].as_object_mut().unwrap().remove("accent");
-        let bare = Manifest::from_value(&bare).unwrap();
-        assert_eq!(Manifest::from_value(&bare.to_json()).unwrap(), bare);
-        let e = refuse(|v| v["variants"][0]["still"] = json!({ "time": 3.0, "pointer": [0.2, 2] }));
-        assert_eq!(e.pointer, "/variants/0/still/pointer/1");
-    }
-
-    #[test]
-    fn params_and_variants_are_optional() {
-        let e = Manifest::from_value(&{
-            let mut v = base();
-            let o = v.as_object_mut().unwrap();
-            o.remove("params");
-            o.remove("variants");
-            v
-        })
-        .unwrap();
-        assert!(e.params.is_empty());
-        assert_eq!(e.param_values(&BTreeMap::new()), [0.0; 8]);
-    }
-
-    #[test]
-    fn param_values_take_overrides_clamped() {
-        let m = Manifest::from_value(&base()).unwrap();
-        let mut o = BTreeMap::new();
-        assert_eq!(m.param_values(&o)[0], 0.4);
-        o.insert("speed".to_string(), 9.0);
-        assert_eq!(m.param_values(&o)[0], 2.0);
-    }
-
-    #[test]
-    fn each_rule_refuses_with_a_pointer() {
-        type Edit = Box<dyn FnOnce(&mut Value)>;
-        let cases: Vec<(Edit, ManifestErrorKind, &str)> = vec![
-            (Box::new(|v| v["id"] = json!("Grain")), ManifestErrorKind::BadFormat, "/id"),
-            (Box::new(|v| v["id"] = json!("a--b")), ManifestErrorKind::BadFormat, "/id"),
-            (Box::new(|v| v["id"] = json!("-a")), ManifestErrorKind::BadFormat, "/id"),
-            (Box::new(|v| v["id"] = json!(3)), ManifestErrorKind::WrongType, "/id"),
-            (
-                Box::new(|v| {
-                    v.as_object_mut().unwrap().remove("name");
-                }),
-                ManifestErrorKind::Missing,
-                "",
-            ),
-            (Box::new(|v| v["name"] = json!("")), ManifestErrorKind::OutOfRange, "/name"),
-            (Box::new(|v| v["extra"] = json!(1)), ManifestErrorKind::UnknownKey, "/extra"),
-            (
-                Box::new(|v| v["shader"] = json!("../x.wgsl")),
-                ManifestErrorKind::BadFormat,
-                "/shader",
-            ),
-            (Box::new(|v| v["shader"] = json!("/x.wgsl")), ManifestErrorKind::BadFormat, "/shader"),
-            (Box::new(|v| v["shader"] = json!("x.metal")), ManifestErrorKind::BadFormat, "/shader"),
-            (Box::new(|v| v["fps"] = json!(0)), ManifestErrorKind::OutOfRange, "/fps"),
-            (Box::new(|v| v["fps"] = json!(61)), ManifestErrorKind::OutOfRange, "/fps"),
-            (Box::new(|v| v["fps"] = json!(29.5)), ManifestErrorKind::WrongType, "/fps"),
-            (Box::new(|v| v["scale"] = json!(0.2)), ManifestErrorKind::OutOfRange, "/scale"),
-            (Box::new(|v| v["scale"] = json!(1.5)), ManifestErrorKind::OutOfRange, "/scale"),
-            (
-                Box::new(|v| v["interactive"] = json!(1)),
-                ManifestErrorKind::WrongType,
-                "/interactive",
-            ),
-            (
-                Box::new(|v| {
-                    v["params"] = json!((0..9).map(|i| json!({"name": format!("p{i}"), "default": 0, "min": 0, "max": 1})).collect::<Vec<_>>());
-                }),
-                ManifestErrorKind::OutOfRange,
-                "/params",
-            ),
-            (
-                Box::new(|v| v["params"][0]["default"] = json!(3)),
-                ManifestErrorKind::OutOfRange,
-                "/params/0/default",
-            ),
-            (
-                Box::new(|v| v["params"][0]["max"] = json!(-1)),
-                ManifestErrorKind::OutOfRange,
-                "/params/0/max",
-            ),
-            (
-                Box::new(|v| v["params"][0]["name"] = json!("Speed")),
-                ManifestErrorKind::BadFormat,
-                "/params/0/name",
-            ),
-            (
-                Box::new(
-                    |v| v["params"] = json!([{"name": "a", "default": 0, "min": 0, "max": 1}, {"name": "a", "default": 0, "min": 0, "max": 1}]),
-                ),
-                ManifestErrorKind::Duplicate,
-                "/params/1/name",
-            ),
-            (
-                Box::new(|v| v["still"]["pointer"] = json!([0.5])),
-                ManifestErrorKind::OutOfRange,
-                "/still/pointer",
-            ),
-            (
-                Box::new(|v| v["still"]["pointer"] = json!([0.5, 2])),
-                ManifestErrorKind::OutOfRange,
-                "/still/pointer/1",
-            ),
-            (
-                Box::new(|v| v["still"]["time"] = json!(-1)),
-                ManifestErrorKind::OutOfRange,
-                "/still/time",
-            ),
-            (
-                Box::new(|v| v["variants"][0]["accent"] = json!("blue")),
-                ManifestErrorKind::BadFormat,
-                "/variants/0/accent",
-            ),
-            (
-                Box::new(|v| v["variants"][0]["params"] = json!({"x": 1})),
-                ManifestErrorKind::UnknownKey,
-                "/variants/0/params/x",
-            ),
-            (
-                Box::new(|v| v["variants"][0]["params"] = json!({"speed": 5})),
-                ManifestErrorKind::OutOfRange,
-                "/variants/0/params/speed",
-            ),
-            (
-                Box::new(|v| v["variants"][0]["themes"] = json!(["sepia"])),
-                ManifestErrorKind::BadFormat,
-                "/variants/0/themes/0",
-            ),
-            (
-                Box::new(|v| v["variants"][0]["themes"] = json!([])),
-                ManifestErrorKind::OutOfRange,
-                "/variants/0/themes",
-            ),
-        ];
-        for (i, (edit, kind, pointer)) in cases.into_iter().enumerate() {
-            let e = refuse(edit);
-            assert_eq!((e.kind, e.pointer.as_str()), (kind, pointer), "case {i}: {e}");
-        }
-    }
-
-    #[test]
-    fn not_json_and_too_large_are_refused() {
-        assert_eq!(Manifest::parse(b"{").unwrap_err().kind, ManifestErrorKind::NotJson);
-        let big = vec![b' '; MAX_MANIFEST_BYTES + 1];
-        assert_eq!(Manifest::parse(&big).unwrap_err().kind, ManifestErrorKind::NotJson);
-        assert_eq!(Manifest::parse(b"[]").unwrap_err().kind, ManifestErrorKind::WrongType);
-    }
-}
+#[path = "manifest_tests.rs"]
+mod tests;

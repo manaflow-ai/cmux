@@ -3,8 +3,9 @@
 //! run, or a named [`Refusal`]. Every (state, event) pair is written out: no arm falls through to a
 //! default, so a new state or event does not compile until each pair is decided.
 //!
-//! Nothing calls this yet. It is the runtime layer the `cmux-lifeline` typestate handles
-//! (cmux#46922) can sit on, and its table ([`table`], committed as
+//! It is the runtime layer under the `cmux-lifeline` typestate handles (`Vm<S, T>`, cmux#46922):
+//! `power/lifeline_tests.rs` checks every handle edge against [`step`], with the edges where the two
+//! still differ named there. Its table ([`table`], committed as
 //! `schemas/cloud-machine-power/table.json`) is what the TypeScript platform's `Power.ts` and the
 //! app's copies of the status (`CloudMachine.swift`, `webviews/src/pages/cloud/model.ts`) can
 //! replay later.
@@ -181,20 +182,19 @@ impl Observation {
         Observation::Unknown,
     ];
 
-    /// A record status read as an observation. An in-between status proves no end state.
+    /// A record status read as an observation. An in-between status proves no end state. A
+    /// stopped VM is powered off and comes back only through a start, which `cmux-lifeline` types
+    /// as `Stopped -> Starting` like `Paused -> Starting`: it reads as paused here.
     pub fn from_status(status: Status) -> Observation {
         match status {
             Status::Running => Observation::Running,
-            Status::Paused => Observation::Paused,
+            Status::Paused | Status::Stopped => Observation::Paused,
             Status::Failed => Observation::Failed,
             Status::Destroyed => Observation::Destroyed,
-            // `stopped` (cmux-lifeline: confirmed after a refused or failed start) is not a
-            // power state this machine models, so it proves neither running nor paused.
             Status::Provisioning
             | Status::Unknown
             | Status::Pausing
             | Status::Starting
-            | Status::Stopped
             | Status::Deleting => Observation::Unknown,
         }
     }
@@ -678,3 +678,6 @@ pub fn table() -> Value {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod lifeline_tests;

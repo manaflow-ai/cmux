@@ -696,7 +696,7 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     for rec in &log {
         hub.store.append("c", rec).unwrap();
     }
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 32);
     assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
     assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
@@ -706,9 +706,61 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
     assert_eq!(all[31].msg["steer"], true);
     // `before` bounds it, as the pane asks for what precedes its open page.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// The prompt index goes in bounded pages, newest first and oldest first within each, so its
+/// cost is a page's however long the chat (goal infinite-chats: one reply of a 1 GB chat's 4,577
+/// prompts took 113 ms against 0.2 ms at 1 MB). Walking `hasMore` from each page's first prompt,
+/// as the rail does (direct.ts `readPromptIndex`), reads every prompt once.
+#[test]
+fn the_prompt_index_pages_newest_first_and_the_pages_hold_every_prompt() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    for rec in codex_chat(30, 4, 64, false) {
+        hub.store.append("c", &rec).unwrap();
+    }
+    let all = hub.prompt_index("c", None, 5000, None).unwrap();
+    assert!(!all.has_more);
+    assert_eq!(all.events.len(), 30);
+
+    // By count: the newest 7, oldest first.
+    let newest = hub.prompt_index("c", None, 7, None).unwrap();
+    assert!(newest.has_more);
+    let seqs = |page: &EventPage| page.events.iter().map(|r| r.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(&newest), seqs(&all)[23..].to_vec());
+
+    // By size: a page past `maxBytes` stops before the prompt that would pass it, and always
+    // holds one.
+    let one = record_bytes(&all.events[29]);
+    let sized = hub.prompt_index("c", None, 5000, Some(one * 3 + one / 2)).unwrap();
+    assert!(sized.has_more);
+    assert_eq!(sized.events.len(), 3);
+    let tiny = hub.prompt_index("c", None, 5000, Some(1)).unwrap();
+    assert_eq!(tiny.events.len(), 1);
+    assert!(tiny.has_more);
+
+    // The rail's walk: each older page from the first prompt of the last, until `hasMore` ends.
+    let mut walked = Vec::new();
+    let mut before = None;
+    loop {
+        let page = hub.prompt_index("c", before, 4, None).unwrap();
+        let mut ids = seqs(&page);
+        ids.extend(walked);
+        walked = ids;
+        if !page.has_more {
+            break;
+        }
+        before = page.events.first().map(|r| r.seq);
+    }
+    assert_eq!(walked, seqs(&all));
+
+    // A page that ends exactly at the oldest prompt says there is no more.
+    let last = hub.prompt_index("c", Some(all.events[4].seq), 4, None).unwrap();
+    assert_eq!(seqs(&last), seqs(&all)[..4].to_vec());
+    assert!(!last.has_more);
 }
 
 /// The prompt index reads the log's copies of its prompts (`store/kind_index.rs`), not the log: a
@@ -728,7 +780,7 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
     }
     store.flush().unwrap();
     let hub = hub(Box::new(store));
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 40);
     // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
     hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
@@ -746,14 +798,14 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
             .write_all(blank.as_bytes())
             .unwrap();
     }
-    let read = hub.prompt_index("c", None).unwrap();
+    let read = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(
         read.iter().map(|r| r.seq).collect::<Vec<_>>(),
         all.iter().map(|r| r.seq).collect::<Vec<_>>()
     );
     assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
     // `before` still bounds it.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -795,7 +847,7 @@ fn prompt_index_perf() {
         paged.push(started.elapsed().as_secs_f64() * 1000.0);
         pages_read = pages;
         let started = std::time::Instant::now();
-        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
+        assert_eq!(hub.prompt_index("c", None, 5000, None).unwrap().events.len(), 1000);
         indexed.push(started.elapsed().as_secs_f64() * 1000.0);
     }
     let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);
@@ -1019,4 +1071,36 @@ fn codex_raw_open_perf() {
         runs[0]
     );
     std::fs::remove_dir_all(&root).ok();
+}
+
+/// The turn opener an attach reads (`server/requests/turn_opener.rs`) costs the newest turn, not
+/// the 16 newest: it stops at the first prompt that opens a turn, with copies or without
+/// (goal infinite-chats, `chat_size_sweep` `/attachUs/p50` grew 1M→100M 1.59x).
+#[test]
+fn the_turn_opener_reads_one_turn_back_not_sixteen() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-opener-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_chat(20, 200, 85, false);
+    let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    let opener = log.iter().rev().find(|r| r.kind == "user_message").cloned().unwrap();
+    let before = log.last().unwrap().seq;
+    let hub = deferred_hub(&sessions, 64 << 10);
+    let opens = |r: &EventRecord| r.msg.get("steer") != Some(&Value::Bool(true));
+    let read = |state: &str| {
+        let r0 = read_bytes();
+        let found = hub.newest_prompt_where("c", before, 16, &opens).unwrap();
+        let read = read_bytes() - r0;
+        assert_eq!(found.as_ref(), Some(&opener), "{state}");
+        if cfg!(target_os = "linux") {
+            // A turn is a twentieth of the log; 16 of them were four fifths of it.
+            assert!(read < log_bytes / 6, "{state}: the opener read {read} of {log_bytes} bytes");
+        }
+    };
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
+    read("no copies");
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    read("good copies");
+    // None of the newest `read` opens a turn: none, and the read stops there.
+    assert_eq!(hub.newest_prompt_where("c", before, 16, &|_| false).unwrap(), None);
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -9,6 +9,9 @@ struct Frame {
     paper: vec4<f32>,
     accent: vec4<f32>,
     params: array<vec4<f32>, 2>,
+    activity: vec4<f32>,
+    grade: vec4<f32>,
+    trail: array<vec4<f32>, 16>,
 }
 
 @group(0) @binding(0) var<uniform> frame: Frame;

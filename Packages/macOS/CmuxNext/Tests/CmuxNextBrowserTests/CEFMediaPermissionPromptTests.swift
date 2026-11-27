@@ -32,6 +32,24 @@ import Testing
         #expect(CEFPermissionPrompts.kind(of: 0) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.camera | 1 << 3) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.geolocation | CEFPermissionPrompts.camera) == nil)
-        #expect(CEFPermissionPrompts.kind(of: 1 << 15) == nil)
+        #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.notifications | CEFPermissionPrompts.geolocation) == nil)
+    }
+}
+
+/// "when we open up google meet inside our browser, it works well" (Leo, 2026-11-22). getDisplayMedia()
+/// never resolved in a Chromium tab: its own screen picker is never shown. The shim now sends it to the
+/// prompt bar as its own kind, `kPermissionDisplayCapture`.
+@Suite struct CEFDisplayCapturePromptTests {
+    @Test func aScreenShareAsksTheScreenShareQuestion() {
+        #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.displayCapture) == .screenShare)
+    }
+
+    /// It is asked every time: no per-site setting stores or answers it.
+    @Test func aScreenShareHasNoSiteSetting() {
+        #expect(BrowserPermissionKind.screenShare.siteKinds.isEmpty)
+    }
+
+    @Test func screenShareDoesNotMixWithOtherKinds() {
+        #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.displayCapture | CEFPermissionPrompts.camera) == nil)
     }
 }
