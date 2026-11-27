@@ -3831,6 +3831,12 @@
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
+    "cloud.useMyGitHubLogin" : {
+      "default" : false,
+      "description" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.",
+      "title" : "Use My GitHub Login on Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.allowForeground" : {
       "default" : false,
       "description" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
