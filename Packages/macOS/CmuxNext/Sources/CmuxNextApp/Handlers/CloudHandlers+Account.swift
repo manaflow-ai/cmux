@@ -107,6 +107,7 @@ extension CloudHandlers {
         ["name": request.name as Any, "size": request.size as Any, "memoryMb": request.memoryMb as Any, "persistent": request.persistent,
          "bootstrapPath": request.bootstrapPath as Any, "bootstrapKind": request.bootstrapKind == .lane ? "lane" : "plain",
          "machineConfigPath": request.machineConfigPath as Any,
+         "provider": request.provider as Any,
          "repo": request.repo.map { ["owner": $0.owner, "name": $0.name, "ref": $0.ref as Any, "host": $0.host,
                                      "spec": $0.spec, "url": $0.url, "directory": $0.directory].compacted } as Any].compacted
     }

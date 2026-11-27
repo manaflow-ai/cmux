@@ -319,6 +319,14 @@ struct AgentPaneCloudStartTests {
         #expect(try #require(AgentPaneCloudStart(params: Self.good)).home == false)
     }
 
+    @Test func anExplicitCloudProviderIsValidatedAndPreserved() throws {
+        let gcp = try #require(AgentPaneCloudStart(params: Self.good.merging(["provider": "gcp"]) { $1 }))
+        #expect(gcp.provider == "gcp")
+        let defaultStart = try #require(AgentPaneCloudStart(params: Self.good))
+        #expect(defaultStart.provider == nil)
+        #expect(AgentPaneCloudStart(params: Self.good.merging(["provider": "hetzner"]) { $1 }) == nil)
+    }
+
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
         let (root, folder) = try Self.project()
         defer { try? FileManager.default.removeItem(atPath: root) }
