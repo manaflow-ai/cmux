@@ -71,6 +71,9 @@ final class IncidentSaveMainStallTests: XCTestCase {
             attachment.lifetime = .keepAlways
             add(attachment)
         }
+        // The Linux pool's run.log and junit keep a skip's message but drop stdout and attachments, so the rows
+        // ride out as one. A failed assertion above still fails the test.
+        throw XCTSkip(["INCIDENTSAVE \(before)", "INCIDENTSAVE \(after)"].joined(separator: " | "))
     }
 
     /// `seconds` of main turns timed while `work` runs every 5 s on a main timer, then `calls` timed calls.
