@@ -44,6 +44,10 @@ pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 pub use record_ffi::*;
 pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
+// Keep the shared ScreenKit C ABI reachable from the app's one Rust static
+// library. The header is packaged by build-app-ffi.sh, so these exports must
+// be re-exported here to make the linker include their definitions.
+pub use cmux_rd_core::screen_kit::ffi::*;
 pub use upstream_ffi::*;
 pub use view_ffi::*;
 

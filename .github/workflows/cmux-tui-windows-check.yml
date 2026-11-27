@@ -148,6 +148,7 @@ on:
       - "schemas/design-scale/scene-scale.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**"
