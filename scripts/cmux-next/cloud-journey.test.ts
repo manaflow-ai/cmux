@@ -22,6 +22,7 @@ import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-jo
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
+import { preclaimPhasesText } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -334,6 +335,12 @@ describe("cloud journey", () => {
     expect(md).toContain("mode: preclaim");
     expect(md).not.toContain("user_secret");
     expect(md).not.toContain("install_secret");
+  });
+
+  test("the preclaim step names where its time went, phase by phase", () => {
+    expect(preclaimPhasesText(undefined)).toBe("");
+    expect(preclaimPhasesText({})).toBe("");
+    expect(preclaimPhasesText({ warm: 812, ready_wait: 6101, install: 2400 })).toBe("; phases: warm 812 ms, ready_wait 6101 ms, install 2400 ms");
   });
 
   test("cold preclaim claims use the post-bind login fallback before chat", () => {
