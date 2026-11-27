@@ -1,0 +1,10 @@
+$ bun run protocol:codegen && vp dev
+$ bun scripts/pane-protocol-codegen.ts && bun scripts/acpmux-protocol-codegen.ts
+pane protocol: 0 of 4 files written to src/protocol/generated from webviews/src/protocol/ir/pane-protocol.json
+acpmux protocol: 0 of 2 files written to src/agent-session/acpmux/protocol/generated from cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+
+  VITE+ v1.3.0  ready in 976 ms
+
+  ➜  Local:   http://127.0.0.1:4319/
+7:37:51 PM [vite+] (client) [optimizer] scanning dependencies...
+7:38:02 PM [vite+] (client) [optimizer] bundling dependencies...
