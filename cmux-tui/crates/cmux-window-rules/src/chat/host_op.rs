@@ -75,6 +75,8 @@ pub enum GitHubRequest {
     Connect {
         repo: Option<String>,
     },
+    /// Open GitHub's account chooser to add another organization.
+    AddAccount,
     /// `query`: the picker's search text.
     Repos {
         query: Option<String>,
@@ -272,6 +274,9 @@ fn github(method: &str, params: Option<&Map<String, Value>>) -> Option<GitHubReq
     match method {
         "github.status" => Some(GitHubRequest::Status),
         "github.connect" => match get("repo") {
+            value if absent(value) && get("add_account").and_then(Value::as_bool) == Some(true) => {
+                Some(GitHubRequest::AddAccount)
+            }
             value if absent(value) => Some(GitHubRequest::Connect { repo: None }),
             Some(Value::String(repo)) if is_github_full_name(repo) => {
                 Some(GitHubRequest::Connect { repo: Some(repo.clone()) })
