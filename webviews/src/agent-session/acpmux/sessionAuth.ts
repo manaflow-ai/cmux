@@ -306,10 +306,12 @@ export function useSessionAuth(
     const selectionChanged = checked.current.selection !== selection;
     const probe =
       selectionChanged || checked.current.refresh !== refresh || checked.current.refreshEpoch !== refreshEpoch;
-    checked.current = { selection, refresh, refreshEpoch };
     // A new selection reads its sign-in after the frame that draws it: a reply that came first (a
-    // local daemon answers at once) would render the pane again before that frame paints.
-    const ask = () =>
+    // local daemon answers at once) would render the pane again before that frame paints. What was
+    // checked is noted when the read goes out, so a run again before that frame (it cancels this
+    // read) still reads after the frame, and still fresh.
+    const ask = () => {
+      checked.current = { selection, refresh, refreshEpoch };
       void read(selected, probe).then(
         (reply) => {
           if (!live) return;
@@ -341,6 +343,7 @@ export function useSessionAuth(
             setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
         },
       );
+    };
     const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
     return () => {
       live = false;
