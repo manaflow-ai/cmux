@@ -37,6 +37,13 @@ struct QueueFile {
     completed: VecDeque<CompletedTeamSend>,
 }
 
+impl QueueFile {
+    fn prune_completed(&mut self) {
+        let cutoff = crate::store::now_ms().saturating_sub(7 * 24 * 60 * 60 * 1000);
+        self.completed.retain(|entry| entry.completed_at >= cutoff);
+    }
+}
+
 #[derive(Default)]
 struct State {
     path: Option<PathBuf>,
@@ -70,6 +77,7 @@ impl TeamSendQueue {
         match loaded {
             Ok(file) => {
                 state.file = file;
+                state.file.prune_completed();
                 state.load_error = None;
             }
             Err(error) => {
@@ -117,6 +125,7 @@ impl TeamSendQueue {
         if let Some(error) = &state.load_error {
             anyhow::bail!("team send queue could not be read: {error}");
         }
+        state.file.prune_completed();
         if let Some(entry) = state.file.pending.iter().find(|entry| {
             entry.message.idempotency_key == message.idempotency_key
                 && entry.caller == caller
@@ -240,8 +249,7 @@ impl TeamSendQueue {
                     completed_at: crate::store::now_ms(),
                 });
                 // Same seven-day receipt window as the outbox's team origin records.
-                let cutoff = crate::store::now_ms().saturating_sub(7 * 24 * 60 * 60 * 1000);
-                state.file.completed.retain(|entry| entry.completed_at >= cutoff);
+                state.file.prune_completed();
                 if let Err(error) = persist(&state) {
                     state.file = previous;
                     return Err(error);
