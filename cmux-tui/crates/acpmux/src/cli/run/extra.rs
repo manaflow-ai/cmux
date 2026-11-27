@@ -2122,6 +2122,7 @@ fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
         older_than_ms: days.saturating_mul(86_400_000),
         delete_local: true,
         keep: Default::default(),
+        kept_now: Default::default(),
         now_ms,
     };
     let report = cmux_session_cloud::transcripts::pass(
