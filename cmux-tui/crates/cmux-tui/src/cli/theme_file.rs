@@ -1,4 +1,4 @@
-//! `cmux theme` for theme files (`~/.config/cmux/themes/NAME.json`, the
+//! `cmux theme` for theme files (`~/.config/cmux-next/themes/NAME.json`, `cmux/` off macOS, the
 //! whole look of the app as one dotfile; `cmux_config::theme_file`). The
 //! reads, checks and writes run in process, so they work with cmux quit; the
 //! running app reloads a saved file at once. Picking a file (`use`, `reset`
@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-cmux theme: the whole look of cmux as one file, ~/.config/cmux/themes/NAME.json.
+cmux theme: the whole look of cmux as one file, ~/.config/cmux-next/themes/NAME.json (cmux/ off macOS).
   cmux theme list                                   the theme files, the active one marked
   cmux theme export [--save NAME [--use] | --output FILE] [--name TITLE]
       the current look as a theme file (applying it changes nothing)

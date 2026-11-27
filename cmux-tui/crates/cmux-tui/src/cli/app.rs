@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -48,6 +49,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod phone;
 mod published;
 mod record;
 mod renderers;
@@ -195,6 +197,12 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `browser tab_…@phone <verb>`: a page verb on the tab the iPhone shows
+    /// in its own web view, through this Mac's link host (app/phone.rs).
+    Phone {
+        device: Option<String>,
+        then: Box<AppCommand>,
+    },
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
@@ -258,6 +266,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             timeout: Some(READ_TIMEOUT),
             pick: None,
         }));
+    }
+    if scope == "browser"
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
+    {
+        return command.map(Some);
     }
     if scope == "browser"
         && let Some(target) = args.get(1)
@@ -971,6 +985,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), then));
+        }
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
@@ -1125,6 +1142,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), &then));
+        }
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
@@ -1192,6 +1212,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1212,6 +1238,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
@@ -1574,9 +1608,9 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     if let Some(session) = set("CMUX_AGENT_SESSION") {
         let mut caller = json!({ "agent_session": session });
         if home_chat {
-            caller["home_chat"] = json!(true);
+            caller.set("home_chat", json!(true));
         } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
-            caller["workspace"] = json!(workspace);
+            caller.set("workspace", json!(workspace));
         }
         return Some(caller);
     }

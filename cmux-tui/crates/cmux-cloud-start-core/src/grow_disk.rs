@@ -60,8 +60,8 @@ pub enum Next {
     },
 }
 
-/// The plan size past every plan.
-pub const LARGEST_SIZE: &str = "xxl";
+/// The largest plan size, as the platform spells it (`2xl`).
+pub const LARGEST_SIZE: &str = "2xl";
 
 /// The first step.
 pub fn start(sizes: &Sizes) -> Next {

@@ -37,6 +37,12 @@
       "targets": [],
       "packages": []
     },
+    "CCmuxScreenshots": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CCmuxScreenshots",
+      "targets": [],
+      "packages": []
+    },
     "CmuxNextAccounts": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
@@ -889,6 +895,7 @@
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextFloating",
+        "CmuxNextHomeModel",
         "CmuxNextSettings",
         "CmuxNextSidebar"
       ],
@@ -1340,6 +1347,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
@@ -1599,6 +1607,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCloud",
@@ -2250,6 +2259,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
+        "CCmuxAppFFI",
+        "CCmuxScreenshots",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextFileGrid",

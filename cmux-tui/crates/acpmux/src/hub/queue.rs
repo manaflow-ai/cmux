@@ -559,16 +559,10 @@ impl Hub {
                     let rate_compaction = p.after_turn
                         && (super::auto_resume::rate_compaction_runs(session)
                             || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
-                    let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
-                        || Self::rate_holds(session, p.provenance);
-                    match guard {
-                        Some(guard) if !queues => ClaimedTurn::new(session, guard),
-                        guard => {
-                            if guard.is_none() {
-                                tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
-                            }
-                            drop(guard);
-                            // Its `queued` reservation is still counted.
+                    let guard = match guard {
+                        Some(guard) => guard,
+                        None => {
+                            tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
                             let (waits, position) =
                                 self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                             accept(
@@ -577,7 +571,21 @@ impl Hub {
                             self.persons_prompt_unparks(session, p.agent, p.provenance);
                             break 'run (waits, None);
                         }
+                    };
+                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance)
+                    {
+                        drop(guard);
+                        // Its `queued` reservation is still counted.
+                        let (waits, position) =
+                            self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                        accept(
+                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
+                        );
+                        self.persons_prompt_unparks(session, p.agent, p.provenance);
+                        break 'run (waits, None);
                     }
+                    ClaimedTurn::new(session, guard)
                 };
                 // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);
