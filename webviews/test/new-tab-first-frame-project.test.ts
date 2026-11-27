@@ -355,7 +355,9 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       const changed = pixelmatch(first.data, settled.data, diff.data, first.width, first.height, {
         threshold: 0.1,
       });
-      const artifacts = process.env.CMUX_FLICKER_ARTIFACT_DIR ?? path.join(webviews, "test-results/new-tab-flicker");
+      const artifacts =
+        process.env.CMUX_FLICKER_ARTIFACT_DIR ??
+        path.join(process.env.FAST_CHECKS_OUT ?? path.join(webviews, "test-results"), "new-tab-flicker");
       mkdirSync(artifacts, { recursive: true });
       writeFileSync(path.join(artifacts, `${raster}-first.png`), firstPixels);
       writeFileSync(path.join(artifacts, `${raster}-settled.png`), settledPixels);
