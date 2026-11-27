@@ -361,6 +361,21 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
+      - skills/cmux-extension-author/prompts/add-animation.md
+      - skills/cmux-extension-author/prompts/clone-app-flow.md
+      - skills/cmux-extension-author/prompts/composer-slash-command.md
+      - skills/cmux-extension-author/prompts/new-tab-page.md
+      - skills/cmux-extension-author/prompts/palette-command.md
+      - skills/cmux-extension-author/prompts/sidebar-show.md
+      - skills/cmux-extension-author/recipes/command.md
+      - skills/cmux-extension-author/recipes/composer-command.md
+      - skills/cmux-extension-author/recipes/composer-mention.md
+      - skills/cmux-extension-author/recipes/live-section.md
+      - skills/cmux-extension-author/recipes/newtab.md
+      - skills/cmux-extension-author/recipes/pane.md
+      - skills/cmux-extension-author/recipes/section.md
+      - skills/cmux-extension-author/recipes/session-info.md
+      - skills/cmux-extension-author/recipes/widget.md
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -732,6 +747,21 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
+      - skills/cmux-extension-author/prompts/add-animation.md
+      - skills/cmux-extension-author/prompts/clone-app-flow.md
+      - skills/cmux-extension-author/prompts/composer-slash-command.md
+      - skills/cmux-extension-author/prompts/new-tab-page.md
+      - skills/cmux-extension-author/prompts/palette-command.md
+      - skills/cmux-extension-author/prompts/sidebar-show.md
+      - skills/cmux-extension-author/recipes/command.md
+      - skills/cmux-extension-author/recipes/composer-command.md
+      - skills/cmux-extension-author/recipes/composer-mention.md
+      - skills/cmux-extension-author/recipes/live-section.md
+      - skills/cmux-extension-author/recipes/newtab.md
+      - skills/cmux-extension-author/recipes/pane.md
+      - skills/cmux-extension-author/recipes/section.md
+      - skills/cmux-extension-author/recipes/session-info.md
+      - skills/cmux-extension-author/recipes/widget.md
   # Why: note-366
   workflow_dispatch:
     inputs:
@@ -1773,6 +1803,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Why: goal a11y-baseline (every animation honors Reduce Motion, macOS, webviews and iOS); 6 came back
+      # between 2026-11-16 and 11-26 with no check to stop them.
+      - name: Reduce Motion audit
+        id: reduce-motion
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/test_reduce_motion_audit.py
+          python3 -I scripts/cmux-next/reduce-motion-audit.py --root "$GITHUB_WORKSPACE" --check
+
       # Why: note-144
       - name: Overlays are glass, never solid
         id: overlay-glass
@@ -2159,6 +2198,7 @@ jobs:
             ${{ steps.concentric-containers.outcome }}|Containers concentric with their buttons
             ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.reduce-motion.outcome }}|Reduce Motion audit
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.retry-prompts.outcome }}|Retry prompts (the app retries by itself)
@@ -2464,9 +2504,10 @@ jobs:
 
   # Why: 2026-11-24-swift-canary-fleet-4.md, note-35
   app-compile-placement:
+    # Why: 2026-11-27-app-compile-off-verdict.md
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && needs.path_route.outputs.mac_release == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: note-179
@@ -2546,7 +2587,8 @@ jobs:
   app-compile-fleet:
     needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: note-371
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Why: 2026-11-27-app-compile-off-verdict.md
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.mac_release == 'true' && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
@@ -3244,6 +3286,7 @@ jobs:
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
             --extra "suite_scope=${{ needs.path_route.outputs.ffi_repin == 'true' && 'handlers' || 'all' }}" \
+            --extra "generated_base=" \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
             --extra "macos=$(sw_vers -productVersion)" \
             --extra "macos_build=$(sw_vers -buildVersion)" \
@@ -3486,6 +3529,27 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      # Why: 2026-11-27-fast-tier-zig-cache.md
+      - name: Keep the libghostty-vt zig build in Zig's global cache
+        id: zig-local
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          env_out="$("${CMUX_ZIG:-zig}" env)"
+          if [[ "${env_out:0:1}" == "{" ]]; then
+            dir="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])' <<<"$env_out")"
+          else
+            dir="$(sed -n 's/^[[:space:]]*\.global_cache_dir = "\(.*\)",$/\1/p' <<<"$env_out")"
+          fi
+          [[ -n "$dir" ]]
+          echo "ZIG_LOCAL_CACHE_DIR=$dir" >> "$GITHUB_ENV"
+          echo "libghostty-vt's zig build caches in $dir"
+
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.zig-local.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.github/actions/zig-global-cache
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust

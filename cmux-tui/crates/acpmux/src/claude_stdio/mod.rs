@@ -337,6 +337,10 @@ mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+// When each model call went out and came back, for the turn's Timeline (`model_calls.rs`).
+mod model_calls;
+#[cfg(test)]
+mod model_calls_tests;
 pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
@@ -740,6 +744,8 @@ pub struct Translator {
     context_from_compaction: AtomicBool,
     /// When the chat's prompt cache expires (`prompt_cache.rs`).
     cache: prompt_cache::CacheClock,
+    /// When the main loop's model call went out and came back (`model_calls.rs`).
+    model_clock: model_calls::ModelClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -886,6 +892,7 @@ impl Translator {
             turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
+            model_clock: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
