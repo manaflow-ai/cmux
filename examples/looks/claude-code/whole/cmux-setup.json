@@ -28,6 +28,7 @@
     "agentPane.display.width": 800,
     "agentPane.display.minimap": "off",
     "agentPane.display.harnessPlacement": "compact",
+    "agentPane.display.sendScrollsToTop": true,
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
     "sidebar.showProjects": true,
