@@ -2047,6 +2047,14 @@ export interface NotifyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface OfferLinkToPhoneRequest extends CmuxRequestBase {
+  cmd: "offer-link-to-phone";
+  "terminal_id": string;
+  "url": string;
+}
+export type OfferLinkToPhoneResult = T.PhoneLinkOfferResult;
+
+/** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
   "page"?: (string) | null;
@@ -3399,6 +3407,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | OfferLinkToPhoneRequest
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -5036,6 +5045,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.NotifyResult;
     authority: "control";
     since: 6;
+    capability: null;
+    stream: null;
+  };
+  "offer-link-to-phone": {
+    request: OfferLinkToPhoneRequest;
+    result: OfferLinkToPhoneResult;
+    authority: "local-admin";
+    since: 12;
     capability: null;
     stream: null;
   };
