@@ -1811,8 +1811,7 @@ fn submit_steering_prompt(
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
     }
-    // The owner's and a team member's steer. A link guest never steers: its prompt waits for
-    // the owner (acpmux holds it whatever the flag says; the flag is not even sent).
+    // Only the owner and team members steer. Even a Drive invite submits ordinary prompts.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     if steer
         && !guest
@@ -1849,8 +1848,11 @@ fn submit_steering_prompt(
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
             // `steered`, `queued` or `started` (acpmux's own word; null from an older acpmux).
             "state": accepted.get("state").cloned().unwrap_or(Value::Null),
-            // Held for the owner's approval (a link guest's prompt).
-            "awaiting_owner": accepted.get("awaitingOwner").cloned().unwrap_or(json!(false)),
+            // A replay or older acpmux may omit the marker. A Talk prompt still awaits the owner
+            // until its queue decision is observed.
+            "awaiting_owner": accepted.get("awaitingOwner").and_then(Value::as_bool)
+                .unwrap_or_else(|| attachment.author.as_ref().is_some_and(|author|
+                    proxy::is_guest(author) && author.get("role").and_then(Value::as_str) != Some("drive"))),
         })),
         Ok(Err(error)) => Err(Refused::of_prompt(error)),
         Err(_) => Err(Refusal::Timeout.into()),
