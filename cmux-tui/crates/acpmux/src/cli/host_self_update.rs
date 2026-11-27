@@ -672,7 +672,14 @@ async fn choose(
         return Ok(Ok(Some(Step::Install(dir))));
     }
     let (url, whose) = match from {
-        Origin::R2(feed) => (feed.binary_url(paths.target), "the channel's"),
+        Origin::R2(feed) => {
+            let url = feed.binary_url(paths.target);
+            if let Some(bytes) = smaller(fetch, &url, installed, sha).await {
+                keep(&dir, paths.target, &bytes)?;
+                return Ok(Ok(Some(Step::Install(dir))));
+            }
+            (url, "the channel's")
+        }
         Origin::Controller(ctl) => match ctl.binary_url(sha).await {
             Ok(url) => (url, "the controller's marker's"),
             Err(why) => return Ok(Err(why)),
@@ -741,6 +748,53 @@ async fn download(
     }
     keep(&dir, target, &bytes)?;
     Ok(dir)
+}
+
+/// The largest window a published patch or `.zst` may use (`zstd --long=31`).
+const ZSTD_WINDOW_LOG_MAX: u32 = 31;
+
+/// The channel's binary rebuilt from one of the smaller files published
+/// beside `url` (RFD 0166, "Cloud machine and acpmux binary updates"): a
+/// patch against the installed build (`<url>.from-<installed sha256>.zst`,
+/// `zstd --patch-from`, about a tenth of the binary) when there is one, else
+/// the whole binary compressed (`<url>.zst`, about a third). None when
+/// neither is there, decodes, or rebuilds a binary of sha256 `sha`: the
+/// caller then downloads the binary itself, so a missing or bad file costs a
+/// request, never the update.
+async fn smaller(
+    fetch: &dyn Fetch,
+    url: &str,
+    installed: Option<&[u8]>,
+    sha: &str,
+) -> Option<Vec<u8>> {
+    let mut tries: Vec<(String, &[u8])> = Vec::new();
+    if let Some(old) = installed {
+        tries.push((format!("{url}.from-{}.zst", crate::sha256::sha256_hex(old)), old));
+    }
+    tries.push((format!("{url}.zst"), &[]));
+    for (url, old) in tries {
+        let Ok(packed) = fetch.get(&url, BINARY_MAX_BYTES).await else { continue };
+        match unpack(&packed, old) {
+            Ok(bytes) if crate::sha256::sha256_hex(&bytes) == sha => return Some(bytes),
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// `packed` decoded, against `old` (a raw-content dictionary: what
+/// `--patch-from` encoded against) when it is not empty; at most
+/// [`BINARY_MAX_BYTES`].
+pub(super) fn unpack(packed: &[u8], old: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut decoder = zstd::stream::read::Decoder::with_dictionary(packed, old)?;
+    decoder.window_log_max(ZSTD_WINDOW_LOG_MAX)?;
+    let mut bytes = Vec::new();
+    decoder.take(BINARY_MAX_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > BINARY_MAX_BYTES {
+        return Err(std::io::Error::other("above the binary limit"));
+    }
+    Ok(bytes)
 }
 
 /// `dir/acpmux-<target>` holds `bytes` (already checked), written beside and
