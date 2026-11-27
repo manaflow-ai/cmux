@@ -16,6 +16,16 @@ use super::*;
 use crate::hub::Look;
 use crate::hub::presence::Who;
 
+/// Whether a request that shows a chat stands for a person looking at it, for the session recap
+/// (`hub/away_recap.rs`, #34075): it says so (`visible: true`), and no agent or trigger may be
+/// behind its connection (`Conn::agent_side`). A person's client always says what it shows (the
+/// app's pane, the remote pane's `_acpmux/view`, a peer's link forwarding them); a script, an
+/// agent's CLI or a supervisor that attaches to read or follow a chat says nothing, and so makes
+/// no recap however it is written.
+fn shows_person(conn: &Conn, said_visible: bool) -> bool {
+    said_visible && !conn.agent_side() && !conn.is_trigger()
+}
+
 /// How `opts` holds its chat (`hub/seen.rs`).
 fn look(opts: &SubOpts) -> Look {
     Look::of(opts.hidden, opts.idle)
@@ -32,8 +42,14 @@ fn settle_idle(hub: &Hub, s: &crate::hub::Session, opts: &mut SubOpts) {
 }
 
 /// Subscribes for `_acpmux/attach`, counting a new attachment and a changed
-/// visibility of an existing one.
-pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubOpts) {
+/// visibility of an existing one. `said_visible`: the request said `visible: true`.
+pub(super) fn attach(
+    hub: &Hub,
+    conn: &Conn,
+    s: &crate::hub::Session,
+    opts: SubOpts,
+    said_visible: bool,
+) {
     let hidden = opts.hidden;
     conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
         crate::session_identity::LOCAL_HOST_ID,
@@ -42,8 +58,8 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         hub.started_at,
     ));
     // A person's client shows it, here or through a peer's link (whose own subscriptions are
-    // hidden, `peer_forward.rs`): it may get a session recap (`hub/away_recap.rs`).
-    if !hidden {
+    // hidden, `peer_forward.rs`): it may get a session recap.
+    if shows_person(conn, said_visible) {
         hub.recap_person_shows(s);
     }
     let after = look(&opts);
@@ -219,7 +235,7 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
             cutover,
         )?;
     }
-    if author.is_none() && visible {
+    if author.is_none() && shows_person(conn, visible) {
         hub.recap_person_shows(&s);
     }
     let mut back = None;

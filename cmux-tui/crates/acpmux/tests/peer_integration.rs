@@ -4332,7 +4332,8 @@ async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_ref
 
 /// A person who shows a chat through a peer daemon (a visible attach forwarded over the link) makes
 /// it one that gets a session recap on the daemon that owns it (`hub/away_recap.rs`); the
-/// `session/new` that made it does not.
+/// `session/new` that made it does not, and neither does an attach that never says `visible`
+/// (`server/view.rs` `shows_person`).
 #[tokio::test]
 async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
     let b = hub(config(PermissionPolicy::Ask)).await;
@@ -4347,6 +4348,10 @@ async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
         .unwrap();
     let mut ca = client(a.clone()).await;
     ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
+    assert!(!b.recap_person_seen(&remote_id), "an attach that never says visible is no person");
+    ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0, "visible": true}))
+        .await
+        .unwrap();
     assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
 }
 

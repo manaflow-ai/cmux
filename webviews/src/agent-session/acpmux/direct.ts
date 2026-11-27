@@ -5433,7 +5433,10 @@ export class AcpmuxDirectClient {
     });
   }
 
-  private recordRecap(event: EventRecord, msg: { text?: unknown; awayMs?: unknown; since?: unknown }): void {
+  private recordRecap(
+    event: EventRecord,
+    msg: { text?: unknown; awayMs?: unknown; since?: unknown; chatOn?: unknown },
+  ): void {
     if (typeof msg.text !== "string" || !msg.text.trim()) return;
     const sessionId = this.selectedSessionId ?? "";
     const previous = this.latestRecap;
@@ -5449,6 +5452,7 @@ export class AcpmuxDirectClient {
           key,
           text: msg.text.trim(),
           awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined,
+          chatOn: msg.chatOn === true,
         };
     this.latestRecap = {
       sessionId,
@@ -16104,8 +16108,11 @@ export class AcpmuxDirectClient {
   }
   /// The recap's ×: it stays dismissed on this device, and its row goes. `key` is the recap the
   /// person pressed; the row goes only when it is that recap, not another chat's with the same seq
-  /// (a press on the chat a switch still shows).
-  dismissRecap(rowId: string, key: string): void {
+  /// (a press on the chat a switch still shows). With no key it is the row's own recap; a row with
+  /// none dismisses nothing (#37818).
+  dismissRecap(rowId: string, key?: string): void {
+    key ??= rowId === SINCE_DIVIDER ? this.since?.recap?.key : this.rows.get(rowId)?.recap?.key;
+    if (!key) return;
     rememberRecapDismissed(key);
     if (this.latestRecap?.recap?.key === key) this.latestRecap = { ...this.latestRecap, recap: undefined };
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {

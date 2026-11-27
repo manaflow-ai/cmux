@@ -3796,6 +3796,7 @@ async fn dispatch_request_with_identity(
                         left_out: 0,
                         left_from: 0,
                     },
+                    params.get("visible") == Some(&Value::Bool(true)),
                 );
                 let detail = hub.session_detail(&s);
                 let last = s.meta().last_seq;
@@ -3856,6 +3857,7 @@ async fn dispatch_request_with_identity(
                     left_out: 0,
                     left_from: 0,
                 },
+                params.get("visible") == Some(&Value::Bool(true)),
             );
             let settled_key = match settled {
                 Some((_, Some(view))) => {

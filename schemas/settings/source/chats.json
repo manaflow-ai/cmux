@@ -79,7 +79,7 @@
           },
           "help": {
             "key": "settings.chats.sessionRecap.help",
-            "text": "A line on where a Claude chat stands when you come back. Each is a small model call."
+            "text": "A line on where a chat stands when you come back. Each is a small model call."
           },
           "kind": "toggle",
           "default": true,

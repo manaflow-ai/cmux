@@ -210,6 +210,11 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Chats > Session Recap, on unless set false (Swift AgentPaneDisplaySetting.followedAppPaths):
+/// the recap acpmux makes for a chat the person comes back to (`hub/away_recap.rs`). The daemon gets
+/// the same setting and makes none while it is off; this hides a recap already drawn at once
+/// (rows/RecapRow.tsx). Not part of ChatDisplay.
+export const SESSION_RECAP_KEY = "agents.chats.sessionRecap";
 /// Settings > Agent Chat > Environment Card, off by default: a floating card at the chat's top right
 /// with its changes, branch or worktree, Commit or push and Create PR (session-info/EnvironmentCard.tsx),
 /// after the Codex app's Environment panel. A look turns it on. Not part of ChatDisplay: switching it
@@ -611,6 +616,7 @@ let autoCloudOn = false;
 let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
+let sessionRecapOn = true;
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
@@ -705,6 +711,7 @@ export function setChatDisplay(value: unknown): void {
   const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const recap = raw[SESSION_RECAP_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
@@ -748,6 +755,7 @@ export function setChatDisplay(value: unknown): void {
     image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
+    recap === sessionRecapOn &&
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
     pickerStyle === modelPickerStyle
@@ -756,6 +764,8 @@ export function setChatDisplay(value: unknown): void {
   picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
+  const recapChanged = recap !== sessionRecapOn;
+  sessionRecapOn = recap;
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   modelPickerStyle = pickerStyle;
@@ -771,6 +781,9 @@ export function setChatDisplay(value: unknown): void {
   threadMinimapArm = threadMinimap;
   chatDetail = detail;
   featureTipsOn = tips;
+  // Session Recap changes rows' heights (model.ts): a new look makes the transcript measure them
+  // again, off-screen ones too, so a hidden recap keeps no space.
+  if (same && recapChanged) current = { ...current };
   autoCloudOn = autoCloud;
   defaultImage = image;
   if (same) {
@@ -925,6 +938,13 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+/// Whether session recaps show (SESSION_RECAP_KEY), for the row estimate (model.ts).
+export const sessionRecapEnabled = (): boolean => sessionRecapOn;
+const sessionRecapSnapshot = () => sessionRecapOn;
+/// Whether session recaps show (SESSION_RECAP_KEY): off, a recap row or a recap under "New since you
+/// looked" draws nothing.
+export const useSessionRecapOn = (): boolean =>
+  useSyncExternalStore(subscribe, sessionRecapSnapshot, sessionRecapSnapshot);
 const environmentCardSnapshot = () => environmentCardOn;
 /// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
 export const useEnvironmentCardOn = (): boolean =>

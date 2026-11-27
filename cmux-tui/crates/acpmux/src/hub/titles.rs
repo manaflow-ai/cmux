@@ -562,7 +562,15 @@ impl Hub {
             return (None, Attempt::default());
         }
         let started = std::time::Instant::now();
-        let Ok(result) = self.complete(crate::server::Origin::Local, &params).await else {
+        // The chat's own text: on the chat's own route (`complete::ChatRoute`).
+        let reply = match crate::complete::Request::parse(&params) {
+            Ok(req) => {
+                let chat = super::complete::ChatRoute::of(session);
+                self.complete_request_for(&req, Some(&chat)).await.ok()
+            }
+            Err(_) => None,
+        };
+        let Some(result) = reply else {
             let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             super::title_log::record(session, harness, None, "error", None, 0, ms);
             return (None, Attempt::default());

@@ -114,7 +114,7 @@ impl Hub {
             let (hub, session) = (Arc::clone(self), Arc::clone(session));
             self.scope.spawn_until_cancelled("task-name", async move {
                 let harness = session.read_meta(|m| m.harness.clone());
-                let title = hub.task_title(&harness, &naming.objective).await;
+                let title = hub.task_title(&session, &harness, &naming.objective).await;
                 hub.name_after_task(&session, &naming, title).await;
             });
         }
@@ -151,7 +151,12 @@ impl Hub {
 
     /// The title model's 2-5 word title for `objective` (`titles.rs`'s command or completion),
     /// None when titles are off or the answer is empty or fails.
-    async fn task_title(self: &Arc<Self>, harness: &str, objective: &str) -> Option<String> {
+    async fn task_title(
+        self: &Arc<Self>,
+        session: &Session,
+        harness: &str,
+        objective: &str,
+    ) -> Option<String> {
         let (custom, model, enabled) = {
             let cfg = self.config.read().await;
             let custom = cfg.titles.command.as_ref().is_some_and(|c| !c.is_empty())
@@ -173,7 +178,10 @@ impl Hub {
         {
             params.insert("model".to_owned(), json!(model));
         }
-        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        // The chat's own goal text: on the chat's own route (`complete::ChatRoute`).
+        let req = crate::complete::Request::parse(&params).ok()?;
+        let chat = super::complete::ChatRoute::of(session);
+        let result = self.complete_request_for(&req, Some(&chat)).await.ok()?;
         task_title_of(result.get("text").and_then(Value::as_str)?)
     }
 

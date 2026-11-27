@@ -7,7 +7,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A line on where a Claude chat stands when you come back. Each is a small model call."
+            "value" : "A line on where a chat stands when you come back. Each is a small model call."
           }
         },
         "ar" : {

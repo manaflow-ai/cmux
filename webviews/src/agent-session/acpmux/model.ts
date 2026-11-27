@@ -174,7 +174,8 @@ export type AcpmuxFailover = { from: string; to: string };
 /// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
 /// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
-export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+/// `chatOn`: the chat's own Session Recap option is on, so it shows with the app setting off.
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number; chatOn?: boolean };
 
 /// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
 /// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
@@ -3148,14 +3149,21 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
-  // A recap's heading and bullet points; the unread divider already supplies its heading.
+  // A recap's heading and bullet points; the unread divider already supplies its heading. Nothing
+  // while Session Recap is off and the chat's own option is not on (rows/RecapRow.tsx).
   if (row.kind === "recap")
-    return finish(recapHeight(row.recap?.text ?? "", width, metrics().lineHeight, currentLanguage()));
+    return finish(
+      sessionRecapEnabled() || row.recap?.chatOn
+        ? recapHeight(row.recap?.text ?? "", width, metrics().lineHeight, currentLanguage())
+        : 0,
+    );
   // The unread line takes no height (conversation/SinceDivider.tsx: it lies over the gap it
   // marks, so it never moves a row); only its recap, which is content, does.
   if (row.kind === SINCE_DIVIDER)
     return finish(
-      row.since?.recap ? recapHeight(row.since.recap.text, width, metrics().lineHeight, currentLanguage(), false) : 0,
+      row.since?.recap && (sessionRecapEnabled() || row.since.recap.chatOn)
+        ? recapHeight(row.since.recap.text, width, metrics().lineHeight, currentLanguage(), false)
+        : 0,
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
   // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
@@ -4811,6 +4819,7 @@ import {
   type ChatMetrics,
   drawnFontSize,
   promptCoachEnabled,
+  sessionRecapEnabled,
   transcriptGapScale,
 } from "./chatDisplay";
 import { EDIT_DIFF_LANE, editDiffBox } from "./conversation/editDiffBox";

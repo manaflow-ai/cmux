@@ -183,10 +183,10 @@ impl Hub {
         let answer = match rewriter {
             Some(rewrite) => rewrite(prompt),
             None => {
-                let harness = session.meta().harness;
+                let chat = super::complete::ChatRoute::of(session);
                 match self
-                    .complete_own(
-                        Some(&harness),
+                    .complete_chat_own(
+                        &chat,
                         prompt,
                         MAX_TOKENS,
                         TIMEOUT,

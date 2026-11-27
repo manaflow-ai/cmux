@@ -2254,7 +2254,9 @@ export function paneSnapshotEffect({
             taken.flatMap((failed) => failed.attachments),
           );
         },
-        "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
+        // A call with no key dismisses the row's own recap (#37818), never one keyed "undefined".
+        "chat.recap.dismiss": async ({ rowId, key }) =>
+          client.dismissRecap(String(rowId), typeof key === "string" && key ? key : undefined),
         // The prompt coach card's × (conversation/PromptCoachCard.tsx).
         "chat.coach.dismiss": async ({ rowId, sessionId }) =>
           client.dismissPromptCoach(String(rowId), String(sessionId)),

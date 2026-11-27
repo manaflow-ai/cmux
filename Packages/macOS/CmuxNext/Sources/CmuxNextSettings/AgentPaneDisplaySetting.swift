@@ -18,11 +18,13 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx),
     /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), a Settings > Machines switch, off by default,
     /// the key style and keyboard layout the page's lists answer to (``KeyboardStyleSettings``; webviews ui/keyStyle.ts),
-    /// and Settings > Cloud's Default Image (``CloudNewWorkspaceSetting/defaultImagePath``; webviews chatCloudEnvironment.ts),
-    /// the environment a new Cloud chat starts from.
+    /// Settings > Cloud's Default Image (``CloudNewWorkspaceSetting/defaultImagePath``; webviews chatCloudEnvironment.ts),
+    /// the environment a new Cloud chat starts from, and Session Recap (``ChatSettings/sessionRecapPath``;
+    /// off, the chat hides a recap already drawn, chatDisplay.ts).
     public static let followedAppPaths: [[String]] = [
         SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
         KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath, CloudNewWorkspaceSetting.defaultImagePath,
+        ChatSettings.sessionRecapPath,
     ]
     /// The transcript look keys, which a theme file may set (cmux-config's theme_file `LOOK_KEYS`): read from the
     /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).

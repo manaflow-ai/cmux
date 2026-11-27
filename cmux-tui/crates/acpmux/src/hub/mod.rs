@@ -513,6 +513,7 @@ pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
+pub use away_recap::RecapWriter;
 pub use bg_tasks::{BgScope, bg_owner_words};
 pub use cloud_offload::HistoryOffloadRequest;
 pub(crate) use cold_archive::COLD_CHANGED;
@@ -1443,6 +1444,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// What writes a fallback session recap instead of the small model (tests; `away_recap.rs`).
+    pub(super) recap_writer: StdMutex<Option<away_recap::RecapWriter>>,
     /// Chats with a surge triage pass due or running, and whether another is asked after it
     /// (`surge_triage.rs`).
     pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
@@ -1941,6 +1944,7 @@ impl Hub {
             host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            recap_writer: StdMutex::new(None),
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
