@@ -68,6 +68,30 @@ public final class TerminalModel {
         quietStatus.isShown ? connectionState.quietLine : nil
     }
 
+    /// The title pill's subtitle past the quiet bound of an outage, with how old the saved copy
+    /// on the page is: "Mac offline · updated 3 min ago" (nil: attached, or still in the bound).
+    public func offlineSubtitle(_ base: String?, now: Date = Date()) -> String? {
+        guard let base else { return nil }
+        guard drewLiveOutput || seeded || coldFrame != nil, let at = savedCopyAt else { return base }
+        return "\(base) · \(savedCopyAgePhrase(since: at, now: now))"
+    }
+
+    /// How old the saved copy on the page is, in a few words: "updated just now", "updated 3 min ago".
+    public func savedCopyAgePhrase(since date: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        switch seconds {
+        case ..<60: return String(localized: "updated just now")
+        case ..<3600: return String(localized: "updated \(seconds / 60) min ago")
+        case ..<86_400: return String(localized: "updated \(seconds / 3600) h ago")
+        default: return String(localized: "updated \(seconds / 86_400) d ago")
+        }
+    }
+
+    /// The link's own status line for this page's Mac (the shell sets it): a network that
+    /// blocks the link says so there, as the reason on the page's stalled panel
+    /// (``TerminalLoadStalledPanel``).
+    @ObservationIgnored public var linkStatus: (@MainActor () -> String?)?
+
     /// The page menu's Reconnect: only past the quiet bound of an outage,
     /// and only with a recovery to run.
     public var offersReconnect: Bool { connectionLine != nil && reconnect != nil }
@@ -223,7 +247,14 @@ public final class TerminalModel {
     /// card of a tab not opened in this launch (D5), or of a started tab whose
     /// page is off screen while the grid shows (D6).
     public var cardScreenText: String? {
-        didSet { cardScreenTextAt = CACurrentMediaTime() }
+        didSet {
+            cardScreenTextAt = CACurrentMediaTime()
+            // A page that started with nothing to show (its kept rows and the Mac's screen came
+            // after its first layout: a slow disk read, a rebuilt host while the link was down)
+            // takes them now, live and scrollable, instead of a cover (Leo, 2026-11-25: "the
+            // placeholder's also bad").
+            if cardScreenText != nil { controller?.seedIfStillBlank() }
+        }
     }
     @ObservationIgnored private var cardScreenTextAt: CFTimeInterval = 0
     /// The Mac's screen still reads `cardScreenText`: date it now without a redraw.
@@ -289,6 +320,22 @@ public final class TerminalModel {
         guard let rows, !rows.isEmpty else { return }
         seedRows = rows
         restoredRows = rows
+        controller?.seedIfStillBlank()
+    }
+
+    /// Whether the page may still take its saved copy as rows: it has none of its own (never
+    /// seeded, drew nothing of the Mac's) and is not attached (a Mac replay owns the surface).
+    public var takesLateSeed: Bool { !seeded && !drewLiveOutput && !connectionState.isAttached }
+
+    /// When the saved copy the page shows was last the Mac's screen: the last live output in
+    /// this launch, else when the kept rows or frame were written (``restoreSavedAt(_:)``).
+    /// For the offline line ("updated 3 min ago"); nil when nothing of the Mac's is shown.
+    @ObservationIgnored public private(set) var savedCopyAt: Date?
+
+    /// The kept rows or frame were written at `date` (their file's modification time).
+    public func restoreSavedAt(_ date: Date?) {
+        guard let date else { return }
+        if savedCopyAt.map({ $0 < date }) ?? true { savedCopyAt = date }
     }
 
     /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
@@ -388,6 +435,7 @@ public final class TerminalModel {
         if connectionState.isAttached {
             drewLiveOutput = true
             if coldFrame != nil { coldFrame = nil }
+            savedCopyAt = Date()
         }
         lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
@@ -488,8 +536,10 @@ public final class TerminalModel {
             // Nothing the person typed was dropped: nothing to say.
             break
         case .inputNotSent:
-            composerNotice = TerminalConnectionState.inputNotSentNotice
-            // A composer send that waited out a blip and was dropped comes back to edit.
+            // Nothing is said (Leo, 2026-11-23: "things just work"): keys held
+            // past the hold never run late, their predicted glyphs are rolled
+            // back by the screen, and a composer send that waited out a blip and
+            // was dropped comes back to the composer to send again.
             if let held = heldComposerSend, !composerText.isEmpty, composerText == held.text {
                 // Refused inside `send` itself (the hold was full or already dropped): the
                 // composer keeps its text.
@@ -888,11 +938,10 @@ public final class TerminalModel {
     @ObservationIgnored private var composerSending = false
 
     /// The session dropped, refused or got an error for a composer send
-    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``): never silent.
-    /// The notice shows and the text comes back to an empty composer (one the
-    /// person typed into since keeps what they typed).
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``): the text comes
+    /// back to an empty composer (one the person typed into since keeps what
+    /// they typed), with no notice: the draft back in the field is the answer.
     private func composerSendNotSent(_ text: String) {
-        composerNotice = TerminalConnectionState.composerSendNotSentNotice
         heldComposerSend = nil
         if composerSending {
             composerSendRefused = true
@@ -1339,6 +1388,13 @@ public final class TerminalModel {
     public func demoConnection(_ state: TerminalConnectionState) {
         demoHeldConnection = state.isAttached ? nil : state
         ingest(.connection(state))
+    }
+
+    /// Demo drivers (`ws-terminal-outage`): the session dropped `bytes` of held input
+    /// (``TerminalSessionEvent/inputNotSent(bytes:)``), as a live session does when the
+    /// Mac stays away past its hold, or when keys in flight when the link fell cannot go again.
+    public func demoInputDropped(bytes: Int) {
+        ingest(.inputNotSent(bytes: bytes))
     }
 
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
