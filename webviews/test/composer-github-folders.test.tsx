@@ -1895,6 +1895,79 @@ test("Connect to GitHub from Add project opens the palette again on its reposito
   }
 });
 
+// cmux#55104: "Why is that menu just gone after I press Connect?" The app's own GitHub sheet says where it stands as it
+// goes (on GitHub, finishing), and each step re-reads the status, still not connected: those steps keep the reopen
+// armed, and the palette opens again on the repositories once the app finished the connect.
+const sheetSteps = async (gh: ReturnType<typeof host>) => {
+  const changed = async () => {
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+  };
+  gh.answers["github.status"] = status("not_connected", { progress: "on_github" });
+  await changed();
+  gh.answers["github.status"] = status("not_connected", { progress: "finishing" });
+  await changed();
+  gh.answers["github.status"] = status("ready", { repos_scope: "selected", progress: "connected", account: "acme" });
+  gh.answers["github.repos.list"] = installed;
+  await changed();
+  await settle();
+};
+
+test("Connect to GitHub in the app's own sheet opens Add project again on the repositories (cmux#55104)", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    // GitHub's sheet takes the keys: the palette closes.
+    await key("Escape");
+    await key("Escape");
+    expect(palette()).toBeNull();
+    await sheetSteps(gh);
+    expect(palette()).not.toBeNull();
+    expect(option("acme/api")).toBeDefined();
+    expect(option("acme/web")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
+test("the native palette a Connect to GitHub closed opens again and goes to its GitHub page (cmux#55104)", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const native = mockProjectPalette();
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await native.event({ type: "pick", page: "add", id: "github" });
+    expect(native.model()?.page).toBe("github");
+    await native.event({ type: "pick", page: "github", id: "\0connection" });
+    await settle();
+    expect(gh.calls.at(-1)?.[0]).toBe("github.connect");
+    // GitHub's sheet took the keys: the host closed the palette.
+    await native.event({ type: "closed" });
+    await settle();
+    const shows = () => native.calls.filter(({ method }) => method === "projectPalette.show");
+    expect(shows()).toHaveLength(1);
+    await sheetSteps(gh);
+    // It shows again on its root page (the only page the host shows first), then pushes the GitHub page.
+    expect(shows()).toHaveLength(2);
+    expect(shows()[1]?.model?.page).toBe("add");
+    const pushed = native.calls.at(-1);
+    expect(pushed).toMatchObject({ method: "projectPalette.update", push: true, model: { page: "github" } });
+    expect(native.model()?.rows.map(({ id }) => id)).toEqual(expect.arrayContaining(["acme/api", "acme/web"]));
+  } finally {
+    await act(async () => root.unmount());
+    setNativeHost(undefined);
+    uninstall();
+  }
+});
+
 test("a Connect to GitHub cancelled in the browser never opens Add project when GitHub connects later elsewhere", async () => {
   const uninstall = installPageKey(doc());
   const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });

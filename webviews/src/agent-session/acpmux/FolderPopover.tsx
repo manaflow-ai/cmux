@@ -9,7 +9,7 @@ import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
-import { githubFolder, githubFolderRepo, type GitHubStatus } from "./githubRepos";
+import { githubFolder, githubFolderRepo, type GitHubStatus, reopenAfterConnect } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -101,9 +101,10 @@ export function FolderPopover({
   const [reopenGitHub, setReopenGitHub] = useState<{ from: GitHubStatus | undefined }>();
   const githubState = sources?.github?.state;
   const githubConnectOut = githubState !== undefined && (githubState.waiting || githubState.connecting === true);
-  if (reopenGitHub && githubState?.connecting !== true && githubState?.status !== reopenGitHub.from) {
+  const reopen = reopenGitHub && githubState ? reopenAfterConnect(reopenGitHub.from, githubState) : "wait";
+  if (reopenGitHub && reopen !== "wait") {
     setReopenGitHub(undefined);
-    if (githubState?.status?.state === "ready") {
+    if (reopen === "reopen") {
       setSourcesPage("github");
       setSourcesOpen(true);
     }

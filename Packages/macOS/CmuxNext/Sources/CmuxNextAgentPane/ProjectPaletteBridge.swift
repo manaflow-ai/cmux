@@ -54,6 +54,7 @@ final class ProjectPaletteBridge {
         case .close:
             guard session == request.id else { return false }
             palette.hide()
+            view.projectPaletteDismissedByPage()
             return true
         }
     }
@@ -130,6 +131,7 @@ final class ProjectPaletteBridge {
     private func left(_ page: Page, session: String) {
         guard self.session == session, let palette = controller() else { return }
         if page === pages.first {
+            view?.projectPaletteClosed(on: pages.last?.model.page)
             self.session = nil
             rootLevel = nil
             for page in pages { page.waiting?.answer.finish() }

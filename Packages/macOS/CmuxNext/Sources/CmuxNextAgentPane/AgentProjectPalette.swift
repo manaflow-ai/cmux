@@ -120,3 +120,25 @@ public nonisolated enum AgentProjectPaletteEvent: Equatable, Sendable {
         return .object(fields)
     }
 }
+
+/// The one show of the project palette the page may make with no gesture of the person's (cmux#55104): its palette closed
+/// while it showed the GitHub page (Connect to GitHub opened GitHub's page, which took the keys), and the page opens it
+/// again on that page once GitHub is ready, with the repositories. Single use, within ``window`` of the close; any other
+/// close, a show the person made, or the page closing it itself takes it away.
+public nonisolated struct AgentProjectPaletteResume: Equatable, Sendable {
+    /// As long as a Connect to GitHub's return is followed (``CloudGitHubChanges``).
+    public static let window: TimeInterval = 30 * 60
+    private var closedOnGitHub: TimeInterval?
+
+    public init() {}
+
+    public mutating func closed(on page: AgentProjectPalettePage.Kind?, at now: TimeInterval) {
+        closedOnGitHub = page == .github ? now : nil
+    }
+
+    public mutating func take(at now: TimeInterval) -> Bool {
+        defer { closedOnGitHub = nil }
+        guard let closed = closedOnGitHub, now >= closed, now - closed <= Self.window else { return false }
+        return true
+    }
+}

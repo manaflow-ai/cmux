@@ -10,7 +10,11 @@ extension AgentPaneView {
         }
         switch request.operation {
         case .show:
-            guard person, window != nil, !isHiddenOrHasHiddenAncestor else { return refused }
+            // A Connect to GitHub closed it (GitHub's page took the keys): the page opens it again once GitHub is ready,
+            // with no click of the person's (cmux#55104). Once, and only soon after.
+            let resumed = !person && projectPaletteResume.take(at: ProcessInfo.processInfo.systemUptime)
+            if person { projectPaletteResume = AgentProjectPaletteResume() }
+            guard person || resumed, window != nil, !isHiddenOrHasHiddenAncestor else { return refused }
             guard onProjectPaletteRequest(request) else { return refused }
             projectPaletteID = request.id
             return .object(["shown": .bool(true)])
@@ -28,6 +32,16 @@ extension AgentPaneView {
         if event == .closed, projectPaletteID == session { projectPaletteID = nil }
         let payload = event.payload(session: session)
         deliver([AgentPageEvent(kind: "projectPalette", value: payload)], scripts: [projectPaletteScript(payload)])
+    }
+
+    /// The palette's root closed while it showed `page` (a click elsewhere, GitHub's page taking the keys, Escape).
+    func projectPaletteClosed(on page: AgentProjectPalettePage.Kind?) {
+        projectPaletteResume.closed(on: page, at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// The page closed it itself (a pick): nothing to resume.
+    func projectPaletteDismissedByPage() {
+        projectPaletteResume = AgentProjectPaletteResume()
     }
 
     func dismissProjectPalette() {

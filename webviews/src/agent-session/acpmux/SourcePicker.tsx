@@ -9,6 +9,7 @@ import { MenuFolderIcon, PlusIcon, SearchIcon } from "./ComposerPickers";
 import { GitHubGlyph, LockIcon } from "./GitHubIcons";
 import { githubFolder, githubFolderRepo, githubFullName, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { useT, type StringKey } from "./i18n";
+import { hasNativeHost } from "./native";
 import { useProjectPaletteHost, type SourceIcon, type SourcePage } from "./projectPaletteHost";
 import { githubSource, matchesSourceQuery, type CloudFolder } from "./sourcePickerModel";
 import "./sourcePicker.css";
@@ -55,7 +56,10 @@ export function SourcePicker({
 }) {
   const t = useT();
   const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
-  const [page, setPage] = useState<SourcePage>(startPage ?? "add");
+  // The native palette opens on its root page only (its Back leads there): a start page is pushed once it shows, or once
+  // the host declined and the page draws its own (cmux#55104, reopened on GitHub after Connect).
+  const nativeStart = useRef(startPage && startPage !== "add" && hasNativeHost() ? startPage : undefined);
+  const [page, setPage] = useState<SourcePage>(nativeStart.current ? "add" : (startPage ?? "add"));
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
   const clone = useGitURLClone(onClone, onCloning, pick);
@@ -254,6 +258,13 @@ export function SourcePicker({
           break;
       }
     },
+  });
+
+  useLayoutEffect(() => {
+    const start = nativeStart.current;
+    if (native.mode === "pending" || !start) return;
+    nativeStart.current = undefined;
+    goTo(start);
   });
 
   if (native.mode !== "web") return null;

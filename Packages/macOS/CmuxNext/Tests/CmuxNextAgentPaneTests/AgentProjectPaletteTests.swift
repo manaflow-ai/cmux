@@ -58,4 +58,26 @@ struct AgentProjectPaletteTests {
         """#.utf8))
         #expect(AgentProjectPaletteRequest(method: "projectPalette.update", params: params) == nil)
     }
+
+    /// cmux#55104: a palette closed on its GitHub page (Connect to GitHub's sheet took the keys) may be shown again once
+    /// with no gesture, soon after; any other close, or a second show, is the person's to make.
+    @Test func resumesOnceAfterAClosedGitHubPage() {
+        var resume = AgentProjectPaletteResume()
+        #expect(!resume.take(at: 10))
+        resume.closed(on: .github, at: 10)
+        #expect(resume.take(at: 70))
+        #expect(!resume.take(at: 71))
+
+        resume.closed(on: .add, at: 100)
+        #expect(!resume.take(at: 101))
+
+        resume.closed(on: .github, at: 200)
+        resume.closed(on: .url, at: 201)
+        #expect(!resume.take(at: 202))
+
+        resume.closed(on: .github, at: 300)
+        #expect(!resume.take(at: 300 + AgentProjectPaletteResume.window + 1))
+        resume.closed(on: .github, at: 400)
+        #expect(!resume.take(at: 399))
+    }
 }
