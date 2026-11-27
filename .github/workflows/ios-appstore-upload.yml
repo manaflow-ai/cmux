@@ -158,7 +158,7 @@ jobs:
           steps.decide.outputs.upload == 'true' &&
           github.event_name == 'schedule' &&
           steps.decide.outputs.last_upload_sha != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Commits and trees only: the batch counts first-parent commits,
@@ -245,7 +245,7 @@ jobs:
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Shallow and without submodules: the only history this lane reads is
@@ -655,7 +655,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Download notes request
@@ -692,7 +692,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       BUILD_NUMBER: ${{ needs.upload.outputs.build_number || needs.decide.outputs.retry_build_number }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Wait for processing and assign the official internal group
@@ -716,7 +716,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
