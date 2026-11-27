@@ -54,8 +54,11 @@ struct HomeWindowControlsTests {
         #expect(!h.filter.intersects(lights), "the filter sits on the traffic lights at \(width)")
         #expect(h.search.minY >= lights.maxY, "the search field is not under the lights' row at \(width)")
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter is not on the lights' line at \(width)")
-        #expect(h.filter.maxX == width - HomeSidebarHeaderLayout.inset)
-        #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset, "the search field does not span the list at \(width)")
+        // The bare filter at the row's right end, its glyph's centre 21.75 pt from the edge (Messages).
+        // The list is the panel, 8 pt in from the column's left (`HomeSidebarView.panelInset`).
+        let list = width - HomeSidebarView.panelInset
+        #expect(abs(h.filter.midX - (list - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.search.width == list - 2 * HomeSidebarHeaderLayout.inset, "the search field does not span the list at \(width)")
         #expect(h.listTop >= h.search.maxY, "the list starts over the search field at \(width)")
         // The views follow the layout.
         #expect(home.searchCapsule.frame == h.search)
@@ -79,9 +82,10 @@ struct HomeWindowControlsTests {
         let lights = try Self.lights(in: home.list.headerView)
         let h = home.header
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter left the lights' line beside them")
-        #expect(h.filter.maxX == 320 - HomeSidebarHeaderLayout.inset)
+        let list = 320 - HomeSidebarView.panelInset
+        #expect(abs(h.filter.midX - (list - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
         #expect(h.search.minY >= lights.maxY, "the search field left the row under the lights' line")
-        #expect(h.search.width == 320 - 2 * HomeSidebarHeaderLayout.inset)
+        #expect(h.search.width == list - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop > HomeSidebarHeaderLayout.band)
     }
 
@@ -142,6 +146,51 @@ struct HomeWindowControlsTests {
         #expect(compose.frame.minX > column.chats.frame.maxX)
     }
 
+    /// The user, 2026-11-23: "make spacing here aligned (imessage sidebar + imessage compose button)".
+    /// Chats and compose sit as macOS 26 lays out two glass toolbar buttons: 8 pt apart, 8 pt after the
+    /// lights (and the accessory after them) or 8 pt in from the column's edge as Messages' compose from
+    /// its list, centred on the lights' line to the pixel (they sat 4 pt apart, 12 pt in, half a point high).
+    @Test func theChatButtonsSitAsMessagesToolbarButtons() throws {
+        let win = Self.window()
+        defer { win.close() }
+        let column = HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: "New Message"))
+        column.showsCompose = true
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        column.frame = root.bounds
+        root.addSubview(column)
+        win.contentView = root
+        column.layoutSubtreeIfNeeded()
+        let row = try #require(column.homeLightsRow(band: HomeSidebarHeaderLayout.band))
+        let over = try #require(column.homeWindowControls(band: HomeSidebarHeaderLayout.band))
+        #expect(column.compose.frame.minX - column.chats.frame.maxX == 8, "Chats and compose are not 8 pt apart")
+        #expect(column.compose.frame.size == column.chats.frame.size)
+        #expect(column.chats.frame.minX == (over.maxX + 8).rounded(.up), "Chats is not 8 pt after the lights")
+        for button in [column.chats as NSView, column.compose] {
+            // On the line to the pixel: exactly at 2x, within half a pixel at other scales.
+            #expect(abs(button.frame.midY - row.midY) <= 0.5 / win.backingScaleFactor, "\(button) is off the lights' line")
+        }
+        // Beside the list (clear of the lights): 8 pt in from the column's edge.
+        column.frame = NSRect(x: 320, y: 0, width: 680, height: 700)
+        column.layoutSubtreeIfNeeded()
+        #expect(column.chats.frame.minX == 8)
+        #expect(column.compose.frame.minX - column.chats.frame.maxX == 8)
+    }
+
+    /// A lights' line on a half point (lights 14 pt tall at a half-point offset) keeps the buttons on
+    /// it at 2x: whole-point rounding put them half a point above it.
+    @Test(arguments: [1, 2, 3] as [CGFloat])
+    func theChatButtonsCentreOnAHalfPointLine(_ scale: CGFloat) {
+        let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: scale)
+        let pixel = 1 / scale
+        #expect(abs(frames.chats.midY - row.midY) < pixel / 2 + 0.001, "Chats is off the lights' line by more than half a pixel")
+        #expect(frames.chats.minY * scale == (frames.chats.minY * scale).rounded(), "Chats is off the pixel grid")
+        #expect(frames.compose.minY == frames.chats.minY)
+        #expect(frames.compose.minX - frames.chats.maxX == HomeChatColumnView.buttonGap)
+        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
+        if scale == 2 { #expect(frames.chats.midY == row.midY) }
+    }
+
     // MARK: The layout alone
 
     /// Lights as a window draws them (x 7 to 59, centred 14 pt from the top), in header points.
@@ -153,11 +202,15 @@ struct HomeWindowControlsTests {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: Self.lightsFrame)
         #expect(!h.search.intersects(Self.lightsFrame) && !h.filter.intersects(Self.lightsFrame))
         #expect(h.filter.midY == Self.lightsFrame.midY)
-        // The search row under the lights and the filter circle on their line.
-        #expect(h.search.minY == max(Self.lightsFrame.maxY, h.filter.maxY) + HomeSidebarHeaderLayout.rowGap)
+        // The 36 pt search field centred on the workspace sidebar's Chief row, the list 7 pt under it
+        // (Messages), the bare filter's 16.5 pt glyph on the lights' line at the right end.
+        #expect(h.search.midY == Self.lightsFrame.midY + HomeSidebarHeaderLayout.searchCenterBelowLights)
+        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.searchHeight && h.search.height == 36)
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
-        #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
+        #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.listGap)
         #expect(!h.filter.intersects(h.search))
+        #expect(abs(h.filter.midX - (width - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.filterGlyph == 16.5)
     }
 
     /// Lights with a wide accessory after them (the incognito badge) leave no room for the toggle
@@ -166,17 +219,20 @@ struct HomeWindowControlsTests {
         let controls = CGRect(x: 7, y: 7, width: 170, height: 14)
         let h = HomeSidebarHeaderLayout(width: 200, searchOpen: false, windowControls: controls)
         #expect(!h.filter.intersects(controls) && !h.search.intersects(controls))
+        // The same bare glyph at the same place from the right as on the lights' line, on the search
+        // row; the field ends at its box.
         #expect(h.filter.midY == h.search.midY)
-        #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+        #expect(abs(h.filter.midX - (200 - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.filterGlyph == 16.5)
+        #expect(h.search.maxX == h.filter.minX)
     }
 
-    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
-    /// an open search sits under them too.
+    /// The avatar-only list under the lights is Messages' strip: no buttons, the first row 43 pt down, clear of
+    /// the lights; an open search sits under them, the list under it.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
-        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
-        #expect(closed.listTop >= closed.filter.maxY)
+        #expect(closed.filter.isEmpty && closed.searchIcon.isEmpty)
+        #expect(closed.listTop == HomeSidebarHeaderLayout.stripListTop && closed.listTop > Self.lightsFrame.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)

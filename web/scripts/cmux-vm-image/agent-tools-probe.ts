@@ -36,7 +36,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { A11Y_TEMPLATE_UNIT, A11Y_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, CUA_REFUSE_DIR, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, DESKTOP_STARTER, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, NO_NEW_PRIVS_ENV, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, LIVE_FAILING_FILE, liveBootImage, liveFailingLines, pickerHarnesses, regressionGate } from "./harness-gate";
@@ -117,10 +117,14 @@ export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
 
 /**
  * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
- * libx264) stays off on cmux machines, so CU_SERVER must list none.
+ * libx264) stays off on cmux machines, so CU_SERVER must list none. One exception: cmux-computer-use's
+ * `record` tool (#50070) encodes with the desktop's own H.264 encoder, which only the macOS worker has, so
+ * on a cmux machine it is listed but refused. It passes when `recordCall` (the probe's call to it) was
+ * refused as unsupported.
  */
-export function videoToolProblems(tools: readonly string[]): string[] {
-  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t)).map((t) => `lists ${t}`);
+export function videoToolProblems(tools: readonly string[], recordCall?: { isError: boolean; text: string }): string[] {
+  const recordRefused = recordCall !== undefined && recordCall.isError && /unsupported|H\.264 encoder/i.test(recordCall.text);
+  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t) && !(t === "record" && recordRefused)).map((t) => `lists ${t}`);
 }
 /**
  * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
@@ -178,7 +182,10 @@ export function recorderScript(out: string): string {
     "#!/bin/sh",
     "# cmux agent tools probe: records the launch acpmux makes; calls no model.",
     // acpmux passes --mcp-config as a 0600 file it deletes when the session ends: keep its JSON (one line) too.
-    `{ cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } >> ${sq(out)}`,
+    // acpmux starts its model listing (live_models) beside the chat's launch: each launch's record is built in its
+    // own file and appended in one write, so two launches never interleave their lines (roll 45906244147's
+    // attempt 2 had the chat's arguments and a model listing's in one record).
+    `rec=${sq(out)}.$$; { cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } > "$rec"; cat "$rec" >> ${sq(out)}; rm -f "$rec"`,
     `if [ "\${1:-}" = --version ]; then echo "2.1.267 (Claude Code)"; exit 0; fi`,
     `echo "cmux agent tools probe: recorder, no model" >&2`,
     "exit 3",
@@ -189,10 +196,15 @@ export function recorderScript(out: string): string {
 /** A server of the launch: a stdio command, or (`url`) an HTTP server such as acpmux's gateway, with no command. */
 export type RecordedServer = { name: string; command: string; args: string[]; env: Record<string, string>; url?: string };
 
-/** The last recorded launch that carries `--mcp-config`: its servers and its `--plugin-dir`. */
+/**
+ * The last recorded chat launch that carries `--mcp-config`: its servers and its `--plugin-dir`. acpmux's model
+ * listing (live_models/claude.rs) passes an empty inline `--mcp-config` under `--strict-mcp-config` and can start
+ * after the chat's launch (roll 45890407908's gateway leg), so a `--strict-mcp-config` launch is never the chat's:
+ * acpmux gives such a launch no tools (agent_tools.rs `left_out`).
+ */
 export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; pluginDir?: string } {
   const launches = text.split(`${RECORD_END}\n`).map((block) => block.split("\n").filter((line, i, all) => i < all.length - 1 || line !== ""));
-  const launch = launches.reverse().find((args) => args.includes("--mcp-config"));
+  const launch = launches.reverse().find((args) => args.includes("--mcp-config") && !args.includes("--strict-mcp-config"));
   if (!launch) return { servers: [] };
   // The value is a file path (acpmux writes the config to a 0600 file); an inline JSON value is read as it is.
   const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
@@ -214,8 +226,10 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
 /**
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
- * A call `{shell}` runs that shell command at its place instead. A call's PNG (an image content
- * item, else a PNG path in its text) is written to `copy_png_to`.
+ * A call `{shell}` runs that shell command at its place instead. A call with `until` is repeated
+ * every 2 s, for up to `until_s` seconds, until its text contains `until`; the report keeps each
+ * attempt's duration (`ms`). A call's PNG (an image
+ * content item, else a PNG path in its text) is written to `copy_png_to`.
  */
 const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
 spec = json.load(open(sys.argv[1]))
@@ -248,10 +262,17 @@ if spec.get("before_calls"): subprocess.run(spec["before_calls"], shell=True)
 for n, call in enumerate(spec.get("calls", [])):
     if "shell" in call:
         subprocess.run(call["shell"], shell=True); continue
-    res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
-    body = res.get("result", {})
-    text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
-    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
+    deadline = time.time() + call.get("until_s", 0)
+    ms = []
+    while True:
+        t0 = time.time()
+        res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
+        body = res.get("result", {})
+        text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+        ms.append(int((time.time() - t0) * 1000))
+        if not call.get("until") or call["until"] in text or time.time() >= deadline: break
+        time.sleep(2)
+    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "attempts": len(ms), "ms": ms, "text": (text or str(res.get("error", "")))[:1500]}
     images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
     if call.get("copy_png_to") and images:
@@ -388,8 +409,13 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
+  const started = Date.now();
   const ws = await run(vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null && echo ok`, 60_000, DEVBOX_WORK_USER);
-  check("daemon-terminal", ws.code === 0, ws.stdout.trim() || ws.stderr.slice(-300));
+  result.timings.daemonTerminalMs = Date.now() - started;
+  // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
+  // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
+  const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
   return ws.code === 0;
 }
 
@@ -425,17 +451,25 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
   }
   writeFileSync(path.join(outDir, "claude-launches.txt"), text);
   // What acpmux said: without a recorded launch these are the only evidence of why.
-  const said: string[] = [];
-  for (const name of ["recorder-new", "recorder-send", "recorder-shutdown"]) {
-    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
-    writeFileSync(path.join(outDir, `${name}.txt`), out);
-    said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
-  }
+  // Each leg's own: the gateway leg's were never kept, so its failure (no session launch recorded, rolls 45890407908
+  // and 45906244147) left no evidence of why.
+  const saidBy = async (leg: string): Promise<string[]> => {
+    const lines: string[] = [];
+    for (const step of ["new", "send", "shutdown"]) {
+      const name = `${leg}-${step}`;
+      const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
+      writeFileSync(path.join(outDir, `${name}.txt`), out);
+      lines.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
+    }
+    return lines;
+  };
+  const said = await saidBy("recorder");
+  const gatewaySaid = await saidBy("gateway");
   const gatewayText = await readGuest(vm, GATEWAY_LAUNCHES).catch(() => "");
   writeFileSync(path.join(outDir, "claude-launches-gateway.txt"), gatewayText);
   const gateway = parseRecordedLaunch(gatewayText);
   const gatewayIssues = gatewayProblems(gateway.servers);
-  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || "no launch with --mcp-config was recorded"}`);
+  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || `no launch with --mcp-config was recorded (${gatewayText.split(`${RECORD_END}\n`).filter((b) => b.trim()).length} launches recorded, none of them the chat's); ${gatewaySaid.join(" | ")}`}`);
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.url ?? `${s.command} ${s.args.join(" ")}`}`);
   const cu = attachedComputerUse(launch.servers);
@@ -469,7 +503,10 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "status", arguments: {} },
         { shell: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`) },
         { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
-        { name: "list_windows", arguments: {} },
+        // Chrome can still be mapping the window, titled by its URL, after the 5 s (cmux run 44955837342's bake).
+        { name: "list_windows", arguments: {}, until: CUA_PAGE_TEXT, until_s: 30 },
+        // Role cua-video stays off: a cmux machine's desktop has no H.264 encoder, so `record` must refuse.
+        { name: "record", arguments: { seconds: 1 }, expect_error: true },
       ],
     },
     [LEGACY_CU_SERVER]: {
@@ -481,7 +518,11 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "install_ffmpeg", arguments: { confirm: true }, expect_error: true },
       ],
     },
-    cmux: { calls: [{ name: "browser_repl_eval", arguments: { session: "probe", code: `await page.goto(${JSON.stringify(`http://127.0.0.1:${PAGE_PORT}/`)}); console.log(await page.title()); screenshot()` }, copy_png_to: `${WORK_DIR}/browser.png` }] },
+    // The browser host's first call after launch sets the browser up (Browser.setPermission, a 10 s bound in the
+    // host); on a clone of a just-baked snapshot it timed out in about half the rolls (cmux run 45119294989) and
+    // answered in 631 ms on the next (45124861415). A timed-out attempt is repeated for up to 60 s, and the
+    // check names the attempts, so a slow first start shows its numbers and a host that never answers still fails.
+    cmux: { calls: [{ name: "browser_repl_eval", arguments: { session: "probe", code: `await page.goto(${JSON.stringify(`http://127.0.0.1:${PAGE_PORT}/`)}); console.log(await page.title()); screenshot()` }, copy_png_to: `${WORK_DIR}/browser.png`, until: PAGE_TITLE, until_s: 60 }] },
   };
   const lines: string[] = [];
   for (const server of servers.filter((s) => s.name in calls)) {
@@ -494,7 +535,7 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   // Only the Computer Use server acpmux attached is judged; with none, CU_SERVER's checks fail.
   const cu = attachedComputerUse(servers) ?? { name: CU_SERVER, ok: false, legacy: false };
   for (const name of Object.keys(calls).filter((n) => n === "cmux" || n === cu.name)) {
-    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
+    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean; attempts: number; ms: number[] }> };
     const stderr = await readGuest(vm, `${PROBE_DIR}/mcp-${name}.stderr`).catch(() => "");
     if (stderr) writeFileSync(path.join(outDir, `mcp-${name}.stderr`), stderr);
     try {
@@ -508,12 +549,13 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
     const missing = required.filter((t) => !report.tools.includes(t));
     check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")} (listed: ${report.tools.slice(0, 12).join(", ")})` : `${report.tools.length} tools, including ${required.join(", ")}`);
     const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
-    check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
+    check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}${c.attempts > 1 ? ` (${c.attempts} attempts, ms ${c.ms.join("/")})` : ""}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }
-  const ffmpeg = await run(vm, "command -v ffmpeg; dpkg-query -W -f='${Status}' ffmpeg libx264-164 2>/dev/null | grep -c 'ok installed' || true");
+  // The image carries ffmpeg for people (graduated.json); the driver must still find the refusing one first.
+  const ffmpeg = await run(vm, `PATH=${CUA_REFUSE_DIR}:$PATH; [ "$(command -v ffmpeg)" = ${CUA_REFUSE_DIR}/ffmpeg ] && [ "$(command -v ffprobe)" = ${CUA_REFUSE_DIR}/ffprobe ] && ! ffmpeg -version >/dev/null 2>&1 && echo refused || echo not-refused`);
   if (cu.legacy) {
     const cuaReport = await readGuest(vm, `${PROBE_DIR}/mcp-${LEGACY_CU_SERVER}.json`).catch(() => "");
-    check("cua-video-refused", cuaReport.includes("cua-video") && ffmpeg.stdout.trim() === "0", `install_ffmpeg ${cuaReport.includes("cua-video") ? "refused with the cua-video message" : "was not refused"}; ffmpeg/libx264 installed packages: ${ffmpeg.stdout.trim()}`);
+    check("cua-video-refused", cuaReport.includes("cua-video") && ffmpeg.stdout.trim() === "refused", `install_ffmpeg ${cuaReport.includes("cua-video") ? "refused with the cua-video message" : "was not refused"}; the driver's ffmpeg: ${ffmpeg.stdout.trim()}`);
     const units = await run(vm, `systemctl is-active ${DISPLAY_UNIT} ${CUA_UNIT} | tr '\\n' ' '`);
     check("display-and-cua-started-by-cmux-cua-mcp", units.stdout.trim() === "active active", units.stdout.trim());
   } else {
@@ -558,7 +600,7 @@ function workerStartedByComputerUse(w: Record<string, string>, bus: string): boo
  * headless; the worker cannot gain privileges and finds the refusing sudo/apt first (role cua-video
  * stays off), the server lists no video or install tool, and the Chrome window is in its window list.
  */
-async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string): Promise<void> {
+async function computerUseChecks(vm: Vm, check: Checker, ffmpegRefused: string): Promise<void> {
   const w = kv((await run(vm, computerUseWorkerCommand())).stdout);
   const bus = `unix:path=/run/cmux-agent-a11y-${AGENT_DISPLAY.slice(1)}/bus`;
   check(
@@ -566,13 +608,13 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
     workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
-  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
-  const listed = videoToolProblems(report?.tools ?? []);
+  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; isError: boolean; text: string }> }).catch(() => null);
+  const listed = videoToolProblems(report?.tools ?? [], report?.calls.find((c) => c.name === "record"));
   const firstPath = (w["worker-env-PATH"] ?? "").split(":")[0];
   check(
     "cua-video-refused",
-    report !== null && listed.length === 0 && w["worker-nnp"] === "1" && firstPath === CUA_REFUSE_DIR && ffmpegInstalled === "0",
-    `${report ? (listed.length ? listed.join(", ") : "no video or install tool") : "no report"}; worker NoNewPrivs ${w["worker-nnp"] ?? "unread"} (${NO_NEW_PRIVS_ENV}), PATH first ${firstPath || "unread"}; ffmpeg/libx264 installed packages: ${ffmpegInstalled}`,
+    report !== null && listed.length === 0 && w["worker-nnp"] === "1" && firstPath === CUA_REFUSE_DIR && ffmpegRefused === "refused",
+    `${report ? (listed.length ? listed.join(", ") : "no video or install tool") : "no report"}; worker NoNewPrivs ${w["worker-nnp"] ?? "unread"} (${NO_NEW_PRIVS_ENV}), PATH first ${firstPath || "unread"}; the driver's ffmpeg: ${ffmpegRefused}`,
   );
   const windows = report?.calls.find((c) => c.name === "list_windows")?.text ?? "";
   check("cu-window-listed", windows.includes(CUA_PAGE_TEXT), `list_windows ${windows.includes(CUA_PAGE_TEXT) ? "names" : "does not name"} the "${CUA_PAGE_TEXT}" window: ${windows.slice(0, 200)}`);

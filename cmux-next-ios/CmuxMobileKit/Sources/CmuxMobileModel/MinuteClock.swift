@@ -27,10 +27,16 @@ public final class MinuteClock {
     /// The clock is waiting for its next minute mark.
     public var isTicking: Bool { ticker != nil }
 
+    /// False while the app is in the background (`setActive(false)`). Observable:
+    /// a view's own clock that reads it (a working row's elapsed time) stops while
+    /// nobody can see it and is current at once on return.
+    public private(set) var isActive = true
+
     /// Follows the app's state: the background pauses the ticks (no wake each
     /// minute for times nobody sees); the foreground reads the time at once, so
     /// every relative time is current on return, then ticks on the minute marks.
     public func setActive(_ active: Bool) {
+        if isActive != active { isActive = active }
         guard ticks else { return }
         if !active {
             ticker?.cancel()

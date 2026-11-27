@@ -1,6 +1,8 @@
 import CmuxAgentQuestion
 public import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -918,8 +920,13 @@ public actor MockHomeSource: HomeSource {
         return result
     }
 
+    /// The inbox as the real owner lists it (`WireHomeSource.inboxSnapshot`): most recently updated first. Ties go
+    /// by id, so every mock over one seed lists it in one order (a dictionary's order is seeded per dictionary).
     private func inboxSnapshot() -> InboxSnapshot {
-        InboxSnapshot(me: me, conversations: Array(conversations.values), rev: inboxRev)
+        let ordered = conversations.values.sorted {
+            $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id.rawValue < $1.id.rawValue
+        }
+        return InboxSnapshot(me: me, conversations: ordered, rev: inboxRev)
     }
 
     private func publish(_ event: HomeEvent) {

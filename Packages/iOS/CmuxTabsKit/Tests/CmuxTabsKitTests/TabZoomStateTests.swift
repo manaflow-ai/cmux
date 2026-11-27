@@ -1,5 +1,9 @@
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 struct TabZoomStateTests {
@@ -76,17 +80,18 @@ struct TabZoomStateTests {
         #expect(NewTabZoom.lastTabClosed.fromLoneSlot && !NewTabZoom.lastTabClosed.blurs)
     }
 
-    /// Safari (browser-springs-verify.md): a one-frame jump toward the new
-    /// target, then the destination's spring from rest.
-    @Test func reversalJumpsTowardTheNewTargetThenStartsFromRest() {
+    /// A tap mid-flight retargets: the zoom keeps its position and its
+    /// velocity (no jump, no restart from rest) and the new target's spring
+    /// takes it from there.
+    @Test func reversalRetargetsFromPositionAndVelocity() {
         var s = TabZoomState()
         s.go(toOverview: true)
         run(&s, seconds: 0.13)
-        let p = s.progress
-        #expect(p > 0.3 && p < 0.9 && s.velocity > 0)
-        s.go(toOverview: false, span: 244)
-        #expect(abs(s.progress - (p - 20.0 / 244)) < 1e-9)
-        #expect(s.velocity == 0 && s.target == 0 && s.spring == .reversalToPage)
+        let p = s.progress, v = s.velocity
+        #expect(p > 0.3 && p < 0.9 && v > 0)
+        s.go(toOverview: false)
+        #expect(s.progress == p && s.velocity == v)
+        #expect(s.target == 0 && s.spring == .reversalToPage && s.curve == nil)
         run(&s, seconds: 1.2)
         #expect(s.phase == .page && s.pageInteractive)
 
@@ -94,9 +99,9 @@ struct TabZoomStateTests {
         run(&s, seconds: 0.05)
         s.go(toOverview: false)
         run(&s, seconds: 0.1)
-        let q = s.progress
-        s.go(toOverview: true, span: 244)
-        #expect(abs(s.progress - (q + 10.0 / 244)) < 1e-9 && s.spring == .reversalToOverview)
+        let q = s.progress, w = s.velocity
+        s.go(toOverview: true)
+        #expect(s.progress == q && s.velocity == w && s.spring == .reversalToOverview)
     }
 
     /// Opening a card replays Safari's zoom in: its first 60 Hz frame moves

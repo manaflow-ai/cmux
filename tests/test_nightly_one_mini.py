@@ -18,7 +18,8 @@ take an ephemeral one-job JIT VM (cmux-gcp-nightly-jit-x64) on every attempt, ne
 nothing in manaflow-ai; Leo, 2026-11-21: "the ci must flow") and never Blacksmith, and they run only outside the push
 group. republish-nightly-deltas takes the signer only on nightly-next; classic and RC runs take the JIT VM
 (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED), as their release uploads may wait out the rate limit.
-Every Mac job (build, sign, notarize, verify, publish) runs on the mini.
+Every Mac job (build, sign, notarize, verify, publish) runs on the mini. The light Linux jobs that hold no key
+(LINUX_POOL_JOBS) take cmux-linux, the one label of every own-branch Linux job, in this mode too.
 The nightly visual gate needs a GUI session runner, which the mini has not, so it skips in this mode.
 """
 from __future__ import annotations
@@ -31,8 +32,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import (HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS,  # noqa: E402
-                                           JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, hosted_route)
+from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS,  # noqa: E402
+                                           HOSTED_TAIL_JOBS,
+                                           JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
@@ -40,8 +42,18 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
-           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"}
+           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+           "sign-live-code-variant",
+           # RFD 0134 cut 2 (#54859): the .pkg build and sign, on the signer label with the rest.
+           "nightly-next-pkg"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
+LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build",
+                   "check-nightly-webviews", "early-nightly-webviews"}
+# RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
+# label on a first push, schedule or dispatch attempt, and cmux-linux on a rerun or loop retry, in this mode too.
+PINNED_LINUX = "cmux-gcp-nightly-x64"
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 
 
@@ -52,15 +64,20 @@ REPAIR_JIT = "cmux-gcp-repair-jit-x64"
 NIGHTLY_CALLER = "manaflow-ai/cmux/.github/workflows/nightly.yml@refs/heads/nightly-next"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2) -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
+    if name in NIGHTLY_PINNED_JOBS and first:
+        return PINNED_LINUX
+    if name in LINUX_POOL_JOBS:
+        return "cmux-linux"
     # A tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.hosted_route).
-    return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
+    return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS \
+        or name in HOSTED_DISPATCH_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:
@@ -86,7 +103,11 @@ class NightlyOneMini(unittest.TestCase):
             for source in sources or [""]:
                 for _ in range(200):
                     value, context = resolve(source, rng)
-                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next"), context.get("github.run_attempt", 2)):
+                    attempt = context.get("github.run_attempt", 2)
+                    event = context.get("github.event_name")
+                    first = attempt == 1 and (event in ("push", "schedule") or event == "workflow_dispatch"
+                                              and not context.get("inputs.nightly_next_loop_retry"))
+                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next"), attempt, first):
                         failures[name] = (value, {k: v for k, v in context.items() if v and k.startswith(("github", "vars"))})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))

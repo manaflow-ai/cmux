@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 
 pub const CONV: &str = "conv_chief";
 pub const WAIT: Duration = Duration::from_secs(30);
+/// How long `poll_step` waits for an input before its loop checks again.
+pub const POLL: Duration = Duration::from_millis(20);
 /// The turn session names' prefix of the test home (`optchat-<home id>`).
 pub const TURN_PREFIX: &str = "optchat-h0me";
 /// The turn sessions' acpmux preset of the test home.
@@ -150,6 +152,8 @@ pub struct Owner {
     pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Every Send Later the brain queued: (conversation, op, send_at_ms).
+    pub scheduled: Vec<(String, Op, u64)>,
     /// Panics outside the owner lock during an original-file upload.
     pub panic_uploads: bool,
     /// Runs outside the owner lock before an original-file upload reads its bytes.
@@ -496,6 +500,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .scheduled
+            .push((conversation.to_owned(), op.clone(), send_at_ms));
+        Ok(format!("sch_{}", owner.scheduled.len()))
+    }
+
     fn draft(
         &mut self,
         conversation: &str,
@@ -597,8 +614,6 @@ pub struct Agents {
     pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
-    /// Task lists kept (`_acpmux/task_list/set`): (session, items), in order.
-    pub task_lists: Vec<(String, Value)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
     /// The next prompt fails with this JSON-RPC error message, used once
@@ -621,6 +636,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// Slow session starts under way now, and the most there were at once.
+    pub slow_starting: usize,
+    pub slow_starting_max: usize,
     /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
     /// ends it (a harness still working on a loaded machine).
     pub hold_starts: bool,
@@ -906,7 +924,13 @@ impl AgentPort for FakeAgents {
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
         {
+            {
+                let mut inner = self.inner.lock().unwrap();
+                inner.slow_starting += 1;
+                inner.slow_starting_max = inner.slow_starting_max.max(inner.slow_starting);
+            }
             std::thread::sleep(delay);
+            self.inner.lock().unwrap().slow_starting -= 1;
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
         if let Some(key) = spec.env.keys().find(|k| {
@@ -1029,6 +1053,16 @@ impl AgentPort for FakeAgents {
         inner.finds.push(name.to_owned());
         // A taken name is found as itself: the fake's ids for those are their names.
         Ok(inner.taken.contains(name).then(|| name.to_owned()))
+    }
+
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        let inner = self.inner.lock().unwrap();
+        Ok(inner
+            .taken
+            .iter()
+            .cloned()
+            .chain(inner.specs.iter().map(|s| s.name.clone()))
+            .collect())
     }
 
     fn probe_models(&self, harness: &str) -> Result<(), String> {
@@ -1203,21 +1237,6 @@ impl AgentPort for FakeAgents {
             .withdrawn
             .push((session.to_owned(), prompt_id.to_owned()));
         Ok(inner.withdraws)
-    }
-
-    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.task_lists.push((session.to_owned(), items.clone()));
-        let steps = items.as_array().cloned().unwrap_or_default();
-        if steps.is_empty() {
-            return Ok(Value::Null);
-        }
-        let done = steps.iter().filter(|i| i["status"] == "completed").count();
-        let current = steps
-            .iter()
-            .find(|i| i["status"] == "in_progress")
-            .map(|i| i["content"].clone());
-        Ok(json!({"source": "chief", "done": done, "total": steps.len(), "current": current}))
     }
 
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
@@ -1492,6 +1511,36 @@ impl Harness {
         while let Some(at) = self.brain.next_timer() {
             std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
             self.brain.on_timer();
+        }
+    }
+
+    /// One wait of a `while <condition> { h.poll_step(); }` loop: steps an input
+    /// if one comes within POLL, else returns so the loop checks again. The
+    /// condition is often set on another thread that sends the brain nothing
+    /// after it (the fake agent records a prompt on the turn thread after the
+    /// turn's last input), where a blocking `step` would wait out WAIT and
+    /// fail the test. Panics, as `step` does, once WAIT passes with no input.
+    pub fn poll_step(&mut self) {
+        // (first empty poll, last poll) of this thread's current wait; a poll
+        // long after the last one belongs to a new loop and starts afresh.
+        thread_local! {
+            static IDLE: std::cell::Cell<Option<(std::time::Instant, std::time::Instant)>> =
+                const { std::cell::Cell::new(None) };
+        }
+        match self.rx.recv_timeout(POLL) {
+            Ok(input) => {
+                IDLE.with(|c| c.set(None));
+                self.brain.step(input);
+            }
+            Err(_) => {
+                let now = std::time::Instant::now();
+                let since = match IDLE.with(|c| c.get()) {
+                    Some((since, last)) if now - last < POLL * 10 => since,
+                    _ => now,
+                };
+                IDLE.with(|c| c.set(Some((since, now))));
+                assert!(now - since < WAIT, "the brain got no input");
+            }
         }
     }
 

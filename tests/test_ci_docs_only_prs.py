@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,18 +52,20 @@ REQUIRED = {
 # workflow -> why a docs-only pull request still starts it. Each entry must still start for some sample below.
 ALLOWED: dict[str, str] = {
     **REQUIRED,
-    "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
-                                "the workflow when the status is missing), about two minutes on Linux",
-    "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
-    "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
+    "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
+                                   "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
-    "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
+    "private-names.yml": "docs and prose can carry a private name too; one small job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
                               "of 300 files or fewer and no full-ci/dev-build label",
+    "cloud-resume-matrix.yml": "runs only on a pull request whose body or label carries its marker; otherwise its "
+                               "plan job's `if:` skips with no runner",
+    "cloud-wake-echo.yml": "runs only on a pull request whose body carries `wake-echo: run`; otherwise its one job's "
+                           "`if:` skips with no runner",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -73,17 +76,18 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
-    "app-platform.yml": "cmux-tui/crates/cmux-app-host/** and examples/extensions/**",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
-    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "chat-open-perf-report.yml": "webviews/src/agent-session/**",
+    "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
+    "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
-    "ci-artifact-transport.yml": "workers/ci-artifacts/**",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "cmux-next-remote-daemon.yml": "daemon/remote/**",
+    "cmux-next-degenerate-lab.yml": "scripts/cmux-next/degenerate-lab/** (its own README; the lab gates nothing, and an "
+                                    "edit to its workflow would run the lab on that pull request)",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
@@ -93,23 +97,15 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
-    "coderouter-ci.yml": "coderouter/**",
+    "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
-    "fleet-test-compile.yml": "Packages/Shared/**",
-    "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
-    "mux.yml": "mux/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
-    "swift-acpmux-protocol.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "swift-linux-packages.yml": "Packages/Shared/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
-    "web-complexity-trusted.yml": "web/**",
 }
 
 # Docs-only pull requests: the two of Leo's 2026-11-19 complaint that are prose (#45476 changed CLAUDE.md, which
@@ -131,7 +127,9 @@ BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
 
 
+@functools.lru_cache(maxsize=None)
 def load(name: str):
+    # Parsed once: the allowed-workflows test asks for every workflow once per base and sample (282 x 2 x 12 parses, 113 s).
     return filters.load_yaml(WORKFLOWS / name)
 
 
@@ -384,6 +382,9 @@ class Fallback(unittest.TestCase):
 
     calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
     feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
+    # web-validation.yml (#48775) starts on its own only into main: a feat-cmux-next pull request does not run it
+    # (pr-router.yml dropped its caller), so the fallback never calls it there.
+    main_only = sorted(n for n, c in calls.items() if c["branches"] == ["main"])
 
     def plan(self, event, files, runs=(), since=1000.0):
         return docs.plan_fallback(event, self.calls, files, None if runs is None else list(runs), since)
@@ -394,43 +395,81 @@ class Fallback(unittest.TestCase):
         self.assertTrue(docs.docs_only(files[:docs.PATHS_FILTER_LIMIT]), "GitHub's first 300 are prose")
         event = pull_request_event("synchronize", changed=len(files))
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        pushed = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        self.assertEqual(set(pushed), set(self.calls), "every filtered workflow runs on a push")
+        due = sorted(set(pushed) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, files)), due)
-        self.assertEqual(set(due), set(self.calls), "every filtered workflow runs on a push")
         # A workflow GitHub did start (it saw a code file in its first 300) is not called again.
         started = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
         self.assertEqual(sorted(self.plan(event, files, started)), [n for n in due if n != "ci.yml"])
         # Into main only the workflows without a feat-cmux-next branch filter are due.
         main = pull_request_event("synchronize", base="main", changed=len(files))
-        self.assertEqual(sorted(self.plan(main, files)), sorted(set(due) - set(self.feat_only)))
+        self.assertEqual(sorted(self.plan(main, files)), sorted(set(pushed) - set(self.feat_only)))
 
     def test_unread_files_or_runs_fail_open(self):
         event = pull_request_event("opened", changed=5000)
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        opened = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        due = sorted(set(opened) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, None, None)), due)
+        main = pull_request_event("opened", base="main", changed=5000)
+        self.assertEqual(sorted(self.plan(main, None, None)), sorted(set(opened) - set(self.feat_only)))
         self.assertEqual(sorted(self.plan(event, None)), due, "no run seen: call each")
         self.assertEqual(sorted(self.plan(event, PROSE + [CODE], None)), due)
+
+    def test_a_spent_rest_budget_reads_the_files_from_the_merge_commit(self):
+        # 2026-11-25: both REST reads got 403 on a 2-file `full-ci` pull request, the gate failed open and ran ci.yml a
+        # second time (about 300 runner-min). git lists the merge commit's files instead, so 300 or fewer call nothing.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(git[:3] + ["init", "-q"], check=True)
+            Path(tmp, "base.md").write_text("base\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "base"], check=True)
+            Path(tmp, "docs").mkdir()
+            Path(tmp, "docs", "a.md").write_text("a\n")
+            Path(tmp, CODE).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, CODE).write_text("code\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "merge"], check=True)
+            here = os.getcwd()
+            os.chdir(tmp)
+            try:
+                files = docs.merge_commit_files(2)
+                self.assertIsNone(docs.merge_commit_files(3), "fewer paths than changed_files: unread")
+            finally:
+                os.chdir(here)
+        self.assertEqual(sorted(files), sorted(["docs/a.md", CODE]))
+        self.assertEqual(self.plan(pull_request_event("labeled", changed=2, label="full-ci"), files, None), [])
+        gate = (WORKFLOWS / "docs-only-fallback.yml").read_text()
+        self.assertIn("fetch-depth: 2", gate, "the gate checks out the merge commit's parent for git diff")
 
     def test_a_large_docs_only_pull_request_calls_nothing(self):
         files = PROSE + ["docs/one-more.md"]
         self.assertEqual(self.plan(pull_request_event("synchronize", changed=len(files)), files, None), [])
 
-    def test_300_files_or_fewer_take_no_runner_and_call_nothing(self):
-        for action in ("opened", "synchronize", "reopened", "edited", "ready_for_review", "closed", "unlabeled"):
-            self.assertFalse(gate_runs(pull_request_event(action, changed=300)), action)
-            self.assertFalse(gate_runs(pull_request_event(action, base="main", changed=12)), action)
+    def test_300_files_or_fewer_call_nothing_when_every_run_started(self):
+        # A push of any size takes the gate (a sibling run of it may never start, cmux#56364); an edit, a close or an
+        # unlabel of a small pull request still takes no runner.
+        for action in ("opened", "synchronize", "reopened", "ready_for_review"):
+            self.assertTrue(gate_runs(pull_request_event(action, changed=2)), action)
+        # `edited` and `closed` are not in the fallback's types (test_every_filtered_workflow_is_callable_and_called).
+        self.assertFalse(gate_runs(pull_request_event("unlabeled", changed=300)))
+        self.assertFalse(gate_runs(pull_request_event("unlabeled", base="main", changed=12)))
         self.assertEqual(self.plan(pull_request_event("synchronize", changed=2), ["docs/a.md", CODE], None), [])
         self.assertEqual(self.plan(pull_request_event("synchronize", changed=1), ["docs/a.md"], None), [])
 
+
     def test_a_ci_label_on_a_docs_only_pull_request_calls_what_listens_for_it(self):
         listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
-        self.assertEqual(listens, ["ci.yml"])
+        self.assertIn("ci.yml", listens)
         for label in docs.LABEL_OPT_INS:
             for base in BASES:
                 event = pull_request_event("labeled", base=base, label=label)
                 self.assertTrue(gate_runs(event), (label, base))
-                self.assertEqual(self.plan(event, ["docs/a.md"], None), listens, (label, base))
+                into = [n for n in listens if self.calls[n]["branches"] in (None, [base])]
+                self.assertEqual(self.plan(event, ["docs/a.md"], None), into, (label, base))
         # Any other label: no runner into feat-cmux-next (or main, under 300 files), nothing called.
         for base in BASES:
             self.assertFalse(gate_runs(pull_request_event("labeled", base=base, label="risk:high")), base)
@@ -441,10 +480,13 @@ class Fallback(unittest.TestCase):
     def test_a_ci_label_on_a_large_pull_request_needs_a_run_of_this_event(self):
         files = PROSE + [CODE]
         event = pull_request_event("labeled", label="full-ci", changed=len(files))
-        earlier = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
-        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml"], "a run before the label")
-        this_event = [{"path": ".github/workflows/ci.yml", "created": 9_999.0}]
+        listens = [n for n, c in sorted(self.calls.items())
+                   if "labeled" in c["types"] and c["branches"] in (None, ["feat-cmux-next"])]
+        earlier = [{"path": f".github/workflows/{n}", "created": 0.0} for n in listens]
+        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), listens, "runs before the label")
+        this_event = [{"path": f".github/workflows/{n}", "created": 9_999.0} for n in listens]
         self.assertEqual(self.plan(event, files, this_event, since=10_000.0), [])
+        self.assertEqual(self.plan(event, files, this_event[1:], since=10_000.0), ["ci.yml"])
 
     def test_every_filtered_workflow_is_callable_and_called(self):
         fallback = load(Path(docs.FALLBACK).name)
@@ -476,7 +518,187 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
+
+    def test_merge_files_lists_the_head_side_of_the_merge_commit(self):
+        """The gate reads the merge commit's change from git (no REST budget); a stale merge ref reads as unknown."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def git(*args):
+                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q", "-b", "base")
+            (root / "README.md").write_text("a\n")
+            git("add", "."); git("commit", "-qm", "base")
+            git("checkout", "-qb", "head")
+            (root / "app.py").write_text("x\n")
+            git("add", "."); git("commit", "-qm", "head")
+            head = git("rev-parse", "HEAD")
+            git("checkout", "-q", "base")
+            (root / "docs.md").write_text("only the base changed this\n")
+            git("add", "."); git("commit", "-qm", "base moved")
+            git("merge", "-q", "--no-ff", "--no-edit", "head")
+            self.assertEqual(docs.merge_files(head, root), ["app.py"])
+            self.assertFalse(docs.docs_only(docs.merge_files(head, root)))
+            self.assertIsNone(docs.merge_files("0" * 40, root), "a merge of another head proves nothing")
+            git("checkout", "-q", head)
+            self.assertIsNone(docs.merge_files(head, root), "no merge commit checked out: unknown")
+            # A code file in the list means GitHub saw code, so the plan is the one the API's list would give.
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"base": {"ref": "feat-cmux-next"}}}
+            self.assertEqual(self.plan(event, ["app.py"], runs=None), [])
+
+
+class ZeroJobSibling(unittest.TestCase):
+    """cmux#56364 at 40124f05, 2026-11-26 02:41:09Z: ci.yml (run 45744058854), cmux-next-guards.yml (45744058551) and
+    pr-router.yml (45744058951) each ended `failure` with zero jobs and no logs as they were created. ci-web.yml, which
+    only ci.yml starts, never ran, and the 27-file pull request was under the gate's 300-file bar, so the fallback
+    stayed skipped and the head silently had no webview verdict. A settled zero-job run of this event is missing; a
+    queued or running one, or one whose jobs could not be read, is named and never called (no duplicate suites)."""
+
+    calls = Fallback.calls
+    files = [CODE] * 1 + [f"cmux-tui/crates/x/src/f{i}.rs" for i in range(26)]  # 27 files, as on #56364
+    since = 1000.0
+
+    def sibling(self, name, status="completed", conclusion="success", jobs=5, created=1000.0, ident=1):
+        return {"id": ident, "path": f".github/workflows/{name}", "created": created, "status": status,
+                "conclusion": conclusion, "jobs": jobs}
+
+    def siblings(self, **ci):
+        return [self.sibling("ci.yml", **ci), self.sibling("cmux-next-guards.yml"), self.sibling("cmux-next-pr-autofix.yml"),
+                self.sibling("pr-checks.yml"), self.sibling("rust-workspaces.yml"), self.sibling("pr-router.yml")]
+
+    def plan(self, runs, event=None):
+        event = event or pull_request_event("synchronize", changed=len(self.files))
+        return docs.plan_fallback(event, self.calls, self.files, runs, self.since)
+
+    def test_the_gate_runs_for_a_27_file_push(self):
+        self.assertTrue(gate_runs(pull_request_event("synchronize", changed=27)))
+
+    def test_a_zero_job_sibling_calls_its_suites(self):
+        for conclusion in docs.NEVER_STARTED:
+            runs = self.siblings(conclusion=conclusion, jobs=0)
+            self.assertEqual(self.plan(runs), ["ci.yml"], conclusion)
+        # #56364 replayed: three zero-job runs; the two callable ones are called, pr-router.yml is named.
+        runs = self.siblings(conclusion="failure", jobs=0)
+        runs[1] = self.sibling("cmux-next-guards.yml", conclusion="failure", jobs=0, ident=2)
+        runs[5] = self.sibling("pr-router.yml", conclusion="failure", jobs=0, ident=3)
+        missing = self.plan(runs)
+        self.assertEqual(missing, ["ci.yml", "cmux-next-guards.yml"])
+        report = docs.zero_job_report(runs, self.since, missing)
+        self.assertEqual(len(report), 3, report)
+        self.assertIn("ci.yml run 1 ended failure with zero jobs, never started; called here", report)
+        self.assertIn("pr-router.yml run 3 ended failure with zero jobs, never started; not callable here: rerun it",
+                      report)
+
+    def test_a_normal_sibling_with_jobs_calls_nothing(self):
+        self.assertEqual(self.plan(self.siblings()), [])
+        self.assertEqual(self.plan(self.siblings(conclusion="failure", jobs=12)), [], "a real red ran its jobs")
+        self.assertEqual(docs.zero_job_report(self.siblings(conclusion="failure", jobs=12), self.since, []), [])
+
+    def test_a_queued_or_running_sibling_is_named_not_called(self):
+        for status, jobs in (("queued", 0), ("in_progress", 1), ("queued", 3), ("waiting", 0)):
+            runs = self.siblings(status=status, conclusion=None, jobs=jobs)
+            self.assertEqual(self.plan(runs), [], (status, jobs))
+            named = docs.zero_job_report(runs, self.since, [])
+            self.assertEqual(bool(named), not jobs, (status, jobs, named))
+            self.assertEqual(docs.unsettled(runs[0]), not jobs, (status, jobs))
+
+    def test_a_sibling_whose_jobs_were_not_read_is_named_not_called(self):
+        runs = self.siblings(conclusion="failure", jobs=None)
+        self.assertEqual(self.plan(runs), [])
+        self.assertTrue(docs.unsettled(runs[0]), "the gate waits for it")
+        self.assertEqual(docs.zero_job_report(runs, self.since, []),
+                         ["ci.yml run 1 is completed with unread jobs; not called (it may still start)"])
+
+    def test_an_earlier_event_s_zero_job_run_or_a_started_rerun_is_not_this_event_s(self):
+        old = self.siblings(conclusion="failure", jobs=0, created=0.0)
+        self.assertEqual(self.plan(old), [], "a zero-job run of an earlier push: not this event's")
+        rerun = self.siblings(conclusion="failure", jobs=0) + [self.sibling("ci.yml", status="in_progress",
+                                                                         conclusion=None, jobs=1, ident=9)]
+        self.assertEqual(self.plan(rerun), [], "another run of ci.yml at this event started")
+
+    def test_a_large_pull_request_does_not_count_a_zero_job_run_as_started(self):
+        files = PROSE + [CODE]
+        event = pull_request_event("synchronize", changed=len(files))
+        runs = [{"path": f".github/workflows/{n}", "created": 1000.0, "status": "completed", "conclusion": "success",
+                 "jobs": 4} for n in self.calls]
+        runs[0] = dict(runs[0], conclusion="startup_failure", jobs=0)
+        self.assertEqual(runs[0]["path"], ".github/workflows/ci.yml")
+        self.assertEqual(docs.plan_fallback(event, self.calls, files, runs, self.since), ["ci.yml"])
+
+    def test_read_runs_reads_jobs_only_where_they_decide(self):
+        listing = {"workflow_runs": [
+            {"id": 1, "path": ".github/workflows/ci.yml", "created_at": "2026-11-26T02:41:09Z", "status": "completed",
+             "conclusion": "failure"},
+            {"id": 2, "path": ".github/workflows/pr-checks.yml", "created_at": "2026-11-26T02:41:09Z",
+             "status": "completed", "conclusion": "success"},
+            {"id": 3, "path": ".github/workflows/rust-workspaces.yml", "created_at": "2026-11-26T02:41:09Z",
+             "status": "in_progress", "conclusion": None},
+            {"id": 4, "path": ".github/workflows/pr-router.yml", "created_at": "2026-11-26T02:41:09Z",
+             "status": "queued", "conclusion": None},
+            {"id": 5, "path": ".github/workflows/docs-only-fallback.yml", "created_at": "2026-11-26T02:41:09Z",
+             "status": "in_progress", "conclusion": None},
+        ]}
+        reads = []
+
+        def api(path):
+            reads.append(path)
+            if "/runs/1/jobs" in path:
+                return {"total_count": 0}
+            if "/runs/4/jobs" in path:
+                raise OSError("403")
+            return listing
+
+        since = docs._epoch("2026-11-26T02:41:09Z")
+        with mock.patch.object(docs, "_api", api):
+            runs = docs.read_runs("o/r", "abc", "5", since)
+        jobs = {r["id"]: r.get("jobs") for r in runs}
+        self.assertEqual(jobs, {1: 0, 2: None, 3: 1, 4: None}, "the gate's own run is left out")
+        self.assertEqual(sorted(p.split("?")[0] for p in reads if "/jobs" in p),
+                         ["/repos/o/r/actions/runs/1/jobs", "/repos/o/r/actions/runs/4/jobs"])
+        self.assertTrue(docs.never_started(runs[0]))
+        self.assertTrue(docs.unsettled(runs[3]), "unread queued run: wait, then name")
+
+    def test_an_earlier_event_s_zero_job_failure_does_not_hide_this_event_s(self):
+        # pt-4e979ada6b review of 8cdf1400: a reopen at the same head. The earlier event's ci.yml ended failure with
+        # zero jobs; read_runs left its jobs absent, plan_fallback counted it as started, and this event's zero-job
+        # ci.yml was never called. Read through read_runs -> plan_fallback, as the gate does.
+        def listing(old_jobs):
+            runs = [{"id": 11, "path": ".github/workflows/ci.yml", "created_at": "2026-11-26T01:00:00Z",
+                     "status": "completed", "conclusion": "failure"},
+                    {"id": 12, "path": ".github/workflows/ci.yml", "created_at": "2026-11-26T02:41:09Z",
+                     "status": "completed", "conclusion": "failure"}]
+            runs += [{"id": 20 + i, "path": f".github/workflows/{name}", "created_at": "2026-11-26T02:41:09Z",
+                      "status": "completed", "conclusion": "success"}
+                     for i, name in enumerate(["cmux-next-guards.yml", "cmux-next-pr-autofix.yml", "pr-checks.yml",
+                                               "rust-workspaces.yml", "pr-router.yml"])]
+
+            def api(path):
+                if "/runs/11/jobs" in path:
+                    if old_jobs is None:
+                        raise OSError("403")
+                    return {"total_count": old_jobs}
+                if "/runs/12/jobs" in path:
+                    return {"total_count": 0}
+                return {"workflow_runs": runs}
+            return api
+
+        since = docs._epoch("2026-11-26T02:41:09Z")
+        event = pull_request_event("reopened", changed=len(self.files))
+        for old_jobs, want in ((0, ["ci.yml"]), (12, []), (None, [])):
+            with mock.patch.object(docs, "_api", listing(old_jobs)):
+                runs = docs.read_runs("o/r", "abc", "5", since)
+            got = docs.plan_fallback(event, self.calls, self.files, runs, since)
+            self.assertEqual(got, want, f"earlier ci.yml run with {old_jobs} jobs")
+        # Still this event only: the earlier zero-job run is not named or called on its own.
+        with mock.patch.object(docs, "_api", listing(0)):
+            runs = docs.read_runs("o/r", "abc", "5", since)
+        self.assertEqual([line.split(" run ")[1].split()[0] for line in docs.zero_job_report(runs, since, ["ci.yml"])],
+                         ["12"])
 
 
 class Units(unittest.TestCase):

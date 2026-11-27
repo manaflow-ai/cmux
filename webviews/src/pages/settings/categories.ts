@@ -30,6 +30,7 @@ export const CATEGORY_CARDS = [
   "chiefPet",
   "density",
   "textSize",
+  "replayIntro",
   "importSuggestions",
   "channels",
   "appUpdate",
@@ -40,19 +41,27 @@ export const CATEGORY_CARDS = [
   "cloudEnvironments",
   "cloudModels",
   "worktreeSetup",
+  "extensions",
   "contextMenus",
   "sharedLinks",
+  "archivedWorkspaces",
   "customizeLibrary",
+  "looksGallery",
+  "customizeProgress",
+  "customizeChecklist",
   "tailnet",
   "models",
   "keys",
   "mcpServers",
+  "integrationsHub",
+  "developerTokens",
+  "automationsCloud",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
 export type CategoryCard = (typeof CATEGORY_CARDS)[number];
 
-const isCard = (card: string): card is CategoryCard => (CATEGORY_CARDS as readonly string[]).includes(card);
+export const isCard = (card: string): card is CategoryCard => (CATEGORY_CARDS as readonly string[]).includes(card);
 
 export type CategoryGroup = { key: string; title: LocalizedText; rows: SchemaRow[] };
 

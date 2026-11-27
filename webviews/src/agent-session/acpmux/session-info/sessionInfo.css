@@ -531,6 +531,34 @@
   flex: none;
   min-width: 0;
 }
+/* A faint hairline between sections, in the middle of the gap, as the reference app's session info draws
+   one between Outputs, Subagents and Sources (Leo, 2026-11-19: "there should be a faint divider between the
+   sections there on session info idk why it doesnt show up there"). The glance layout's divider above
+   targeted `.acpmux-session-info-group` siblings, which the one reorderable list no longer draws, so no rule
+   matched and none showed. Its color is the theme's `separator` token (--agent-border, AgentPaneTheme.swift;
+   `cmux customize schema theme`), so a theme or look restyles it with every other separator, light or dark;
+   --acpmux-session-info-divider lets a look set this one alone. Not beside the Show more line, which draws its
+   own rule, and not while a section is dragged. SessionInfo.gallery.tsx sectionDividers keeps it drawn.
+   The color falls back on the line itself, not on a panel root: the sections also draw without
+   .acpmux-session-info around them (a gallery body, the browser test), and an unset variable there made the
+   border-top invalid, so the rule matched and drew nothing. */
+.acpmux-session-info-slot:not([data-slot="more"]):not(:empty)
+  + .acpmux-session-info-slot:not([data-slot="more"]):not(:empty)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--grid-gap) / 2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-divider, var(--agent-border));
+  pointer-events: none;
+}
+@media (prefers-contrast: more) {
+  .acpmux-session-info-slot::before {
+    border-top-color: var(--acpmux-session-info-divider, var(--agent-border-strong));
+  }
+}
+.acpmux-session-info-sections[data-dragging] > .acpmux-session-info-slot::before {
+  content: none;
+}
 /* The panel's Show more line (SessionInfoSectionList, sectionOrder.ts MORE_LINE): its words on the rows'
    icon column, in the same place open or closed. Open, it reads Show less with a hairline to the row's
    end, a divider over the sections it holds. No hover fill, as every fold. */
@@ -644,6 +672,10 @@
   --acpmux-session-info-card-pad: 4px;
   --acpmux-session-info-row-radius: max(4px, calc(var(--acpmux-session-info-card-radius) - var(--acpmux-session-info-card-pad)));
   --acpmux-session-info-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  /* Every fold chevron's scale in its 12px box (the head's, a fold row's, Context's folds): 0.84, a
+     step over the lab's 0.72 (Lucas, 2026-11-23: "make the chevron for context and other chevrons
+     slightly bigger"). */
+  --acpmux-session-info-chevron-scale: 0.84;
 }
 .acpmux-session-info-row--button:hover:not(:disabled),
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
@@ -894,6 +926,20 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-row .acpmux-diff-counts {
   opacity: 0.8;
 }
+/* Carried memory: a proposed file's diff, opened under its row (CarriedSection.tsx), on the label column. */
+.acpmux-carried-diff {
+  padding: 0 var(--grid-gap) 4px calc(var(--grid-gap) * 2 + var(--grid-icon-box));
+}
+.acpmux-carried-diff > pre {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .acpmux-session-info-note {
   margin: 0;
   padding: 4px 8px 6px;
@@ -1050,12 +1096,17 @@ button.acpmux-session-info-port:hover,
   gap: var(--grid-gap);
   min-width: 0;
 }
-.acpmux-session-info-pr__title {
+/* The title takes the row's whole width at rest: the hover-only ⋯ lies over its end, and its end
+   fades instead of an ellipsis (.ui-reveal-text, ui/motion/motion.css; Leo, 2026-11-24: "you're
+   early ellipsis-ing because of a button that doesnt even always show"). An untitled row's
+   `repo #N` title fades too, not its line's ellipsis. */
+.acpmux-session-info-pr__title,
+.acpmux-session-info-pr__title.acpmux-session-info-pr__ref {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 .acpmux-session-info-pr__line {
   display: flex;
@@ -1157,8 +1208,15 @@ button.acpmux-session-info-port:hover,
   text-overflow: ellipsis;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.acpmux-session-info-pr__more {
-  margin-top: var(--grid-pill-inset);
+/* The ⋯ lies over the row's end, its right edge on the title's, and takes no room of its own: a
+   button that shows on hover only does not cut the title at rest (ChangesSection.tsx,
+   ui/revealCover.ts measures it for the title's fade). The row's padding stays after it. */
+.acpmux-session-info-pr__actions {
+  position: absolute;
+  z-index: 1;
+  top: var(--grid-pill-inset);
+  right: var(--grid-gap);
+  display: flex;
 }
 /* One ⋯ per pull request row, shown only on the row you point at or tab into, and kept lit while its
    menu is open: a control repeated on every row is noise (Leo, 2026-10-26, on hover-revealed
@@ -1190,6 +1248,7 @@ button.acpmux-session-info-port:hover,
   margin-top: 0;
 }
 .acpmux-session-info-source {
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1226,11 +1285,27 @@ button.acpmux-session-info-port:hover,
   height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
+/* The label runs to the row's end, under where a pull request's ⋯ shows on hover, so a short label
+   never sits under the fade; a long one fades at its end instead of an ellipsis (.ui-reveal-text,
+   ui/motion/motion.css; Leo, 2026-11-24: "if the buttons show on hover, then we should show the
+   whole line before ellipsis-ing"). */
 .acpmux-session-info-source__label {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
+}
+/* The ⋯ lies over the label's end, on the row's own padding edge, and takes no room of its own
+   (SourcesSection.tsx; ui/revealCover.ts measures it for the label's fade). */
+.acpmux-session-info-source__actions {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  right: var(--grid-gap);
+  display: flex;
+  align-items: center;
 }
 /* A pull request source's ⋯ (View diff), shown as a Changes row's is: on the row you point at or tab
    into, lit while its menu is open, always on touch screens. */
@@ -1302,6 +1377,12 @@ button.acpmux-session-info-port:hover,
   text-align: start;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
+/* A command with nothing to open: the row is no button and says why in its tooltip, which sits on the
+   row (TasksSection.tsx). The disabled button lets the pointer through to it, so the tooltip shows; the
+   row keeps its ink, the command whole. */
+.acpmux-session-info-task__open:disabled {
+  pointer-events: none;
+}
 .acpmux-session-info-task__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
@@ -1369,6 +1450,16 @@ button.acpmux-session-info-port:focus-visible {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* Why a row does not open (TasksSection.tsx, a1e7752d4c3: the reason as text, not a tooltip) gives way
+   with the command, never squeezing it out: in a 320px panel a finished row's long time and the
+   reason left the command no width, so the row read "No terminal to open" with no command at all. */
+.acpmux-session-info-task__why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-session-info-task[data-state="failed"] .acpmux-session-info-task__state,
 .acpmux-session-info-task[data-state="lost"] .acpmux-session-info-task__state {
@@ -1619,11 +1710,11 @@ button.acpmux-session-info-scope__parent:focus-visible {
   height: calc(var(--grid-icon-box) - var(--grid-base));
   margin-inline: calc(var(--grid-base) / 2);
 }
-/* The icon pack's chevron fills 60% of its box; the lab's, 44%. Drawn at the lab's size inside the
-   same 12px box (nothing moves), with a line that stays about one pixel wide whatever the scale
+/* The icon pack's chevron fills 60% of its box; the lab's, 44%. Drawn a step over the lab's size
+   (--acpmux-session-info-chevron-scale) inside the same 12px box (nothing moves), with a line that stays about one pixel wide whatever the scale
    (Lucas, 2026-11-06: lab vs app, "the > is too big"). */
 .acpmux-session-info :is(.acpmux-session-info-fold > svg, .acpmux-session-info-section__fold) {
-  scale: 0.72;
+  scale: var(--acpmux-session-info-chevron-scale);
 }
 .acpmux-session-info :is(.acpmux-session-info-fold > svg, .acpmux-session-info-section__fold) path {
   vector-effect: non-scaling-stroke;
@@ -1685,6 +1776,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-picker {
   display: grid;
   gap: 8px;
+  min-width: min(var(--acpmux-cloud-repository-width, 0px), 344px, calc(100vw - 48px));
 }
 .acpmux-cloud-repository-search {
   width: 100%;
@@ -1696,14 +1788,19 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--agent-text);
   background: var(--ds-surface-inset);
 }
+/* A windowed list (ui/VirtualList): only the rows in view are drawn, each ROW_HEIGHT (32 px) tall,
+   the option and a 4 px gap under it. Its rows are placed absolutely and give the popover no width,
+   so the picker asks for the widest drawn row's width (--acpmux-cloud-repository-width), held within
+   the popover's greatest content width (its max-width less its padding); the popover's min-width
+   holds the least, as both held the rows' own width when every row was drawn. */
 .acpmux-cloud-repository-list {
-  display: grid;
-  gap: 4px;
   max-height: 260px;
-  overflow: auto;
   padding: 0;
   margin: 0;
-  list-style: none;
+}
+.acpmux-cloud-repository-row {
+  box-sizing: border-box;
+  padding-bottom: 4px;
 }
 .acpmux-cloud-repository-option {
   display: flex;
@@ -1749,76 +1846,14 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-connect {
   display: block;
   padding: 4px 8px;
+  border: 0;
+  background: none;
   color: var(--accent-color);
+  font: inherit;
   font-size: var(--text-detail);
+  text-align: start;
+  cursor: default;
 }
-/* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
-   in the icon column, centred on the step's first line; the words start on the text column and wrap,
-   so a long step reads whole. The marks are the transcript todo list's (conversation.css .cv-plan):
-   a filled check is done, the shared spinner runs, a dashed ring waits, a plain ring was left in
-   progress when the turn ended. A done step mutes; nothing is struck through or bold. */
-.acpmux-session-info-progress__step {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--grid-gap);
-  min-height: var(--grid-row);
-  /* One 16px line centred in the 28px row; a wrapped step grows by whole lines. */
-  padding: calc((var(--grid-row) - var(--grid-icon-box)) / 2) var(--grid-gap);
-  box-sizing: border-box;
-  line-height: var(--grid-icon-box);
-}
-.acpmux-session-info-progress__mark {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--grid-icon-box);
-  height: var(--grid-icon-box);
-  color: var(--agent-muted);
-}
-.acpmux-session-info-progress__ring {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--grid-glyph);
-  height: var(--grid-glyph);
-  box-sizing: border-box;
-  border: 1.5px solid var(--agent-muted);
-  border-radius: 50%;
-}
-.acpmux-session-info-progress__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.acpmux-session-info-progress__step[data-status="pending"] .acpmux-session-info-progress__ring {
-  border-style: dashed;
-}
-.acpmux-session-info-progress__step[data-status="in_progress"] .acpmux-session-info-progress__mark {
-  color: var(--agent-text);
-}
-.acpmux-session-info-progress__step[data-status="completed"] {
-  color: var(--agent-muted);
-}
-.acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
-  border-color: transparent;
-  background: var(--agent-muted);
-  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
-     reads on the muted disc in light and dark alike. */
-  color: var(--acpmux-base, Canvas);
-}
-/* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-session-info-progress__step,
-  .acpmux-session-info-progress__ring {
-    transition:
-      color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
-      background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
-      border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
-  }
-}
-
 /* The room held for a long list's rows not drawn yet (WindowedRows.tsx): its height alone, set from
    the drawn rows' pitch. */
 ul > li.acpmux-session-info-rows-rest {
@@ -1827,4 +1862,31 @@ ul > li.acpmux-session-info-rows-rest {
   margin: 0;
   border: 0;
   pointer-events: none;
+}
+/* Inline (Settings placement `inline`, SessionInfoPresence portals it into the chat's stage): a band atop
+   the transcript in the chat's own flow, under the header and across the transcript's column, the way the
+   gallery's golden chrome draws it (gallery/fixtures/GoldenChrome.tsx). Not a side panel: it never floats,
+   pushes or covers the chat, has no glass and no drag handle, and the transcript runs under it, so the
+   chat keeps its whole width (Leo, 2026-11-19: "prob likewise the session info"). It is as tall as its
+   sections up to a share of the stage, past which its body scrolls, so the transcript always keeps room. */
+.acpmux-shell[data-session-info-chat-placement="inline"] .acpmux-stage > .acpmux-header {
+  order: -2;
+}
+.acpmux-session-info[data-placement="inline"] {
+  order: -1;
+  flex: none;
+  width: auto;
+  max-width: none;
+  max-height: min(40%, 320px);
+  margin: var(--grid-gap, 8px) var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  /* It opens in place and fades out: no slide in from the pane's edge. */
+  --ui-enter-distance: 0px;
+}
+.acpmux-session-info[data-placement="inline"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+.acpmux-session-info[data-placement="inline"] .acpmux-session-info__resize {
+  display: none;
 }

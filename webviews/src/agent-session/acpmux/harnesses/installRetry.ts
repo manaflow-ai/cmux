@@ -9,7 +9,7 @@
 // until the installer's server answers again, prints `RETRY_MARK` and runs it again, at most
 // `RUNS` times. A failure with the network up is the installer's own: it ends at once with its
 // exit code. The rows turn those lines and the last line of a failure into plain words
-// (`installProgress`, `installFailure`); Retry on a failed row is the person's own click.
+// (`installProgress`, `installFailure`); retry-prompt-ok: Retry on a failed row is the person's own click.
 import type { Translate } from "../i18n";
 
 /// The line the wrapped command prints when it waits for the network.
@@ -50,6 +50,7 @@ export function withNetworkRetry(
 ): string {
   const check = online ?? (probeUrl ? `curl -sS --max-time 5 -o /dev/null ${probeUrl}` : "true");
   for (const part of [script, check])
+    // l10n-allow: a caller's bug (a script with a quote), never drawn
     if (part.includes("'")) throw new Error("an install script must hold no single quote");
   const polls = Math.max(1, Math.ceil(waitSeconds / pollSeconds));
   const wrapper = [
@@ -80,6 +81,7 @@ export function withNetworkRetry(
     "  run=$((run + 1))",
     "done",
   ].join("\n");
+  // l10n-allow: a shell command, not text a person reads
   return `/bin/bash -o pipefail -c '${wrapper}'`;
 }
 
@@ -103,7 +105,9 @@ export function installFailure(line: string | undefined, t: Translate): string {
 export function plainInstallFailure(line: string | undefined, t: Translate): string | undefined {
   if (!line) return undefined;
   if (line === OFFLINE_MARK || line === RETRY_MARK || networkError.test(line))
+    // retry-prompt-ok: the person checks the network, then runs the install again.
     return t("harnesses.install.networkDropped");
+  // retry-prompt-ok: Retry runs the install again, or the setup guide; both the person's choice.
   if (commandLineAdvice.test(line)) return t("harnesses.install.incomplete");
   return undefined;
 }

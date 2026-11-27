@@ -488,6 +488,29 @@ class AppWindowCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
                 tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
 
+    def test_a_capture_shot_object_is_a_named_shot(self) -> None:
+        # new-tab-resume.json carries `cmux-ci capture` shot objects; tour.py rejected them, so every nightly tour
+        # failed its --check and no What's New clip recorded (2026-11-21).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2, "shot": {"name": "light-resume-id", "with_popups": True, "dismiss": False}},
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 1.2},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual([step["shot"] for step in manifest["steps"]],
+                         ["shots/01-light-resume-id.png", "shots/02-split-right.png"])
+
+    def test_a_shot_object_needs_a_slug_name_and_known_keys(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for shot in ({"name": "../x"}, {"name": "ok", "zoom": 2}, {"dismiss": False}, {"name": "ok", "dismiss": "no"},
+                     "yes"):
+            with self.subTest(shot=shot):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Launch", "shot": shot}]}),
+                                     encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`shot` is true, false or a capture shot object"):
+                    tour.load_tour(self.tour)
+
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Launch", "display": "yes"},
@@ -702,7 +725,16 @@ class StopTests(unittest.TestCase):
         chief = self.run_from(bundle, "optchat-chief")
         stubborn = self.run_from(bundle, "acpmux", ignore_term=True)
         bystander = self.start(["/bin/sh", "-c", f"sleep 600; : '{bundle}/Contents/Resources/bin/optchat-chief'"])
-        time.sleep(0.5)
+        # Until each has settled into its sleep (ps state S: exec'd and waiting) or exited, 10 s at most.
+        def settled(process: subprocess.Popen) -> bool:
+            if process.poll() is not None:
+                return True
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(process.pid)], capture_output=True, text=True)
+            return state.stdout.strip().startswith("S")
+
+        deadline = time.monotonic() + 10
+        while not all(settled(p) for p in (chief, stubborn, bystander)) and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.assertTrue(all(process.poll() is None for process in (chief, stubborn, bystander)))
         return chief, stubborn, bystander
 
@@ -855,6 +887,14 @@ class FixtureCropTests(unittest.TestCase):
         self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
         self.assertFalse(self.path.exists())
 
+    def test_a_failed_command_step_names_its_reason(self) -> None:
+        # The job log prints `detail`; "exited 1" alone hid "no terminal is \"focused\"" (run 45880649238).
+        self.app.cli.return_value = subprocess.CompletedProcess([], 1, "", 'no terminal is "focused"\n')
+        result = self.tour.run_step(self.app, mock.Mock(), {"title": "Send", "cmux": ["terminal", "focused", "send"], "wait": 0},
+                                    1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["detail"], 'exited 1 (no terminal is "focused")')
+
     def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
         step = {"title": "menu", "capture": self.config, "wait": 0}
         with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
@@ -965,7 +1005,7 @@ class WindowVideoTests(unittest.TestCase):
             native.start.return_value = False
             native.stop.return_value = False
             def step(*args):
-                time.sleep(0.1)
+                time.sleep(0.1)  # sleep-ok: a step that takes 0.1 s, the timing the stills must measure
                 return {"status": "ok"}
             with mock.patch.object(tour, "App", return_value=app), \
                     mock.patch.object(tour, "WindowVideo", return_value=native), \
@@ -1004,6 +1044,52 @@ class WindowVideoTests(unittest.TestCase):
             self.assertEqual(manifest["video"], "capture.mov")
             self.assertEqual(events, ["video-stop", "app-stop"])
             stills.assert_not_called()
+
+    def test_menus_asks_the_recorder_for_the_apps_menus_and_only_then(self):
+        # A native menu is its own window, which a recording of the main window alone leaves out
+        # (What's New customizations-menu); a tour's `menus` asks record-window for every app window.
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for menus, flagged in ((False, False), (True, True)):
+            with tempfile.TemporaryDirectory() as root:
+                session = mock.Mock(capture_routes=[("console", [])])
+                recording = tour.WindowVideo(session, 123, Path(root), Path(root), menus=menus)
+                with mock.patch.object(tour.sys, "platform", "darwin"), \
+                        mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=0)), \
+                        mock.patch.object(tour.subprocess, "Popen", side_effect=OSError("stop here")) as popen:
+                    self.assertFalse(recording.start())
+                argv = popen.call_args.args[0]
+                self.assertEqual(argv[1:3], ["123", str(Path(root) / "capture.mov")])
+                self.assertEqual("--menus" in argv, flagged)
+
+    def test_a_tours_menus_reaches_its_window_video(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, "t.json")
+            path.write_text(json.dumps({"title": "T", "menus": True, "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], True)
+            path.write_text(json.dumps({"title": "T", "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], False)
+            path.write_text(json.dumps({"title": "T", "menus": "yes", "steps": [{"title": "Open"}]}))
+            with self.assertRaises(tour.TourError):
+                tour.load_tour(path)
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="", menus=True)
+            native.start.return_value = True
+            native.stop.return_value = True
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native) as video, \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "menus": True,
+                                                      "steps": [{"title": "Open"}]}, Path(root), session)
+            self.assertIs(video.call_args.kwargs["menus"], True)
+            self.assertIn("menus", manifest["video_mode"])
 
     def test_stop_times_out_and_kills_only_the_owned_recorder(self):
         sys.path.insert(0, str(SCRIPT.parent))

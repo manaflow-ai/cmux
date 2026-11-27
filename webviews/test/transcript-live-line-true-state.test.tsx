@@ -34,6 +34,7 @@ const words = (html: string) =>
   html
     .replace(/<[^>]*aria-hidden="true"[^>]*><\/span>/g, "")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -121,7 +122,9 @@ test("a reply that paused turns to Waiting once nothing more arrives for SILENT_
   expect(line.liveState).toBe("writing");
   expect(line.heardAt).toBe(reply.at);
   expect(drawn(line, reply.at + 1_000)).toStartWith("Writing");
-  expect(drawn(line, reply.at + SILENT_MS + 2_000)).toBe(`Waiting ${(SILENT_MS + 2_000) / 1_000}s`);
+  expect(drawn(line, reply.at + SILENT_MS + 2_000)).toBe(
+    `Waiting on the model's next step ${(SILENT_MS + 2_000) / 1_000}s`,
+  );
 });
 
 test("the thinking time advances with the clock alone, no new event", () => {
@@ -130,11 +133,13 @@ test("the thinking time advances with the clock alone, no new event", () => {
   expect(drawn(line, T0 + 38_000)).toBe("Thinking 8s · turn 38s");
 });
 
-test("after SILENT_MS with nothing heard the line says Waiting, calmly, with the time since it last heard", () => {
+test("after SILENT_MS with nothing heard the line says Waiting, under the same shimmer, with the time since it last heard", () => {
   const line = liveLine([prompt, ran, thinking]);
   const at = T0 + 33_000 + SILENT_MS + 2_000;
   expect(drawn(line, T0 + 33_000 + SILENT_MS - 1_000)).toStartWith("Thinking");
-  expect(drawn(line, at)).toBe(`Waiting ${(SILENT_MS + 2_000) / 1_000}s · turn ${(at - T0) / 1_000}s`);
+  expect(drawn(line, at)).toBe(
+    `Waiting on the model's next step ${(SILENT_MS + 2_000) / 1_000}s · turn ${(at - T0) / 1_000}s`,
+  );
   const html = renderMarkup(
     verbs(
       <Thinking
@@ -147,8 +152,9 @@ test("after SILENT_MS with nothing heard the line says Waiting, calmly, with the
       />,
     ),
   );
-  // No sweep says work goes on while it waits.
-  expect(html).not.toContain("is-shimmer");
+  // "Waiting" is no special case: it shimmers as "Thinking" does (Leo, 2026-11-22: "the "waiting"
+  // also shouldnt be special cased as white").
+  expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
 test("before the turn's first output it stays Thinking, however long the model takes", () => {
@@ -158,7 +164,7 @@ test("before the turn's first output it stays Thinking, however long the model t
 
 test("a call that runs long is never called Waiting", () => {
   const running = liveLine([prompt, activity("run", T0 + 1_000, [shell("bun test", "in_progress", T0 + 1_000)])]);
-  expect(drawn(running, T0 + 120_000)).toStartWith("Running bun test");
+  expect(drawn(running, T0 + 120_000)).toStartWith("Running tests");
 });
 
 test("the label changes when a tool starts", () => {
@@ -166,8 +172,8 @@ test("the label changes when a tool starts", () => {
   expect(drawn(before, T0 + 34_000)).toStartWith("Thinking");
   const started = activity("next", T0 + 34_000, [shell("cargo check", "in_progress", T0 + 34_000)]);
   const after = liveLine([prompt, ran, thinking, started]);
-  expect(after.doing).toBe("cargo check");
-  expect(drawn(after, T0 + 35_000)).toBe("Running cargo check 35s");
+  expect(after.doing).toBe("Building");
+  expect(drawn(after, T0 + 35_000)).toBe("Building 35s");
 });
 
 test("with the default arms (one clock, the turn's over the work) the line still says Waiting, with how long", () => {
@@ -176,12 +182,12 @@ test("with the default arms (one clock, the turn's over the work) the line still
   const at = T0 + 33_000 + 14_000;
   // The turn's clock stands over the work ("Working for"): the line has no clock of its own while it thinks.
   expect(drawn({ ...line, untimed: true }, T0 + 34_000)).toBe("Thinking");
-  expect(drawn({ ...line, untimed: true }, at)).toBe("Waiting 14s");
+  expect(drawn({ ...line, untimed: true }, at)).toBe("Waiting on the model's next step 14s");
   // One clock on the line (`turn`): the turn's while it thinks, how long it heard nothing once it waits.
   globalThis.cmuxExperiments = { "live-turn-clock": "line" };
   const onLine = liveLine([prompt, ran, thinking]);
   expect(drawn(onLine, T0 + 34_000)).toBe("Thinking 34s");
-  expect(drawn(onLine, at)).toBe("Waiting 14s");
+  expect(drawn(onLine, at)).toBe("Waiting on the model's next step 14s");
 });
 
 // Leo, 2026-11-12, on "turn 19m 44s" for a coordinator whose turn stayed open while background
@@ -205,6 +211,12 @@ test("a notice that set the agent going again after its reply starts the turn's 
   const line = liveLine([prompt, reply, notice]);
   expect(line.at).toBe(notice.at);
   expect(drawn(line, notice.at + 24_000)).toBe("Thinking 24s");
+  // A call after the reply: the agent was still at work, so a notice steered in then (acpmux
+  // who-else) set nothing going and the clock keeps the prompt's start. A thought is not a call.
+  const ran = activity("r", T0 + 61_000, [shell("bun run typecheck", "completed", T0 + 61_000, T0 + 70_000)]);
+  expect(continuationStart([prompt, reply, ran, notice], T0)).toBe(T0);
+  const mused = activity("t", T0 + 61_000, [thought(T0 + 61_000, T0 + 62_000)]);
+  expect(continuationStart([prompt, reply, mused, notice], T0)).toBe(notice.at);
 });
 
 const scope = globalThis as Record<string, unknown>;

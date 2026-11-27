@@ -1,6 +1,7 @@
-//! BGRX -> I420 (BT.601, video range), one pass per 2-row band, optionally split across threads.
+//! BGRX -> I420 (BT.709, video range: [`crate::color::SCREEN`]), one pass per 2-row band,
+//! optionally split across threads.
 
-/// A planar 4:2:0 picture (BT.601, video range), even width and height.
+/// A planar 4:2:0 picture (BT.709, video range: [`crate::color::SCREEN`]), even width and height.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct I420 {
     pub width: usize,
@@ -89,7 +90,7 @@ pub fn bgrx_rect_to_i420(
 
 #[inline(always)]
 fn luma(r: i32, g: i32, b: i32) -> u8 {
-    (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8
+    (((47 * r + 157 * g + 16 * b + 128) >> 8) + 16) as u8
 }
 
 fn convert_band(b: &mut Band, w: usize) {
@@ -112,31 +113,11 @@ fn convert_band(b: &mut Band, w: usize) {
         let r = (r00 + r01 + r10 + r11 + 2) >> 2;
         let g = (g00 + g01 + g10 + g11 + 2) >> 2;
         let bl = (b00 + b01 + b10 + b11 + 2) >> 2;
-        *u = (((-38 * r - 74 * g + 112 * bl + 128) >> 8) + 128) as u8;
-        *v = (((112 * r - 94 * g - 18 * bl + 128) >> 8) + 128) as u8;
+        *u = (((-26 * r - 86 * g + 112 * bl + 128) >> 8) + 128) as u8;
+        *v = (((112 * r - 102 * g - 10 * bl + 128) >> 8) + 128) as u8;
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_two_core_machine_converts_on_one_thread() {
-        let threads: Vec<usize> = [1, 2, 3, 4, 8, 16, 64].map(threads_for_cores).to_vec();
-        assert_eq!(threads, [1, 1, 1, 2, 4, 4, 4]);
-    }
-
-    #[test]
-    fn every_thread_count_converts_the_same_picture() {
-        let (w, h) = (640, 480);
-        let src: Vec<u8> = (0..w * h * 4).map(|i| (i * 37 % 251) as u8).collect();
-        let mut one = I420::new(w, h);
-        bgrx_rect_to_i420(&src, &mut one, 0, 0, w, h, 1);
-        for threads in [2, 3, 4] {
-            let mut many = I420::new(w, h);
-            bgrx_rect_to_i420(&src, &mut many, 0, 0, w, h, threads);
-            assert_eq!(many, one, "{threads} threads");
-        }
-    }
-}
+#[path = "picture_tests.rs"]
+mod tests;

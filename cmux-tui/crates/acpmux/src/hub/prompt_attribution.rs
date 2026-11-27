@@ -9,8 +9,9 @@
 //!
 //! - Another agent's or session's message (`digest::agent_sender`): one line ahead of it,
 //!   `From another agent (NAME), not the person:`, or `(NAME, HARNESS)` when the daemon bound the
-//!   sender's harness (`fromHarness`), the same on every harness and in a bridged desktop app's
-//!   footer (`bridge.rs`). A forward of the person's words inside one
+//!   sender's harness (`fromHarness`); NAME reads `HANDLE · HOST/NAME` when the sender has a given
+//!   handle (`fromDisplayName`, `prompt_provenance::display_label`). The same on every harness and
+//!   in a bridged desktop app's footer (`bridge.rs`). A forward of the person's words inside one
 //!   (a quote the agent relays) stays that agent's message, with the quote in it.
 //! - A prompt acpmux could not attribute to anyone (`kind: "unverified"`, a program that sent
 //!   no sender): `From a program (NAME it claims), not the person:`, or the program acpmux saw
@@ -98,6 +99,26 @@ pub(crate) fn typed_note(found: &crate::agent_text::Detected) -> String {
     )
 }
 
+/// Whether `title` is (the start of) one of acpmux's own marks of who wrote a prompt, not the
+/// person's words: a harness that titles a chat from its first prompt's text (pi) titled chats
+/// "[Part of this prompt reads as another agent (...)'s" (#50098). Such a title names nothing.
+pub(crate) fn is_mark_title(title: &str) -> bool {
+    const OPENINGS: [&str; 6] = [
+        "From another agent (",
+        "From a program that ",
+        "From the program ",
+        "[Pasted by the person, not their own words",
+        "[Part of this prompt reads as ",
+        "[End of pasted text]",
+    ];
+    let title = title.trim_start();
+    OPENINGS.iter().any(|open| {
+        title.starts_with(open)
+            // A harness cuts its title short: a cut of a long enough opening is one too.
+            || (title.chars().count() >= 16 && open.starts_with(title.trim_end_matches(['…', '.'])))
+    })
+}
+
 /// One lead mark, its own text block, tagged so a reader that picks blocks (`cli/cli_agent.rs`
 /// `prompt_text`, a test's fake agent) keeps it ahead of the prompt and out of its block choice;
 /// a harness passes on its text.
@@ -175,6 +196,13 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     // Ahead of the first block the agent reads as the prompt, after acpmux's hidden context.
     let first = blocks.iter().position(|b| !crate::prompt_context::is_context(b)).unwrap_or(0);
     if let Some(name) = sender.filter(|n| !n.trim().is_empty()) {
+        // The name people call the sender first, then the HOST/NAME it is known by
+        // (`Mango · studio-mac/claude-sr2-coord-old`), so the receiver can reply to either.
+        let label = crate::prompt_provenance::display_label(
+            crate::prompt_provenance::display_name_of(provenance),
+            name,
+        );
+        let name = label.as_str();
         let sub = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT));
         let gets_reply = provenance
             .and_then(|p| p.get(crate::prompt_provenance::SUBAGENT_GETS_REPLY))
@@ -402,6 +430,35 @@ mod tests {
         assert_eq!(with_harness("x", Some(&json!({"fromHarness": "a\nb"}))), "x", "one line only");
     }
 
+    /// (c3) A sender with a given handle reads by it first, with the HOST/NAME it was known by,
+    /// across a peer link too (Leo, 2026-11-23: "the send/recieve messages are still only the
+    /// older names").
+    #[test]
+    fn an_agents_line_names_its_given_handle_first() {
+        let mut params =
+            json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
+        let provenance = json!({"kind": "session_message", "from": "s2",
+            "fromName": "studio-mac/claude-sr2-coord-old", "fromHarness": "claude",
+            "fromDisplayName": "Mango"});
+        mark(&mut params, Some("studio-mac/claude-sr2-coord-old"), Some(&provenance));
+        assert_eq!(
+            texts(&params),
+            vec![
+                "From another agent (Mango · studio-mac/claude-sr2-coord-old, claude), not the \
+                 person:",
+                "PR is green"
+            ]
+        );
+        // No given handle (or one that is not a handle): the old line, unchanged.
+        for odd in [json!(null), json!("not a handle!"), json!(7)] {
+            let mut params =
+                json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
+            let provenance = json!({"kind": "session_message", "fromDisplayName": odd});
+            mark(&mut params, Some("lane-a"), Some(&provenance));
+            assert_eq!(texts(&params)[0], "From another agent (lane-a), not the person:");
+        }
+    }
+
     /// (d) The person's typed prompt reaches the agent as it was.
     #[test]
     fn a_typed_prompt_is_unchanged() {
@@ -475,5 +532,29 @@ mod tests {
         let mut params = json!({"sessionId": "s", "prompt": prompt.clone()});
         mark(&mut params, Some("lane-a"), None);
         assert_eq!(params["prompt"], prompt);
+    }
+
+    #[test]
+    fn a_title_made_from_an_attribution_mark_is_no_title() {
+        // pi titled forks after the banner (#50098): every opening line acpmux writes.
+        let found = crate::agent_text::Detected::default();
+        for line in [
+            agent_line("lane-a"),
+            unverified_line(None),
+            unverified_line(Some("bot")),
+            checked_program_line("cmux", Some("mac")),
+            pasted_line(&found),
+            typed_note(&found),
+            PASTED_END.to_owned(),
+        ] {
+            assert!(is_mark_title(&line), "{line}");
+            // As a harness cuts it.
+            let cut: String = line.chars().take(40).collect();
+            assert!(is_mark_title(&cut), "{cut}");
+        }
+        assert!(is_mark_title("[Part of this prompt reads as another agent (Codex)'s"));
+        for title in ["Remember Codeword PELICAN-41", "From the start: plan a menu", "[Part"] {
+            assert!(!is_mark_title(title), "{title}");
+        }
     }
 }

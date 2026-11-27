@@ -20,7 +20,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return 1;
     }
     match args {
-        [] => cmux_computer_use::worker::run_stdio(std::io::stdin().lock(), std::io::stdout()),
+        [] => cmux_computer_use::worker::run_stdio(
+            std::io::BufReader::new(std::io::stdin()),
+            std::io::stdout(),
+        ),
         [flag, name] if flag == "--control" && control_name(name) => control_pipes(name),
         _ => {
             eprintln!(
@@ -86,21 +89,5 @@ fn control_pipes(_name: &str) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn only_one_asks_the_worker_to_give_up_gaining_privileges() {
-        assert!(super::wants_no_new_privs(Some("1")));
-        assert!(super::wants_no_new_privs(Some(" 1\n")));
-        for other in [None, Some(""), Some("0"), Some("true"), Some("yes")] {
-            assert!(!super::wants_no_new_privs(other), "{other:?}");
-        }
-    }
-
-    #[test]
-    fn only_the_daemons_pipe_names_are_accepted() {
-        assert!(super::control_name("cmux-cu-ctl-0a1b"));
-        assert!(!super::control_name("cmux-cu-ctl-"));
-        assert!(!super::control_name("cmux-cu-ctl-..\\x"));
-        assert!(!super::control_name("other"));
-    }
-}
+#[path = "computer_use_worker_tests.rs"]
+mod tests;

@@ -69,6 +69,33 @@ import Testing
         #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).diagnostics.isEmpty)
     }
 
+    /// One look for both appearances: a `light` and a `dark` half paint only their side, over the plain colors.
+    @Test func lightAndDarkHalvesPaintOnlyTheirSideOfTheThemePair() {
+        let overlay = Self.overlay(##"""
+        { "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+          "colors": { "accent": "#907aa9", "foreground": "#575279",
+                      "light": { "background": "#faf4ed", "palette": ["#f2e9e1"] },
+                      "dark": { "background": "#191724", "foreground": "#e0def4" } } }
+        """##)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.applied(to: .object([:])).value(at: Self.edits) == .object([
+            "Rose Pine Dawn/accent": "#907aa9", "Rose Pine Dawn/foreground": "#575279",
+            "Rose Pine Dawn/background": "#faf4ed", "Rose Pine Dawn/0": "#f2e9e1",
+            "Rose Pine/accent": "#907aa9", "Rose Pine/foreground": "#e0def4", "Rose Pine/background": "#191724",
+        ]))
+    }
+
+    /// One theme for both appearances has no sides: its halves are refused, the plain colors still apply, and a
+    /// half holds no half of its own.
+    @Test func halvesNeedALightDarkPairAndHoldNoHalves() {
+        let single = Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "accent": "#88c0d0", "light": { "accent": "#5e81ac" }, "dark": { "accent": "#81a1c1" } } }"##)
+        #expect(single.diagnostics.map(\.path) == ["colors.light", "colors.dark"])
+        #expect(single.diagnostics.allSatisfy { $0.message == ThemeFileOverlay.halfNeedsPair })
+        #expect(single.applied(to: .object([:])).value(at: Self.edits) == .object(["Nord/accent": "#88c0d0"]))
+        let nested = Self.overlay(##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "light": { "dark": {}, "accent": "blue" }, "dark": "#000000" } }"##)
+        #expect(nested.diagnostics.map(\.path).sorted() == ["colors.dark", "colors.light.accent", "colors.light.dark"])
+    }
+
     @Test func aGhosttyBlockIsReadAsAGhosttyThemeFile() {
         let overlay = Self.overlay(#"{ "appearance.theme": "Nord", "ghostty": ["background = #2e3440", "foreground = #d8dee9", "palette = 4=#81a1c1"] }"#)
         let edits = overlay.applied(to: .object([:])).value(at: Self.edits)
@@ -130,6 +157,25 @@ import Testing
         let overlay = Self.overlay(#"{ "terminal.fontFamily": "Menlo", "terminal.fontSize": 14, "sidebar.border": true, "sidebar.sectionLook": "card", "sidebar.showChats": false }"#)
         #expect(overlay.values.map { $0.path.joined(separator: ".") } == ["sidebar.border", "sidebar.sectionLook", "terminal.fontFamily", "terminal.fontSize"])
         #expect(overlay.diagnostics.map(\.path) == ["sidebar.showChats"])
+    }
+
+    /// The sidebar's rows are part of a look too (density, text size, status icons, grouping and the row's own
+    /// elements), so one file restyles the sidebar; a per-kind row override and what the sidebar holds stay out.
+    /// cmux-config's `a_theme_file_sets_how_the_sidebar_rows_draw` checks the same file.
+    @Test func aThemeFileSetsHowTheSidebarRowsDraw() {
+        let overlay = Self.overlay(#"""
+            { "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+              "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+              "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+              "sidebar.workspaceRow.secondLineOrder": ["branch"],
+              "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false }
+            """#)
+        #expect(Set(overlay.values.map { $0.path.joined(separator: ".") }) == [
+            "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.groupBy", "sidebar.showColors", "sidebar.textSize",
+            "sidebar.workspaceRow.icon", "sidebar.workspaceRow.secondLineOrder", "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ])
+        #expect(Set(overlay.diagnostics.map(\.path)) == ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"])
     }
 
     /// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
@@ -228,7 +274,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] { #expect(names.contains(look), "\(look)") }
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond", "minimal-sessions", "miku"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)
@@ -297,6 +343,30 @@ import Testing
     /// Waits until `settings` shows `accent`, at most 5 s. Returns whether it did.
     static func waitForAccent(_ accent: ThemeAccent, in settings: SettingsController) async -> Bool {
         await waitUntil { settings.snapshot.accent == accent }
+    }
+
+    @Test func explicitFollowTerminalSurvivesReloadOverAThemeFilesAppTheme() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.appTheme": "Rose Pine" }"#, theme: "tokyo")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "theme": "Nord", "themeFile": "tokyo" } }"#)
+        await settings.reload()
+        let terminal = try #require(SettingsSchema.descriptor(for: ["appearance", "theme"]))
+        let app = try #require(SettingsSchema.descriptor(for: ["appearance", "appTheme"]))
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        #expect(settings.preview([(terminal, "Dracula"), (app, "followTerminal")]))
+        #expect(settings.applied.chromeTheme == nil)
+        settings.endPreview()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        try await settings.setSetting(terminal, to: "Dracula", by: .currentRun())
+        try await settings.setSetting(app, to: "followTerminal", by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.appTheme == "Dracula")
+        #expect(settings.applied.chromeTheme == nil)
+        // Reset deliberately returns to the theme file; a whole-app pick must not reset.
+        try await settings.setSetting(app, to: nil, by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
     }
 
     @Test func theNamedFileAppliesOverCmuxNextJSONAndListsTheFolder() async throws {

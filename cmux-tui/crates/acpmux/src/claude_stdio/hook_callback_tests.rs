@@ -64,6 +64,17 @@ async fn reply_for(
     }
 }
 
+/// The answer to the pre-tool callback `rid`: on Unix the repo-sync callback answers it off
+/// the reader, so it comes once [`Translator::replies_ready`] fires.
+async fn answer_to(t: &Translator, rid: &str) -> Value {
+    #[cfg(unix)]
+    return reply_for(t, rid, std::time::Duration::from_secs(10), &mut Vec::new())
+        .await
+        .expect("answered");
+    #[cfg(not(unix))]
+    t.take_stdin_replies().await.remove(0)
+}
+
 #[cfg(unix)]
 fn sync_call(rid: &str, cwd: &std::path::Path) -> Value {
     let mut call = callback(rid, hook_callback::SYNC_CALLBACK, "PreToolUse");
@@ -96,21 +107,32 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
     let repo = root.path().canonicalize().unwrap().join("repo");
     let sync = Sync::begin(&repo).unwrap();
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.plugin_hook_home.set(root.path().into()).unwrap();
+    let mut call = sync_call("sync", &repo);
+    call["request"]["input"]["tool_name"] = json!("Bash");
+    call["request"]["input"]["tool_input"] = json!({"command": "acpmux ls"});
+    call["request"]["input"]["agent_id"] = json!("child");
     let mut others = Vec::new();
-    let out = t.inbound(&sync_call("sync", &repo)).await;
+    let out = t.inbound(&call).await;
     assert!(out.is_empty());
     let short = std::time::Duration::from_millis(100);
     assert!(reply_for(&t, "sync", short, &mut others).await.is_none(), "it waits for the sync");
     sync.complete().unwrap();
     let reply = reply_for(&t, "sync", std::time::Duration::from_secs(10), &mut others).await;
-    assert_eq!(reply.expect("answered once the sync is done")["response"]["response"], json!({}));
+    let reply = reply.expect("answered once the sync is done");
+    // The tool runs, so the same reply carries the plugin's decision.
+    let mark = reply.pointer("/response/response/hookSpecificOutput/updatedInput/command");
+    assert!(mark.unwrap().as_str().unwrap().ends_with(":child\nacpmux ls"));
 
-    // A failed sync's marker keeps its denial (the settled design).
+    // A failed sync's marker keeps its denial (the settled design), with no plugin input.
     drop(Sync::begin(&repo).unwrap());
-    t.inbound(&sync_call("sync-2", &repo)).await;
+    call["request_id"] = json!("sync-2");
+    t.inbound(&call).await;
     let reply = reply_for(&t, "sync-2", std::time::Duration::from_secs(10), &mut others).await;
+    let reply = reply.expect("answered");
+    assert!(reply.pointer("/response/response/hookSpecificOutput/updatedInput").is_none());
     assert_eq!(
-        reply.expect("answered")["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
+        reply["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
         "deny"
     );
     assert_eq!(
@@ -189,4 +211,96 @@ async fn a_repo_sync_answer_never_exceeds_its_bound() {
     assert_eq!(denied["hookSpecificOutput"]["permissionDecision"], "deny");
     assert!(hook_callback::SYNC_HARD_BOUND <= Duration::from_secs(45));
     assert!(hook_callback::SYNC_BUDGET < hook_callback::SYNC_HARD_BOUND);
+}
+
+/// Local session tools and the goal opt in independently. All the installed handlers run over
+/// Claude's existing control stream, including at the second attempted stop of a goal.
+#[tokio::test]
+async fn session_hook_callbacks_use_the_control_stream() {
+    let home = tempfile::tempdir().unwrap();
+    for plugin in [false, true] {
+        for goal in [false, true] {
+            let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+            if plugin {
+                t.plugin_hook_home.set(home.path().into()).unwrap();
+            }
+            t.stop_condition.store(goal, Ordering::Relaxed);
+            let init = Message::request(1, method::INITIALIZE, json!({}));
+            let Outbound::LinesThenReply(lines, _) = t.outbound(&init).await else {
+                panic!("initialize must write Claude's hook registration");
+            };
+            let hooks = &lines[0]["request"]["hooks"];
+            for event in ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop", "Stop"]
+            {
+                let id = if event == "Stop" {
+                    hook_callback::STOP_CALLBACK
+                } else {
+                    hook_callback::TOOL_CALLBACK
+                };
+                let mut entries = hooks[event].as_array().into_iter().flatten();
+                assert_eq!(
+                    entries.clone().filter(|e| e["hookCallbackIds"] == json!([id])).count(),
+                    usize::from(if event == "Stop" {
+                        goal
+                    } else {
+                        plugin && !(cfg!(unix) && event == "PreToolUse")
+                    }),
+                    "{event}: {hooks}"
+                );
+                assert!(entries.all(|e| e.get("command").is_none()));
+            }
+            // On Unix the same wildcard sync callback serves the plugin. The independently
+            // cancellable policy gate keeps its own fail-closed matcher and time budget.
+            #[cfg(unix)]
+            let pre_tool = {
+                for tool in ["Bash", "Edit", "Write", "mcp__acpmux__send"] {
+                    let ids: Vec<_> = hooks["PreToolUse"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|e| {
+                            e["matcher"].as_str().unwrap().split('|').any(|p| p == "*" || p == tool)
+                        })
+                        .flat_map(|e| e["hookCallbackIds"].as_array().unwrap().iter())
+                        .map(|id| id.as_str().unwrap())
+                        .collect();
+                    assert_eq!(
+                        ids,
+                        [hook_callback::SYNC_CALLBACK, policy_gate::GATE_CALLBACK],
+                        "{tool}: {hooks}"
+                    );
+                }
+                hook_callback::SYNC_CALLBACK
+            };
+            #[cfg(not(unix))]
+            let pre_tool = hook_callback::TOOL_CALLBACK;
+            let mut call = callback("mark", pre_tool, "PreToolUse");
+            call["request"]["input"]["cwd"] = json!(home.path());
+            call["request"]["input"]["tool_name"] = json!("Bash");
+            call["request"]["input"]["tool_input"] = json!({"command": "acpmux ls"});
+            call["request"]["input"]["agent_id"] = json!("child");
+            t.inbound(&call).await;
+            let reply = answer_to(&t, "mark").await;
+            let mark = reply.pointer("/response/response/hookSpecificOutput/updatedInput/command");
+            if plugin {
+                assert!(mark.unwrap().as_str().unwrap().ends_with(":child\nacpmux ls"));
+            } else {
+                assert!(mark.is_none());
+            }
+            call["request"]["input"]["tool_name"] = json!("mcp__acpmux__send");
+            call["request"]["input"]["tool_use_id"] = json!("toolu_1");
+            t.inbound(&call).await;
+            assert_eq!(answer_to(&t, "mark").await["response"]["response"], json!({}));
+            assert_eq!(crate::subagent_call::of(home.path(), "acp-1", "toolu_1").is_some(), plugin);
+            crate::subagent_call::end(home.path(), "acp-1", "toolu_1");
+            let mut stop = callback("stop", hook_callback::STOP_CALLBACK, "Stop");
+            stop["request"]["input"]["stop_hook_active"] = json!(true);
+            t.inbound(&stop).await;
+            let reply = t.take_stdin_replies().await;
+            assert_eq!(
+                reply[0].pointer("/response/response/continue"),
+                goal.then_some(&Value::Bool(false))
+            );
+        }
+    }
 }

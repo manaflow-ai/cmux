@@ -23,7 +23,7 @@ extension PaletteController {
         context[KeyContext.textInputFocus] = .bool(true)
         let bits = context.bits
         let table = keys.table
-        for shortcut in ActionRegistry.shortcuts(for: event) {
+        for shortcut in registry.shortcuts(for: event) {
             guard let winner = table.resolve([shortcut], in: context, isRunnable: { keys.canPerform($0, in: bits) },
                                              accepts: { !$0.source.isGhostty && PaletteKeyMap.commands[$0.command] == nil }).winner else { continue }
             guard registry.keyTier(for: winner.command) == .navigation else { return false }

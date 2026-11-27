@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.customSearch.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُستخدم عندما يكون محرك البحث مخصصًا. ضع {searchTerms} حيث يوضع النص المكتوب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koristi se kada je pretraživač Prilagođeno. Stavite {searchTerms} gdje ide upisani tekst."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bruges når søgemaskinen er Tilpasset. Skriv {searchTerms} der, hvor den indtastede tekst skal stå."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gilt, wenn als Suchmaschine „Eigene“ gewählt ist. {searchTerms} steht für den eingegebenen Text."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se usa cuando el motor de búsqueda es Personalizado. Pon {searchTerms} donde va el texto escrito."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utilisé quand le moteur de recherche est Personnalisé. Placez {searchTerms} à l'endroit du texte saisi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usato quando il motore di ricerca è Personalizzato. Metti {searchTerms} dove va il testo digitato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索エンジンが「カスタム」のときに使います。入力した文字が入る位置に {searchTerms} を書きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្រើពេលម៉ាស៊ីនស្វែងរកជាផ្ទាល់ខ្លួន។ ដាក់ {searchTerms} នៅកន្លែងអត្ថបទដែលបានវាយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "검색 엔진이 사용자 지정일 때 사용합니다. 입력한 텍스트가 들어갈 자리에 {searchTerms}를 넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brukes når søkemotoren er Egendefinert. Skriv {searchTerms} der den innskrevne teksten skal stå."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Używany, gdy wyszukiwarka to Własna. Wpisz {searchTerms} w miejscu wpisanego tekstu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usado quando o mecanismo de pesquisa é Personalizado. Coloque {searchTerms} onde vai o texto digitado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Используется, когда выбран свой поиск. Поставьте {searchTerms} на место введённого текста."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ใช้เมื่อเครื่องมือค้นหาเป็นแบบกำหนดเอง ใส่ {searchTerms} ในตำแหน่งของข้อความที่พิมพ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arama motoru Özel olduğunda kullanılır. Yazılan metnin geleceği yere {searchTerms} koyun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Використовується, коли вибрано власний пошук. Поставте {searchTerms} на місце введеного тексту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dùng khi công cụ tìm kiếm là Tùy chỉnh. Đặt {searchTerms} vào chỗ của văn bản đã nhập."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "搜索引擎为“自定义”时使用。在输入文字所在的位置写 {searchTerms}。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "搜尋引擎為「自訂」時使用。在輸入文字的位置寫上 {searchTerms}。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

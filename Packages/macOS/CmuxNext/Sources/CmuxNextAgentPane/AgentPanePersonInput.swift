@@ -118,6 +118,9 @@ public struct PersonInputCheck: Sendable {
     /// The app's one "Computer use can act as me" grant (``AgentPaneActAsMe``), which every agent pane judges
     /// posted input by; its consent card reads the person's click with ``PersonInputCheck`` over `sources`.
     public let actAsMe: AgentPaneActAsMe
+    /// The app's host marks of its agent pages (``AgentPaneHostMarks``): each agent pane gets them through
+    /// ``AgentPaneShared``, the key router says its app actions to them, and this ledger's monitor gives them each scroll.
+    public let hostMarks = AgentPaneHostMarks()
     private var monitor: Any?
 
     /// `sources`: the table the priming events fill (tests that pass none get their own); `actAsMe`: the
@@ -161,6 +164,7 @@ public struct PersonInputCheck: Sendable {
         } else if let pid = AgentPanePersonInput.postingPID(event) {
             sources.prime(pid)
         }
+        if event.type == .scrollWheel { hostMarks.scrolled(event, in: event.window, at: event.locationInWindow) }
     }
 
     /// SECURITY: whether `event` is the person's own input, by the ledger's check (the app's ledger:
@@ -174,6 +178,9 @@ public struct PersonInputCheck: Sendable {
     /// SECURITY: the page gesture at `uptime` is the person's own: the app's latest input is the person's,
     /// at or before it (within a second, as a page keeps a gesture), and no input of anyone else's came
     /// after it. A click another process posts, even right after one of the person's, backs nothing.
+    /// ``backs(_:)`` now: the person's own input is the app's latest, within the last second.
+    public var backsNow: Bool { backs(ProcessInfo.processInfo.systemUptime) }
+
     public func backs(_ uptime: TimeInterval) -> Bool {
         guard let last, last.person else { return false }
         return last.uptime <= uptime + 0.001 && uptime - last.uptime <= 1

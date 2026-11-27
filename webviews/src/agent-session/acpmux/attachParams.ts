@@ -27,14 +27,28 @@ export const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// the chat's `limits` changing.
 export const SUBSESSION_KIND = "subsession";
 
+/// The keys a plain attach sends, and only those: the relay params contract
+/// (test/agent-pane-relay-params-contract.test.ts) reads them off this type.
+export type PlainAttach = Pick<
+  AttachParams,
+  "sessionId" | "waitLogs" | "settled" | "afterSeq" | "limit" | "maxBytes" | "kinds" | "eventStream" | "visible"
+> & { attending: boolean };
+
 /// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
 /// reconnect that holds the chat through that seq) the page is the records after it instead, oldest
 /// first (acpmux requests.rs: `afterSeq` alone pages forward), so a reconnect reads only what it
 /// missed rather than the newest 400 records again (cmuxterm-hq#14027).
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number; afterSeq?: number },
-): AttachParams {
+  options: {
+    settled: boolean;
+    visible: boolean;
+    attending?: boolean;
+    local: boolean;
+    maxBytes: number;
+    afterSeq?: number;
+  },
+): PlainAttach {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
@@ -66,7 +80,13 @@ export function plainAttach(
       ...(options.local ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
     ],
     eventStream: true,
+    // On screen (`visible`) apart from the reader's hand on it (`attending`, attention.ts): acpmux keeps
+    // unread by both, and leaves the agent's stream out while the page is not on screen at all
+    // (`quietHidden`, CMUX-571); the view that shows it again sends one `_acpmux/lagged`, and the page
+    // reads what it missed from its cursor (direct.ts `resyncAfterLag`).
     visible: options.visible,
+    attending: options.attending ?? true,
+    quietHidden: true,
   };
 }
 
@@ -84,6 +104,17 @@ export function settledAttachFailed(error: unknown): boolean {
   if (failure?.code === "transport.intent_invalid") return true;
   return [failure?.message, failure?.code, failure?.reason].some(
     (said) => typeof said === "string" && /settled/i.test(said),
+  );
+}
+
+/// Whether a reconnect's forward attach (`afterSeq`) failed because the host or acpmux did not take the
+/// key: a params rule that refuses it as malformed (`transport.intent_invalid`, the app's relay before Leo's
+/// 2026-11-22 report), or an error that names it. The pane then asks the newest page, as before #47119.
+export function forwardAttachRefused(error: unknown): boolean {
+  const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
+  if (failure?.code === "transport.intent_invalid") return true;
+  return [failure?.message, failure?.code, failure?.reason].some(
+    (said) => typeof said === "string" && /afterSeq/.test(said),
   );
 }
 
