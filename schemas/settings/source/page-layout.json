@@ -210,8 +210,8 @@
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
-              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.relativeTimestamps",
+              "sidebar.settleFinished", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarPriority", "text": "Priority View"}, "note": "The Priority view's keys (the Codex app's activity list) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
@@ -286,7 +286,7 @@
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "note": "Unread Banner is here, not in Chat Layout, so Chat Layout stays under max_rows_per_card.", "keys": [
               "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.sendScrollsToTop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
-              "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
+              "agentPane.display.streaming", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
               "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings",
               "agentPane.display.unreadBanner"
