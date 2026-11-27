@@ -1,4 +1,4 @@
-import { billedMetersSql, COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
+import { billedMetersSql, COST_USD_PER_UNIT, MONEY_METERS, type AdminCap } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
 import { lastSeenSeats, teamModeAt } from "./usage-billing-store.ts"
 import type { IncludedMode, UsagePriceSet } from "./billing-catalog.ts"
