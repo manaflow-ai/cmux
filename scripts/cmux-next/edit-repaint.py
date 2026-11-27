@@ -319,6 +319,23 @@ def apps_list(app):
 COMMAND_ACTION = "edit-repaint"  # the command case's key in cmux-next.json `actions`
 
 
+def place_section(app):
+    """`cmux apps place APP_ID#cmux.section/1 --region bottom` from the app's own CLI. A section is placed
+    once per sidebar (its id hashes the contribution): after a person, or an earlier run, removed it, a new
+    install of the same app id draws no section until it is placed again, as the customize brief tells an
+    agent to. True once the daemon took it (it answers "no such sidebar section" until the app is installed)."""
+    env = dict(os.environ)
+    env["CMUX_SOCKET_PATH"] = getattr(app, "cli_socket", None) or app.socket
+    try:
+        run = subprocess.run([app.cli, "apps", "place", f"{APP_ID}#cmux.section/1", "--region", "bottom"],
+                             capture_output=True, text=True, timeout=20, env=env)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        place_section.last = {"error": f"did not run: {error}"}
+        return False
+    place_section.last = {"exit": run.returncode, "output": (run.stdout + run.stderr)[-600:]}
+    return run.returncode == 0
+
+
 def palette_lists(app, title):
     """Whether `palette.query` returns a row that is the saved command: its title is `title` and its id or
     action names COMMAND_ACTION. Only `items` count: the reply echoes the query itself in `query`."""
@@ -450,6 +467,14 @@ def main():
             write_customize()
             with open(os.path.join(customize, "cmux-app.json"), "w") as f:
                 json.dump(MANIFEST, f, indent=2)
+            if any(c in cases for c in ("extension", "glass")):
+                # The section draws only once it is placed (see place_section): place it, as an agent would.
+                placed = wait_until(lambda: place_section(app), "the customize section placed", timeout=60,
+                                    interval=0.5, raise_on_timeout=False)
+                result["section_place"] = dict(getattr(place_section, "last", {}), placed=bool(placed))
+                if not placed:
+                    print(f"edit-repaint: placing the customize section failed: {result['section_place']}",
+                          flush=True)
             # Installed: each asked view other than the pane (it opens below) shows its words, then the window settles.
             shown = [c for c in ("extension", "rows") if c in cases]
             if not wait_until(lambda: all(view_shows(app, INTERFACES[c], words[c]) for c in shown),
