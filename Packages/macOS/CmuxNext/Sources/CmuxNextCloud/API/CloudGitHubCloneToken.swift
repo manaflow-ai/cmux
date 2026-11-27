@@ -35,12 +35,12 @@ extension CloudGitHubPicker {
               let team = MacInstallIdentity.team(ofToken: install) else { return nil }
         // The daemon's `owner.github_clone_token` with the install token as its credential (stdin, never argv) and no
         // team header: the request, its 20 s and the answer's checks are cmux-cloud-api's. The answer stays in this call.
-        let client = CloudAPIClient.workerMachines(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: { install }, teamID: { nil },
+        let client = CloudDaemon.workerMachines(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: { install }, teamID: { nil },
                                                    machineIO: auth.machineIO, buildSpace: auth.configuration.buildSpace)
         let args: [String: any Sendable] = ["team": team, "repo": repo]
         // A misconfigured dev build refuses before anything runs.
         guard (try? auth.configuration.buildSpace.check()) != nil,
-              let answer = try? await client.daemon.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
+              let answer = try? await client.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
         return CloudGitHubCloneToken.parse(answer)
     }
 }
