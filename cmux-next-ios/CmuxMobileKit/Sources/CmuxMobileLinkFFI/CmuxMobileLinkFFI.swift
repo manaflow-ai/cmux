@@ -7279,6 +7279,373 @@ public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UIn
 
 
 /**
+ * The person's vault on this phone.
+ */
+public protocol PhoneVaultProtocol: AnyObject, Sendable {
+    
+    /**
+     * Approve the waiting device whose safety code is `code`. Answers the device's JSON.
+     */
+    func approve(code: String) async throws  -> String
+    
+    /**
+     * Keep the picked `names` of `env_text` in `scope`, the app syncs after it. Answers how
+     * many were kept.
+     */
+    func importNames(envText: String, names: [String], scope: String) async throws  -> UInt32
+    
+    /**
+     * The names `env_text` sets, in file order, each with whether the vault keeps such a name and
+     * whether it already holds it in `scope`: `{rows:[{name, line, keepable, alreadyKept,
+     * masked}], skippedLines:[n]}`. No value comes back.
+     */
+    func importPreview(envText: String, scope: String) async throws  -> String
+    
+    /**
+     * Remove `name` from `scope`. Answers how many items went.
+     */
+    func remove(name: String, scope: String) async throws  -> UInt32
+    
+    /**
+     * Remove a device, then rotate the vault key. Answers the new epoch.
+     */
+    func removeDevice(deviceId: String) async throws  -> UInt64
+    
+    /**
+     * Keep `value` for `name` in `scope` (wire text, from [`vault_scope`]), the app syncs after it
+     * (`sync`). Answers the item's revision.
+     */
+    func set(name: String, scope: String, value: String) async throws  -> UInt64
+    
+    /**
+     * The vault as this phone sees it: the JSON of `cmux_vault_e2e::client::Status`
+     * (`{vault, state, epoch, deviceId, safetyCode, devices:[…], items:[…]}`); `state` is `off`,
+     * `pending`, `active` or `not_enrolled`. Never makes a key.
+     */
+    func status() async throws  -> String
+    
+    /**
+     * Seal each of the person's machines (spares too) what it should hold, where its delivery
+     * is missing or old. Sends nothing when this phone holds no vault key, and one sync at a
+     * time: `{outcome: "off" | "pending" | "busy" | "done", machines: [{id, name, spare, outcome,
+     * names}]}`. Bounded by [`SYNC_BUDGET`].
+     */
+    func sync() async throws  -> String
+    
+    /**
+     * Turn the vault on for this phone: the first device makes the vault; a later one asks to
+     * join and waits for an approve by its safety code. Answers the new status.
+     */
+    func turnOn() async throws  -> String
+    
+}
+/**
+ * The person's vault on this phone.
+ */
+open class PhoneVault: PhoneVaultProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_phonevault(self.handle, $0) }
+    }
+public convenience init(http: VaultHttp, store: VaultKeyStore, label: String) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_phonevault_new(
+        FfiConverterTypeVaultHttp_lower(http),
+        FfiConverterTypeVaultKeyStore_lower(store),
+        FfiConverterString.lower(label),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_phonevault(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Approve the waiting device whose safety code is `code`. Answers the device's JSON.
+     */
+open func approve(code: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_approve(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(code)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Keep the picked `names` of `env_text` in `scope`, the app syncs after it. Answers how
+     * many were kept.
+     */
+open func importNames(envText: String, names: [String], scope: String)async throws  -> UInt32  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_import_names(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(envText),FfiConverterSequenceString.lower(names),FfiConverterString.lower(scope)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u32,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u32,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u32,
+            liftFunc: FfiConverterUInt32.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * The names `env_text` sets, in file order, each with whether the vault keeps such a name and
+     * whether it already holds it in `scope`: `{rows:[{name, line, keepable, alreadyKept,
+     * masked}], skippedLines:[n]}`. No value comes back.
+     */
+open func importPreview(envText: String, scope: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_import_preview(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(envText),FfiConverterString.lower(scope)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Remove `name` from `scope`. Answers how many items went.
+     */
+open func remove(name: String, scope: String)async throws  -> UInt32  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_remove(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(name),FfiConverterString.lower(scope)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u32,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u32,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u32,
+            liftFunc: FfiConverterUInt32.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Remove a device, then rotate the vault key. Answers the new epoch.
+     */
+open func removeDevice(deviceId: String)async throws  -> UInt64  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_remove_device(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterUInt64.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Keep `value` for `name` in `scope` (wire text, from [`vault_scope`]), the app syncs after it
+     * (`sync`). Answers the item's revision.
+     */
+open func set(name: String, scope: String, value: String)async throws  -> UInt64  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_set(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(name),FfiConverterString.lower(scope),FfiConverterString.lower(value)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterUInt64.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * The vault as this phone sees it: the JSON of `cmux_vault_e2e::client::Status`
+     * (`{vault, state, epoch, deviceId, safetyCode, devices:[…], items:[…]}`); `state` is `off`,
+     * `pending`, `active` or `not_enrolled`. Never makes a key.
+     */
+open func status()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_status(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Seal each of the person's machines (spares too) what it should hold, where its delivery
+     * is missing or old. Sends nothing when this phone holds no vault key, and one sync at a
+     * time: `{outcome: "off" | "pending" | "busy" | "done", machines: [{id, name, spare, outcome,
+     * names}]}`. Bounded by [`SYNC_BUDGET`].
+     */
+open func sync()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_sync(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+    /**
+     * Turn the vault on for this phone: the first device makes the vault; a later one asks to
+     * join and waits for an approve by its safety code. Answers the new status.
+     */
+open func turnOn()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_phonevault_turn_on(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeVaultError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneVault: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = PhoneVault
+
+    public static func lift(_ handle: UInt64) throws -> PhoneVault {
+        return PhoneVault(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: PhoneVault) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneVault {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: PhoneVault, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneVault_lift(_ handle: UInt64) throws -> PhoneVault {
+    return try FfiConverterTypePhoneVault.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneVault_lower(_ value: PhoneVault) -> UInt64 {
+    return FfiConverterTypePhoneVault.lower(value)
+}
+
+
+
+
+
+
+/**
  * One link's relay-held send route.
  */
 public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
@@ -9721,6 +10088,472 @@ public func FfiConverterTypeUploadObserver_lift(_ handle: UInt64) throws -> Uplo
 #endif
 public func FfiConverterTypeUploadObserver_lower(_ value: UploadObserver) -> UInt64 {
     return FfiConverterTypeUploadObserver.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The app's HTTP path to the vault routes as the signed-in person.
+ */
+public protocol VaultHttp: AnyObject, Sendable {
+    
+    func send(request: VaultHttpRequest) async throws  -> VaultHttpReply
+    
+}
+/**
+ * The app's HTTP path to the vault routes as the signed-in person.
+ */
+open class VaultHttpImpl: VaultHttp, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_vaulthttp(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_vaulthttp(handle, $0) }
+    }
+
+    
+
+    
+open func send(request: VaultHttpRequest)async throws  -> VaultHttpReply  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_vaulthttp_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeVaultHttpRequest_lower(request)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeVaultHttpReply_lift,
+            errorHandler: FfiConverterTypeVaultBridgeError_lift
+        )
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceVaultHttp {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceVaultHttp = UniffiVTableCallbackInterfaceVaultHttp(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeVaultHttp.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface VaultHttp: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeVaultHttp.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface VaultHttp: handle missing in uniffiClone")
+            }
+        },
+        send: { (
+            uniffiHandle: UInt64,
+            request: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutDroppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+        ) in
+            let makeCall = {
+                () async throws -> VaultHttpReply in
+                guard let uniffiObj = try? FfiConverterTypeVaultHttp.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.send(
+                     request: try FfiConverterTypeVaultHttpRequest_lift(request)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: VaultHttpReply) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: FfiConverterTypeVaultHttpReply_lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeVaultBridgeError_lower,
+                droppedCallback: uniffiOutDroppedCallback
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceVaultHttp> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceVaultHttp>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitVaultHttp() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_vaulthttp(UniffiCallbackInterfaceVaultHttp.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultHttp: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<VaultHttp>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = VaultHttp
+
+    public static func lift(_ handle: UInt64) throws -> VaultHttp {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return VaultHttpImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: VaultHttp) -> UInt64 {
+         if let rustImpl = value as? VaultHttpImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultHttp {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: VaultHttp, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttp_lift(_ handle: UInt64) throws -> VaultHttp {
+    return try FfiConverterTypeVaultHttp.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttp_lower(_ value: VaultHttp) -> UInt64 {
+    return FfiConverterTypeVaultHttp.lower(value)
+}
+
+
+
+
+
+
+/**
+ * This phone's vault device record, one Keychain item (this device only, after first unlock).
+ */
+public protocol VaultKeyStore: AnyObject, Sendable {
+    
+    /**
+     * The record's bytes, or nil when this phone never turned the vault on.
+     */
+    func load() throws  -> Data?
+    
+    func save(record: Data) throws 
+    
+}
+/**
+ * This phone's vault device record, one Keychain item (this device only, after first unlock).
+ */
+open class VaultKeyStoreImpl: VaultKeyStore, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_vaultkeystore(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_vaultkeystore(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The record's bytes, or nil when this phone never turned the vault on.
+     */
+open func load()throws  -> Data?  {
+    return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeVaultBridgeError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_vaultkeystore_load(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func save(record: Data)throws   {try rustCallWithError(FfiConverterTypeVaultBridgeError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_vaultkeystore_save(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(record),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceVaultKeyStore {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceVaultKeyStore = UniffiVTableCallbackInterfaceVaultKeyStore(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeVaultKeyStore.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface VaultKeyStore: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeVaultKeyStore.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface VaultKeyStore: handle missing in uniffiClone")
+            }
+        },
+        load: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data? in
+                guard let uniffiObj = try? FfiConverterTypeVaultKeyStore.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.load(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionData.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeVaultBridgeError_lower
+            )
+        },
+        save: { (
+            uniffiHandle: UInt64,
+            record: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeVaultKeyStore.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.save(
+                     record: try FfiConverterData.lift(record)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeVaultBridgeError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceVaultKeyStore> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceVaultKeyStore>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitVaultKeyStore() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_vaultkeystore(UniffiCallbackInterfaceVaultKeyStore.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultKeyStore: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<VaultKeyStore>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = VaultKeyStore
+
+    public static func lift(_ handle: UInt64) throws -> VaultKeyStore {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return VaultKeyStoreImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: VaultKeyStore) -> UInt64 {
+         if let rustImpl = value as? VaultKeyStoreImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultKeyStore {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: VaultKeyStore, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultKeyStore_lift(_ handle: UInt64) throws -> VaultKeyStore {
+    return try FfiConverterTypeVaultKeyStore.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultKeyStore_lower(_ value: VaultKeyStore) -> UInt64 {
+    return FfiConverterTypeVaultKeyStore.lower(value)
 }
 
 
@@ -16331,6 +17164,152 @@ public func FfiConverterTypeUploadSpec_lower(_ value: UploadSpec) -> RustBuffer 
 }
 
 
+/**
+ * The service's answer, whatever its status.
+ */
+public struct VaultHttpReply: Equatable, Hashable {
+    public var status: UInt16
+    public var body: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, body: String) {
+        self.status = status
+        self.body = body
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultHttpReply: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultHttpReply: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultHttpReply {
+        return
+            try VaultHttpReply(
+                status: FfiConverterUInt16.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultHttpReply, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttpReply_lift(_ buf: RustBuffer) throws -> VaultHttpReply {
+    return try FfiConverterTypeVaultHttpReply.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttpReply_lower(_ value: VaultHttpReply) -> RustBuffer {
+    return FfiConverterTypeVaultHttpReply.lower(value)
+}
+
+
+/**
+ * One request to the vault routes. `path` starts with `/v1/cloud/vault`.
+ */
+public struct VaultHttpRequest: Equatable, Hashable {
+    public var method: String
+    public var path: String
+    /**
+     * This phone's vault device id, sent as `x-cmux-vault-device` (the server answers that
+     * device's wrap of the vault key).
+     */
+    public var device: String?
+    /**
+     * A JSON body, when the request has one. It holds sealed bytes only, never a value.
+     */
+    public var body: String?
+    /**
+     * Give up after this long.
+     */
+    public var timeoutMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(method: String, path: String, 
+        /**
+         * This phone's vault device id, sent as `x-cmux-vault-device` (the server answers that
+         * device's wrap of the vault key).
+         */device: String?, 
+        /**
+         * A JSON body, when the request has one. It holds sealed bytes only, never a value.
+         */body: String?, 
+        /**
+         * Give up after this long.
+         */timeoutMs: UInt64) {
+        self.method = method
+        self.path = path
+        self.device = device
+        self.body = body
+        self.timeoutMs = timeoutMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultHttpRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultHttpRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultHttpRequest {
+        return
+            try VaultHttpRequest(
+                method: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                device: FfiConverterOptionString.read(from: &buf), 
+                body: FfiConverterOptionString.read(from: &buf), 
+                timeoutMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultHttpRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.method, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.device, into: &buf)
+        FfiConverterOptionString.write(value.body, into: &buf)
+        FfiConverterUInt64.write(value.timeoutMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttpRequest_lift(_ buf: RustBuffer) throws -> VaultHttpRequest {
+    return try FfiConverterTypeVaultHttpRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultHttpRequest_lower(_ value: VaultHttpRequest) -> RustBuffer {
+    return FfiConverterTypeVaultHttpRequest.lower(value)
+}
+
+
 public struct VideoPlan: Equatable, Hashable {
     public var reencode: Bool
     /**
@@ -16682,6 +17661,95 @@ public func FfiConverterTypeWorkspaceContainerRow_lift(_ buf: RustBuffer) throws
 #endif
 public func FfiConverterTypeWorkspaceContainerRow_lower(_ value: WorkspaceContainerRow) -> RustBuffer {
     return FfiConverterTypeWorkspaceContainerRow.lower(value)
+}
+
+
+/**
+ * What one Mac lets the phone choose (the backend's `WorkspaceCreationOptions`).
+ */
+public struct WorkspaceCreationChoices: Equatable, Hashable {
+    /**
+     * The phone may pick the working directory.
+     */
+    public var directories: Bool
+    /**
+     * Agent harnesses that can be the first tab.
+     */
+    public var agents: [String]
+    /**
+     * A browser tab can be the first tab.
+     */
+    public var browser: Bool
+    /**
+     * A plain tap reuses the last directory used here.
+     */
+    public var tapUsesLastDirectory: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The phone may pick the working directory.
+         */directories: Bool, 
+        /**
+         * Agent harnesses that can be the first tab.
+         */agents: [String], 
+        /**
+         * A browser tab can be the first tab.
+         */browser: Bool, 
+        /**
+         * A plain tap reuses the last directory used here.
+         */tapUsesLastDirectory: Bool) {
+        self.directories = directories
+        self.agents = agents
+        self.browser = browser
+        self.tapUsesLastDirectory = tapUsesLastDirectory
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceCreationChoices: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceCreationChoices: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceCreationChoices {
+        return
+            try WorkspaceCreationChoices(
+                directories: FfiConverterBool.read(from: &buf), 
+                agents: FfiConverterSequenceString.read(from: &buf), 
+                browser: FfiConverterBool.read(from: &buf), 
+                tapUsesLastDirectory: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceCreationChoices, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.directories, into: &buf)
+        FfiConverterSequenceString.write(value.agents, into: &buf)
+        FfiConverterBool.write(value.browser, into: &buf)
+        FfiConverterBool.write(value.tapUsesLastDirectory, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCreationChoices_lift(_ buf: RustBuffer) throws -> WorkspaceCreationChoices {
+    return try FfiConverterTypeWorkspaceCreationChoices.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCreationChoices_lower(_ value: WorkspaceCreationChoices) -> RustBuffer {
+    return FfiConverterTypeWorkspaceCreationChoices.lower(value)
 }
 
 
@@ -17218,6 +18286,63 @@ public func FfiConverterTypeWorkspaceSortStep_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeWorkspaceSortStep_lower(_ value: WorkspaceSortStep) -> RustBuffer {
     return FfiConverterTypeWorkspaceSortStep.lower(value)
+}
+
+
+/**
+ * What a plain tap on New Workspace starts, and in which folder (none: the Mac's default).
+ */
+public struct WorkspaceTap: Equatable, Hashable {
+    public var start: WorkspaceStart
+    public var directory: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(start: WorkspaceStart, directory: String?) {
+        self.start = start
+        self.directory = directory
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceTap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceTap: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceTap {
+        return
+            try WorkspaceTap(
+                start: FfiConverterTypeWorkspaceStart.read(from: &buf), 
+                directory: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceTap, into buf: inout [UInt8]) {
+        FfiConverterTypeWorkspaceStart.write(value.start, into: &buf)
+        FfiConverterOptionString.write(value.directory, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTap_lift(_ buf: RustBuffer) throws -> WorkspaceTap {
+    return try FfiConverterTypeWorkspaceTap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTap_lower(_ value: WorkspaceTap) -> RustBuffer {
+    return FfiConverterTypeWorkspaceTap.lower(value)
 }
 
 
@@ -21012,6 +22137,102 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Where the Mac's New Tab rows put a new tab in its pane.
+ */
+
+public enum NewTabSlot: Equatable, Hashable {
+    
+    /**
+     * New Tab of the Same Kind: where the Mac puts any new tab (after the current one).
+     */
+    case sameKind
+    /**
+     * New Tab to the Right.
+     */
+    case afterCurrent
+    /**
+     * New Tab at Start: the first place after the pane's pinned tabs.
+     */
+    case start
+    /**
+     * New Tab at End.
+     */
+    case end
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension NewTabSlot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNewTabSlot: FfiConverterRustBuffer {
+    typealias SwiftType = NewTabSlot
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NewTabSlot {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .sameKind
+        
+        case 2: return .afterCurrent
+        
+        case 3: return .start
+        
+        case 4: return .end
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: NewTabSlot, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .sameKind:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .afterCurrent:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .start:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .end:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewTabSlot_lift(_ buf: RustBuffer) throws -> NewTabSlot {
+    return try FfiConverterTypeNewTabSlot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewTabSlot_lower(_ value: NewTabSlot) -> RustBuffer {
+    return FfiConverterTypeNewTabSlot.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a pane is, as the overview sorts it.
  */
 
@@ -22340,6 +23561,179 @@ public func FfiConverterTypeUploadStage_lower(_ value: UploadStage) -> RustBuffe
 
 
 /**
+ * A request that got no answer, or a Keychain that could not be read or written.
+ */
+public enum VaultBridgeError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case Failed(message: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension VaultBridgeError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultBridgeError: FfiConverterRustBuffer {
+    typealias SwiftType = VaultBridgeError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultBridgeError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Failed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VaultBridgeError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Failed(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultBridgeError_lift(_ buf: RustBuffer) throws -> VaultBridgeError {
+    return try FfiConverterTypeVaultBridgeError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultBridgeError_lower(_ value: VaultBridgeError) -> RustBuffer {
+    return FfiConverterTypeVaultBridgeError.lower(value)
+}
+
+
+/**
+ * Why an operation failed.
+ */
+public enum VaultError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * No answer (no network, the time budget ran out). The same call may work later.
+     */
+    case Unreachable(message: String
+    )
+    /**
+     * The vault refused: a stable code (`vault.not_approved`, `vault.bad_name`, …) and words
+     * free of any value.
+     */
+    case Refused(code: String, message: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension VaultError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultError: FfiConverterRustBuffer {
+    typealias SwiftType = VaultError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Unreachable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Refused(
+            code: try FfiConverterString.read(from: &buf), 
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VaultError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Unreachable(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Refused(code,message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(code, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultError_lift(_ buf: RustBuffer) throws -> VaultError {
+    return try FfiConverterTypeVaultError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultError_lower(_ value: VaultError) -> RustBuffer {
+    return FfiConverterTypeVaultError.lower(value)
+}
+
+
+/**
  * Why [`vnc_json`] gave no answer.
  */
 public enum VncJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
@@ -22744,6 +24138,95 @@ public func FfiConverterTypeWorkspaceSortBy_lift(_ buf: RustBuffer) throws -> Wo
 #endif
 public func FfiConverterTypeWorkspaceSortBy_lower(_ value: WorkspaceSortBy) -> RustBuffer {
     return FfiConverterTypeWorkspaceSortBy.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a new workspace starts with.
+ */
+
+public enum WorkspaceStart: Equatable, Hashable {
+    
+    /**
+     * The Mac's default: one terminal.
+     */
+    case terminal
+    /**
+     * An agent chat for a harness; "" is the Mac's default agent.
+     */
+    case agent(harness: String
+    )
+    /**
+     * A browser tab.
+     */
+    case browser
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceStart: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceStart: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceStart
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceStart {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .terminal
+        
+        case 2: return .agent(harness: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .browser
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceStart, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .agent(harness):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(harness, into: &buf)
+            
+        
+        case .browser:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceStart_lift(_ buf: RustBuffer) throws -> WorkspaceStart {
+    return try FfiConverterTypeWorkspaceStart.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceStart_lower(_ value: WorkspaceStart) -> RustBuffer {
+    return FfiConverterTypeWorkspaceStart.lower(value)
 }
 
 
@@ -23848,6 +25331,31 @@ fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceBool: FfiConverterRustBuffer {
+    typealias SwiftType = [Bool]
+
+    public static func write(_ value: [Bool], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterBool.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Bool] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Bool]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterBool.read(from: &buf))
         }
         return seq
     }
@@ -25148,6 +26656,31 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceRowPlacement: FfiConverterRu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeWorkspaceRowPlacement.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = [String?]
+
+    public static func write(_ value: [String?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionString.read(from: &buf))
         }
         return seq
     }
@@ -26500,6 +28033,29 @@ public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomSta
 })
 }
 /**
+ * The scope wire text for what the person picked: `all` (every machine), `repo` with
+ * `owner/name`, or `machine` with `vm_…`. Nil when the target is not one the vault takes.
+ */
+public func vaultScope(kind: String, target: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_vault_scope(
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(target),$0
+    )
+})
+}
+/**
+ * Whether the vault keeps `name` (an environment name that the shell, the loader and cmux
+ * do not own).
+ */
+public func vaultValidName(name: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_vault_valid_name(
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+/**
  * Answers one `vnc_*` op: `request` and the answer are JSON.
  */
 public func vncJson(operation: String, request: String)throws  -> String  {
@@ -26611,6 +28167,139 @@ public func workspaceSorted(key: WorkspaceSortBy, rows: [WorkspaceSortRow]) -> [
     uniffi_cmux_mobile_link_ffi_fn_func_workspace_sorted(
         FfiConverterTypeWorkspaceSortBy_lower(key),
         FfiConverterSequenceTypeWorkspaceSortRow.lower(rows),$0
+    )
+})
+}
+/**
+ * The `move-tab` insertion index that puts a tab now at `from` in a pane whose places are
+ * `pinned` (one flag per tab, in order) and `groups` (each tab's group id, none for none;
+ * empty for no groups) at `slot`, beside the tab at `anchor`. None when it is in place
+ * already. As the Mac's `NewTabSlot`: after the anchor goes past the anchor's whole tab group
+ * and never among pinned tabs; at start is the first place after the pinned tabs. The daemon
+ * reads the index as an insertion point in the current list, one past for a forward move.
+ */
+public func newTabMoveIndex(slot: NewTabSlot, from: UInt32, anchor: UInt32, pinned: [Bool], groups: [String?]) -> UInt32?  {
+    return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_new_tab_move_index(
+        FfiConverterTypeNewTabSlot_lower(slot),
+        FfiConverterUInt32.lower(from),
+        FfiConverterUInt32.lower(anchor),
+        FfiConverterSequenceBool.lower(pinned),
+        FfiConverterSequenceOptionString.lower(groups),$0
+    )
+})
+}
+/**
+ * The optimistic agent tab's title for a harness: "Agent Chat" for the Mac's default agent,
+ * "Claude", "Codex", else the harness capitalized ("opencode" is "Opencode").
+ */
+public func workspaceAgentTabTitle(harness: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_agent_tab_title(
+        FfiConverterString.lower(harness),$0
+    )
+})
+}
+/**
+ * The folder a plain New Workspace tap uses on a Mac: the last one used from this phone,
+ * else its home (`~`). None when the Mac picks (it lets the phone pick no folder, or its taps
+ * go to the Mac's default folder).
+ */
+public func workspaceDefaultDirectory(choices: WorkspaceCreationChoices, used: [String]) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_default_directory(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterSequenceString.lower(used),$0
+    )
+})
+}
+/**
+ * Whether an agent chat may start in `path`: not the home folder or above it (`~`, `/`,
+ * `/Users/<name>`, `/var`, `/var/root`), as the Mac's own guard says. `/Users/Shared` is a
+ * project folder.
+ */
+public func workspaceIsProjectFolder(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_is_project_folder(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * The optimistic row's title: the folder's last component, unique among the Mac's
+ * workspace titles ("cmux", then "cmux 2", "cmux 3", ...). "New Workspace" for no folder,
+ * the home folder or the root.
+ */
+public func workspacePlaceholderTitle(directory: String?, existing: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_placeholder_title(
+        FfiConverterOptionString.lower(directory),
+        FfiConverterSequenceString.lower(existing),$0
+    )
+})
+}
+/**
+ * The folders New Workspace offers on a Mac: the ones used from this phone (`used`, newest
+ * first), then the Mac's open workspaces' folders by activity (`seen`), without repeats, at
+ * most [`RECENT_LIMIT`]. None when the Mac does not let the phone pick a folder.
+ */
+public func workspaceRecentDirectories(directories: Bool, used: [String], seen: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_recent_directories(
+        FfiConverterBool.lower(directories),
+        FfiConverterSequenceString.lower(used),
+        FfiConverterSequenceString.lower(seen),$0
+    )
+})
+}
+/**
+ * The phone's recent folders on a Mac after a workspace was made in `directory`: it first,
+ * then the others newest first, without repeats, at most [`RECENT_LIMIT`].
+ */
+public func workspaceRecentsNoted(recents: [String], directory: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_recents_noted(
+        FfiConverterSequenceString.lower(recents),
+        FfiConverterString.lower(directory),$0
+    )
+})
+}
+/**
+ * Whether a Mac with these choices can start a workspace this way (a terminal always).
+ */
+public func workspaceStartOffered(choices: WorkspaceCreationChoices, start: WorkspaceStart) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_start_offered(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterTypeWorkspaceStart_lower(start),$0
+    )
+})
+}
+/**
+ * What a plain tap on New Workspace makes on a Mac (Aziz, 2026-11-17: an agent chat, not a
+ * terminal): a chat with the Mac's default agent (`""`, else the first agent it offers) in
+ * its most recent project folder open on the Mac now (`used` from this phone first, then
+ * `seen`, the Mac's open folders by activity). A terminal at the Mac's default folder when the
+ * Mac offers no agent, does not let the phone pick a folder, or has no such folder: a chat
+ * never starts in the home folder, and the Mac refuses a folder it has no workspace in.
+ */
+public func workspaceTapStart(choices: WorkspaceCreationChoices, used: [String], seen: [String]) -> WorkspaceTap  {
+    return try!  FfiConverterTypeWorkspaceTap_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_tap_start(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterSequenceString.lower(used),
+        FfiConverterSequenceString.lower(seen),$0
+    )
+})
+}
+/**
+ * `base`, or `base 2`, `base 3`, ...: the first one no title in `existing` has.
+ */
+public func workspaceUniqueTitle(base: String, existing: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_unique_title(
+        FfiConverterString.lower(base),
+        FfiConverterSequenceString.lower(existing),$0
     )
 })
 }
@@ -27166,6 +28855,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_vault_scope() != 16234) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_vault_valid_name() != 36180) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_vnc_json() != 29563) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -27191,6 +28886,36 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sorted() != 1266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_new_tab_move_index() != 15962) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_agent_tab_title() != 7979) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_default_directory() != 49899) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_is_project_folder() != 42510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_placeholder_title() != 2109) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_recent_directories() != 63948) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_recents_noted() != 57645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_start_offered() != 40559) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_tap_start() != 59105) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_unique_title() != 47752) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pending_group_edit_step() != 30336) {
@@ -27979,6 +29704,42 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_rows_above() != 55469) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_approve() != 20311) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_import_names() != 17891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_import_preview() != 58220) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_remove() != 12924) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_remove_device() != 35256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_set() != 3334) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_status() != 13805) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_sync() != 8347) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonevault_turn_on() != 52424) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_vaulthttp_send() != 18373) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_vaultkeystore_load() != 25790) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_vaultkeystore_save() != 39407) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_answered() != 30620) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -28000,10 +29761,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_sent() != 47637) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_attachmentuploads_new() != 13417) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_channelwritewatch_new() != 60331) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_channelwritewatch_new() != 60331) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_attachmentuploads_new() != 13417) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
@@ -28057,6 +29818,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprojection_new() != 52508) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonevault_new() != 63026) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_groupeditledger_new() != 12374) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -28068,6 +29832,8 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitMailboxSigner()
     uniffiCallbackInitRelayViewerKey()
     uniffiCallbackInitUploadObserver()
+    uniffiCallbackInitVaultHttp()
+    uniffiCallbackInitVaultKeyStore()
     return InitializationResult.ok
 }()
 

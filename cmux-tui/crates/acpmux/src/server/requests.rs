@@ -2942,6 +2942,13 @@ async fn dispatch_request_with_identity(
             Ok(hub.list_counts())
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // A dhat-heap build's profile, written now (`heap_profile.rs`); the local socket only.
+        method::MUX_HEAP_PROFILE => {
+            if conn.origin != Origin::Local {
+                return Err(RpcError::method_not_found(m));
+            }
+            Ok(crate::heap_profile::dump())
+        }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
         method::MUX_FELT_SNAPSHOT => {
@@ -3092,6 +3099,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
+        crate::peer::wg_learn::ADMIT => {
+            super::peer_status::wireguard_admit(hub, conn.origin, &params).await
+        }
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         super::autocloud_enroll::METHOD => {
@@ -3882,6 +3892,7 @@ async fn dispatch_request_with_identity(
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
+                        stream_sent: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3942,6 +3953,7 @@ async fn dispatch_request_with_identity(
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
+                    stream_sent: 0,
                 },
             );
             let settled_key = match settled {

@@ -1,7 +1,7 @@
 import { createExecutionContext, env as workerEnv, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, expect, it, vi } from "vitest"
 import type { Env } from "../src/env.ts"
-import { cachedIceServers, STUN } from "../src/ice.ts"
+import { cachedIceServers, hopServers, STUN } from "../src/ice.ts"
 
 const bindings = () => ({
   ...workerEnv, ENVIRONMENT: "test", TURN_KEY_ID: crypto.randomUUID(), TURN_KEY_API_TOKEN: "test-token", ICE_TTL_SECONDS: "300"
@@ -37,6 +37,16 @@ it("retains TURN across a failed refresh, then refuses it inside the expiry marg
   fetcher.mockResolvedValueOnce(minted("replacement"))
   expect((await cachedIceServers(env, expired)).iceServers).toContainEqual(expect.objectContaining({ username: "replacement" }))
   await waitOnExecutionContext(expired)
+})
+
+it("mints scoped hop tickets only when a PoP and secret are configured", async () => {
+  const env = { ...bindings(), HOP_RELAY_URL: "hop://relay.example:7422", HOP_RELAY_TICKET_SECRET: "s".repeat(32) }
+  const [first] = await hopServers(env, 3600)
+  const [second] = await hopServers(env, 3600)
+  expect(first?.url).toBe(env.HOP_RELAY_URL)
+  expect(first?.ticket).toMatch(/^hop1\.[0-9a-f-]{36}\.\d+\.[A-Za-z0-9_-]+$/)
+  expect(second?.ticket).not.toBe(first?.ticket)
+  expect(await hopServers({ ...env, HOP_RELAY_TICKET_SECRET: "short" }, 3600)).toEqual([])
 })
 
 it("separates TURN keys and environments and requires the minting bindings", async () => {
