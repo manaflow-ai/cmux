@@ -1388,7 +1388,9 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
+        Some(
+            "get" | "explain" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore",
+        ) => true,
         _ => false,
     }
 }
