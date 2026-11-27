@@ -1,6 +1,6 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
-import SwiftUI
+public import SwiftUI
 
 /// Sleepy Mode's scene: a night sky with twinkling stars, a moon, drifting Zs,
 /// the clock and how many of this Mac's agents run a turn. A click anywhere
