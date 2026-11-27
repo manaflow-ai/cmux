@@ -29,6 +29,9 @@ CAS_PATHS = [
     "tests/test_cas_derived_data_replay.py",
     "tests/test_cas_mac_update_replay.py",
     "tests/test_cas_acpmux_update_replay.py",
+    "scripts/ci/verify_cas_replay_artifact.py",
+    "tests/test_cas_replay_workflow.py",
+    "tests/test_verify_cas_replay_artifact.py",
 ]
 
 
