@@ -45,8 +45,16 @@ const FIELDS: &str = "number,url,state,headRefOid,baseRefName,mergeable,mergedAt
 labels,body,comments,statusCheckRollup";
 /// How long gh may take: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 const GH_TIMEOUT: Duration = Duration::from_secs(45);
-/// Failing check names the first line lists before `+N more`.
+/// Check names the first line lists before `+N more`.
 const NAMES_SHOWN: usize = 3;
+
+fn cut(names: &[String]) -> String {
+    let mut shown = names.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
+    if names.len() > NAMES_SHOWN {
+        shown.push(format!("+{} more", names.len().saturating_sub(NAMES_SHOWN)));
+    }
+    shown.join(", ")
+}
 
 pub(super) fn tool() -> Value {
     json!({
@@ -595,22 +603,14 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
         "CLOSED" => (format!("#{number} closed unmerged at {}", short(&head)), "ok"),
         _ => {
             let checks_part = if !failing.is_empty() {
-                let mut names = failing.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if failing.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", failing.len().saturating_sub(NAMES_SHOWN)));
-                }
-                format!("{} ({})", plural(failing.len(), "failing check"), names.join(", "))
+                format!("{} ({})", plural(failing.len(), "failing check"), cut(&failing))
             } else if pending > 0 {
                 format!("{} pending", plural(pending, "check"))
             } else if !cancelled.is_empty() {
-                let mut names = cancelled.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if cancelled.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", cancelled.len().saturating_sub(NAMES_SHOWN)));
-                }
                 format!(
                     "{} with no newer run ({})",
                     plural(cancelled.len(), "cancelled check"),
-                    names.join(", ")
+                    cut(&cancelled)
                 )
             } else if passed > 0 && no_verdict.is_empty() {
                 "checks green".to_owned()
