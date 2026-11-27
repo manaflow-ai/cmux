@@ -177,8 +177,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
-/// turned it off.
+/// Whether chats from attached local folders are projected: on unless [`ENV`] or
+/// `cmux link project disable` turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
@@ -385,6 +385,9 @@ pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
+    // `start` creates a new process group whose id is its pid. Signalling that group avoids
+    // terminating an unrelated process if the pid file outlives the server and the pid is reused.
+    let process_group = format!("-{pid}");
     if !still_serving(remote) {
         // A server that ended (it gives up, or the Mac restarted) leaves its pid file; that pid
         // may be another process's now.
@@ -392,7 +395,7 @@ pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
     let stopped = cmux_process::Command::new("kill")
-        .arg(pid.to_string())
+        .args(["-TERM", "--", &process_group])
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
@@ -925,8 +928,7 @@ fn ask(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
-        // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
-        // the dial as a `mux-control` stream, which moves whole lines only.
+        // The carrier only preserves complete lines; frame all bytes after the dial line too.
         "lines": true,
         // This Mac reads binary lines and packed answers; it writes them once the answer says
         // the machine does too (an older machine ignores this and keeps base64 lines).
