@@ -173,6 +173,9 @@ pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) 
         host_down: dead.host_down,
         dead_seconds,
         host_grace_seconds: grace_ms as f64 / 1000.0,
+        // The notice names the step for its reader, who can start a down machine: with no
+        // startable host, a down one inside the grace routed to "nothing to do".
+        host_startable: dead.host_down,
         max_restarts: MAX_RESTARTS,
         max_failovers: MAX_FAILOVERS,
         ..Facts::default()
