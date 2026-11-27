@@ -31,7 +31,7 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames] [--phases]
 // With --frames, a Chromium trace splits each key's keydown-to-paint by what it waited on (keyFrameTrace.ts;
 // `KEY-FRAMES` lines): the key's own task, work queued before its frame, the display tick, the frame's callbacks and rendering.
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
@@ -95,6 +95,9 @@ const TRACE = argv.includes("--trace");
 /// work between it and its frame, the wait for the display tick, the frame callbacks ahead of the key's, that frame's
 /// rendering, and a breakdown of every main-thread task in the window (keyFrameTrace.ts; `KEY-FRAMES` lines).
 const FRAMES = argv.includes("--frames");
+/// With --phases: each key's time by phase (keydown, the engine's default action, the editor's input, to its frame)
+/// from the page's own event timestamps, the WebKit run (keyPhases.ts; `KEY-PHASES` lines).
+const PHASES = argv.includes("--phases");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -338,6 +341,7 @@ async function measure(
             stream: STREAM,
             toolLines: TOOL_LINES,
             typing: typing || undefined,
+            phases: PHASES,
           })),
         };
       } finally {
