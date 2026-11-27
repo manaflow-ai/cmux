@@ -532,7 +532,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "sidebar",
             "search",
