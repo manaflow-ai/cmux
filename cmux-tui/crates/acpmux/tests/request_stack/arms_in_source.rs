@@ -5,8 +5,9 @@
 //! constant (`method::X`, `| method::X`), a string literal, a module's `METHOD` or a catalog RPC
 //! name, a module's alias of a method constant (`super::browser_workspaces::SET`), or a guard
 //! over a group of methods (`composer::handles(m)`, `queued::handles(m)`,
-//! `agent_login::METHODS`, `harness_admin::METHODS`), whose members are read from their files. A
-//! head of any other form panics: teach this file the new form.
+//! `agent_login::METHODS`, `harness_admin::METHODS`, `account_sign_in::METHODS`,
+//! `connections::METHODS`), whose members are read from their files. A head of any other form
+//! panics: teach this file the new form.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,6 +17,8 @@ const COMPOSER: &str = include_str!("../../src/server/requests/composer.rs");
 const QUEUED: &str = include_str!("../../src/server/requests/queued.rs");
 const AGENT_LOGIN: &str = include_str!("../../src/server/agent_login.rs");
 const HARNESS_ADMIN: &str = include_str!("../../src/server/harness_admin.rs");
+const ACCOUNT_SIGN_IN: &str = include_str!("../../src/server/account_sign_in.rs");
+const CONNECTIONS: &str = include_str!("../../src/server/connections.rs");
 const AUTOCLOUD_ENROLL: &str = include_str!("../../src/server/autocloud_enroll.rs");
 const BROWSER_WORKSPACES: &str = include_str!("../../src/server/browser_workspaces.rs");
 
@@ -32,6 +35,8 @@ pub fn methods() -> BTreeSet<String> {
             ("queued::handles(m)", QUEUED, "fn handles("),
             ("agent_login::METHODS", AGENT_LOGIN, "const METHODS"),
             ("harness_admin::METHODS", HARNESS_ADMIN, "const METHODS"),
+            ("account_sign_in::METHODS", ACCOUNT_SIGN_IN, "const METHODS"),
+            ("connections::METHODS", CONNECTIONS, "const METHODS"),
         ] {
             if head.contains(token) {
                 found.extend(constant_values(&block(source, start), &constants));
@@ -42,6 +47,10 @@ pub fn methods() -> BTreeSet<String> {
             if pattern.contains(token) {
                 found.extend(literals(&block(source, "const METHOD: &str")));
             }
+        }
+        // `controls::METHOD` is a re-export of a method constant rather than a string literal.
+        if pattern.contains("super::controls::METHOD") {
+            found.push(acpmux::rpc::method::MUX_CONTROLS.to_owned());
         }
         // A module's own alias of a method constant (`super::browser_workspaces::SET`), read from
         // its `const NAME: &str = method::X;` line.
