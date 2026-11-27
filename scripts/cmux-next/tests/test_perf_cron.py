@@ -3980,6 +3980,69 @@ class NoHostTipTests(OneRunRule):
                          plan["reason"])
         self.assertEqual(state["current"]["kind"], "tip")
 
+    def test_the_plan_finds_a_published_tree_past_eighty_commits(self):
+        """2026-11-27 04:54Z: the tree publisher coalesces pushes (about one tree an hour, about 100 commits an hour),
+        and the walk stopped at 80 commits, so it fell back to the tree-less tip e6896269634a while 001cba8182ee, 73
+        min older, had a tree: the Mac parts (tabs among them) waited 2 h for a tree that never came."""
+        commits = [f"{i:040x}" for i in range(1, 151)]
+        published = commits[119]
+
+        def git(*args, check=True):  # honors -nN, as the walk's depth is what this test is about
+            if args[0] != "rev-list":
+                return commits[0]
+            depth = next((int(a[2:]) for a in args if a.startswith("-n")), len(commits))
+            return "\n".join(commits[:depth])
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "plan.out")
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                    mock.patch.object(cron, "measure_version", lambda sha: 3), \
+                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                    mock.patch.object(cron, "tree_published", lambda sha, deadline=None: sha == published), \
+                    mock.patch.object(cron, "github_busy", lambda *a: None), \
+                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                    mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion", "web-ui"]), \
+                    mock.patch.object(cron, "gh_request", lambda *a, **k: {}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 output=out))
+            plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
+            state = json.load(open(os.path.join(d, "state.json")))
+        self.assertEqual(state["current"]["sha"], published, plan["reason"])
+        self.assertNotIn("tree_wait_since", state["current"], "its tree is published: the Mac parts need not wait")
+
+    def test_a_tree_walk_past_its_lookup_budget_stops_and_says_so(self):
+        commits = [f"{i:040x}" for i in range(1, 601)]
+        clock, looked, ancestors = [1000.0], [], []
+
+        def git(*args, check=True):
+            return "\n".join(commits) if args[0] == "rev-list" else commits[0]
+
+        def tree_published(sha, deadline=None):
+            looked.append(sha)
+            clock[0] += 10
+            return False
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "plan.out")
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                    mock.patch.object(cron, "measure_version", lambda sha: 3), \
+                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                    mock.patch.object(cron, "tree_published", tree_published), \
+                    mock.patch.object(cron, "github_busy", lambda *a: None), \
+                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                    mock.patch.object(cron, "is_ancestor", lambda a, b: ancestors.append(a) or False), \
+                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion", "web-ui"]), \
+                    mock.patch.object(cron, "gh_request", lambda *a, **k: {}), \
+                    mock.patch.object(cron.time, "monotonic", lambda: clock[0]), \
+                    contextlib.redirect_stdout(io.StringIO()) as said:
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 output=out))
+            state = json.load(open(os.path.join(d, "state.json")))
+        self.assertEqual(len(looked), cron.TREE_LOOKUP_SECONDS // 10)
+        self.assertLess(len(ancestors), 2 * len(looked) + 5, "no walk over the rest once the budget is spent")
+        self.assertEqual(state["current"]["sha"], commits[0], "the newest commit, its Mac parts waiting for its tree")
+        self.assertIn("no commit in the tree lookup budget has a published cmux-tui tree", said.getvalue())
+
     def test_a_linux_part_that_failed_for_its_setup_runs_once_more(self):
         cur = cron.new_measurement(self.NEW, "tip", ["web-ui-flat", "web-ui-flat-grown"], T0)
         no_browser = {"state": "failed", "worker": LINUX, "tail": [
