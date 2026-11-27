@@ -139,6 +139,7 @@ impl RemoteRows {
             && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
+            && a.summary.handle() == b.summary.handle()
             && a.summary.former_names() == b.summary.former_names()
             && a.summary.same_pair(&b.summary)
     }
@@ -376,6 +377,36 @@ impl RemoteRows {
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
 
+    /// Peer `peer`'s rows `rest` can name exactly: its name with or without `PEER/`, its alias as
+    /// stored or as spoken, its handle (its default one too) in any case, a former name, and a
+    /// prefix of its peer's session id (`Hub::name_on`'s first step, `harness_key`'s exact
+    /// names). A superset each caller filters by its own test, read through the indexes: a
+    /// prompt to `HOST/NAME` walked every peer's rows twice, 0.4 ms a prompt at 2,000 sessions
+    /// on one connection (coord-sim fanin, 2026-11-27).
+    pub(crate) fn exact_of_peer<'a>(
+        &'a self,
+        peer: &str,
+        rest: &str,
+    ) -> Vec<(&'a String, &'a Arc<RemoteSession>)> {
+        let n = &self.names;
+        let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+        for map in [&n.by_name, &n.by_bare_name, &n.by_spoken, &n.by_former] {
+            keys.extend(map.get(rest).into_iter().flatten());
+        }
+        keys.extend(n.by_alias.get(rest).into_iter().flatten());
+        keys.extend(n.by_handle.get(&rest.to_ascii_lowercase()).into_iter().flatten());
+        keys.extend(
+            n.muxes
+                .range::<_, (String, String)>((rest.to_owned(), String::new())..)
+                .take_while(|(mux, _)| mux.starts_with(rest))
+                .map(|(_, k)| k),
+        );
+        keys.into_iter()
+            .filter_map(|k| self.rows.get_key_value(k.as_str()))
+            .filter(|(_, r)| r.peer == peer)
+            .collect()
+    }
+
     /// The rows whose name ends in `key`'s last segment: every row `key` can be the short name
     /// of ([`super::peers::remote_segment`] decides which are).
     pub(crate) fn short_named<'a>(
@@ -431,6 +462,10 @@ struct Names {
     by_alias: POrdMap<String, PSet<String>>,
     by_former: PMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
+    /// Its alias as `acpmux ls` prints it (`session_handle::spoken_alias`).
+    by_spoken: PMap<String, PSet<String>>,
+    /// Its handle as shown (its default one when it has none), in lower case.
+    by_handle: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
 }
@@ -442,6 +477,12 @@ impl Names {
         let bare = name.strip_prefix(row.peer.as_str()).and_then(|rest| rest.strip_prefix('/'));
         let last = name.rsplit_once('/').map(|(_, last)| last);
         [(0, Some(name.to_owned())), (1, bare.map(str::to_owned)), (2, last.map(str::to_owned))]
+    }
+
+    /// `row`'s handle as shown, in lower case: `session_handle::matches` is this in any case.
+    fn handle_key(row: &RemoteSession) -> String {
+        crate::session_handle::display(row.summary.handle(), &row.receipt.mux_session_id)
+            .to_ascii_lowercase()
     }
 
     fn map(&mut self, which: u8) -> &mut PMap<String, PSet<String>> {
@@ -463,7 +504,10 @@ impl Names {
         }
         if let Some(alias) = row.summary.alias() {
             self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+            let spoken = crate::session_handle::spoken_alias(alias).into_owned();
+            self.by_spoken.entry(spoken).or_default().insert(key.to_owned());
         }
+        self.by_handle.entry(Self::handle_key(row)).or_default().insert(key.to_owned());
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -495,6 +539,22 @@ impl Names {
                 self.by_alias.remove(alias);
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            let spoken = crate::session_handle::spoken_alias(alias);
+            if let Some(keys) = self.by_spoken.get_mut(&*spoken) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.by_spoken.remove(&*spoken);
+                }
+            }
+        }
+        let handle = Self::handle_key(row);
+        if let Some(keys) = self.by_handle.get_mut(&handle) {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_handle.remove(&handle);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -506,6 +566,8 @@ impl Names {
             && self.by_alias.is_empty()
             && self.by_former.is_empty()
             && self.by_last_segment.is_empty()
+            && self.by_spoken.is_empty()
+            && self.by_handle.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
     }
@@ -925,6 +987,87 @@ mod tests {
         check(&rows);
         rows.take_peer("c");
         check(&rows);
+        rows.take_peer("a");
+        rows.take_peer("b");
+        assert!(rows.names.is_empty(), "no name entry is left behind");
+    }
+
+    /// `exact_of_peer` finds every row of the peer a walk finds naming the key exactly, by its
+    /// name, alias (stored or spoken), handle (set or default) in any case, a former name or an
+    /// id prefix, through a rename and a removal.
+    #[test]
+    fn the_exact_index_finds_every_row_a_walk_names_exactly() {
+        use crate::session_handle::{matches, spoken_alias};
+        let mut rows = RemoteRows::default();
+        let row = |peer: &str, mux: &str, extra: Value| {
+            let receipt = SessionReceipt::new(peer, mux, None, 0);
+            let mut summary = json!({"sessionId": mux, "peer": peer, "status": "running"});
+            for (k, v) in extra.as_object().into_iter().flatten() {
+                summary[k] = v.clone();
+            }
+            (
+                receipt.qualified_id(),
+                RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+            )
+        };
+        let all = [
+            ("a", "0a1b-1", json!({"name": "a/lane"})),
+            ("a", "0a1b-2", json!({"name": "lane", "handle": "Fig-Lane"})),
+            ("a", "4f0e2c1a-0000-4000-8a2b-0123456789ab", json!({"name": "a/x"})),
+            ("a", "0a1b-3", json!({"name": "a/y", "tags": {"session.alias": "big+lane"}})),
+            ("a", "0a1b-4", json!({"name": "a/z", "formerNames": ["lane"]})),
+            ("b", "0a1c-1", json!({"name": "b/lane", "tags": {"session.alias": "lane"}})),
+        ];
+        for (peer, mux, extra) in all.clone() {
+            let (key, r) = row(peer, mux, extra);
+            rows.insert(key, r);
+        }
+        let mut keys: Vec<String> = [
+            "lane", "fig-lane", "FIG-LANE", "big lane", "big+lane", "0a1b", "0a1b-4", "x",
+            "missing",
+        ]
+        .map(String::from)
+        .to_vec();
+        keys.push(
+            crate::session_handle::default_handle("4f0e2c1a-0000-4000-8a2b-0123456789ab")
+                .to_uppercase(),
+        );
+        let check = |rows: &RemoteRows| {
+            for peer in ["a", "b", "c"] {
+                for key in &keys {
+                    let exact = |r: &RemoteSession| {
+                        let name = r.summary.name().unwrap_or_default();
+                        let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+                        let alias = r.summary.alias();
+                        bare == key
+                            || alias == Some(key.as_str())
+                            || alias.map(spoken_alias).as_deref() == Some(key.as_str())
+                            || r.receipt.mux_session_id.starts_with(key.as_str())
+                            || matches(r.summary.handle(), &r.receipt.mux_session_id, key)
+                            || r.summary.has_former_name(key)
+                    };
+                    let mut walked: Vec<&String> =
+                        rows.of_peer(peer).filter(|(_, r)| exact(r)).map(|(k, _)| k).collect();
+                    let mut found: Vec<&String> = rows
+                        .exact_of_peer(peer, key)
+                        .into_iter()
+                        .filter(|(_, r)| exact(r))
+                        .map(|(k, _)| k)
+                        .collect();
+                    walked.sort();
+                    found.sort();
+                    assert_eq!(found, walked, "{peer}/{key}");
+                }
+            }
+        };
+        check(&rows);
+        let (key, r) = row("a", "0a1b-2", json!({"name": "renamed", "handle": "Fig-Other"}));
+        rows.insert(key, r);
+        check(&rows);
+        assert!(
+            rows.exact_of_peer("a", "fig-lane").is_empty(),
+            "a changed handle leaves its old one"
+        );
         rows.take_peer("a");
         rows.take_peer("b");
         assert!(rows.names.is_empty(), "no name entry is left behind");
