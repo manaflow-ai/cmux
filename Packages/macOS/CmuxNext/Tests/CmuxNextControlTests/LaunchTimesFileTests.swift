@@ -18,9 +18,10 @@ import Testing
             .appending(path: "launch-times-\(UUID().uuidString)/launch-times.jsonl"), capacity: capacity)
     }
 
-    static func record(build: String = "200", marks: [String: Double] = marks, prewarmed: Bool = false) -> LaunchTimesRecord {
+    static func record(build: String = "200", marks: [String: Double] = marks, prewarmed: Bool = false,
+                       prewarmReason: String? = nil) -> LaunchTimesRecord {
         LaunchTimesRecord(marks: marks, startedAt: Date(timeIntervalSince1970: 1_800_000_000), version: "1.0.0",
-                          build: build, commit: "31583607", prewarmed: prewarmed)
+                          build: build, commit: "31583607", prewarmed: prewarmed, prewarmReason: prewarmReason)
     }
 
     @Test func aRecordCarriesTheLaunchesTimes() {
@@ -85,13 +86,14 @@ import Testing
     @Test func aLaunchWritesOneLineThatReadsBack() throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
-        let line = try file.append(Self.record(prewarmed: true))
+        let line = try file.append(Self.record(prewarmed: true, prewarmReason: "main"))
         let text = try String(contentsOf: file.url, encoding: .utf8)
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases", "stages", "launch_kind"])
-        var expected = Self.record(prewarmed: true)
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "prewarm_reason", "first_launch_of_build", "phases", "stages", "launch_kind"])
+        #expect(json["prewarm_reason"] as? String == "main")
+        var expected = Self.record(prewarmed: true, prewarmReason: "main")
         expected.firstLaunchOfBuild = true
         expected.launchKind = "warm" // append() derives it: a prewarmed launch is warm
         #expect(file.records() == [expected])
@@ -177,7 +179,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         let marks = Self.merged(Self.chatMarks)
         _ = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.already-live"), info: [:],
-                                marks: { marks }, prewarmed: { _ in false })
+                                marks: { marks }, prewarmed: { _ in (preWarmed: false, reason: "no_record") })
         _ = try await Self.lines(file, until: { !$0.isEmpty })
         let rows = file.records()
         #expect(rows.count == 1)
@@ -194,7 +196,7 @@ import Testing
         let work = BackgroundWork(label: "test.launch-times")
         let recorder = LaunchTimesRecorder(file: file, work: work,
                                            info: ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "200"]) { _ in
-            asked.count.withLock { count in count += 1; return count == 1 }
+            asked.count.withLock { count in count += 1; return (preWarmed: count == 1, reason: count == 1 ? "full" : "no_record") }
         }
         recorder.write(marks: Self.marks)
         let first = try await Self.lines(file, until: { $0.count == 2 })
@@ -209,7 +211,7 @@ import Testing
         let records = file.records()
         #expect(records.map(\.build) == ["199", "200"])
         #expect(records.last?.priorChatPaintedMs == 1234.5 && records.last?.priorChatLiveMs == 1490.2)
-        #expect(records.last?.prewarmed == true, "the rewrite keeps the first read's answer")
+        #expect(records.last?.prewarmed == true && records.last?.prewarmReason == "full", "the rewrite keeps the first read's answer")
         #expect(records.last?.preMainMs == 41.3, "and every other column")
         // A late first write (the Home gate after the chat) keeps the chat's columns and is no third line.
         recorder.write(marks: Self.marks)
