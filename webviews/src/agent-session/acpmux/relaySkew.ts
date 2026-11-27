@@ -9,12 +9,18 @@
 
 const UNKNOWN_PARAM = /^unknown param "([^"]{1,64})"$/;
 
+/// Keys that name what the request asks, never dropped: the same request without one is another
+/// request, whose answer its caller would read as the one it asked. An attach without `hold` is a
+/// plain page, which the row store would take for its hold and discard (cmux#44792 F1); its refusal
+/// reaches the caller, which falls to v1 (`holdAttachRefused`).
+const MEANING_KEYS: ReadonlySet<string> = new Set(["sessionId", "hold"]);
+
 /// The top-level key of `params` an older relay refused as unknown in `error`, or undefined.
 export function unknownParamRefused(error: unknown, params: Record<string, unknown>): string | undefined {
   const failure = error as { code?: unknown; detail?: unknown } | undefined;
   if (failure?.code !== "transport.intent_invalid" || typeof failure.detail !== "string") return undefined;
   const key = UNKNOWN_PARAM.exec(failure.detail.trim())?.[1];
-  return key !== undefined && key !== "sessionId" && Object.hasOwn(params, key) ? key : undefined;
+  return key !== undefined && !MEANING_KEYS.has(key) && Object.hasOwn(params, key) ? key : undefined;
 }
 
 /// `params` without `key`.

@@ -134,7 +134,7 @@ when it names our own runner, as portable-placement does), else a 2 vCPU Blacksm
 only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
 step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
 When the client hands the tier back (verdict `queued`: a fleet step still queued past its wait),
-the tier runs in full, with 35 minutes, where fast-tier-handback-placement's fresh reading sends it
+the tier runs in full, with 60 minutes (note-39), where fast-tier-handback-placement's fresh reading sends it
 (an idle owned Mac, else Blacksmith 6 vCPU unless excluded, else the owned route), else on
 Blacksmith 6 vCPU.
 
@@ -3219,7 +3219,7 @@ land-judge had no verdict to read: job 131984422217 (run 43454315926) and job 13
 (test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
 as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
-other route keeps 15.
+other route keeps 20 (2026-11-27: `cmux-next-workflow-notes/2026-11-27-checks-timeout-20.md`).
 
 ## note-350
 
@@ -5364,3 +5364,17 @@ cheap job has said the head is not red.
 
 Rerunning the failed fast gates or cargo job (`gh run rerun ID --failed`) reruns the jobs it skipped.
 Tests: tests/test_ci_head_fail_fast.py CheapGateTests.
+
+## note-app-debug-tier
+
+Above the `awaiting_land` case in app-compile-fleet's `check` step in `.github/workflows/cmux-next.yml`.
+
+The job's read sends tier=1 (`fleet_compile_result.py --tier`). For a pull request head with no `ready-to-land` or
+`full-ci` label, the controller runs no app-debug check now and answers `awaiting_land` (cmuxterm-hq
+build-fleet/cmd/controller/cmux_next_tip_land_tier.go). The job ends neutral in seconds. Before, the read without tier=1
+made the controller submit the check, and the job held a cmux-linux runner through the whole compile: 12.7k
+runner-min a day over 11-23..11-27 (1,406 jobs a day, 9.0 min each). This is the same land tier the fleet Release
+compile's `phase=tip` probe took in #53465. That job now ends in about 4 s.
+A labeled head (and every later head of that pull request) still gets the check and waits for it. The verdict
+`awaiting_land` is no reason for the Mac Release compile (release-compile's `if`): the Release compile at land
+compiles the head. Undo: drop `--tier`, or set CMUX_CI_TIP_LAND_TIER=0 on the controller.

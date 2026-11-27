@@ -202,7 +202,8 @@ export default diffPageEntry({
         await ctx.click({ selector: "#files-toggle" });
         await ctx.waitFor(() => ctx.document.querySelector("#jump-to-file-button"), { capMs: 10_000 });
         await ctx.click({ selector: "#jump-to-file-button" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".jump-palette-row").length === many.length);
+        // The palette draws only the rows in view: each names the whole list's length.
+        await ctx.waitFor(() => ctx.document.querySelector(`.jump-palette-row[aria-setsize="${many.length}"]`));
       },
     },
     "branch-base-overflow": {
@@ -221,7 +222,8 @@ export default diffPageEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".base-picker-button"), { capMs: 10_000 });
         await ctx.click({ selector: ".base-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".base-picker-row").length === 40);
+        // The picker draws only the rows in view: each names the whole list's length.
+        await ctx.waitFor(() => ctx.document.querySelector('.base-picker-row[aria-setsize="40"]'));
       },
     },
     "committed-overflow": {
