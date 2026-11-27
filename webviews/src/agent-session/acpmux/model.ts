@@ -163,6 +163,7 @@ export type AcpmuxCompaction = {
   /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
   inferred?: boolean;
   reason?: string;
+  trigger?: "auto" | "manual";
   /// Why a failed compaction failed, in Claude Code's words ("Prompt is too long").
   error?: string;
   preTokens?: number;
