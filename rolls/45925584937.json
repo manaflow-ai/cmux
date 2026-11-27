@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45925584937",
+  "recorded_at": "2026-11-27T02:29:44Z",
+  "reason": "image inputs changed in ab0cc0aafed049428ca9b8656b31222fc1be11f5..3dd8aa753ae636057d62e51735ab6c1685357d12; cmux-tui stays 348e8a8aff37 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "348e8a8aff37009a312146c16aa19198274a3a1a",
+  "fixes": [
+    {
+      "sha": "3dd8aa753ae636057d62e51735ab6c1685357d12",
+      "mergedAt": "2026-11-27T01:58:18Z",
+      "subject": "VM image experiment: seed npm from a tenant cache mount (#59201)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T02:29:44Z",
+    "snapshot_id": "sh-fc49e7e8fa32475d8640e8c84f040bee",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45925584937): 33 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5f0f7f13782e44535defbe7b17feeed70318f1a2",
+    "image": "cloud-native-auto-348e8a8a-45925584937-1",
+    "revision": "ci-45925584937-1",
+    "at": "2026-11-27T02:29:44Z"
+  },
+  "rolled_back": false
+}
