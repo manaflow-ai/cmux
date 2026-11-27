@@ -13,7 +13,8 @@ Each registration block that also traps TERM and INT (its `mktemp -d` line down 
 with an injected failure (a failing command under set -e, exit 3, TERM, INT): the folder must be gone and
 the exit code kept (the failure's, 143, 130). A block whose trap calls a helper from a library the script sources
 before its `mktemp -d` (measure_remove_scratch in app-at-commit.sh) runs with that library sourced first, as the
-script does; a library is sourced this way only when it holds nothing but functions and assignments.
+script does; a library is sourced this way only when it holds nothing but functions, assignments and bare fd
+duplications (`exec 9>&1`).
 
 The checker is also run on fixtures that break each rule, and on one that follows them, so a
 checker that stops seeing a violation fails here too.
@@ -81,7 +82,8 @@ def registration_blocks(text):
 
 
 SOURCE_LINE = re.compile(r'^(?:\.|source)\s+"?(?:\$root/|\$\{root\}/)?(scripts/[A-Za-z0-9_./-]+\.sh)"?\s*$')
-LIBRARY_TOP = re.compile(r"^(#|$|\}|[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{|[A-Za-z_][A-Za-z0-9_]*=)")
+# `exec 9>&1` (a bare fd duplication, no command) only opens a descriptor: app-at-commit.sh keeps its caller's stdout so.
+LIBRARY_TOP = re.compile(r"^(#|$|\}|[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{|[A-Za-z_][A-Za-z0-9_]*=|exec(\s+[0-9]+[<>]&?[0-9-]+)+\s*$)")
 
 
 def function_library(path):
