@@ -4,7 +4,34 @@
 
 use super::*;
 use anyhow::Context;
+use std::future::Future;
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::time::{Instant, timeout_at};
+
+const HUB_READ_BUDGET: Duration = Duration::from_secs(3);
+
+/// Optional observations share one deadline, including the connection handshake. A silent
+/// hub must not keep the caller from deciding recovery from the facts it already has.
+async fn hub_read<T>(
+    deadline: Instant,
+    operation: &str,
+    read: impl Future<Output = Result<T>>,
+) -> Option<T> {
+    match timeout_at(deadline, read).await {
+        Ok(Ok(value)) => Some(value),
+        Ok(Err(error)) => {
+            eprintln!("session route: {operation} failed ({error:#}); using the available facts");
+            None
+        }
+        Err(_) => {
+            eprintln!(
+                "session route: {operation} exceeded the hub read budget; using the available facts"
+            );
+            None
+        }
+    }
+}
 
 /// The caller's facts as JSON: FILE, `-` for stdin, or none.
 fn caller_facts(facts: Option<&PathBuf>) -> Result<Value> {
@@ -22,23 +49,22 @@ fn caller_facts(facts: Option<&PathBuf>) -> Result<Value> {
 /// What the hub here knows of `key`; with no daemon to ask, nothing (said on stderr), so the
 /// caller's facts decide alone as before.
 async fn hub_facts(key: &str) -> Value {
-    let client = match connect(false).await {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!(
-                "session route: no acpmux here to read {key} from ({e:#}); the facts given decide"
-            );
-            return json!({"key": key});
-        }
+    let deadline = Instant::now() + HUB_READ_BUDGET;
+    let Some(client) = hub_read(deadline, "connecting to acpmux", connect(false)).await else {
+        return json!({"key": key});
     };
-    let peers = client.request("_acpmux/peers", json!({})).await.unwrap_or_else(|e| {
-        eprintln!("session route: the peer list did not answer ({e:#})");
-        json!({})
-    });
+    let peers = hub_read(deadline, "reading peers", client.request("_acpmux/peers", json!({})))
+        .await
+        .unwrap_or_else(|| json!({}));
     let snapshot = if crate::death_route::observe::host_of(key).is_empty() {
         None
     } else {
-        client.request("_acpmux/peer_snapshot", json!({"sessionId": key})).await.ok()
+        hub_read(
+            deadline,
+            "reading the peer snapshot",
+            client.request("_acpmux/peer_snapshot", json!({"sessionId": key})),
+        )
+        .await
     };
     crate::death_route::observe::observe(key, &peers, snapshot.as_ref(), crate::store::now_ms())
 }
@@ -68,3 +94,7 @@ pub(super) async fn run(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "route_death_tests.rs"]
+mod tests;
