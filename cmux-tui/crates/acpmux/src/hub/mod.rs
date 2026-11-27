@@ -55,6 +55,7 @@ mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
+mod bg_registry;
 mod bg_tasks;
 pub(crate) mod book_tee;
 mod bookmarks;
@@ -115,6 +116,7 @@ mod fork;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_model;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -138,6 +140,7 @@ mod cache_alarm;
 pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
+mod goal_watch;
 mod handoff;
 mod harness_key;
 pub(crate) mod harness_magic;
@@ -2692,6 +2695,8 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            prompt_heard: AtomicU64::new(0),
+            goal_watch: StdMutex::new(Default::default()),
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
