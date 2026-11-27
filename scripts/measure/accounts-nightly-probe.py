@@ -1,273 +1,408 @@
 #!/usr/bin/env python3
-"""Drive the published NIGHTLY Accounts > GitHub App path and record person-path evidence.
+"""Prove a dedicated NIGHTLY's Accounts connection and repository picker through its UI.
 
-The driver deliberately uses release APIs (action.run, the app CLI, and CuaDriver AX clicks), never debug.*
-methods. It writes result.json, summary.md, and screenshots under --out and exits non-zero when the Accounts page,
-GitHub browser handoff, installation, or repository readback cannot be observed.
+Only official cmux Computer Use drives native sign-in windows. Secrets travel on
+MCP stdin; screenshots never include a populated authentication form. The caller
+must launch an isolated signed NIGHTLY and supply its verified PID and socket.
 """
 from __future__ import annotations
-import argparse, base64, hashlib, hmac, importlib.util, json, os, re, struct, subprocess, sys, time
+
+import argparse
+import base64
+import hashlib
+import hmac
+import json
+import os
+import plistlib
+import re
+import select
+import shutil
+import struct
+import subprocess
+import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import urlsplit
 
-HERE = Path(__file__).resolve().parent
-lkr_spec = importlib.util.spec_from_file_location("lkr", HERE / "look-keys-readback.py")
-lkr = importlib.util.module_from_spec(lkr_spec); assert lkr_spec.loader; lkr_spec.loader.exec_module(lkr)
-# Avoid importing customizer-toggle-readback.py's argparse-driven main: only copy the small AX routines below.
-
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--app", required=True)
-parser.add_argument("--pid", type=int, required=True)
-parser.add_argument("--socket", required=True)
-parser.add_argument("--out", required=True)
-parser.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
-parser.add_argument("--org", default="cmux-cloud-test-org")
-parser.add_argument("--repo", default="pr-target")
-parser.add_argument("--cli", help="the NIGHTLY app's cmux CLI")
-args = parser.parse_args()
-OUT = Path(args.out); OUT.mkdir(parents=True, exist_ok=True)
-SHOTS = OUT / "screenshots"; SHOTS.mkdir(exist_ok=True)
-CLI = args.cli or str(Path(args.app) / "Contents/Resources/bin/cmux")
-REPO = f"{args.org}/{args.repo}"
-SECRETS = ("CMUX_GITHUB_TEST_PASSWORD", "CMUX_GITHUB_TEST_TOTP_SEED", "CMUX_UITEST_STACK_PASSWORD",
-           "CMUX_DOGFOOD_STACK_PASSWORD")
-steps: list[dict] = []
-APP_META: dict = {}
-
-def scrub(value: object) -> str:
-    text = str(value or "")
-    for name in SECRETS + ("CMUX_GITHUB_TEST_LOGIN", "CMUX_UITEST_STACK_EMAIL", "CMUX_DOGFOOD_STACK_EMAIL"):
-        v = os.environ.get(name, "")
-        if len(v) >= 4: text = text.replace(v, "***")
-    text = re.sub(r"\b(?:eyJ|gh[pousr]_)[A-Za-z0-9_.-]{16,}", "***", text)
-    return text[:500]
-
-def record(name: str, ok: bool, detail: str, shot: str | None = None):
-    item = {"step": name, "ok": ok, "detail": scrub(detail)}
-    if shot: item["screenshot"] = shot
-    steps.append(item)
-    print(("PASS" if ok else "FAIL"), name, item["detail"], flush=True)
-    return ok
-
-def ax_elements(pid: int) -> list[dict]:
-    found: list[dict] = []
-    def visit(node, wid):
-        if isinstance(node, dict):
-            if "role" in node and ("element_token" in node or "element_index" in node): found.append(dict(node, _window=wid))
-            for value in node.values(): visit(value, wid)
-        elif isinstance(node, list):
-            for value in node: visit(value, wid)
-    for window in lkr.cua("list_windows", {"pid": pid}).get("windows") or []:
-        if isinstance(window, dict) and window.get("window_id") is not None:
-            state = lkr.cua("get_window_state", {"pid": pid, "window_id": window["window_id"],
-                "include_screenshot": False, "max_depth": 80, "max_elements": 8000})
-            visit(state, window["window_id"])
-    return found
-
-def label(e: dict) -> str:
-    for key in ("label", "title", "value", "description", "name"):
-        if str(e.get(key) or "").strip(): return str(e[key]).strip()
-    return ""
-
-def find_labelled(pid: int, text: str) -> dict | None:
-    needle = text.lower()
-    return next((e for e in ax_elements(pid) if needle in label(e).lower()), None)
-
-def press(pid: int, e: dict) -> dict:
-    token = {"element_token": e["element_token"]} if "element_token" in e else {"element_index": e["element_index"]}
-    return lkr.cua("click", {"pid": pid, "window_id": e["_window"], **token, "action": "press"})
-
-def shot(name: str) -> str:
-    value = lkr.shoot(args.pid, SHOTS, name)
-    return str(value.get("window") or value.get("desktop") or "")
-
-def wait_for(fn, seconds: float, step: float = 1.0):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        value = fn()
-        if value: return value
-        time.sleep(step)
-    return fn()
-
-def cli(*words: str, timeout: int = 90) -> tuple[int, str, str]:
-    env = dict(os.environ); env["CMUX_SOCKET_PATH"] = args.socket
-    try:
-        p = subprocess.run([CLI, *words], env=env, capture_output=True, text=True, timeout=timeout)
-        return p.returncode, p.stdout, p.stderr
-    except Exception as exc: return 124, "", str(exc)
-
-def parsed(text: str):
-    for line in reversed((text or "").splitlines()):
-        try: return json.loads(line)
-        except json.JSONDecodeError: continue
-    return {}
-
-def tabs() -> list[str]:
-    code, out, _ = cli("--json", "tab", "list", timeout=30); result=[]
-    def walk(v):
-        if isinstance(v, dict):
-            if v.get("content_kind") == "browser" and str(v.get("id", "")).startswith("tab_"): result.append(v["id"])
-            for x in v.values(): walk(x)
-        elif isinstance(v, list):
-            for x in v: walk(x)
-    if code == 0:
-        try: walk(json.loads(out))
-        except json.JSONDecodeError: pass
-    return result
-
-def browser(tab: str, *words: str): return cli("--json", "browser", tab, *words, timeout=30)
-def url(tab: str) -> str:
-    code, out, _ = browser(tab, "state"); value = parsed(out)
-    if code != 0: return ""
-    inner = value.get("value", value)
-    return str(inner.get("url", "")) if isinstance(inner, dict) else ""
-def js(tab: str, script: str) -> str:
-    code, out, _ = browser(tab, "eval", script); value = parsed(out)
-    got = value.get("value", value.get("result", ""))
-    return got if isinstance(got, str) else json.dumps(got)
-def click_text(tab: str, pattern: str) -> bool:
-    script = "(() => { const re=new RegExp(%s,'i'); const e=[...document.querySelectorAll('a,button,input[type=submit],input[type=radio],label,summary')].find(x=>re.test((x.innerText||x.value||x.getAttribute('aria-label')||'').trim())); if(!e)return 'missing'; e.click(); return 'clicked'; })()" % json.dumps(pattern)
-    return "clicked" in js(tab, script)
-def fill(tab: str, selector: str, value: str) -> bool: return browser(tab, "fill", selector, value)[0] == 0
-def page(tab: str) -> str:
-    u = url(tab)
-    if "/sessions/two-factor" in u: return "2fa"
-    if "/sessions/verified-device" in u: return "device"
-    if "/login/oauth/authorize" in u: return "authorize"
-    if u.rstrip("/").endswith("/login") or "/login?" in u: return "login"
-    if "/sudo" in u: return "sudo"
-    if "/installations/new/permissions" in u: return "permissions"
-    if "/installations/new" in u: return "install"
-    return "left" if u and "github.com" not in u else ("other" if u else "")
-
-def totp(seed: str) -> str:
-    raw = re.sub(r"\s", "", seed).upper(); key = base64.b32decode(raw + "=" * (-len(raw) % 8))
-    digest = hmac.new(key, struct.pack(">Q", int(time.time() // 30)), hashlib.sha1).digest(); off = digest[-1] & 15
-    return f"{(struct.unpack('>I', digest[off:off+4])[0] & 0x7fffffff) % 1000000:06d}"
-
-def api_get(token: str, path: str):
-    import urllib.request
-    req = urllib.request.Request(args.api.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response: return response.status, json.loads(response.read())
-    except Exception as exc: return 0, {"error": str(exc)}
-
-def reset_existing_connection(pid: int) -> bool:
-    """Make the scheduled probe idempotent when the shared test account is still connected."""
-    disconnect = find_labelled(pid, "Disconnect")
-    if not disconnect:
-        return True
-    first = press(pid, disconnect)
-    if first.get("error"):
-        return False
-    confirm = wait_for(lambda: find_labelled(pid, "Disconnect"), 10)
-    if not confirm:
-        return False
-    second = press(pid, confirm)
-    if second.get("error"):
-        return False
-    return bool(wait_for(lambda: find_labelled(pid, "Connect GitHub"), 30))
+SECRET_NAMES = ("CMUX_GITHUB_TEST_LOGIN", "CMUX_GITHUB_TEST_PASSWORD", "CMUX_GITHUB_TEST_TOTP_SEED")
+OMNIBAR = "cmux.browserPopup.omnibar"
 
 
-def _run_probe() -> int:
-    global APP_META
-    meta = {}
-    try:
-        import plistlib
-        with open(Path(args.app) / "Contents/Info.plist", "rb") as f: meta = plistlib.load(f)
-    except Exception: pass
-    APP_META = meta
-    cold = shot("cold")
-    if not record("cold launch", bool(cold), "release window captured", cold): return 1
-    opened = lkr.rpc(args.socket, "action.run", {"action": "openSettings", "focus": True}, timeout=60)
-    accounts = wait_for(lambda: find_labelled(args.pid, "accounts"), 45)
-    accounts_shot = shot("accounts")
-    if not record("Accounts page", bool(accounts), f"openSettings={opened}", accounts_shot): return 1
-    # A person clicks the Accounts section, then the visible Connect GitHub control.
-    if accounts: press(args.pid, accounts)
-    if not record("Reset existing GitHub connection", reset_existing_connection(args.pid), "idempotent account teardown", shot("connection-reset")): return 1
-    connect = wait_for(lambda: find_labelled(args.pid, "Connect GitHub"), 30)
-    if not record("Connect GitHub visible", bool(connect), "AX label readback", shot("connect-visible")): return 1
-    before = set(tabs()); pressed = press(args.pid, connect)
-    clicked = bool(pressed.get("ok", True)) and not pressed.get("error")
-    if not record("Connect GitHub clicked", clicked, "AX press issued", shot("connect-clicked")): return 1
-    tab = wait_for(lambda: next((t for t in tabs() if t not in before and "github.com" in url(t)), None), 60)
-    if not record("GitHub browser handoff", bool(tab), "new in-app GitHub tab", shot("github-handoff")): return 1
-    login, password, seed = (os.environ.get(k, "") for k in ("CMUX_GITHUB_TEST_LOGIN", "CMUX_GITHUB_TEST_PASSWORD", "CMUX_GITHUB_TEST_TOTP_SEED"))
-    if not all((login, password, seed)): return 1 if not record("GitHub credentials", False, "required probe secrets are absent") else 1
-    deadline = time.monotonic() + 300; installed = False; last = ""
-    while time.monotonic() < deadline and not installed:
-        current = page(tab); last = current
-        if current == "login":
-            if not (fill(tab, "#login_field", login) and fill(tab, "#password", password) and click_text(tab, "^sign in$")): break
-        elif current == "2fa":
-            code2 = totp(seed); print("::add-mask::" + code2, flush=True)
-            field = next((x for x in ("#app_totp", "#otp", "input[name=app_otp]", "input[name=otp]") if "yes" in js(tab, f"document.querySelector({json.dumps(x)})?'yes':'no'")), "")
-            if not field or not fill(tab, field, code2) or not click_text(tab, "^verify"): break
-        elif current == "device": break
-        elif current == "authorize":
-            if not click_text(tab, "^authorize"): break
-        elif current == "sudo":
-            if not (fill(tab, "#sudo_password", password) and click_text(tab, "^confirm")): break
-        elif current == "install":
-            if not click_text(tab, rf"^{re.escape(args.org)}\b|{re.escape(args.org)}$"): break
-        elif current == "permissions":
-            if not click_text(tab, "only select repositories"): break
-            click_text(tab, "select repositories")
-            time.sleep(1)
-            field = next((x for x in ("#repository-menu-filter-field", "input[placeholder*='Search for a repository']", "input[aria-label*='repositor' i]") if "yes" in js(tab, f"document.querySelector({json.dumps(x)})?'yes':'no'")), "")
-            if field: fill(tab, field, args.repo); time.sleep(2)
-            if not click_text(tab, rf"(^|/){re.escape(args.repo)}$"): break
-            if not click_text(tab, "^install$"): break
-            installed = True
-        elif current == "left": installed = True
-        else: time.sleep(2)
-        time.sleep(2)
-    if not record("GitHub App installation", installed, f"last page={last}", shot("github-installed")): return 1
-    token_file = HERE.parent / "cmux-next" / "dev-signin-token.py"
-    spec = importlib.util.spec_from_file_location("signin", token_file); mod = importlib.util.module_from_spec(spec); assert spec.loader; spec.loader.exec_module(mod)
-    email = os.environ.get("CMUX_UITEST_STACK_EMAIL") or os.environ.get("CMUX_DOGFOOD_STACK_EMAIL", "")
-    pwd = os.environ.get("CMUX_UITEST_STACK_PASSWORD") or os.environ.get("CMUX_DOGFOOD_STACK_PASSWORD", "")
-    if not email or not pwd: return 1 if not record("Stack readback credentials", False, "missing Stack credentials") else 1
-    try: token = mod.sign_in(email, pwd)["accessToken"]
-    except Exception as exc: return 1 if not record("Stack sign-in", False, exc) else 1
-    status = repos = None
-    for _ in range(30):
-        s, body = api_get(token, "/v1/integrations/github/status")
-        if s == 200 and (body.get("connection") or {}).get("status") == "active":
-            rs, rb = api_get(token, "/v1/integrations/github/repos"); names = [x if isinstance(x, str) else x.get("full_name", "") for x in rb.get("repos", [])] if rs == 200 else []
-            if any(str(x).lower() == REPO.lower() for x in names): status, repos = body, names; break
-        time.sleep(4)
-    ok = status is not None and repos is not None
-    detail = f"active={bool(status)} repos={len(repos or [])} target={REPO}"
-    final_shot = shot("repository-list")
-    if not record("Repository list visible", ok, detail, final_shot): return 1
-    return 0
+class ProbeError(RuntimeError):
+    pass
 
 
-def main() -> int:
-    """Always leave scrubbed evidence so scheduled failures are diagnosable."""
+class ComputerUse:
+    """Small bounded MCP client; tool refusals are terminal, never retried."""
+
+    def __init__(self):
+        executable = shutil.which("cmux")
+        if not executable:
+            raise ProbeError("Host cmux CLI is unavailable")
+        self.process = subprocess.Popen([executable, "computer-use", "mcp"], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.buffer = b""
+        self.sequence = 0
+        try:
+            self.request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                         "clientInfo": {"name": "cmux-accounts-nightly-probe", "version": "1"}})
+            self.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            self.process.stdin.flush()
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        if self.process.stdin:
+            try:
+                self.process.stdin.close()
+            except OSError:
+                pass
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()  # Only this client's own child.
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+
+    def request(self, method, params):
+        self.sequence += 1
+        self.process.stdin.write((json.dumps({"jsonrpc": "2.0", "id": self.sequence,
+                                             "method": method, "params": params}) + "\n").encode())
+        self.process.stdin.flush()
+        deadline = time.monotonic() + 60
+        while True:
+            while b"\n" in self.buffer:
+                line, self.buffer = self.buffer.split(b"\n", 1)
+                message = json.loads(line)
+                if message.get("id") != self.sequence:
+                    continue
+                if "error" in message:
+                    raise ProbeError("Computer Use MCP request failed")
+                return message["result"]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+                raise ProbeError("Computer Use response exceeded 60 seconds")
+            chunk = os.read(self.process.stdout.fileno(), 65536)
+            if not chunk:
+                raise ProbeError("Computer Use transport closed")
+            self.buffer += chunk
+            if len(self.buffer) > 32 * 1024 * 1024:
+                raise ProbeError("Computer Use response exceeded size bound")
+
+    def call(self, name, **arguments):
+        result = self.request("tools/call", {"name": name, "arguments": arguments})
+        if result.get("isError"):
+            # Never serialize returned arguments or form values in a failure artifact.
+            raise ProbeError(f"Computer Use {name} refused or failed; inspect Computer Use status")
+        body = {}
+        for item in result.get("content", []):
+            if item.get("type") == "text":
+                body = json.loads(item["text"])
+                if body.get("error") or body.get("ok") is False:
+                    raise ProbeError(f"Computer Use {name} failed")
+        return body, result.get("content", [])
+
+
+def flatten(node, clip=None):
+    if isinstance(node, dict):
+        frame = node.get("frame")
+        bounds = None
+        if frame and frame.get("width", 0) > 0 and frame.get("height", 0) > 0:
+            bounds = (frame["x"], frame["y"], frame["x"] + frame["width"], frame["y"] + frame["height"])
+        visible = bounds is not None and (clip is None or
+                  (bounds[0] < clip[2] and bounds[2] > clip[0] and bounds[1] < clip[3] and bounds[3] > clip[1]))
+        if "role" in node and "id" in node:
+            yield dict(node, _visible=visible)
+        if bounds and (clip is None or node.get("role") in {"scroll_area", "window"}):
+            clip = bounds if clip is None else (max(clip[0], bounds[0]), max(clip[1], bounds[1]),
+                                                min(clip[2], bounds[2]), min(clip[3], bounds[3]))
+        for child in node.get("children", []):
+            yield from flatten(child, clip)
+
+
+def one(nodes, names, roles=None):
+    """Exact, unambiguous accessible names; never choose the first substring."""
+    matches = [n for n in nodes if n.get("_visible", True) and not n.get("disabled") and
+               n.get("name", "").strip().casefold() in {x.casefold() for x in names} and
+               (roles is None or n.get("role") in roles)]
+    if len(matches) > 1:
+        raise ProbeError("Ambiguous accessible control: " + "/".join(names))
+    return matches[0] if matches else None
+
+
+def github_url(nodes):
+    bars = [n for n in nodes if n.get("identifier") == OMNIBAR]
+    if len(bars) != 1:
+        return None
+    urls = {n.get("value", "") for n in flatten(bars[0]) if n.get("value", "").startswith("https://")}
+    if len(urls) != 1:
+        return None
+    url = urlsplit(urls.pop())
+    if url.scheme != "https" or url.hostname != "github.com" or url.port not in (None, 443) or url.username:
+        raise ProbeError("Sign-in panel is not at the expected HTTPS GitHub origin")
+    return url
+
+
+def totp(seed):
+    raw = re.sub(r"\s", "", seed).upper()
+    key = base64.b32decode(raw + "=" * (-len(raw) % 8))
+    digest = hmac.new(key, struct.pack(">Q", int(time.time() // 30)), hashlib.sha1).digest()
+    offset = digest[-1] & 15
+    return f"{(struct.unpack('>I', digest[offset:offset+4])[0] & 0x7fffffff) % 1000000:06d}"
+
+
+class Probe:
+    def __init__(self, args):
+        self.args = args
+        self.out = Path(args.out)
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / "screenshots").mkdir(exist_ok=True)
+        self.steps = []
+        self.cu = None
+        self.meta = {}
+        self.sensitive = set()
+
+    def record(self, name, detail, screenshot=None):
+        item = {"step": name, "ok": True, "detail": detail}
+        if screenshot:
+            item["screenshot"] = screenshot
+        self.steps.append(item)
+        print("PASS", name, flush=True)
+
+    def windows(self):
+        body, _ = self.cu.call("list_windows")
+        windows = [w for w in body.get("windows", []) if w.get("pid") == self.args.pid]
+        if any(w.get("denied") for w in windows):
+            raise ProbeError("Computer Use denied the probe app window")
+        return [w for w in windows if w.get("on_screen") and not w.get("minimized")]
+
+    def scoped(self, window):
+        if window not in {w["window_id"] for w in self.windows()}:
+            raise ProbeError("Target window is no longer owned by the probe PID")
+
+    def nodes(self, window):
+        self.scoped(window)
+        body, _ = self.cu.call("get_ui_tree", window_id=window, format="json", max_nodes=5000)
+        if body.get("truncated"):
+            raise ProbeError("Accessibility tree truncated; cannot prove unique controls")
+        return list(flatten(body.get("root", {})))
+
+    def wait(self, callback, timeout=45):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            result = callback()
+            if result:
+                return result
+            time.sleep(0.5)
+        raise ProbeError("Timed out waiting for expected UI state")
+
+    def find(self, names, roles=None, window=None):
+        matches = []
+        for wid in ([window] if window else [w["window_id"] for w in self.windows()]):
+            node = one(self.nodes(wid), names, roles)
+            if node:
+                matches.append((wid, node))
+        if len(matches) > 1:
+            raise ProbeError("Control appears in more than one probe window")
+        return matches[0] if matches else None
+
+    def click(self, target):
+        window, node = target
+        self.scoped(window)
+        self.cu.call("click", window_id=window, element_id=node["id"], observe=False, settle="adaptive")
+
+    def location(self, window):
+        nodes = self.nodes(window)
+        bars = [n for n in nodes if n.get("identifier") == OMNIBAR]
+        if len(bars) != 1:
+            return None
+        location = github_url(nodes)
+        if location:
+            return location
+        # The native read-only omnibar elides the scheme until focused.
+        fields = [n for n in flatten(bars[0]) if n.get("role") == "text_field"]
+        if len(fields) != 1:
+            return None
+        self.click((window, fields[0]))
+        return github_url(self.nodes(window))
+
+    def fill(self, window, node, value):
+        # Recheck the native browser location immediately before disclosing a secret.
+        if not self.location(window):
+            raise ProbeError("Cannot verify native GitHub sign-in location")
+        current = self.nodes(window)
+        if not github_url(current):
+            raise ProbeError("GitHub origin changed before secret input")
+        fresh = one(current, [node["name"]], {node["role"]})
+        if not fresh:
+            raise ProbeError("Authentication field changed before input")
+        node = fresh
+        self.sensitive.add(window)
+        self.scoped(window)
+        self.cu.call("set_value", window_id=window, element_id=node["id"], value=value, observe=False)
+
+    def screenshot(self, window, name):
+        if window in self.sensitive:
+            raise ProbeError("Refusing capture of populated authentication form")
+        self.scoped(window)
+        _, content = self.cu.call("screenshot", window_id=window, force=True)
+        images = [c for c in content if c.get("type") == "image"]
+        if len(images) != 1:
+            raise ProbeError("Window screenshot did not return exactly one image")
+        suffix = {"image/png": ".png", "image/jpeg": ".jpg"}.get(images[0].get("mimeType"))
+        if not suffix:
+            raise ProbeError("Unsupported screenshot format")
+        path = self.out / "screenshots" / (name + suffix)
+        path.write_bytes(base64.b64decode(images[0]["data"], validate=True))
+        return str(path.relative_to(self.out))
+
+    def action(self, action):
+        env = dict(os.environ, CMUX_SOCKET_PATH=self.args.socket)
+        cli = self.args.cli or str(Path(self.args.app) / "Contents/Resources/bin/cmux")
+        result = subprocess.run([cli, "action", "run", action], env=env, capture_output=True, timeout=60)
+        if result.returncode:
+            raise ProbeError("NIGHTLY action failed: " + action)
+
+    def authenticate(self, window):
+        login, password, seed = [os.environ.get(k, "") for k in SECRET_NAMES]
+        if not all((login, password, seed)):
+            raise ProbeError("Dedicated GitHub test credentials are absent")
+        acted = set()
+        deadline = time.monotonic() + 240
+        while time.monotonic() < deadline:
+            if window not in {w["window_id"] for w in self.windows()}:
+                return
+            nodes = self.nodes(window)
+            location = self.location(window)
+            if not location:
+                raise ProbeError("Native GitHub location is not readable")
+            path = location.path
+            if "/verified-device" in path:
+                raise ProbeError("GitHub requires device verification; no automated bypass")
+            if path in acted:
+                time.sleep(0.5)
+                continue
+            field_roles = {"text_field", "secure_text_field", "text_entry"}
+            def control(names, roles=None):
+                node = one(self.nodes(window), names, roles)
+                if not node:
+                    raise ProbeError("Missing GitHub control: " + "/".join(names))
+                return node
+            def click(names, roles=None):
+                self.click((window, control(names, roles)))
+            if path.rstrip("/") == "/login":
+                self.fill(window, control(["Username or email address"], field_roles), login)
+                self.fill(window, control(["Password"], field_roles), password)
+                click(["Sign in"], {"button"})
+            elif "/sessions/two-factor" in path:
+                self.fill(window, control(["Authentication code", "Verification code"], field_roles), totp(seed))
+                click(["Verify"], {"button"})
+            elif "/sudo" in path:
+                self.fill(window, control(["Password", "Confirm your password"], field_roles), password)
+                click(["Confirm", "Confirm password"], {"button"})
+            elif path == "/login/oauth/authorize":
+                click(["Authorize cmux", "Authorize cmux Cloud"], {"button"})
+            elif path.endswith("/installations/new"):
+                click([self.args.org], {"button", "link"})
+            elif path.endswith("/installations/new/permissions"):
+                only = control(["Only select repositories"], {"radio_button", "radio"})
+                if not only.get("checked"):
+                    self.click((window, only))
+                picker = self.wait(lambda: self.find(["Select repositories"], window=window))
+                self.click(picker)
+                target = self.wait(lambda: self.find([f"{self.args.org}/{self.args.repo}"], {"check_box", "checkbox"}, window))
+                if not target[1].get("checked"):
+                    self.click(target)
+                selected = self.nodes(window)
+                restricted = one(selected, ["Only select repositories"], {"radio_button", "radio"})
+                if not restricted or not restricted.get("checked"):
+                    raise ProbeError("Only-select-repositories grant was not confirmed")
+                checks = [n for n in selected if n.get("role") in {"check_box", "checkbox"} and n.get("checked")]
+                if len(checks) != 1 or checks[0].get("name", "").strip() != f"{self.args.org}/{self.args.repo}":
+                    raise ProbeError("Repository grant is not limited to the expected repository")
+                click(["Install"], {"button"})
+            else:
+                time.sleep(0.5)
+                continue
+            acted.add(path)
+        raise ProbeError("GitHub sign-in did not complete within 240 seconds")
+
+    def run(self):
+        with open(Path(self.args.app) / "Contents/Info.plist", "rb") as source:
+            self.meta = plistlib.load(source)
+        self.cu = ComputerUse()
+        self.action("openSettings")
+        accounts = self.wait(lambda: self.find(["Accounts"], {"button", "row", "tab", "tab_button", "radio"}))
+        self.click(accounts)
+        connect = self.wait(lambda: self.find(["Connect GitHub"], {"button"}))
+        self.record("Connect GitHub visible", "Fresh connection control; existing connections are never reset",
+                    self.screenshot(connect[0], "accounts"))
+        before = {w["window_id"] for w in self.windows()}
+        self.click(connect)
+        def auth_window():
+            found = [w["window_id"] for w in self.windows()
+                     if w["window_id"] not in before and self.location(w["window_id"])]
+            if len(found) > 1:
+                raise ProbeError("Multiple GitHub sign-in panels")
+            return found[0] if found else None
+        window = self.wait(auth_window, 60)
+        self.record("GitHub native sign-in handoff", "New PID-scoped panel at verified GitHub HTTPS origin",
+                    self.screenshot(window, "github-sign-in"))
+        self.authenticate(window)
+        connected = self.wait(lambda: self.find(["Connected"], {"text"}, window=connect[0]), 60)
+        self.record("Accounts connected", "Connected state read from Accounts after sign-in panel closes",
+                    self.screenshot(connected[0], "connected"))
+        self.action("palette.newAgentChat")
+        for name in ("Folder", "Add project…", "GitHub repository"):
+            self.click(self.wait(lambda: self.find([name], {"button", "popup_button", "menu_item", "option", "row", "list_item"})))
+        repository = f"{self.args.org}/{self.args.repo}"
+        target = self.wait(lambda: self.find([repository, repository + " · Private"], {"button", "option", "row", "list_item"}), 60)
+        self.record("Repository list visible", "Exact repository row in GitHub picker: " + repository,
+                    self.screenshot(target[0], "repository-list"))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ("app", "socket", "out"):
+        parser.add_argument("--" + name, required=True)
+    parser.add_argument("--pid", type=int, required=True)
+    parser.add_argument("--org", default="cmux-cloud-test-org")
+    parser.add_argument("--repo", default="pr-target")
+    parser.add_argument("--cli")
+    args = parser.parse_args(argv)
+    probe = Probe(args)
     status = 1
-    error = ""
     try:
-        status = _run_probe()
-    except Exception as exc:  # noqa: BLE001 - the evidence wrapper must survive probe failures
-        error = scrub(exc)
-        record("probe exception", False, error)
+        probe.run()
+        status = 0
+    except Exception as error:
+        detail = str(error) if isinstance(error, ProbeError) else type(error).__name__
+        for name in SECRET_NAMES:
+            value = os.environ.get(name)
+            if value:
+                detail = detail.replace(value, "[redacted]")
+        probe.steps.append({"step": "probe", "ok": False, "detail": detail[:500]})
     finally:
-        result = {"ok": status == 0 and not error,
-                  "app": {"version": APP_META.get("CFBundleShortVersionString"),
-                          "build": APP_META.get("CFBundleVersion"),
-                          "commit": APP_META.get("CMUXCommit")},
-                  "repo": REPO, "steps": steps,
+        if probe.cu:
+            try:
+                probe.cu.close()
+            except Exception:
+                status = 1
+                probe.steps.append({"step": "computer-use cleanup", "ok": False,
+                                    "detail": "Owned MCP client did not stop cleanly"})
+        result = {"ok": status == 0, "app": {"path": args.app, "pid": args.pid,
+                  "version": probe.meta.get("CFBundleShortVersionString"), "commit": probe.meta.get("CMUXCommit")},
+                  "repo": f"{args.org}/{args.repo}", "steps": probe.steps,
                   "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-        if error:
-            result["error"] = error
-        (OUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-        (OUT / "summary.md").write_text("# Accounts NIGHTLY probe\n\n" +
-                                        "\n".join(f"- {'PASS' if x['ok'] else 'FAIL'} **{x['step']}**: {x['detail']}" for x in steps) + "\n")
+        (probe.out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        (probe.out / "summary.md").write_text("# Accounts NIGHTLY probe\n\n" + "\n".join(
+            f"- {'PASS' if item['ok'] else 'FAIL'} **{item['step']}**: {item['detail']}" for item in probe.steps) + "\n")
         print("ACCOUNTS_NIGHTLY_PROBE " + json.dumps(result, separators=(",", ":")), flush=True)
     return status
 
 
-if __name__ == "__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())
