@@ -76,6 +76,7 @@ mod client_request;
 mod compressed_link_tests;
 pub(crate) mod computer_use_relay;
 pub mod conn_auth;
+pub(crate) mod conn_handover;
 mod connection_loop;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
@@ -1331,35 +1332,42 @@ pub async fn serve_unix_with_v2(
                 continue;
             }
         };
-        // The socket's mode admits this user only; the peer's uid says so again (one
-        // getsockopt, its pid read from the same answer below).
-        let cred = stream.peer_cred().ok();
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        let own = unsafe { libc::geteuid() };
-        if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
-            tracing::warn!(
-                uid = ?cred.map(|c| c.uid()),
-                "refused a socket peer that is not this user"
-            );
-            continue;
-        }
-        let hub = hub.clone();
-        let v2 = v2.clone();
-        tokio::spawn(async move {
-            // Named by its audit token, read once here, never by pid.
-            let peer = {
-                use std::os::fd::AsRawFd;
-                cmux_link::app_caller::peer_token(stream.as_raw_fd())
-            };
-            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
-            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = cred
-                .and_then(|c| c.pid())
-                .and_then(|p| u32::try_from(p).ok())
-                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
-        });
+        serve_accepted(hub.clone(), stream, v2.clone());
     }
+}
+
+/// Serve one connection of the daemon socket: one the listener accepted, or one the previous
+/// daemon accepted and handed over at a take-over (`conn_handover.rs`). Its peer is read from
+/// the socket either way, so it is the client's, and either way it must be this user.
+#[cfg(unix)]
+pub(crate) fn serve_accepted(
+    hub: Arc<Hub>,
+    stream: tokio::net::UnixStream,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) {
+    // The socket's mode admits this user only; the peer's uid says so again (one
+    // getsockopt, its pid read from the same answer below).
+    let cred = stream.peer_cred().ok();
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let own = unsafe { libc::geteuid() };
+    if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
+        tracing::warn!(uid = ?cred.map(|c| c.uid()), "refused a socket peer that is not this user");
+        return;
+    }
+    tokio::spawn(async move {
+        // Named by its audit token, read once here, never by pid.
+        let peer = {
+            use std::os::fd::AsRawFd;
+            cmux_link::app_caller::peer_token(stream.as_raw_fd())
+        };
+        // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+        let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+        let socket_peer = cred
+            .and_then(|c| c.pid())
+            .and_then(|p| u32::try_from(p).ok())
+            .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+        stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
+    });
 }
 
 static INDEX_HTML: cmux_embed::PackedStr =

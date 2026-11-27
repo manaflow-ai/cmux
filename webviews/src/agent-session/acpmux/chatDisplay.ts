@@ -179,6 +179,9 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
 /// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
 export const SEND_POP_KEY = "agentPane.display.sendPop";
+/// A sent prompt scrolls to the top of the transcript, with room under it for the reply (off by default;
+/// Leo, cmux#56827: "sent message scrolls to top"). Read by VirtualTranscript's room under the rows.
+export const SEND_SCROLLS_TO_TOP_KEY = "agentPane.display.sendScrollsToTop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -603,6 +606,7 @@ let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
+let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -682,6 +686,7 @@ export function setChatDisplay(value: unknown): void {
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
+  const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
   setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
@@ -741,6 +746,7 @@ export function setChatDisplay(value: unknown): void {
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
+    sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -768,6 +774,7 @@ export function setChatDisplay(value: unknown): void {
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
+  sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -938,6 +945,10 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
+const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
+/// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
+export const useSendScrollsToTop = (): boolean =>
+  useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const modelPickerStyleSnapshot = () => modelPickerStyle;
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
