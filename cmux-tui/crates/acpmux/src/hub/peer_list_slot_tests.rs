@@ -1,73 +1,56 @@
-//! A peer's whole lists while its shard is busy (cmux#56153): the newest replaces the ones
-//! waiting, so a churning peer holds one list here, not one per flap.
+//! Whole lists cross a link's backlog, the ingress, and a shard on the way to the rows.
 use super::*;
 use crate::peer::{Peer, PeerNotice};
+use futures_util::FutureExt as _;
+use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
 
-fn list(name: &str) -> PeerNotice {
-    PeerNotice::sessions_from_values(vec![
-        json!({"sessionId":"live", "name":name, "status":"ready"}),
-        json!({"sessionId":"done", "name":"done", "status":"closed"}),
-    ])
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn a_busy_shard_applies_only_the_newest_of_a_peers_waiting_lists() {
-    let mut config = Config::default();
-    config.store.mode = crate::config::StoreMode::Memory;
-    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(config, store);
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
     let peer = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
+    peer.coalesce_lists();
     hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
-    hub.apply_peer_notice(&peer.name, peer.generation, list("start"));
-    let mut events = hub.events.subscribe();
-    let held_before = hub.peer_lists_waiting.held_count();
-
-    // The shard is busy: the rows' writer lock is held, so the first list waits on it while
-    // forty more of the same peer come in behind it, as under churn.
-    const LISTS: usize = 40;
-    let fence = hub.remote_sessions.fence();
-    for n in 0..LISTS {
-        let notice = list(&format!("v{n}"));
-        hub.peer_notices.send((peer.name.clone(), peer.generation, notice)).await.unwrap();
-    }
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while hub.peer_lists_waiting.held_count() - held_before < LISTS as u64 {
-        assert!(tokio::time::Instant::now() < deadline, "the notice loop never took the lists");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    assert!(
-        hub.peer_lists_waiting.waiting() <= 1,
-        "a peer's lists waiting for its shard: one at most, the newest"
-    );
-    drop(fence);
-
-    // A barrier: once Connected settled, every notice before it was applied.
+    peer.connected.store(true, SeqCst);
     let mut settled = peer.settled();
     let seen = *settled.borrow();
-    hub.peer_notices
-        .send((peer.name.clone(), peer.generation, PeerNotice::Connected))
-        .await
-        .unwrap();
-    tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n > seen))
-        .await
-        .expect("the notices settle")
-        .unwrap();
+    let send = |notice| {
+        peer.queue_notice_for_test(notice)
+            .now_or_never()
+            .expect("room in the link backlog")
+            .expect("hub receiving");
+    };
 
-    let last = format!("v{}", LISTS - 1);
-    assert_eq!(
-        hub.resolve_remote("live").unwrap().2["name"],
-        last.as_str(),
-        "the newest list's rows"
-    );
-    let mut applied = 0;
-    while let Ok(event) = events.try_recv() {
-        applied += usize::from(event.session_id == "live");
+    // No yield on a current-thread runtime. The hub and its shard cannot drain until the
+    // producer has filled the 4096-entry ingress and started using its own backlog.
+    const LISTS: usize = 6000;
+    let mut rows = Vec::with_capacity(LISTS);
+    for n in 0..LISTS {
+        let row: Arc<str> =
+            Arc::from(format!(r#"{{"sessionId":"live","name":"v{n}","status":"ready"}}"#));
+        rows.push(Arc::downgrade(&row));
+        send(PeerNotice::Sessions(vec![row]));
+        if n == 0 {
+            // A skipped list still owns its Listed. The next link's patch needs that missing
+            // baseline, so its Listed must not wake deliveries or declare a missing name final.
+            send(PeerNotice::Listed);
+            peer.link_ended();
+            send(PeerNotice::SessionsPatch { rows: vec![], gone: vec!["live".into()] });
+            send(PeerNotice::Listed);
+        }
     }
-    // The one the shard took before the lists piled up, and the newest: on the old queue all 40.
-    assert!(
-        applied <= 2,
-        "the shard applied {applied} of {LISTS} lists; superseded ones go unapplied"
-    );
-    assert_eq!(hub.peer_lists_waiting.waiting(), 0);
+    send(PeerNotice::Listed);
+    send(PeerNotice::Restarting); // settle after the last Listed, without a Connected wake
+    assert_eq!(hub.peer_notices.capacity(), 0, "the ingress is full");
+    assert_eq!(rows.iter().filter(|r| r.strong_count() > 0).count(), 1);
+    assert!(rows.last().unwrap().strong_count() > 0, "the newest payload survives");
+
+    tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n > seen))
+        .await
+        .expect("the shard drains")
+        .unwrap();
+    assert_eq!(hub.resolve_remote("live").unwrap().2["name"], "v5999");
+    assert_eq!(hub.outbox.peer_ready_count(&peer.name), 1, "only the applied list wakes sends");
+    assert!(peer.rows_current());
+    assert!(hub.no_session_is_final("remote/missing"));
 }

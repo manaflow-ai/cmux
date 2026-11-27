@@ -266,7 +266,6 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_idle;
 mod peer_lease;
-mod peer_list_slot;
 #[cfg(test)]
 mod peer_list_slot_tests;
 #[cfg(test)]
@@ -1284,9 +1283,6 @@ pub struct Hub {
     /// A peer cache save was put off (`save_peer_cache`): the notice loop arms its one cache
     /// deadline. With nothing put off it sets no timer (`peer_grace.rs`).
     pub(super) peer_cache_kick: Notify,
-    /// Each peer's newest whole list, waiting for its notice shard: a newer one replaces it
-    /// (`peer_list_slot.rs`, cmux#56153).
-    pub(super) peer_lists_waiting: peer_list_slot::WaitingLists,
     /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
     #[cfg(test)]
     pub(super) cache_test_save_every_ms: AtomicU64,
@@ -1876,7 +1872,6 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             peer_cache_kick: Notify::new(),
-            peer_lists_waiting: Default::default(),
             #[cfg(test)]
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             model_lists: model_lists::ModelLists::default(),

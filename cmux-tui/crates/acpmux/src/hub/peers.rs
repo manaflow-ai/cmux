@@ -186,6 +186,7 @@ impl Hub {
             self.peer_notices.clone(),
             leased,
         );
+        peer.coalesce_lists();
         if let Some(transport) = &self.wireguard
             && let Some(configured) = &pc.wireguard
             && let Some(address) = transport.route_for(name, configured)
@@ -929,6 +930,13 @@ impl Hub {
             match notice {
                 // Whether a name missing from its rows is final, and messages waiting for the
                 // peer go now (`hub/no_session.rs`).
+                PeerNotice::WaitingList(number) => {
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation)
+                        && let Some(rows) = p.take_waiting_list(number)
+                    {
+                        self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(rows));
+                    }
+                }
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");

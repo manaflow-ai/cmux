@@ -183,16 +183,7 @@ impl Hub {
                     continue;
                 }
             };
-            // A whole list waits in its peer's slot, where a newer one replaces it; the shard gets
-            // a marker (`peer_list_slot.rs`). Lists queued by count held every list of every flap.
-            let work = match work {
-                Work::Notice(peer, generation, PeerNotice::Sessions(rows)) => {
-                    let number = self.peer_lists_waiting.hold(&peer, generation, rows);
-                    Work::List(peer, generation, number)
-                }
-                work => work,
-            };
-            let (Work::Notice(peer, ..) | Work::List(peer, ..)) = &work else { continue };
+            let Work::Notice(peer, ..) = &work else { continue };
             let Some(shard) = shards.get(notice_shard(peer)) else { continue };
             // A full shard holds only the notices behind it here; the other shards keep going.
             tokio::select! {
@@ -263,24 +254,30 @@ impl Hub {
                     continue;
                 }
                 Work::Notice(peer, generation, notice) => (peer, generation, notice),
-                // The list this marker stands for, unless a newer one of the peer replaced it:
-                // that one's marker is behind this one.
-                Work::List(peer, generation, number) => {
-                    match this.peer_lists_waiting.take(&peer, generation, number) {
-                        Some(rows) => (peer, generation, PeerNotice::Sessions(rows)),
-                        None => continue,
-                    }
-                }
             };
             let started = Instant::now();
             let queued = rx.len() as u64;
-            let label = notice.label();
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
             let Some(current) = this.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
+            let notice = match notice {
+                PeerNotice::WaitingList(number) => {
+                    let Some(rows) = current.take_waiting_list(number) else {
+                        continue;
+                    };
+                    PeerNotice::Sessions(rows)
+                }
+                other => other,
+            };
+            if matches!(notice, PeerNotice::SessionsPatch { .. })
+                && current.list_baseline_missing.load(Ordering::SeqCst)
+            {
+                continue;
+            }
+            let label = notice.label();
             let settles = matches!(
                 notice,
                 PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
@@ -388,8 +385,6 @@ fn notice_shard(peer: &str) -> usize {
 
 enum Work {
     Notice(String, u64, PeerNotice),
-    /// A peer instance's whole list, by its number, held in `Hub::peer_lists_waiting`.
-    List(String, u64, u64),
     /// The timer found this instance's row deadline due (`Grace::firing`).
     Expire(String, u64),
 }
