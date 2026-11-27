@@ -58,5 +58,5 @@ if [[ "${LOAD:-1}" != 0 ]]; then
   busy=()
   for _ in $(seq "$(nproc)"); do (while :; do :; done) & busy+=($!); done
   for which in old new; do run "load-warm-$which" "$which"; run "load-$which" "$which"; done
-  kill "${busy[@]}" 2>/dev/null
+  kill ${busy[@]+"${busy[@]}"} 2>/dev/null
 fi

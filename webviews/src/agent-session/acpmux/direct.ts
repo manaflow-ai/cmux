@@ -84,6 +84,7 @@ import {
   peerStatesFromStatus,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
+import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
@@ -7552,7 +7553,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.retryOwedLagRead();
-      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
+      // Session changes are complete summaries. Keep the projection in sync even when an older
+      // daemon omits composerStatus: omission means there are no status items to publish.
+      this.summary = {
+        ...this.summary,
+        ...session,
+        composerStatus: readComposerStatus(session.composerStatus),
+        loopEpisode: session.loopEpisode ?? null,
+      };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
@@ -12073,6 +12081,7 @@ export class AcpmuxDirectClient {
           machine: text(summary.machine),
           peer: text(summary.peer),
           hostKind: hostKind(summary.hostKind),
+          composerStatus: readComposerStatus(summary.composerStatus),
           // Auto (autoSession/autoSession.ts): the same object while acpmux's row says the same.
           ...((this.publishedAuto = autoSessionOf(summary.autoSession, this.publishedAuto)) && {
             autoSession: this.publishedAuto,
