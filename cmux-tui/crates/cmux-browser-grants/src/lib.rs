@@ -197,15 +197,14 @@ impl Lease {
 pub struct Leases(pub Vec<Lease>);
 
 impl Leases {
-    fn covering<'a>(&'a self, site: &'a str, now_ms: u64) -> impl Iterator<Item = &'a Lease> {
+    fn covering(&self, site: String, now_ms: u64) -> impl Iterator<Item = &Lease> {
         // A stored row is matched in the same spelling as the host.
         self.0.iter().filter(move |lease| lease.live_at(now_ms) && site_of(&lease.site) == site)
     }
 
     /// The strongest live lease covering `host`, if any.
     pub fn lease_for(&self, host: &str, now_ms: u64) -> Option<&Lease> {
-        let site = site_of(host);
-        self.covering(&site, now_ms).max_by_key(|lease| lease.tier)
+        self.covering(site_of(host), now_ms).max_by_key(|lease| lease.tier)
     }
 
     /// Why `host` may not be read (reached, observed, captured), or `None`
@@ -246,7 +245,7 @@ impl Leases {
         }
         let site = site_of(host);
         let lasting = self
-            .covering(&site, now_ms)
+            .covering(site.clone(), now_ms)
             .any(|lease| lease.tier != Tier::Commit && lease.tier >= needed);
         if lasting || needed == Tier::Read {
             return Ok(None);
