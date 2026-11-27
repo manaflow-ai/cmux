@@ -13703,6 +13703,9 @@ export class AcpmuxDirectClient {
         void store.remove(sessionId, promptId).catch(() => undefined);
         continue;
       }
+      // Sent while the pane had no link (offlineSends.ts): never refused, it is the pane's queue's
+      // to send, not a Not sent row.
+      if (record.queued) continue;
       if (!this.unsentKept.has(promptId)) this.unsentKept.set(promptId, { sessionId, record });
       const rowId = `local-${promptId}`;
       if (this.rows.has(rowId) || this.deliveries.has(promptId)) continue;
