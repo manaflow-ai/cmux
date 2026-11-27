@@ -86,6 +86,7 @@ cmux-tui/crates/cmux-classic-import/src/source.rs	com.cmuxterm.app"	1	keep	the C
 cmux-tui/crates/cmux-classic-import/src/source.rs	join("cmux")	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-cloud-environment/src/client_config.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/platform/linux/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-config/src/app_ops/section_reads.rs	com.cmuxterm.app"	1	keep	Computer Use deny-list migration: a retired default entry it strips from saved lists, never an id NEXT runs as
 cmux-tui/crates/cmux-config/src/managed/mod.rs	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain
 cmux-tui/crates/cmux-config/src/managed/manifest.rs	com.cmuxterm.app	1	keep	MDM forced prefs from the legacy domain (the manifest's doc line)
 cmux-tui/crates/cmux-config/src/managed/policy.rs	com.cmuxterm.app	2	keep	MDM forced prefs from the legacy domain

@@ -276,7 +276,8 @@ final class ComputerUseFloatingPreviewView: NSView {
         pointerLayer.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)
         pointerLayer.cornerRadius = 6 // radius-allow: the agent pointer is a 12 pt round dot, not a button
         pointerLayer.backgroundColor = NSColor.systemBlue.cgColor
-        pointerLayer.borderColor = NSColor.white.cgColor
+        // The dot's halo is the theme's window color, so it reads against any screenshot and follows the theme (rule R6).
+        pointerLayer.borderColor = Palette.windowBackground.cgColor
         pointerLayer.borderWidth = 2
         pointerLayer.isHidden = true
         frameLayer.addSublayer(pointerLayer)

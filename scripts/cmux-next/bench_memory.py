@@ -1959,7 +1959,7 @@ def shipped_isolation(bundle: str, env: dict, relaunch: bool) -> None:
     env[smoke.UPDATER_OFF_VARIABLE] = "1"
     # Short: a Unix socket path holds at most 104 bytes, and a step's TMPDIR is long. Named cmux*.sock in /tmp,
     # where launch() looks.
-    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
+    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-next-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         os.makedirs(os.path.join(home, sub), exist_ok=True)
     try:
