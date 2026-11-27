@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
+description: "Customize cmux: cmux-next.json (or cmux.json) actions, commands, layouts, buttons, palette, Dock, sidebar, settings, shortcuts, notifications, browser routing, terminal, own views."
 ---
 
 # cmux Customization
@@ -150,6 +150,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // One look for both appearances: name a pair ("light:Rose Pine Dawn,dark:Rose Pine") and add
+  // "light": {...} and "dark": {...} inside "colors"; each paints only its side, over the plain colors.
   // Or a Ghostty theme block:
   // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }

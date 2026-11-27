@@ -120,6 +120,8 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// The chats moving to another machine now: each window's sidebar row for the move.
+    let chatMoves = ChatMoves()
     /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
     /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
     @ObservationIgnored let computerControl = ChiefComputerControlStore()
@@ -173,7 +175,7 @@ final class CloudService {
         self.mainWork = mainWork
         self.work = work
         configuration = selectedConfiguration ?? .unavailable
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, consentSession: SessionConsentClient.consentSession(configuration))
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
