@@ -188,7 +188,7 @@ pub(super) fn app_exec(
     let Verb::Exec { command: line, .. } = &command.verb else { return None };
     let named =
         command.api.is_some() || command.credential_file.is_some() || command.team.is_some();
-    if named || env(API_ENV).is_some() || env(TOKEN_ENV).is_some() {
+    if named || env(API_ENV).is_some() || super::api_tokens::env_credential(&env).is_some() {
         return None;
     }
     Some(vec![
@@ -214,8 +214,10 @@ pub(super) fn resolve(
         // The error names neither the path nor the file's contents (a pasted secret could be in either).
         Some(path) => std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?,
-        None => env(TOKEN_ENV).ok_or_else(|| {
-            format!("give your cmux credential with --cloud-token-file PATH or {TOKEN_ENV}")
+        None => super::api_tokens::env_credential(&env).ok_or_else(|| {
+            format!(
+                "give your cmux credential with --cloud-token-file PATH, {TOKEN_ENV} or CMUX_TOKEN"
+            )
         })?,
     };
     let credential = credential.trim().to_owned();
