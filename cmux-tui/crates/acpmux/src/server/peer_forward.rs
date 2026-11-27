@@ -48,6 +48,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PERF,
     method::MUX_CALLERS,
     method::MUX_FELT_SNAPSHOT,
+    // A hold of this machine's own watchdog, before its pause.
+    method::MUX_WATCHDOG_HOLD,
     method::MUX_SESSIONS,
     method::MUX_USAGE,
     method::MUX_WEB_MODES,
@@ -129,6 +131,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // A peer admits this daemon's WireGuard key itself (`peer_wg_learn.rs`).
+    crate::peer::wg_learn::ADMIT,
     // This machine's own load and swap, for its app's warning (`host_overload.rs`).
     "_acpmux/host_overload",
     "_acpmux/place",
@@ -1047,9 +1051,9 @@ async fn forward_inner(
             peer_read(&peer.link_read(), PEER_READ_IDLE, PEER_READ_CAP, peer.request_on(m, p, on))
                 .await
                 .unwrap_or_else(|stalled| Err(RpcError::internal(format!(
-                    "reading {m} from peer {} stopped: {stalled}; check the peer connection and retry this read",
+                    "reading {m} from peer {} stopped: {stalled}; its daemon took the read but has not answered",
                     peer.name
-                )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
+                )).with_data(json!({"reason": "peer_read_timeout", "retryable": true, "peer": peer.name, "method": m}))))
         } else if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,

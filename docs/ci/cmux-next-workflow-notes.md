@@ -2127,6 +2127,16 @@ job's minutes) and 277 failed in setup (Set up job, checkout averaging 578 s aga
 min). On the GCP pool the same job passed 478 of 583 runs, median 15.5 min. 16 was already the overflow arm's size, so that
 arm is gone (linux_sizes: size 16, no failover).
 
+The `cmux-fleet-linux-x64` label alone did not keep it off Freestyle: hq's freestyle_runners.py registers every `fsr-*`
+runner with `cmux-fleet-linux-x64` too (runner_labels) and serves that label's queue as a peer, so a job on the bare label
+still started on Freestyle. On 2026-11-27 this job on `fsr-*` runners: 387 runs, 5 passed, 255 hit the 30 min timeout
+(GitHub reports them as cancelled) and 127 failed; on `cmux-runner-pool-*` its median was 14 min. So the job asks for
+`cmux-has-netem` beside the frozen label. Every pool VM registers that label (hq runner_pool.py NETEM_CAP, in
+POOL_LABELS), no Freestyle VM does (no sch_netem on its 6.1 kernel), and freestyle_runners.py's unserved_cap() leaves a
+job that asks for it out of Freestyle demand, so it is neither queue nor overflow there. hq's screenshare-bench Linux host
+asks for the same pair for the same reason. The "Stop on a Freestyle runner whose link cannot finish this job" step
+stays as a backstop. The timeout stays 30 min: Leo, "fix that today, not in a writeup".
+
 ## note-207
 
 Above `fast-tier-cargo: env` in `.github/workflows/cmux-next.yml`.
@@ -3219,7 +3229,7 @@ land-judge had no verdict to read: job 131984422217 (run 43454315926) and job 13
 (test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
 as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
-other route keeps 15.
+other route keeps 20 (2026-11-27: `cmux-next-workflow-notes/2026-11-27-checks-timeout-20.md`).
 
 ## note-350
 

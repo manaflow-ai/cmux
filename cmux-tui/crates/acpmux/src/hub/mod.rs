@@ -135,7 +135,7 @@ mod git_watch;
 // RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
+pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
@@ -474,6 +474,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
+mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
@@ -484,6 +485,7 @@ mod turn_usage;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+mod unattended_ask;
 pub(crate) mod unattended_presets;
 mod unread_steer;
 // What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
@@ -493,6 +495,7 @@ mod update_cost_bench;
 mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod sidecars;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
