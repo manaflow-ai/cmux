@@ -18,7 +18,7 @@ fn read(path: &str) -> String {
     std::fs::read_to_string(repo().join(path)).unwrap_or_else(|error| panic!("{path}: {error}"))
 }
 
-fn is_surface(folder: &str) -> bool {
+fn is_layer(folder: &str) -> bool {
     let folder = format!("{}/", folder.trim_end_matches('/'));
     SURFACES.iter().any(|(prefix, _)| *prefix == folder)
 }
@@ -54,13 +54,13 @@ fn bundle_outputs() -> Vec<String> {
 }
 
 #[test]
-fn every_web_bundle_the_app_ships_is_a_layer_surface() {
+fn every_web_bundle_the_app_ships_is_a_layer() {
     for output in bundle_outputs() {
         if NOT_APP_PAGES.iter().any(|(path, _)| *path == output) {
             continue;
         }
         assert!(
-            is_surface(&output),
+            is_layer(&output),
             "{output} is bundled in the app but no layer surface: with a layer on, its pages \
              load from the bundle (add it to SURFACES and dir.rs BUILDERS)"
         );
@@ -68,7 +68,7 @@ fn every_web_bundle_the_app_ships_is_a_layer_surface() {
 }
 
 #[test]
-fn every_folder_marked_as_build_output_is_a_layer_surface() {
+fn every_folder_marked_as_build_output_is_a_layer() {
     let sources = repo().join("Packages/macOS/CmuxNext/Sources");
     let mut marked = Vec::new();
     for module in std::fs::read_dir(&sources).unwrap().filter_map(Result::ok) {
@@ -82,7 +82,7 @@ fn every_folder_marked_as_build_output_is_a_layer_surface() {
     }
     assert!(marked.len() >= 3, "found too few bundled web folders: {marked:?}");
     for folder in marked {
-        assert!(is_surface(&folder), "{folder} is bundled web output but no layer surface");
+        assert!(is_layer(&folder), "{folder} is bundled web output but no layer surface");
     }
 }
 
@@ -107,8 +107,8 @@ fn built_pages() -> Vec<String> {
 }
 
 #[test]
-fn every_react_page_route_is_built_into_the_pages_surface() {
-    assert!(is_surface("Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"));
+fn every_react_page_route_is_built_into_the_pages_layer() {
+    assert!(is_layer("Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"));
     let built = built_pages();
     let pages = repo().join("webviews/src/pages");
     let mut routes = Vec::new();
