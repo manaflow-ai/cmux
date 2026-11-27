@@ -3,7 +3,8 @@
 // (page_scheme_registration.h). Each id gets its own scheme handler factory
 // for the domain <id>, on the global context and on every request context
 // the shim creates (each profile keeps its own factories). The path rules
-// live in cmux_page_path.h (scripts/cmux-next/test-cmux-page-path-cpp.sh).
+// live in cmux_page_path.h, the packed copies' in cmux_page_packed.h
+// (scripts/cmux-next/test-cmux-page-path-cpp.sh).
 
 #include <algorithm>
 #include <atomic>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <mutex>
 
+#include "cmux_page_packed.h"
 #include "cmux_page_path.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_handler.h"
@@ -33,8 +35,10 @@ namespace {
 // under a token of its own, and Chunk hands it to the waiting read.
 class DynamicResource : public CefResourceHandler {
  public:
-  DynamicResource(int token, int browser_id, std::string url, std::string csp)
-      : token_(token), browser_id_(browser_id), url_(std::move(url)), csp_(std::move(csp)) {}
+  DynamicResource(int token, int browser_id, std::string url, std::string csp,
+                  std::vector<std::pair<std::string, std::string>> extra_headers = {})
+      : token_(token), browser_id_(browser_id), url_(std::move(url)), csp_(std::move(csp)),
+        extra_headers_(std::move(extra_headers)) {}
 
   bool Open(CefRefPtr<CefRequest>, bool& handle_request, CefRefPtr<CefCallback> callback) override;
   void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& response_length, CefString&) override {
@@ -48,6 +52,7 @@ class DynamicResource : public CefResourceHandler {
     // it (a dev server's adds its HMR socket); every other answer keeps the page's own.
     for (auto& [name, value] : PageResponseHeaders(answer_csp_.empty() ? csp_ : answer_csp_)) headers.emplace(name, value);
     for (auto& [name, value] : range_headers_) headers.emplace(name, value);
+    for (auto& [name, value] : extra_headers_) headers.emplace(name, value);
     headers.emplace("Cache-Control", "no-store");
     response->SetHeaderMap(headers);
     response_length = streaming_ ? stream_.length : static_cast<int64_t>(body_.size());
@@ -123,6 +128,8 @@ class DynamicResource : public CefResourceHandler {
   const int browser_id_;
   const std::string url_;
   const std::string csp_;
+  // The own-renderer headers of an agent chat response (OwnRendererHeaders).
+  const std::vector<std::pair<std::string, std::string>> extra_headers_;
   std::mutex mutex_;
   CefRefPtr<CefCallback> callback_;
   bool answered_ = false;
@@ -254,6 +261,12 @@ void DynamicResource::Cancel() {
 // dev server or an overlay folder instead of the folder fixed at registration. Read per request.
 std::atomic<bool> g_live_pages{false};
 
+// The browser whose agent chat document gets a renderer of its own (OwnRendererHeaders), set by the
+// app on the main thread (cmux_shim_page_own_renderer); 0 for none. Read when a chat's top document
+// is answered, after one UI turn (DeferredPageResource's `after_ui_turn`), so a browser the app
+// named in the turn that created it is seen.
+std::atomic<int> g_own_renderer_browser{0};
+
 // Set by StopDeferredPageRequests, before CefShutdown.
 std::atomic<bool> g_page_requests_stopping{false};
 
@@ -271,8 +284,14 @@ class DeferredPageResource : public CefResourceHandler {
   static constexpr int kDeferredPageWaitMs = 5000;
   static constexpr int kDeferredPagePollMs = 10;
 
-  DeferredPageResource(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, Decide decide)
-      : browser_(browser), frame_(frame), decide_(std::move(decide)) {}
+  // `wait_for_frame`: wait for the top frame's URL (kWaitForFrame). `after_ui_turn`: decide only after the
+  // UI (main) thread finished the turn it is in, so what the app set in that turn is read
+  // (g_own_renderer_browser: a chat's browser is named in the turn tab_add created it, while its
+  // first request may already be on the IO thread).
+  DeferredPageResource(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, Decide decide,
+                       bool wait_for_frame = true, bool after_ui_turn = false)
+      : browser_(browser), frame_(frame), decide_(std::move(decide)), wait_for_frame_(wait_for_frame),
+        ui_turn_done_(!after_ui_turn) {}
 
   bool Open(CefRefPtr<CefRequest> request, bool& handle_request, CefRefPtr<CefCallback> callback) override {
     handle_request = false;
@@ -314,8 +333,10 @@ class DeferredPageResource : public CefResourceHandler {
 
   // Judge once the frame's URL is known, else look again shortly (TID_FILE_USER_BLOCKING).
   void Poll() {
+    // One UI turn first (UITurnTask comes back here on TID_FILE_USER_BLOCKING).
+    if (!ui_turn_done_.load() && !g_page_requests_stopping.load() && CefPostTask(TID_UI, new UITurnTask(this))) return;
     std::string frame_url = CurrentFrameURL();
-    const bool settled = !browser_ || (!frame_url.empty() && frame_url != "about:blank") ||
+    const bool settled = !wait_for_frame_ || !browser_ || (!frame_url.empty() && frame_url != "about:blank") ||
                          waited_ms_ >= kDeferredPageWaitMs;
     // No new poll once the shim shuts CEF down (CefPostDelayedTask then crashes): judge now.
     if (!settled && !g_page_requests_stopping.load() &&
@@ -353,6 +374,19 @@ class DeferredPageResource : public CefResourceHandler {
     IMPLEMENT_REFCOUNTING(PollTask);
   };
 
+  class UITurnTask : public CefTask {
+   public:
+    explicit UITurnTask(CefRefPtr<DeferredPageResource> owner) : owner_(owner) {}
+    void Execute() override {
+      owner_->ui_turn_done_.store(true);
+      if (!CefPostTask(TID_FILE_USER_BLOCKING, new PollTask(owner_))) owner_->Poll();
+    }
+
+   private:
+    CefRefPtr<DeferredPageResource> owner_;
+    IMPLEMENT_REFCOUNTING(UITurnTask);
+  };
+
   // The URL the browser now has for the requesting top frame: CEF's current frame of its id, else
   // the browser's main frame (the object Create got is often an early frame that never learns the
   // URL, and its id can be gone once the document commits).
@@ -372,6 +406,8 @@ class DeferredPageResource : public CefResourceHandler {
   const CefRefPtr<CefBrowser> browser_;
   const CefRefPtr<CefFrame> frame_;
   const Decide decide_;
+  const bool wait_for_frame_;
+  std::atomic<bool> ui_turn_done_;
   int waited_ms_ = 0;  // Poll only; its calls never overlap
   std::mutex mutex_;
   CefRefPtr<CefRequest> request_;
@@ -379,6 +415,54 @@ class DeferredPageResource : public CefResourceHandler {
   CefRefPtr<CefResourceHandler> inner_;
   bool cancelled_ = false;
   IMPLEMENT_REFCOUNTING(DeferredPageResource);
+};
+
+// A file the folder holds only packed (`<name>.deflate`, cmux_page_packed.h; CMUX-570): Open reads and
+// inflates it in memory. CEF calls Open and Read off the UI and IO threads, where a file read may
+// block (as CefStreamResourceHandler's file reads do); the viewers' first open inflates about 1.6 MB
+// into 5.6 MB this way. A copy that does not inflate is a 404, as a missing file is.
+class PackedFileResource : public CefResourceHandler {
+ public:
+  PackedFileResource(std::string packed, std::string mime, CefResponse::HeaderMap headers)
+      : packed_(std::move(packed)), mime_(std::move(mime)), headers_(std::move(headers)) {}
+
+  bool Open(CefRefPtr<CefRequest>, bool& handle_request, CefRefPtr<CefCallback>) override {
+    handle_request = true;
+    if (!ReadPackedPage(packed_, &body_)) {
+      body_ = "Not Found";
+      status_ = 404;
+      mime_ = "text/plain";
+    }
+    return true;
+  }
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& response_length, CefString&) override {
+    response->SetStatus(status_);
+    response->SetStatusText(PageStatusText(status_));
+    response->SetMimeType(mime_);
+    response->SetHeaderMap(headers_);
+    response_length = static_cast<int64_t>(body_.size());
+  }
+  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback>) override {
+    const size_t count = std::min(body_.size() - offset_, static_cast<size_t>(std::max(bytes_to_read, 0)));
+    if (count == 0) {
+      bytes_read = 0;
+      return false;
+    }
+    memcpy(data_out, body_.data() + offset_, count);
+    offset_ += count;
+    bytes_read = static_cast<int>(count);
+    return true;
+  }
+  void Cancel() override {}
+
+ private:
+  const std::string packed_;
+  std::string mime_;
+  const CefResponse::HeaderMap headers_;
+  int status_ = 200;
+  std::string body_;
+  size_t offset_ = 0;  // Open and Read run in sequence (CEF), never at once
+  IMPLEMENT_REFCOUNTING(PackedFileResource);
 };
 
 // Immutable after construction: Create runs off the UI thread.
@@ -411,21 +495,35 @@ class PageFactory : public CefSchemeHandlerFactory {
       headers.emplace("Cache-Control", "no-store");
       headers.emplace("X-Content-Type-Options", "nosniff");
       headers.emplace("Referrer-Policy", "no-referrer");
+      // A cross-origin isolated chat (OwnRendererHeaders) loads this frame only with a COEP of its own.
+      for (auto& [name, value] : OwnRendererHeaders(domain_, false, 0, 0)) headers.emplace(name, value);
       return Respond(200, "OK", "text/html", headers, kArtifactDocument, sizeof(kArtifactDocument) - 1);
     }
+    // An agent chat's top document is answered after one UI turn: whether it gets a renderer of its
+    // own is the app's word (OwnRendererHeaders), and the app may name the browser in the turn that
+    // created it.
+    const bool own_renderer_candidate = main_frame && browser && domain_ == kOwnRendererPageId;
     // A request with no frame has nothing to wait for: it is judged now.
     switch (JudgePageRequest(main_frame, frame_url, parent_url, domain_, !frame)) {
-      case PageRequestVerdict::kAllow:
-        return Serve(browser, request);
+      case PageRequestVerdict::kAllow: {
+        if (!own_renderer_candidate) return Serve(browser, request, main_frame);
+        CefRefPtr<PageFactory> self(this);
+        return new DeferredPageResource(
+            browser, frame, [self, browser, request](const std::string&) { return self->Serve(browser, request, true); },
+            /*wait_for_frame=*/false, /*after_ui_turn=*/true);
+      }
       case PageRequestVerdict::kRefuse:
         return Forbidden();
       case PageRequestVerdict::kWaitForFrame: {
         CefRefPtr<PageFactory> self(this);
-        return new DeferredPageResource(browser, frame, [self, browser, request](const std::string& settled_url) {
-          if (!DeferredPageRequestAllowed(settled_url, request->GetFirstPartyForCookies().ToString(), self->domain_))
-            return self->Forbidden();
-          return self->Serve(browser, request);
-        });
+        return new DeferredPageResource(
+            browser, frame,
+            [self, browser, request, main_frame](const std::string& settled_url) {
+              if (!DeferredPageRequestAllowed(settled_url, request->GetFirstPartyForCookies().ToString(), self->domain_))
+                return self->Forbidden();
+              return self->Serve(browser, request, main_frame);
+            },
+            /*wait_for_frame=*/true, /*after_ui_turn=*/own_renderer_candidate);
       }
     }
     return Forbidden();
@@ -438,7 +536,10 @@ class PageFactory : public CefSchemeHandlerFactory {
   }
 
   // An admitted request: the page's file, a dynamic path, or the live page host.
-  CefRefPtr<CefResourceHandler> Serve(CefRefPtr<CefBrowser> browser, CefRefPtr<CefRequest> request) const {
+  CefRefPtr<CefResourceHandler> Serve(CefRefPtr<CefBrowser> browser, CefRefPtr<CefRequest> request,
+                                      bool main_frame) const {
+    const std::vector<std::pair<std::string, std::string>> own_renderer =
+        OwnRendererHeaders(domain_, main_frame, browser ? browser->GetIdentifier() : 0, g_own_renderer_browser.load());
     if (request->GetMethod().ToString() != "GET") {
       static char kBody[] = "Method Not Allowed";
       CefResponse::HeaderMap headers = Headers();
@@ -451,13 +552,15 @@ class PageFactory : public CefSchemeHandlerFactory {
     const bool parsed = CefParseURL(request->GetURL(), parts);
     if (parsed && IsDynamicPagePath(CefString(&parts.path).ToString(), dynamic_prefixes_)) {
       // A generated file of one page view: only a page in a browser can ask.
-      if (browser) return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_);
+      if (browser)
+        return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_,
+                                   own_renderer);
       static char kBody[] = "Not Found";
       return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
     }
     // Live: the page host answers every file (server, then overlay, then web update, then bundle).
     if (parsed && browser && g_live_pages.load(std::memory_order_relaxed)) {
-      return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_);
+      return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_, own_renderer);
     }
     std::string path = parsed ? CefString(&parts.path).ToString() : std::string();
     // "/" is the page's entry document (a shared build folder names its own).
@@ -465,10 +568,17 @@ class PageFactory : public CefSchemeHandlerFactory {
     if (parsed && ResolvePagePath(root_, path, &file, &mime)) {
       if (CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForFile(file)) {
         CefResponse::HeaderMap headers = Headers();
+        for (auto& [name, value] : own_renderer) headers.emplace(name, value);
         // A file named by its content (pane.css?h=...): every page of the renderer shares its parse.
         if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
         return new CefStreamResourceHandler(200, "OK", mime, headers, stream);
       }
+    }
+    // Not in the folder: its packed copy beside it, when the app build stored it so.
+    if (parsed && ResolvePackedPagePath(root_, path, &file, &mime)) {
+      CefResponse::HeaderMap headers = Headers();
+      if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
+      return new PackedFileResource(file, mime, headers);
     }
     static char kBody[] = "Not Found";
     return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
@@ -635,5 +745,7 @@ int cmux_shim_page_resource_respond_page(int token, int status, const char* mime
 }
 
 void cmux_shim_page_scheme_set_live(int live) { g_live_pages.store(live != 0, std::memory_order_relaxed); }
+
+void cmux_shim_page_own_renderer(int browser_id) { g_own_renderer_browser.store(browser_id > 0 ? browser_id : 0); }
 
 }  // extern "C"

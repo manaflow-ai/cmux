@@ -36,7 +36,15 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
+import {
+  BuildNumbers,
+  ChangesFold,
+  Groups,
+  Hero,
+  Maintenance,
+  NotesUnavailable,
+  type PartsContext,
+} from "./ReleaseParts";
 import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, NewsLayout, ReleaseNotes } from "./types";
@@ -71,7 +79,7 @@ export function JournalPage({
   return (
     <KeyboardScope className="clw" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} />}
+        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} store={store} />}
         <div className={ledger ? "clj cll" : "clj"}>
           {!s.span && s.failed && <p className="cl-error">{s.failed}</p>}
           {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
@@ -114,11 +122,13 @@ function SpanSection({
   fresh,
   ctx,
   failed,
+  store,
 }: {
   s: ChangelogSnapshot;
   fresh: IndexEntry[];
   ctx: PartsContext;
   failed?: string;
+  store: ChangelogStore;
 }) {
   const loaded = fresh.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -141,7 +151,14 @@ function SpanSection({
           {span.to}
         </span>
       </div>
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} news />
+      <SectionBody
+        view={view}
+        pending={pending}
+        ctx={ctx}
+        // The span's builds are not in the list yet: Try again reads the list again (store.ts `retry`).
+        onRetryUnpublished={fresh.length === 0 ? () => void store.retry() : undefined}
+        news
+      />
     </section>
   );
 }
@@ -395,18 +412,20 @@ function SectionBody({
   view,
   pending,
   ctx,
-  unpublished = false,
+  onRetryUnpublished,
   heroTitled = true,
   news = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
-  unpublished?: boolean;
+  /** Set when the section's builds are not published in the list yet: its line and Try again. */
+  onRetryUnpublished?: () => void;
   heroTitled?: boolean;
   /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
   news?: boolean;
 }) {
+  const unpublished = onRetryUnpublished !== undefined;
   // The update waits for every build of its span (they load at once): drawn early, its fold would
   // open on the first build's bare changes and close again when a later build's notes arrive.
   if (pending && (news || (view.count === 0 && view.changes.length === 0)))
@@ -415,7 +434,7 @@ function SectionBody({
     <>
       {!news && view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
-      {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
+      {onRetryUnpublished && <NotesUnavailable strings={ctx.strings} onRetry={onRetryUnpublished} />}
       {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
       {/* With no curated notes the changes are the news, so the update opens them. */}
       <ChangesFold

@@ -8,7 +8,9 @@
 // a timer. A read that comes back after the panel closed or the chat changed is dropped.
 import { useEffect, useState } from "react";
 
-export type ChangeCounts = { additions: number; deletions: number };
+/// `files`: how many files changed (the reply's `total_files`, else its file list), when it says;
+/// the Environment card's pill names it (EnvironmentCard.tsx ChangesPill).
+export type ChangeCounts = { additions: number; deletions: number; files?: number };
 
 /// Reads one `git.diff` scope of the chat's folder, patch left out (direct.ts `gitDiffCounts`).
 export type ReadChanges = (scope: "uncommitted" | "branch") => Promise<unknown>;
@@ -19,8 +21,10 @@ const count = (value: unknown) => (typeof value === "number" && Number.isFinite(
 export function countsOf(reply: unknown): ChangeCounts | undefined {
   if (!reply || typeof reply !== "object") return undefined;
   const raw = reply as Record<string, unknown>;
-  const counts = { additions: count(raw.additions), deletions: count(raw.deletions) };
-  return counts.additions + counts.deletions > 0 ? counts : undefined;
+  const counts: ChangeCounts = { additions: count(raw.additions), deletions: count(raw.deletions) };
+  if (counts.additions + counts.deletions === 0) return undefined;
+  const files = count(raw.total_files) || (Array.isArray(raw.files) ? raw.files.length : 0);
+  return files > 0 ? { ...counts, files } : counts;
 }
 
 /// The folder's changes: uncommitted first, else the branch's against its base.

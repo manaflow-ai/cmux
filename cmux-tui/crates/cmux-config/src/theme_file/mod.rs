@@ -18,9 +18,14 @@
 //! as a theme file: applying it changes nothing.
 
 mod colors;
+pub mod contrast;
+pub mod frame_tone;
+pub mod motion;
 pub mod render;
+pub mod slots;
+pub mod two_tone;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -28,6 +33,7 @@ use serde_json::Value;
 
 use crate::domains::Domains;
 use crate::keypath::{dotted, key_path};
+use crate::migrations::Notice;
 use crate::refusal::Refusal;
 use crate::render::compact;
 use crate::schema::{Accepted, DomainKind, Row, Schema, Validation, accepts};
@@ -45,12 +51,14 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
+pub const RESERVED_KEYS: [&str; 9] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts", "motion"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), the saved
-/// custom densities, and the keys the person changed over the file.
-const EXCLUDED_KEYS: [&str; 9] = [
+/// (where this Mac is), what each background mode last showed and the
+/// backgrounds shown before, the saved custom densities, where each picture
+/// is placed, and the keys the person changed over the file.
+const EXCLUDED_KEYS: [&str; 12] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -59,6 +67,9 @@ const EXCLUDED_KEYS: [&str; 9] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    "appearance.backgroundMemory",
+    "appearance.backgroundPlacement",
+    "appearance.backgroundRecents",
     EXCEPTIONS_KEY,
 ];
 /// The look keys the person changed in Settings while the active theme
@@ -74,8 +85,10 @@ pub fn exceptions_in(root: &Value) -> BTreeSet<String> {
         .map(|keys| keys.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default()
 }
-const LOOK_PREFIXES: [&str; 7] = [
+const LOOK_PREFIXES: [&str; 8] = [
     "appearance.",
+    // The agent chat's typography: a font pack's families and face files.
+    "agentPane.display.font.",
     "ui.animation",
     "ui.calm",
     "ui.paneAnimations",
@@ -83,23 +96,83 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// Look keys outside those prefixes: the terminal font and the chat code font;
+/// the sidebar's shape, edges, text, group headers and buttons, whether its
+/// menus are drawn (so the menu look styles them), the sidebar look
+/// (`sidebar_look`), and how its rows draw (status icons, timestamps, colors,
+/// grouping), so one file restyles the sidebar as a whole (the shipped
+/// `minimal-sessions`); the tab strip's and titlebar's buttons and inactive
+/// tabs; pane corners; the agent chat's text sizes, sender marks and Session
+/// Info; the transcript look and its tokens, and how a reply streams
+/// (`agentPane.display.streaming`)
+/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
+/// `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 48] = [
     "terminal.fontFamily",
+    "agentPane.display.code.family",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "agentPane.display.transcriptLook",
+    "agentPane.display.transcriptTokens",
+    "agentPane.display.streaming",
+    "sidebar.look",
+    "sidebar.drawnMenus",
+    "sidebar.density",
+    "sidebar.textSize",
+    "sidebar.groupHeader.background",
+    "sidebar.groupPalette",
+    "sidebar.groupGradient",
+    "sidebar.showSearchButton",
+    "sidebar.showProfileControl",
+    "sidebar.showNewWorkspaceChooser",
+    "sidebar.controlsOnHover",
+    "sidebar.detailedStatusIcons",
+    "sidebar.showColors",
+    "sidebar.showTimestamps",
+    "workspaceColors.indicatorStyle",
+    "sidebar.groupBy",
+    "sidebar.groupHeader.memberCount",
+    "sidebar.groupHeader.unreadCount",
+    "sidebar.spacesVisibility",
+    "tabs.toolbarButtons",
+    "tabs.plusButton",
+    "window.titlebarButtons",
+    "focus.inactiveTabStyle",
+    "layout.paneCornerRadius",
+    "layout.cornerPadding",
+    "layout.paneBorderWidth",
+    "agentPane.display.sessionInfo.placement",
+    "agentPane.display.font.preset",
+    "agentPane.display.font.ui",
+    "agentPane.display.font.size",
+    "agentPane.display.font.lineHeight",
+    "agentPane.display.code.scale",
+    "agentPane.display.senderIcon.lead",
+    "agentPane.display.senderIcon.badge",
+    "agentPane.display.senderIcon.corner",
+    "agentPane.display.trayHandle",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
 ];
+/// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
+/// elements show, their order, where the status mark sits, the row layout).
+/// One segment only: the per-kind overrides
+/// (`sidebar.workspaceRow.<kind>.<name>`) stay in cmux-next.json.
+const ROW_PREFIX: &str = "sidebar.workspaceRow.";
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.
 pub fn is_look(row: &Row) -> bool {
     let id = row.key.as_str();
     row.agent_settable
         && !EXCLUDED_KEYS.contains(&id)
-        && (LOOK_KEYS.contains(&id) || LOOK_PREFIXES.iter().any(|prefix| id.starts_with(prefix)))
+        && (LOOK_KEYS.contains(&id)
+            || LOOK_PREFIXES.iter().any(|prefix| id.starts_with(prefix))
+            || id
+                .strip_prefix(ROW_PREFIX)
+                .is_some_and(|name| !name.is_empty() && !name.contains('.')))
 }
 
 /// Every look row, in schema order.
@@ -143,12 +216,21 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 5] = [
+const SHIPPED: [(&str, &str); 11] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    (
+        "minimal-sessions",
+        include_str!("../../../../../Resources/theme-files/minimal-sessions.json"),
+    ),
+    ("lily-pond", include_str!("../../../../../Resources/theme-files/lily-pond.json")),
+    ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
+    ("miku", include_str!("../../../../../Resources/theme-files/miku.json")),
+    ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
 /// The text of the shipped theme file `name`.
@@ -262,6 +344,17 @@ pub struct ThemeFile {
     pub diagnostics: Vec<ThemeDiagnostic>,
     /// The color tokens the contrast guard raised (`foreground`).
     pub corrected: Vec<String>,
+    /// The variant each theme slot draws (`slots`), checked against
+    /// schemas/theme/slots.json: unknown slots and variants are left out.
+    pub slots: BTreeMap<String, String>,
+    /// The look's `motion` block: named spring presets and design-token spring
+    /// and fade overrides, clamped to `cmux.motion/1`; empty (every timing its
+    /// design-token default) when the file has none.
+    pub motion: cmux_app_host::motion_profile::MotionProfile,
+    /// Keys the file names by an older name, rewritten through the
+    /// retired-keys table ([`crate::migrations`]): the look applies a renamed
+    /// key under its new name and leaves out a removed one.
+    pub notices: Vec<Notice>,
 }
 
 impl ThemeFile {
@@ -286,6 +379,9 @@ impl ThemeFile {
             diagnostics: Vec::new(),
             corrected: Vec::new(),
             is_unparsable: false,
+            slots: BTreeMap::new(),
+            motion: Default::default(),
+            notices: Vec::new(),
         };
         let is_loaded = reader.read(source, base);
         let mut values = reader.values;
@@ -297,6 +393,9 @@ impl ThemeFile {
             values,
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
+            slots: reader.slots,
+            motion: reader.motion,
+            notices: reader.notices,
         }
     }
 
@@ -339,6 +438,31 @@ impl ThemeFile {
     pub fn keys(&self) -> Vec<String> {
         self.values.iter().map(|(path, _)| dotted(path)).collect()
     }
+
+    /// Each `agentPane.display.font.faces` entry the app would skip (a bad
+    /// key, a missing, oversized or mistyped file), as a diagnostic of this
+    /// file: `cmux theme check` reports them; the read itself never stats
+    /// the files.
+    pub fn face_diagnostics(&self) -> Vec<ThemeDiagnostic> {
+        let path = key_path(crate::font_faces::SETTING_KEY);
+        let Some(Value::Object(faces)) =
+            self.values.iter().find(|(at, _)| *at == path).map(|(_, value)| value)
+        else {
+            return Vec::new();
+        };
+        let (_, problems) = crate::font_faces::check_all(faces);
+        problems
+            .into_iter()
+            .map(|problem| ThemeDiagnostic {
+                kind: ThemeDiagnosticKind::InvalidValue,
+                path: format!("{}.{}", crate::font_faces::SETTING_KEY, problem.key),
+                message: problem.message,
+                file: Some(format!("{FOLDER_NAME}/{}.{FILE_EXTENSION}", self.name)),
+                line: None,
+                value: faces.get(&problem.key).map(compact),
+            })
+            .collect()
+    }
 }
 
 struct Reader<'a> {
@@ -351,6 +475,9 @@ struct Reader<'a> {
     diagnostics: Vec<ThemeDiagnostic>,
     corrected: Vec<String>,
     is_unparsable: bool,
+    slots: BTreeMap<String, String>,
+    motion: cmux_app_host::motion_profile::MotionProfile,
+    notices: Vec<Notice>,
 }
 
 impl<'a> Reader<'a> {
@@ -378,6 +505,9 @@ impl<'a> Reader<'a> {
                 return false;
             }
         };
+        // A key an older cmux named differently reads under its new name.
+        let (parsed, notices) = crate::migrations::migrate(&parsed);
+        self.notices = notices;
         let Value::Object(members) = parsed else {
             self.unreadable("root is not an object", Some(1));
             return false;
@@ -391,6 +521,8 @@ impl<'a> Reader<'a> {
             self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
+        self.slots = slots::read(self, &members);
+        self.motion = motion::read(self, &members);
         true
     }
 
@@ -422,6 +554,18 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
+        } else if row.key == crate::font_faces::SETTING_KEY {
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            match written {
+                Value::Object(faces) => Value::Object(
+                    faces.iter().map(|(key, value)| (key.clone(), self.picture(value))).collect(),
+                ),
+                other => other.clone(),
+            }
         } else {
             written.clone()
         };
@@ -520,10 +664,15 @@ fn expectation(refusal: &Refusal) -> String {
             format!("expected one of {} or {shape}", choices.join(", "))
         }
         Accepted::Shape(shape) => format!("expected {shape}"),
+        Accepted::Document { schema, reason } => format!("expected a {schema} document ({reason})"),
         Accepted::Domain { name, values: Some(values) } if values.len() <= 12 => {
             format!("expected a {name}: {}", values.join(", "))
         }
         Accepted::Domain { name, .. } => format!("expected an installed {name}"),
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("expected a value of its shape ({problem})"),
+            None => "expected a value of its shape".to_owned(),
+        },
     }
 }
 
@@ -554,6 +703,10 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     if let Some((_, last)) = dotted.rsplit_once('.') {
         candidates.push(last.to_string());
     }
+    // A key that holds dots itself (`slots.chat.jumpToBottom`'s `chat.jumpToBottom`).
+    if let Some((_, rest)) = dotted.split_once('.') {
+        candidates.push(rest.to_string());
+    }
     candidates.iter().find_map(|key| {
         let needle = format!("\"{key}\"");
         text.match_indices(&needle).find_map(|(at, matched)| {
@@ -563,5 +716,7 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     })
 }
 
+#[cfg(test)]
+mod contrast_tests;
 #[cfg(test)]
 mod tests;

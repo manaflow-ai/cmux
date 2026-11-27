@@ -38,7 +38,9 @@ name: cmux NEXT Stable
 #   smoke-26      Blacksmith macOS 26
 # The std side lane (CI_SIDE_LANE_RUNNER) is not used: PR side lanes fill it (54 queued on 2026-10-31).
 #
-# This workflow adds no job to any push, pull request or nightly run (repo rule: no new gates there).
+# This workflow adds no job to any push, pull request or nightly run. The 2026-10-23 no-new-CI rule, since
+# lifted, kept it off them; Lawrence's perf decision (no perf run blocks or slows a push, a pull request merge
+# or a nightly; perf-lead.md F9), which still stands, keeps its perf-budgets --gate step off them.
 # It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
 # (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
 # publishes nothing; it needs no secret.
@@ -81,6 +83,8 @@ permissions: {}
 # publish run at a time, and every feed write (publish, rollback) is a compare-and-swap on R2.
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # The nightly-next track's one feed (nightly.yml NIGHTLY_NEXT_FEED_BASE): since 2026-11-05 every
   # build ships as cmux NIGHTLY there (hq#7156), with its notes in notes/. The retired cmux NEXT
   # feed in next/ gets no builds; reading it re-tested its last build every night (11-06 to 11-10).
@@ -104,18 +108,21 @@ jobs:
   # main's copy, every hour of the night: dispatch one publish run on nightly-next.
   tick:
     if: github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       actions: write
       contents: read
     steps:
       # The tooling comes from nightly-next, where the publish run runs.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: nightly-next
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Is this the night window
@@ -173,7 +180,7 @@ jobs:
 
   plan:
     if: github.event_name != 'schedule' && github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/nightly-next' || github.event_name == 'push' || inputs.mode == 'dry-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -187,7 +194,7 @@ jobs:
       commit: ${{ steps.commit.outputs.commit }}
       go: ${{ steps.go.outputs.go }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -273,22 +280,25 @@ jobs:
   crash-class:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
       # This workflow's own copy of the delta tool: the candidate commit may predate it.
       - name: Checkout the stable tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-tooling
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Crash-class concurrency rules
         run: scripts/ci/crash-class-gate.sh
@@ -297,6 +307,7 @@ jobs:
         run: |
           python3 -I tests/test_check_concurrency_generic_deinit.py
           python3 -I tests/test_check_concurrency_pipe_reads.py
+          python3 -I tests/test_check_concurrency_caller_isolated.py
       - name: Unrecognized-selector rule (super calls)
         if: ${{ !cancelled() }}
         run: python3 -I scripts/cmux-next/check-objc-selectors.py
@@ -452,9 +463,9 @@ jobs:
       COMMIT: ${{ needs.plan.outputs.commit }}
       SIGN: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'developer-id' || 'ad-hoc' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -487,6 +498,12 @@ jobs:
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
           bash scripts/ci/init-submodule.sh ghostty-next
           echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: env.SIGN == 'developer-id'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - name: Set up Node
         if: env.SIGN == 'developer-id'
@@ -623,7 +640,7 @@ jobs:
       # leaves the clone sparse for the next job, so these scripts get a clone of their own.
       - name: Start a clean clone of the smoke scripts
         run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-next-smoke
@@ -634,6 +651,7 @@ jobs:
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
             scripts/ci/stable-next-smoke.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -673,7 +691,7 @@ jobs:
       # MACOS_RUNNER_26 can name an owned runner: a clone of its own, as smoke-27.
       - name: Start a clean clone of the smoke scripts
         run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-next-smoke
@@ -684,6 +702,7 @@ jobs:
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
             scripts/ci/stable-next-smoke.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -711,15 +730,18 @@ jobs:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true'
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
       # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
@@ -761,7 +783,7 @@ jobs:
       cancel-in-progress: false
     if: needs.plan.outputs.go == 'true' && !cancelled() && needs.crash-class.result == 'success' && needs.perf-budgets.result == 'success' && needs.sign.result == 'success' && needs.smoke-27.result == 'success' && needs.smoke-26.result == 'success' && needs.soak.result == 'success'
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -769,12 +791,14 @@ jobs:
       BUILD: ${{ needs.plan.outputs.build }}
       DMG_NAME: ${{ needs.sign.outputs.dmg_name }}
       DMG_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
+      # The new item's cmux:sourceCommit: every commit reader (install-static.sh, hot-verify, bisect) reads it.
+      SOURCE_COMMIT: ${{ needs.plan.outputs.commit }}
       PUBLISH: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'true' || 'false' }}
       NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
       NIGHTLY_NEXT_R2_PREFIX: nightly-next/stable/
       NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -819,9 +843,9 @@ jobs:
           </rss>
           EOF
           curl -fsS -A cmux-stable-next/1 -o "$RUNNER_TEMP/live.xml" "$NIGHTLY_NEXT_FEED_BASE/$STABLE_APPCAST" || : > "$RUNNER_TEMP/live.xml"
-          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" \
+          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT" \
             || { echo "::notice::the live stable feed already serves build $BUILD or newer; composing against an empty feed"
-                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST"; }
+                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT"; }
           python3 -I scripts/ci/nightly-next-guard.py appcast "$RUNNER_TEMP/$STABLE_APPCAST"
           { echo "### Dry run: the stable feed it would publish (nothing written)"; echo; echo '```xml'; cat "$RUNNER_TEMP/$STABLE_APPCAST"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the DMG and write the stable feed
@@ -852,7 +876,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.go == 'true' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -860,12 +884,13 @@ jobs:
       ts: ${{ steps.post.outputs.ts }}
       channel: ${{ steps.post.outputs.channel }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Post the run's Slack message
         id: post
@@ -883,7 +908,7 @@ jobs:
     needs: [slack-start, crash-class]
     if: always() && needs.slack-start.outputs.ts != '' && needs.crash-class.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -893,12 +918,13 @@ jobs:
       LANE: crash-class
       RESULT: ${{ needs.crash-class.result }}
     steps: &slack-lane-steps
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Answer in the run's Slack thread
         env:
@@ -913,7 +939,7 @@ jobs:
     needs: [slack-start, perf-budgets]
     if: always() && needs.slack-start.outputs.ts != '' && needs.perf-budgets.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -928,7 +954,7 @@ jobs:
     needs: [slack-start, sign]
     if: always() && needs.slack-start.outputs.ts != '' && needs.sign.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -943,7 +969,7 @@ jobs:
     needs: [slack-start, smoke-27]
     if: always() && needs.slack-start.outputs.ts != '' && needs.smoke-27.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -958,7 +984,7 @@ jobs:
     needs: [slack-start, smoke-26]
     if: always() && needs.slack-start.outputs.ts != '' && needs.smoke-26.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -973,7 +999,7 @@ jobs:
     needs: [slack-start, soak]
     if: always() && needs.slack-start.outputs.ts != '' && needs.soak.result != 'skipped'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -988,19 +1014,20 @@ jobs:
     needs: [plan, slack-start, crash-class, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
     if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
     environment: release-next
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
       checks: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       # Shipped or blocked, in the run's Slack message (a new one when plan failed before it was
       # posted). No GitHub issue: the team follows stable in Slack.

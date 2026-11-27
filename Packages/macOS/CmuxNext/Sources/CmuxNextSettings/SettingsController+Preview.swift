@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Live preview (R93): the palette shows a value before it is written.
@@ -10,30 +11,53 @@ extension SettingsController {
     /// managed key or a value the schema refuses, returning false.
     @discardableResult
     public func preview(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> Bool {
-        guard managedKeys[descriptor.id] == nil else { return false }
-        if let value, !descriptor.accepts(value) { return false }
-        let linked = windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root)
+        preview([(descriptor, value)])
+    }
+
+    /// Shows several values at once as one preview (the whole-app theme preview: the terminal theme
+    /// with the App Theme following it). Refuses all of them, showing nothing, when any key is
+    /// managed or any value refused. `previewingKey` is the first key's.
+    @discardableResult
+    public func preview(_ edits: [(SettingDescriptor, JSONValue?)]) -> Bool {
+        guard let first = edits.first else { return false }
+        for (descriptor, value) in edits {
+            guard managedKeys[descriptor.id] == nil else { return false }
+            if let value, !descriptor.accepts(value) { return false }
+        }
         func edit(_ root: JSONValue) -> JSONValue {
-            // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
-            linked.reduce(Self.replacing(descriptor.path, with: value, in: root)) { Self.replacing($1.path, with: $1.value, in: $0) }
+            edits.reduce(root) { current, edit in
+                let (descriptor, value) = edit
+                // Each linked edit sees the preceding preview edits, just as a saved batch does.
+                let linked = windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: current)
+                let written = Self.replacing(descriptor.path, with: value, in: current)
+                return linked.reduce(written) { Self.replacing($1.path, with: $1.value, in: $0) }
+            }
         }
         // From the settings under the theme file, so a previewed theme file replaces the active one.
         var root = edit(themeFile == nil ? snapshot.root : rootUnderThemeFile)
+        var themeDensity: DensityTokens?
         if let name = ThemeFileSetting.name(in: root) {
             // The theme file applies (the last load's read: no disk read here), then the previewed
-            // value over it, so a previewed key shows even where the file sets it.
+            // values over it, so a previewed key shows even where the file sets it.
             let overlay = name == themeFile?.name ? themeFile
                 : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root,
                                    folder: ThemeFileSetting.folder(configDirectory: file.url.deletingLastPathComponent()))
             // Another file previews as choosing it applies: whole, with no exceptions (#44894).
             let kept = name == themeFile?.name ? ThemeFileExceptionsSetting.keys(in: root) : []
-            if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys).union(kept))) }
+            if let overlay {
+                let held = Set(managedKeys.keys).union(kept)
+                root = edit(overlay.applied(to: root, managed: held))
+                // A previewed density row shows over the file's own density, as any previewed key over the file.
+                let densityRows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                themeDensity = edits.contains { densityRows.contains($0.0.path) } ? nil : overlay.density(under: held)
+            }
         }
-        let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
+        var previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,
                                                  configDirectory: file.url.deletingLastPathComponent())
+        previewed.themeDensity = themeDensity
         applier.apply(previewed)
-        previewingKey = descriptor.id
+        previewingKey = first.0.id
         previewSnapshot = previewed
         return true
     }

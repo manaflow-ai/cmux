@@ -155,7 +155,7 @@ struct WorkspaceColorFillTests {
     @Test func aLeftRailRowDrawsABarDownItsEdge() {
         let (view, window) = Self.rowView(SidebarWorkspace(id: WorkspaceID("ws"), title: "PR ready", icon: .swatch(.blue), color: .blue), style: "leftRail")
         #expect(!view.colorRail.isHidden && view.colorRail.superview === view)
-        #expect(view.colorRail.frame.width == WorkspaceRowView.colorRailWidth && view.colorRail.frame.height > 0)
+        #expect(view.colorRail.frame.width == WorkspaceRailLook.standard.barWidth && view.colorRail.frame.height > 0)
         #expect(!view.debugFill, "the rail style leaves the row unfilled")
         window.closeAfterTest()
     }

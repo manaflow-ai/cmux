@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::entry::{HistoryEntry, HistoryKind};
-use crate::fold::{fold, tokens};
+use crate::fold::fold;
+use crate::search_syntax::SearchFilter;
 
 const HOUR_MS: i64 = 3_600_000;
 const DAY_MS: i64 = 86_400_000;
@@ -53,19 +54,37 @@ pub struct HistoryQuery {
     #[serde(default)]
     pub kinds: Vec<HistoryKind>,
     /// Every whitespace-separated token must appear in the entry's search
-    /// text, folded, in any order.
+    /// text, folded, in any order. The search operators ([`SearchFilter`]:
+    /// `is:`, `since:`, `before:`, `-word`, `"phrase"`) narrow it further.
     #[serde(default)]
     pub text: String,
     #[serde(default)]
     pub range: HistoryRange,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// Page provenance filter. Mine is the default for the history page.
+    #[serde(default)]
+    pub actor: ActorFilter,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ActorFilter {
+    #[default]
+    Mine,
+    Agents,
+    All,
 }
 
 impl HistoryQuery {
     /// True when the query selects `kind`.
     pub fn wants(&self, kind: HistoryKind) -> bool {
         self.kinds.is_empty() || self.kinds.contains(&kind)
+    }
+
+    /// The search operators of `text`, read with history's kind names.
+    pub fn filter(&self, now_ms: i64, local_day_start_ms: i64) -> SearchFilter<HistoryKind> {
+        SearchFilter::parse(&self.text, now_ms, local_day_start_ms, HistoryKind::named)
     }
 
     /// See [`apply`].
@@ -92,15 +111,17 @@ pub fn apply(
     local_day_start_ms: i64,
     is_directory: impl Fn(&str) -> bool,
 ) -> Vec<HistoryEntry> {
-    let tokens = tokens(&query.text);
+    let filter = query.filter(now_ms, local_day_start_ms);
     let bounds = query.range.bounds(now_ms, local_day_start_ms);
     let mut matched: Vec<HistoryEntry> = entries
         .iter()
         .filter(|entry| {
             is_displayable(entry, &is_directory)
                 && query.wants(entry.kind)
+                && filter.wants(&entry.kind)
                 && bounds.is_none_or(|(start, end)| start <= entry.at_ms && entry.at_ms <= end)
-                && matches(&search_text(entry), &tokens)
+                && filter.covers(entry.at_ms)
+                && filter.matches(&search_text(entry))
         })
         .cloned()
         .collect();

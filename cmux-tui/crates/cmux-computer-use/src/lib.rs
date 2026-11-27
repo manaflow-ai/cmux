@@ -16,23 +16,30 @@
 //!   a route that cannot prove its target refuses instead of guessing.
 //! - [`menus`]: whether a background call may open an app's menu, item
 //!   matching, and the deny list inside menus.
+//! - [`alerts`]: system alerts on an unattended machine (opt-in): their
+//!   classes and the one decision of which button may put each off.
 //! - [`frame`]: redaction of denied windows, downscale, change detection and
 //!   PNG encoding, the same on every platform.
 //! - [`platform`]: the macOS, Windows and Linux (X11, Wayland, headless)
 //!   desktops, behind the `desktop` feature.
 
+pub mod alerts;
 #[cfg(unix)]
 pub mod client;
 pub mod cursor;
 pub mod desktop;
+pub mod displays;
 pub mod engine;
 pub mod frame;
 pub mod keys;
+pub mod locked;
 pub mod menus;
 pub mod observe;
 pub mod outcome;
 pub mod policy;
 pub mod preview;
+pub mod record;
+pub mod reread;
 pub mod session;
 pub mod stop;
 pub mod tools;
@@ -40,6 +47,8 @@ pub mod wire;
 
 #[cfg(feature = "desktop")]
 pub mod platform;
+#[cfg(feature = "server")]
+pub mod replaced;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "server")]

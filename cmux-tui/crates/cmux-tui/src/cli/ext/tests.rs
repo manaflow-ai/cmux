@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::dev::{self, Phase};
-use super::{DevOptions, Request, exit, parse, scaffold, scene, shot};
+use super::source::{self, Source};
+use super::{DevOptions, Request, exit, parse, scaffold, scene, share, shot};
 use crate::cli::GlobalArgs;
 
 pub(super) fn words(text: &str) -> Vec<String> {
@@ -29,6 +30,8 @@ pub(super) fn dev_options(dir: &Path) -> DevOptions {
         build: None,
         build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
+        headless: false,
+        every_size: false,
     }
 }
 
@@ -135,6 +138,7 @@ fn capabilities_parse_and_print_the_manifest_rows() {
     let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
     assert!(fetch.contains("refused when sandboxed"), "{fetch}");
     assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    assert!(all.contains("cmux customize docs") && all.contains("cmux customize prompts"), "{all}");
     let never = table.never().next().unwrap();
     let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
     assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
@@ -175,6 +179,90 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
 }
 
+#[test]
+fn headless_loads_catalog_exports_without_invoking_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    std::fs::write(
+        dir.join("dist/main.js"),
+        r#"function hello() { throw new Error("command invoked"); }
+globalThis.__cmuxAppExports = Object.freeze({ hello });"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(
+        outcome.next.as_deref().is_some_and(|next| next.contains("loaded catalog command exports")),
+        "{:?}",
+        outcome.next
+    );
+}
+
+#[test]
+fn headless_rejects_catalog_commands_that_cannot_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let args = global(&root.path().join("no-daemon.sock"));
+    for (script, expected) in [
+        ("throw new Error('broken init')", "broken init"),
+        ("globalThis.__cmuxAppExports = {}", "missing catalog command function: hello"),
+        ("globalThis.__cmuxAppExports = { hello: 42 }", "missing catalog command function: hello"),
+        (
+            "globalThis.__cmuxAppExports = Object.create({ hello() {} })",
+            "missing catalog command function: hello",
+        ),
+    ] {
+        std::fs::write(dir.join("dist/main.js"), script).unwrap();
+        let outcome = dev::once(&args, &options, false);
+        assert_eq!(outcome.phase, Phase::Load, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors.iter().any(|e| e.message.contains(expected)),
+            "{:?}",
+            outcome.errors
+        );
+    }
+}
+
+#[test]
+fn headless_keeps_manifest_only_composer_extensions_load_free() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("composer");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("cmux-app.json"),
+        r#"{
+          "manifestVersion": 2,
+          "id": "local/composer",
+          "name": "Composer",
+          "version": "1.0.0",
+          "description": "A manifest-only composer extension.",
+          "engines": { "cmux": "^2.0" },
+          "implements": {
+            "cmux.composer.command/1": {
+              "title": "Composer",
+              "options": {
+                "commands": [
+                  { "name": "hello", "insert": "Say hello." }
+                ]
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.probe.is_none());
+}
+
 /// A folder outside a cmux checkout (a sample copied out, one a person
 /// installs) has no copy of `cmux-extension-sdk`: the packer gets the SDK the
 /// CLI carries, whole, so it builds with no install.
@@ -184,15 +272,25 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
     let entry = dev::write_packer(packer.path()).unwrap();
     let index = std::fs::read_to_string(&entry).unwrap();
     assert!(index.contains("export function section("), "the SDK's own source");
-    let relative: Vec<&str> = index
-        .lines()
-        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
-        .filter(|p| p.starts_with('.'))
-        .collect();
-    assert!(!relative.is_empty(), "the SDK imports its tables");
-    for path in relative {
-        let file = entry.parent().unwrap().join(path);
-        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    // Check imports in every runtime module, including transitive imports and re-exports.
+    for (path, source) in scaffold::runtime_sdk_files() {
+        if !path.ends_with(".ts") {
+            continue;
+        }
+        let parent = packer.path().join(path);
+        let parent = parent.parent().unwrap();
+        for line in source.lines().map(str::trim_start) {
+            if !(line.starts_with("import ") || line.starts_with("export ")) {
+                continue;
+            }
+            let specifier = line.split_once(" from ").map_or(&line[7..], |(_, from)| from);
+            if let Some(quote @ ('"' | '\'')) = specifier.chars().next()
+                && let Some((import, _)) = specifier[1..].split_once(quote)
+                && import.starts_with('.')
+            {
+                assert!(parent.join(import).is_file(), "{path} imports missing {import}");
+            }
+        }
     }
     // `cmux-extension-sdk/customize`, written from this build's schema.
     let types = entry.parent().unwrap().join("generated/customize.ts");
@@ -565,11 +663,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
@@ -588,8 +687,14 @@ fn serve(
                             .unwrap_or_default();
                     let interface = request["interface"].as_str().unwrap_or("");
                     let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
+                    // `surface: "widget"`, which gives its ctx the host-owned now() clock.
+                    let mut context = request["context"].clone();
+                    if interface == "cmux.widget/1" && context.is_object() {
+                        context["surface"] = json!("widget");
+                    }
                     out.push(
-                        match host_scene(app, &script, export, &request["context"]) {
+                        match super::headless::host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
@@ -670,51 +775,6 @@ fn serve(
             }
         }
     }
-}
-
-/// What the real app host renders when `export` of the script `main` mounts:
-/// QuickJS runs it as the daemon's host does, every call it makes is answered
-/// with no value, and the scene's op batches are returned in order (or the
-/// init or mount failure).
-fn host_scene(app: &str, main: &str, export: &str, context: &Value) -> Result<Value, String> {
-    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
-    let mut vm = AppVm::new(Limits::default())?;
-    vm.init(InitParams {
-        app: AppInfo { id: app.into(), version: "0.1.0".into() },
-        settings: json!({}),
-        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
-        ops: None,
-        known_ops: None,
-        locale: None,
-        strings: Value::Null,
-        main: main.into(),
-        main_name: Some("dist/main.js".into()),
-    })
-    .map_err(|e| format!("init: {e:?}"))?;
-    if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
-        return Err(refused);
-    }
-    let mut ops = Vec::new();
-    for _ in 0..32 {
-        let outbox = vm.take_outbox();
-        if outbox.is_empty() {
-            break;
-        }
-        for message in outbox {
-            match message {
-                FromHost::Scene { ops: batch, .. } => {
-                    ops.extend(batch.as_array().cloned().unwrap_or_default());
-                }
-                FromHost::Call { cb, .. } => {
-                    vm.resolve(cb, true, &json!({ "value": null }))
-                        .map_err(|e| format!("{e:?}"))?;
-                }
-                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
-                _ => {}
-            }
-        }
-    }
-    Ok(Value::Array(ops))
 }
 
 #[test]
@@ -889,6 +949,11 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.dev.dir, PathBuf::from("."));
     assert!(options.dev.once && !options.dev.install, "one reload, no install card");
     assert_eq!(options.out, None);
+    assert!(!options.record);
+    assert!(!options.dev.every_size, "a plain shot probes one size");
+    let Ok(Request::Shot(options)) = parse(&words("shot --record")) else { panic!("--record") };
+    assert!(options.record);
+    assert!(options.dev.every_size, "--record records each declared widget size");
     let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
         panic!("shot with options")
     };
@@ -896,6 +961,13 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.out, Some(PathBuf::from("a.png")));
     assert_eq!(options.dev.build.as_deref(), Some("make"));
     assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    assert_eq!(
+        parse(&words("design --listing ext/x")),
+        Ok(Request::DesignListing { dir: PathBuf::from("ext/x") })
+    );
+    for bad in ["design --listing", "design --listing x a.json", "design --listing x --widget"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
     for bad in [
         "shot --out",
         "shot --out -",
@@ -1008,15 +1080,35 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
     // Not installed: it rendered as a preview, which no window shows.
     assert!(!shot::shown(&outcome));
-    let (text, code) = shot::report(&outcome, &dir, None, false);
+    let (text, code) = shot::report(&outcome, &dir, None, None, false);
     assert_eq!(code, exit::SHOT_FAILED);
     assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
     assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
-    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let (json_text, _) = shot::report(&outcome, &dir, None, None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
     assert_eq!(json["exitCode"], exit::SHOT_FAILED);
     assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+    // `ext shot --json` carries the design check, as `ext dev --once --json` does: the
+    // skill's loop reads it there (`hello_scene` is clean, so an empty list, not a missing key).
+    assert_eq!(json["design"], outcome.to_json(&dir)["design"]);
+    assert_eq!(json["design"], json!([]));
+
+    // `--record`: the scene goes into preview/scenes.json by name, beside the file's others.
+    std::fs::create_dir_all(dir.join("preview")).unwrap();
+    std::fs::write(dir.join("preview/scenes.json"), r#"{"cmux.pane/1":{"ops":[]}}"#).unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    assert_eq!(file["cmux.section/1"]["ops"], hello_scene());
+    assert_eq!(file["cmux.pane/1"]["ops"], json!([]));
+    let (text, _) = shot::report(&outcome, &dir, None, Some(&recorded), false);
+    assert!(text.contains("recorded the scene in"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, Some(&recorded), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["recorded"], json!(dir.join("preview/scenes.json")));
 
     // Installed and shown: the picture is reported with where the extension is.
     let fake = FakeDaemon::start(&local, "local/pic", true);
@@ -1024,13 +1116,13 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert!(shot::shown(&outcome), "{:?}", outcome.placed);
     let picture =
         Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
-    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), None, false);
     assert_eq!(code, exit::OK);
     assert!(
         text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
         "{text}"
     );
-    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
     assert_eq!(json["shot"]["path"], "/tmp/p.png");
@@ -1038,8 +1130,459 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     // A failed load is reported as ext dev reports it: its own exit code, no picture.
     std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
-    let (_, code) = shot::report(&broken, &dir, None, false);
+    let (_, code) = shot::report(&broken, &dir, None, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext shot --record` that cannot write `preview/scenes.json` says why and exits
+/// RECORD_FAILED, even with a picture taken: a script must not go on with stale scenes.
+#[test]
+fn a_record_that_cannot_be_written_fails_the_shot() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "unwritable");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/unwritable", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    // `preview` is a file, so the folder for scenes.json cannot be made.
+    std::fs::write(dir.join("preview"), "not a folder").unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    let error = recorded.clone().unwrap_err();
+    assert!(error.starts_with("cannot create"), "{error}");
+    let picture =
+        Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+    assert!(text.contains("not recorded: cannot create"), "{text}");
+    let (json_text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), true);
+    assert_eq!(code, exit::RECORD_FAILED);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("record")));
+    assert_eq!(json["exitCode"], exit::RECORD_FAILED);
+    assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
+    // Nothing drawn to record is a failed record too, not a quiet success.
+    let mut nothing = outcome;
+    nothing.recorded.clear();
+    let recorded = shot::record(&dir, &nothing);
+    assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
+    let (_, code) = shot::report(&nothing, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+}
+
+/// `ext shot --record` of a widget probes and records each size its manifest declares (and
+/// only those a person can place); a plain reload probes one.
+#[test]
+fn recording_a_widget_records_each_declared_size() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("tile");
+    scaffold::scaffold(&dir, "tile", "widget").unwrap();
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.widget/1"]["options"] =
+        json!({ "sizes": ["small", "medium", "large"] });
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/tile", false);
+    let mounted = |fake: &FakeDaemon| -> Vec<Value> {
+        fake.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r["cmd"] == "apps-mount")
+            .map(|r| r["context"]["size"].clone())
+            .collect()
+    };
+
+    let one = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(one.phase, Phase::Done, "{:?}", one.errors);
+    let names: Vec<&str> = one.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(mounted(&fake).len(), 1);
+
+    let mut options = dev_options(&dir);
+    options.every_size = true;
+    let every = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(every.phase, Phase::Done, "{:?}", every.errors);
+    let mut names: Vec<&str> = every.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["cmux.widget/1 large", "cmux.widget/1 medium", "cmux.widget/1 small"]);
+    let mut sizes: Vec<String> =
+        mounted(&fake).iter().skip(1).map(|size| size.as_str().unwrap_or("").to_string()).collect();
+    sizes.sort();
+    assert_eq!(sizes, ["large", "medium", "small"], "each size mounted once");
+
+    let recorded = shot::record(&dir, &every);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    for size in ["small", "medium", "large"] {
+        assert!(file[format!("cmux.widget/1 {size}")]["ops"].is_array(), "{size}: {file}");
+    }
+    let (text, code) = shot::report(&every, &dir, None, Some(&recorded), false);
+    assert_eq!(code, exit::SHOT_FAILED, "a preview has no picture: {text}");
+    assert!(text.contains("recorded 3 scenes ("), "{text}");
+
+    // A sidebar-only widget cannot be large: that size is not probed.
+    manifest["implements"]["cmux.widget/1"]["options"]["places"] = json!(["sidebar"]);
+    let sizes: Vec<String> =
+        dev::widget_sizes(&manifest).into_iter().map(|(size, _)| size).collect();
+    assert_eq!(sizes, ["small", "medium"]);
+}
+
+// --- ext add / share / search ---------------------------------------------------------------
+
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let mut all =
+        vec!["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"];
+    all.extend_from_slice(args);
+    source::git(Some(dir), &all).unwrap_or_else(|said| panic!("git {args:?}: {said}"))
+}
+
+/// A repository holding a built extension in `widgets/hello` (its `dist/main.js` committed), on
+/// `main`, with a branch `feature/x` one commit ahead.
+fn extension_repo(root: &Path) -> PathBuf {
+    let repo = root.join("upstream");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_in(&repo, &["init", "--quiet", "-b", "main"]);
+    std::fs::create_dir_all(repo.join("widgets")).unwrap();
+    scaffold::scaffold(&repo.join("widgets/hello"), "hello", "section").unwrap();
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "--quiet", "-m", "hello"]);
+    git_in(&repo, &["checkout", "--quiet", "-b", "feature/x"]);
+    std::fs::write(repo.join("widgets/hello/NOTE"), "x").unwrap();
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "--quiet", "-m", "x"]);
+    git_in(&repo, &["checkout", "--quiet", "main"]);
+    repo
+}
+
+#[test]
+fn parses_add_share_and_search() {
+    assert_eq!(
+        parse(&words("add acme/widgets")),
+        Ok(Request::Add(share::AddOptions { source: "acme/widgets".into(), install: true }))
+    );
+    assert_eq!(
+        parse(&words("add ./x --no-install")),
+        Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
+    );
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
+    assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
+    assert_eq!(
+        parse(&words("search pull requests")),
+        Ok(Request::Search { query: Some("pull requests".into()) })
+    );
+    for bad in ["add", "add a b", "add a --bogus", "share a b", "share --bogus", "search --bogus"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn sources_name_folders_repositories_and_folders_inside_them() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path();
+    std::fs::create_dir_all(cwd.join("mine")).unwrap();
+    assert_eq!(source::parse("./mine", cwd), Ok(Source::Folder(cwd.join("./mine"))));
+    assert_eq!(source::parse("mine", cwd), Ok(Source::Folder(cwd.join("mine"))));
+    let git = |raw: &str| match source::parse(raw, cwd) {
+        Ok(Source::Git { repo, tail, subdir }) => (repo.url(), tail, subdir),
+        other => panic!("{raw}: {other:?}"),
+    };
+    assert_eq!(git("acme/widgets"), ("https://github.com/acme/widgets.git".into(), vec![], None));
+    assert_eq!(
+        git("acme/widgets@v1"),
+        ("https://github.com/acme/widgets.git".into(), vec!["v1".into()], None)
+    );
+    assert_eq!(
+        git("https://github.com/acme/widgets/tree/feature/x/widgets/hello"),
+        (
+            "https://github.com/acme/widgets.git".into(),
+            ["feature", "x", "widgets", "hello"].map(String::from).to_vec(),
+            None
+        )
+    );
+    assert_eq!(
+        git("https://gitlab.example.com/g/sub/widgets#clock"),
+        ("https://gitlab.example.com/g/sub/widgets.git".into(), vec![], Some("clock".into()))
+    );
+    for bad in [
+        "file:///tmp/x",
+        "ext::sh -c touch% /tmp/pwned",
+        "https://user:token@github.com/acme/widgets",
+        "acme/widgets#../escape",
+        "https://github.com/acme/widgets/tree/main/../x",
+        "https://github.com/acme/widgets/tree/--upload-pack=x/y",
+        "not a source",
+    ] {
+        assert!(source::parse(bad, cwd).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_tree_path_splits_at_the_shortest_ref_that_exists() {
+    let refs = |name: &str| match name {
+        "refs/remotes/origin/HEAD" => Some("c-main".to_string()),
+        "refs/remotes/origin/feature/x" => Some("c-x".to_string()),
+        "refs/tags/v1" => Some("c-v1".to_string()),
+        "0123abcd" => Some("0123abcd-full".to_string()),
+        _ => None,
+    };
+    let tail = |text: &str| text.split('/').map(String::from).collect::<Vec<_>>();
+    assert_eq!(source::resolve(&[], refs), Some(("c-main".into(), None, None)));
+    assert_eq!(
+        source::resolve(&tail("feature/x/widgets/hello"), refs),
+        Some(("c-x".into(), Some("feature/x".into()), Some("widgets/hello".into())))
+    );
+    assert_eq!(source::resolve(&tail("v1"), refs), Some(("c-v1".into(), Some("v1".into()), None)));
+    assert_eq!(
+        source::resolve(&tail("0123abcd/clock"), refs),
+        Some(("0123abcd-full".into(), Some("0123abcd".into()), Some("clock".into())))
+    );
+    assert_eq!(source::resolve(&tail("nope/x"), refs), None);
+}
+
+#[test]
+fn full_commit_pins_require_the_requested_object() {
+    for len in [40, 64] {
+        let pin = "a".repeat(len);
+        let other = "b".repeat(len);
+        let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+        assert_eq!(
+            source::resolve(&tail, |name| {
+                Some(if name == pin { pin.clone() } else { other.clone() })
+            }),
+            Some((pin.clone(), Some(pin.clone()), Some("widgets/hello".into())))
+        );
+        // A missing object must not fall back to a branch/tag, even a longer ref.
+        assert_eq!(source::resolve(&tail, |name| (name != pin).then(|| other.clone())), None);
+        assert_eq!(source::resolve(&tail, |_| Some(other.clone())), None);
+    }
+}
+
+#[test]
+fn fetch_commit_pins_ignore_shadowing_remote_branches_and_tags() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let pin = git_in(&upstream, &["rev-parse", "HEAD"]);
+    let url = upstream.to_string_lossy().into_owned();
+    let clone = root.path().join("clone");
+    let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+    let first = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(first.commit, pin);
+    assert!(!first.dir.join("NOTE").exists());
+
+    // The publisher later adds refs named after the shared commit, at different code.
+    git_in(&upstream, &["branch", &pin, "feature/x"]);
+    git_in(&upstream, &["tag", &pin, "feature/x"]);
+    let again = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(again.commit, pin);
+    assert!(!again.dir.join("NOTE").exists());
+
+    // A pin that is not an object cannot be supplied by either ref namespace.
+    let missing = "f".repeat(40);
+    git_in(&upstream, &["branch", &missing, "feature/x"]);
+    git_in(&upstream, &["tag", &missing, "feature/x"]);
+    assert!(source::fetch(&url, &[missing], Some("widgets/hello"), &clone).is_err());
+}
+
+#[test]
+fn fetch_clones_checks_out_the_named_folder_and_updates_on_a_second_add() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let url = upstream.to_string_lossy().into_owned();
+    let clone = root.path().join("cache/cmux/extensions/example/acme/widgets");
+    let tail: Vec<String> = ["feature", "x", "widgets", "hello"].map(String::from).to_vec();
+
+    let fetched = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(fetched.reference.as_deref(), Some("feature/x"));
+    assert_eq!(fetched.subdir.as_deref(), Some("widgets/hello"));
+    assert_eq!(fetched.dir, clone.join("widgets/hello"));
+    assert!(fetched.dir.join("NOTE").is_file() && fetched.dir.join("dist/main.js").is_file());
+
+    // The default branch, with the folder as `#PATH`: no NOTE there.
+    let main = source::fetch(&url, &[], Some("widgets/hello"), &clone).unwrap();
+    assert_eq!(main.reference, None);
+    assert!(!main.dir.join("NOTE").exists());
+    assert_ne!(main.commit, fetched.commit);
+
+    // A new upstream commit: adding again fetches it.
+    std::fs::write(upstream.join("widgets/hello/README.md"), "new").unwrap();
+    git_in(&upstream, &["add", "-A"]);
+    git_in(&upstream, &["commit", "--quiet", "-m", "readme"]);
+    let again = source::fetch(&url, &[], Some("widgets/hello"), &clone).unwrap();
+    assert_ne!(again.commit, main.commit);
+    assert_eq!(std::fs::read_to_string(again.dir.join("README.md")).unwrap(), "new");
+
+    // A folder the commit does not have, a ref that is not there, and a clone of another repository.
+    assert!(
+        source::fetch(&url, &[], Some("widgets/none"), &clone)
+            .unwrap_err()
+            .contains("has no folder")
+    );
+    assert!(
+        source::fetch(&url, &["nope".into()], None, &clone)
+            .unwrap_err()
+            .contains("no branch, tag or commit")
+    );
+    assert!(
+        source::fetch("https://github.com/other/repo.git", &[], None, &clone)
+            .unwrap_err()
+            .contains("is a clone of")
+    );
+}
+
+#[test]
+fn an_added_extension_loads_records_its_origin_and_is_never_built() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let clone = root.path().join("cache/acme/widgets");
+    let fetched =
+        source::fetch(&upstream.to_string_lossy(), &[], Some("widgets/hello"), &clone).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/hello", false);
+    let options = dev_options(&fetched.dir);
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    let folder = outcome.folder.clone().unwrap();
+    assert!(folder.join("dist/main.js").is_file());
+
+    let repo = cmux_cloud_start_core::machine_repo::parse("acme/widgets").unwrap();
+    let origin = json!({ "url": repo.url(), "commit": fetched.commit, "path": "widgets/hello",
+                          "link": share::share_link(&repo, &fetched.commit, Some("widgets/hello")) });
+    share::record_origin(&folder, &origin).unwrap();
+    assert_eq!(share::recorded_origin(&folder), Some(origin.clone()));
+    // The marker still names its source, so `ext remove` and the next add keep working.
+    let marker: Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join(dev::MARKER)).unwrap()).unwrap();
+    assert!(marker["source"].is_string() && marker["app"] == "local/hello");
+    let row = dev::list_rows(&json!({"apps": [{"id": "local/hello", "bundle_dir": folder}]}));
+    assert_eq!(row[0]["from"], origin["link"]);
+
+    let (text, code) = share::report(&outcome, &fetched.dir, Some(&origin), false);
+    assert_eq!(code, exit::OK);
+    assert!(
+        text.contains("added local/hello from https://github.com/acme/widgets.git at"),
+        "{text}"
+    );
+    assert!(
+        text.contains("add it again to update it; cmux ext remove local/hello removes it"),
+        "{text}"
+    );
+    let (json_text, _) = share::report(&outcome, &fetched.dir, Some(&origin), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["from"]["path"], "widgets/hello");
+    assert_eq!(json["ok"], true);
+}
+
+#[test]
+fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let work = root.path().join("work");
+    source::git(None, ["clone", "--quiet", upstream.to_str().unwrap(), work.to_str().unwrap()])
+        .unwrap();
+    let dir = work.join("widgets/hello");
+
+    // A local path origin is not something `ext add` reads.
+    let check = share::check_share(&dir).unwrap();
+    assert!(check.blocking.iter().any(|b| b.contains("not a GitHub repository")), "{check:?}");
+
+    // A credentialed origin is refused without its login or token in the message.
+    git_in(
+        &work,
+        &["remote", "set-url", "origin", "https://user:s3cret-token@github.com/acme/widgets"],
+    );
+    let check = share::check_share(&dir).unwrap();
+    let said = check.blocking.join("\n");
+    assert!(said.contains("origin https://github.com/acme/widgets is not"), "{said}");
+    assert!(!said.contains("s3cret-token") && !said.contains("user:"), "{said}");
+
+    git_in(&work, &["remote", "set-url", "origin", "git@github.com:acme/widgets.git"]);
+    let check = share::check_share(&dir).unwrap();
+    let head = git_in(&work, &["rev-parse", "HEAD"]);
+    assert_eq!(check.blocking, Vec::<String>::new());
+    assert_eq!(
+        check.link,
+        Some(format!("https://github.com/acme/widgets/tree/{head}/widgets/hello"))
+    );
+    assert!(check.notes.iter().any(|n| n.contains(share::TOPIC)));
+
+    // A new commit not pushed yet, and a script that is not committed.
+    std::fs::write(dir.join("dist/extra.js"), "x").unwrap();
+    git_in(&work, &["rm", "--quiet", "--cached", "widgets/hello/dist/main.js"]);
+    git_in(&work, &["commit", "--quiet", "-m", "drop the build"]);
+    let check = share::check_share(&dir).unwrap();
+    assert!(check.blocking.iter().any(|b| b.contains("not pushed")), "{check:?}");
+    assert!(
+        check.blocking.iter().any(|b| b.contains("dist/main.js is not committed")),
+        "{check:?}"
+    );
+    assert!(check.notes.iter().any(|n| n.contains("uncommitted")), "{check:?}");
+
+    // Another host's link is URL@COMMIT#PATH, which `ext add` reads back.
+    let gitlab =
+        cmux_cloud_start_core::machine_repo::parse("https://gitlab.example.com/g/widgets").unwrap();
+    let link = share::share_link(&gitlab, "abc123", Some("clock"));
+    assert_eq!(link, "https://gitlab.example.com/g/widgets@abc123#clock");
+    match source::parse(&link, root.path()) {
+        Ok(Source::Git { tail, subdir, .. }) => {
+            assert_eq!((tail, subdir), (vec!["abc123".to_string()], Some("clock".to_string())));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn messages_never_echo_a_login_or_token() {
+    assert_eq!(
+        source::redact_login("https://user:token@gitlab.com/acme/widget.git"),
+        "https://gitlab.com/acme/widget.git"
+    );
+    assert_eq!(source::redact_login("https://tok@github.com"), "https://github.com");
+    assert_eq!(source::redact_login("https://a:b@host?x=1"), "https://host?x=1");
+    assert_eq!(source::redact_login("git@github.com:acme/w.git"), "git@github.com:acme/w.git");
+    assert_eq!(source::redact_login("https://github.com/acme/w"), "https://github.com/acme/w");
+    let err =
+        source::parse("https://user:s3cret@github.com/acme/widgets", Path::new("/nonexistent"))
+            .unwrap_err();
+    assert!(!err.contains("s3cret") && err.contains("https://github.com/acme/widgets"), "{err}");
+}
+
+#[test]
+fn the_search_client_builds_with_tls() {
+    // reqwest uses rustls-no-provider: without an installed provider this fails or panics.
+    assert!(share::search_client().is_ok());
+}
+
+#[test]
+fn search_lists_tagged_repositories_with_the_command_that_adds_each() {
+    assert_eq!(
+        share::search_url(Some(" pull requests ")),
+        "https://api.github.com/search/repositories?q=topic%3Acmux-extension+pull+requests&sort=stars&order=desc&per_page=30"
+    );
+    assert!(share::search_url(None).contains("q=topic%3Acmux-extension&"));
+    let answer = json!({"items": [
+        {"full_name": "acme/my-prs", "description": "PRs in the sidebar", "stargazers_count": 12,
+         "html_url": "https://github.com/acme/my-prs"},
+        {"full_name": "bob/clock", "description": null, "stargazers_count": 0, "html_url": "https://github.com/bob/clock"},
+        {"description": "no name: skipped"},
+    ]});
+    let rows = share::search_rows(&answer);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["add"], "cmux ext add acme/my-prs");
+    assert_eq!(
+        share::search_table(&rows),
+        "acme/my-prs  (12 stars)  PRs in the sidebar\n    cmux ext add acme/my-prs\nbob/clock  (0 stars)  \n    cmux ext add bob/clock\n"
+    );
 }
 
 /// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
@@ -1159,7 +1702,7 @@ fn an_older_daemon_reloads_on_its_watch() {
     assert!(outcome.changed);
 }
 
-/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+/// `ext dev` says where a New Tab view shows: over the composer, only once the person picks it.
 #[test]
 fn a_new_tab_page_is_placed_where_the_person_picks_it() {
     let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });

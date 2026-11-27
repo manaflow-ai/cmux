@@ -59,6 +59,7 @@ import { plainEntries, previewEntries, previewSections, type PreviewEntry } from
 import { ChipNotes, DigestNotes, HeadlineNotes, LedgerNotes, NotesRow } from "./UpdatedNotesLooks";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { CopyVersion } from "./UpdateSurfaces";
+import { GoBack, GoBackHeaderLink, type GoBackLook } from "./GoBack";
 
 /** How the changes stand (`sections` ships): under their areas' headers with a gap between pills
     (`sections`), under the headers with hairlines between rows (`divided`, gallery), one flat list
@@ -87,6 +88,8 @@ export function UpdatedNotes({
   actions,
   mode,
   look: lookProp,
+  goBackLook = "footer",
+  goBackFixture,
   head = "mono",
 }: {
   data: UpdateHighlights;
@@ -98,6 +101,10 @@ export function UpdatedNotes({
   mode?: UpdatedPreviewMode;
   /** How the changes stand (gallery); undefined reads the theme's. */
   look?: NotesLook;
+  /** Where the way back to an earlier build stands (GoBack.tsx; gallery); `footer` ships. */
+  goBackLook?: GoBackLook;
+  /** The way back's props held for a gallery still. */
+  goBackFixture?: Pick<Parameters<typeof GoBack>[0], "builds" | "open" | "state">;
   /** How an area look's headers draw their symbol (gallery). */
   head?: NotesHead;
 }) {
@@ -138,10 +145,12 @@ export function UpdatedNotes({
           {name}
           {after}
         </div>
-        <button type="button" className="wn-notes-whatsnew" onClick={() => actions.openChangelog()}>
-          {strings.t("changelog.page.title")}
-          <span aria-hidden="true"> ↗</span>
-        </button>
+        <span className="wn-notes-links">
+          {goBackLook === "header" && <GoBackHeaderLink goBack={data.goBack} strings={strings} actions={actions} />}
+          <button type="button" className="wn-notes-whatsnew" onClick={() => actions.openChangelog()}>
+            {strings.t("changelog.page.title")}
+          </button>
+        </span>
         {/* The full version under the title, unless the title already says it (a release). */}
         {name !== data.version && (
           <div className="wn-notes-version">
@@ -225,6 +234,16 @@ export function UpdatedNotes({
           </svg>
           {strings.format("updates.card.more", String(below))}
         </div>
+      )}
+      {goBackLook !== "header" && (
+        <GoBack
+          goBack={data.goBack}
+          running={data.goBackRunning === true}
+          strings={strings}
+          actions={actions}
+          look={goBackLook}
+          {...goBackFixture}
+        />
       )}
     </section>
   );

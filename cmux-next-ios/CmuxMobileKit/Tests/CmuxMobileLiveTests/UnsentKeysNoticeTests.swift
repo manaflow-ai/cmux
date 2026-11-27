@@ -56,9 +56,11 @@ final class UnsentKeysClock {
             #expect(!session.isAttached)
         }
 
-        /// The outage outlasts the hold limit, then the link is back.
+        /// The Mac stays offline past the hold limit (the reconnect gave up), then the link is back.
         func reattachAfterTheHold() async throws {
+            session.setMacOffline(true)
             clock.now += DaemonTerminalSession.inputHoldLimit + 1
+            session.setMacOffline(false)
             session.reconnect()
             try await UnsentKeysNoticeTests.waitUntil { session.isAttached }
             #expect(session.isAttached)
@@ -178,8 +180,10 @@ final class UnsentKeysClock {
     }
 
     /// (b) Keys the person typed while the Mac was unreachable, dropped past
-    /// the hold: the notice says so, and they never run.
-    @Test func keysTypedDuringAnOutageSayTheyWereNotSent() async throws {
+    /// the hold: they never run, and nothing is said (Leo, 2026-11-23:
+    /// "remove the 'Keys typed while your Mac was unreachable were not sent.'
+    /// banner ... things just work").
+    @Test func keysTypedDuringAnOutageAreDroppedSilently() async throws {
         let rig = try await Self.makeRig()
         defer { rig.close() }
         try await rig.dropLink()
@@ -188,8 +192,8 @@ final class UnsentKeysClock {
         rig.screen.surface.perform([.text("ls")])
         try await rig.reattachAfterTheHold()
 
-        try await Self.waitUntil { rig.model.composerNotice != nil }
-        #expect(rig.model.composerNotice == TerminalConnectionState.inputNotSentNotice)
+        try await Task.sleep(for: .milliseconds(200)) // test: the drop's event reaches the screen
+        #expect(rig.model.composerNotice == nil, "no banner for dropped keys")
         #expect(rig.sent == sentBefore, "keys typed in the outage ran after it")
     }
 
@@ -217,6 +221,54 @@ final class UnsentKeysClock {
         surface.perform([.text("y")])
         try await Self.waitUntil { rig.sent.count > sentBefore.count }
         #expect(rig.sent.suffix(1) == Data("y".utf8), "the person's key after the reattach was refused")
+        #expect(rig.model.composerNotice == nil)
+    }
+
+    /// (d) Leo, 2026-11-24, back from another app: "I can't interact with anything at all".
+    /// Three keys typed on the page over a 12 s reattach (past the old 10 s hold) are taken at
+    /// once, the composer says they are pending, and they reach the Mac in order at the attach,
+    /// with no "not sent".
+    @Test func keysTypedOverALongReattachArePendingThenGoInOrder() async throws {
+        let rig = try await Self.makeRig()
+        defer { rig.close() }
+        try await rig.dropLink()
+        let sentBefore = rig.sent
+
+        for key in ["a", "b", "c"] {
+            rig.screen.surface.perform([.text(key)])
+            rig.clock.now += 6
+        }
+        try await Self.waitUntil { rig.model.heldKeyBytes == 3 }
+        #expect(rig.model.heldKeyBytes == 3, "the composer does not say the keys are pending")
+        #expect(rig.model.composerNotice == nil)
+        #expect(rig.sent == sentBefore, "a key went before the attach")
+
+        rig.session.reconnect()
+        try await Self.waitUntil { rig.session.isAttached && rig.sent.count >= sentBefore.count + 3 }
+        #expect(String(decoding: rig.sent.dropFirst(sentBefore.count), as: UTF8.self) == "abc")
+        #expect(rig.model.heldKeyBytes == 0)
+        #expect(rig.model.composerNotice == nil, "said not sent: \(rig.model.composerNotice ?? "")")
+    }
+
+    /// (e) The pending line's Discard: the held keys never reach the Mac, and nothing says
+    /// "not sent" (the person chose it).
+    @Test func discardingPendingKeysSendsNothing() async throws {
+        let rig = try await Self.makeRig()
+        defer { rig.close() }
+        try await rig.dropLink()
+        let sentBefore = rig.sent
+
+        rig.screen.surface.perform([.text("rm")])
+        try await Self.waitUntil { rig.model.heldKeyBytes == 2 }
+        #expect(rig.model.heldKeyBytes == 2)
+        rig.model.discardHeldKeys()
+        #expect(rig.model.heldKeyBytes == 0)
+
+        rig.session.reconnect()
+        try await Self.waitUntil { rig.session.isAttached }
+        for _ in 0..<50 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(100)) // test: the reattach's drain reaches the fake Mac
+        #expect(rig.sent == sentBefore, "discarded keys reached the Mac")
         #expect(rig.model.composerNotice == nil)
     }
 }

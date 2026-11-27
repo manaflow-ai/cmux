@@ -77,20 +77,51 @@ pub(super) async fn handle(
             .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
         let text = str_param(params, "text")
             .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-        return hub.composer_set(&s, surface, text, &conn.label());
+        return hub.composer_set(&s, surface, text, params.get("images"), &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
-        return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
+        let mut answer = json!({"sessionId": s.id, "draft": s.meta().composer_draft});
+        // The draft's attachments, asked for (`hub/draft_attachments.rs`): an older page never
+        // asks, and an older daemon never answers them, so the page knows to keep its own.
+        if params.get("attachments").and_then(Value::as_bool) == Some(true) {
+            let attachments = Value::Array(hub.draft_attachments(&s).await);
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("attachments".to_owned(), attachments);
+            }
+        }
+        return Ok(answer);
+    }
+    if m == method::MUX_DRAFT_SET {
+        // The draft's text, its attachments, or both: each is kept as given.
+        let chips = match params.get("attachments") {
+            None | Some(Value::Null) => None,
+            Some(list) => Some(crate::hub::draft_attachments::checked(list)?),
+        };
+        let text = str_param(params, "text");
+        if text.is_none() && chips.is_none() {
+            return Err(RpcError::invalid_params("text is required"));
+        }
+        let mut answer = json!({"sessionId": s.id});
+        if let Some(chips) = chips {
+            let held = hub.set_draft_attachments(&s, chips).await?;
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("held".to_owned(), json!(held));
+            }
+        }
+        if let Some(text) = text {
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("draft".to_owned(), json!(hub.set_composer_draft(&s, text)?));
+            }
+        }
+        return Ok(answer);
     }
     let text =
         str_param(params, "text").ok_or_else(|| RpcError::invalid_params("text is required"))?;
-    if m == method::MUX_DRAFT_SET {
-        let draft = hub.set_composer_draft(&s, text)?;
-        return Ok(json!({"sessionId": s.id, "draft": draft}));
-    }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
     let who = super::who(conn);
-    let admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
+    // An aside starts beside its chat, never on a peer (`hub/admission_redirect.rs`).
+    let ask = crate::hub::admission::Ask { redirect: false, ..super::ask(conn, params, &who) };
+    let admitted = hub.admit_new(ask).await?;
     admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
 }
 

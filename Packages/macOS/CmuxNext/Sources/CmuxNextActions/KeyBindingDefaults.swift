@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// Default entries that are not an action's own catalog key (plans/cmux-next/keybindings.md
 /// section 5).
@@ -71,6 +74,7 @@ public nonisolated struct KeyBindingDefaults {
     /// Ghostty config and cmux.json win over them.
     public static let homeChatSwitching: [KeyBinding] = RustActionCatalog.shared.bindings["home_chat_switching"] ?? []
 
+#if canImport(AppKit)
     /// The Home tab keys whose action is on and keeps its default key: a rebound action (cmux.json,
     /// Settings) keeps only its own key, still scoped to Home (``homeChatScoped``).
     @MainActor static func homeChatSwitching(registry: ActionRegistry) -> [KeyBinding] {
@@ -79,7 +83,9 @@ public nonisolated struct KeyBindingDefaults {
                 && registry.shortcutOverrides[binding.command] == nil && registry.chordOverrides[binding.command] == nil
         }
     }
+#endif
 
+#if canImport(AppKit)
     /// The workspaces-as-tabs keys while the tunable is on, whose action is on and not removed or rebound in cmux.json.
     @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
         guard registry.includesWorkspaceTabKeys() else { return [] }
@@ -88,7 +94,9 @@ public nonisolated struct KeyBindingDefaults {
                 && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
         }
     }
+#endif
 
+#if canImport(AppKit)
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a
@@ -106,6 +114,7 @@ public nonisolated struct KeyBindingDefaults {
                 && registry.chordOverrides[binding.command] == nil
         }
     }
+#endif
 
     /// The scoped defaults without the registry's unbinding applied.
     public static let scopedDefaults: [KeyBinding] = RustActionCatalog.shared.bindings["scoped_defaults"] ?? []
@@ -120,21 +129,13 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
-    public static let historyImportTopPage = "import-history"
-
-    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
-    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
-    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
-    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
-    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
-    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms). As on Home, the top page takes the zoom keys
+    /// wherever the window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text parses back
+    /// to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
     public static let onChiefZoom = WhenClause.or([
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
-        .equals(KeyContext.topPage, .string(historyImportTopPage)),
-        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
@@ -163,7 +164,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
-    /// browser page never loses the key to it.
+    /// browser page never loses the key to it. The diff viewer's Zoom In takes it too, only in a focused
+    /// diff tab (`diffViewerFocused`).
     public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
@@ -245,6 +247,7 @@ public nonisolated struct KeyBindingDefaults {
 
     public static let listNavigation: [KeyBinding] = RustActionCatalog.shared.bindings["list_navigation"] ?? []
 
+#if canImport(AppKit)
     /// The aliases whose action still has its default key, then list
     /// navigation (removed one by one with `-list.next` entries in
     /// keybindings.json).
@@ -258,4 +261,5 @@ public nonisolated struct KeyBindingDefaults {
         entries += paletteKeys
         return entries
     }
+#endif
 }

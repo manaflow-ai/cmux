@@ -16,7 +16,8 @@ public struct ControlPaneInfo: Sendable, Hashable {
     public var mirroredTabIDs: [String] = []
     /// The pane's column on its screen, left to right as the window draws
     /// them (left docks, the scrolling strip, right docks); nil for a pane in
-    /// a top or bottom band. A screen stored as one split tree is column 0.
+    /// a top or bottom band. Panes side by side in one split tree are as
+    /// many columns; panes stacked there share one.
     /// `beside_caller` placement reads it (ControlCaller).
     public var column: Int?
     /// The edge its column is docked to (`left`, `right`, `top`, `bottom`);

@@ -22,8 +22,14 @@ on:
   # Only PRs into main and feat-cmux-next: the tooling comes from the PR base branch, so a PR
   # into any other branch (whose tooling its author controls) must never run here.
   pull_request_target:
-    # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate.
-    types: [opened, synchronize, reopened, labeled, edited]
+    # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate. A title
+    # or body edit into feat-cmux-next takes no runner: every job skips it (pattern
+    # pr-edit-fans-out-ci, checked by tests/test_ci_pr_runs_cancel_superseded.py). main's copy
+    # still gates every edit: its ruleset requires `backend migrations applied` (#13871).
+    # labeled: only `backend:apply-migrations` (applies) and `full-ci` (lifts the draft skip) change
+    # anything. Into feat-cmux-next every other label (area:, harness:, fix-cause: on merged PRs; a
+    # new PR gets three at once) takes no runner either (tests/test_ci_label_events_skip_full_ci.py).
+    types: [opened, synchronize, reopened, labeled, edited, ready_for_review]
     branches: [main, feat-cmux-next]
   merge_group:
     branches: [main, feat-cmux-next]
@@ -32,28 +38,139 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
-  cancel-in-progress: false
+  # A title or body edit or another label gets its own group, so it never replaces a push's pending
+  # run. A newer head cancels the older head's run (its plan only reads; its gate, which runs on a
+  # cancel, goes red on the superseded head). An apply-label run has a group of its own that never
+  # cancels: a cancel could stop it between applying a migration and recording it.
+  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations') && format('-label-{0}', github.run_id) || github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' && '-apply' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' && !(github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations') }}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   plan:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
-    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
-    timeout-minutes: 10
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens
+    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint). 30, not 10: the base checkout alone may
+    # take 3 x 240 s on a mirrorless runner (Freestyle: "Checkout ... has timed out", 21 false reds in 24 h, 2026-11-27).
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      migrations: ${{ steps.files.outputs.migrations }}
+      migrations: ${{ steps.same-tree.outputs.same == 'true' && 'false' || steps.files.outputs.migrations }}
     steps:
+      # Most heads never touch migrations, and the full base checkout below took 176 s at p50 on every
+      # head (2026-11-21, about 3 runner-minutes a PR head, RFD 0023 "one router per push"). A treeless
+      # one-commit fetch of the base and the head answers "same backend/db/migrations tree" in about
+      # 2 s; only when both trees resolve and match does the plan stop here. Anything else (a fetch
+      # error, a missing directory, a different tree) falls through to the full plan below.
+      - name: Same migrations tree as the base?
+        id: same-tree
+        if: github.event_name == 'pull_request_target'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          git init -q probe && cd probe || exit 0
+          git remote add origin "https://github.com/$REPO.git"
+          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+            echo "treeless fetch failed: full plan"; exit 0
+          fi
+          base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
+          head_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations") || head_tree=""
+          if [ -n "$base_tree" ] && [ "$base_tree" = "$head_tree" ]; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "no migration changes (backend/db/migrations is $base_tree at the base and the head)"
+          else
+            echo "base ${base_tree:-unresolved}, head ${head_tree:-unresolved}: full plan"
+          fi
+      # base comes from the runner's git mirror (/var/lib/cmux-git/cmux.git, fetched each minute: branch tips
+      # and every PR's head and merge), borrowed through objects/info/alternates: no network. Elsewhere, or
+      # when the mirror lacks the commit, it is a blobless one-commit fetch from github.com. That fetch is
+      # GitHub building a shallow, filtered pack of a 3 GB repository: p50 66 s, p95 286 s on the pool
+      # (2026-11-24, pool.sh's mirror notes), so a 60 s bound failed both attempts on PRs 56905, 53402 and
+      # 57565 on 2026-11-26 while the runner's mirror already held the base. Each network attempt is bounded
+      # with a low-speed abort, tried three times with backoff (git_retry, as every read below), and a failure names its cause.
+      # Freestyle guests (fsr, runner group cmux-freestyle-linux) take this job's gate label too and have no mirror: a
+      # 1.3-9 MB/s link and a git store baked once a day. There the 60 s actions/checkout timed out twice on jobs
+      # 139897638176, 139897631159, 139898168920, 139897472857 and 139898135049 (2026-11-26 12:12-12:15Z), each a false
+      # red of plan and of `backend migrations applied`, so each try gets 240 s and the blob read 180 s.
       - name: Checkout base (trusted tooling)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          path: trusted
-          persist-credentials: false
+        id: checkout
+        if: steps.same-tree.outputs.same != 'true'
+        # 3 x 240 s fetch, 20 s backoff, 180 s blob read: 920 s.
+        timeout-minutes: 17
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          # The low-speed abort is 1 B/s for 60 s, never higher: GitHub sends next to nothing while it builds
+          # the shallow, filtered pack of this 3 GB repository (p50 66 s, p95 286 s), so 1000 B/s for 30 s cut
+          # healthy fetches mid-build. The wall clock (timeout LIMIT) bounds a real hang.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
+          rm -rf trusted && git init -q trusted && cd trusted || { echo "::error::could not create trusted/"; exit 1; }
+          git remote add origin "https://github.com/$REPO.git"
+          git config gc.auto 0
+          how=""
+          if [ -e "$mirror/cmux-ready" ] && git -c safe.directory="$mirror" --git-dir="$mirror" cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "$mirror/objects" > .git/objects/info/alternates
+            how="the runner's git mirror, no network"
+          else
+            if git_retry "base fetch of $BASE_SHA from github.com" 240 -c protocol.version=2 fetch -q --no-tags --filter=blob:none --depth=1 origin "+$BASE_SHA:refs/remotes/origin/base"; then
+              how="github.com"
+            else
+              echo "::error::base fetch of $BASE_SHA from github.com failed (124 is the 240 s bound) on runner ${RUNNER_NAME:-unknown}, and the runner has no git mirror holding it: a fetch problem on this runner, not the PR"
+              exit 1
+            fi
+          fi
+          # Only what this job reads: the backend bun workspace (its members outside backend/ too) and the cache
+          # key's second lockfile (a full checkout took most of this job's time, 2026-11-19).
+          git sparse-checkout set --no-cone backend/ clients/ts/ workers/cmux-vm/sdk/ scripts/cmux-next/release/bun.lock .gitmodules ||
+            { echo "::error::sparse-checkout of the backend workspace failed"; exit 1; }
+          # A blobless base fetches the workspace's blobs here: bound it too.
+          if ! GIT_TERMINAL_PROMPT=0 timeout 180 git -c advice.detachedHead=false checkout -q --detach "$BASE_SHA"; then
+            echo "::error::checking out the backend workspace at $BASE_SHA failed or hung past 180 s (from $how) on runner ${RUNNER_NAME:-unknown}"
+            exit 1
+          fi
+          echo "base $BASE_SHA backend workspace from $how"
+      # The file list, when the migrations tree differs, is read on the manaflow-glaeda-route
+      # App's own budget (GITHUB_TOKEN's, which every workflow shares, ran out on 2026-10-21);
+      # a failed mint or a refused read uses GITHUB_TOKEN. Pull requests only: a merge group
+      # runs the queued commit's copy of this file.
+      # Most pull requests change no migration and the step below decides that from git
+      # alone, so the glaeda-route token is minted only for a head whose
+      # backend/db/migrations tree differs from the base (the only case that lists files
       - name: Changed files and head migrations
         id: files
+        if: steps.same-tree.outputs.same != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
@@ -132,6 +249,7 @@ jobs:
         if: steps.files.outputs.migrations == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       # Restore only: this workflow runs with the base's secrets, so it never saves a cache.
       # backend.yml's test job saves this key from the same base lockfiles.
       - name: Restore the Bun package cache (backend.yml's test job saves it)
@@ -158,14 +276,11 @@ jobs:
     needs: plan
     # Only the act of labeling applies (never a later push with the label still present), and
     # the label is removed first, so every apply follows a fresh label on the current head.
-    if: >-
-      needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target' &&
-      github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' && github.event.pull_request.head.repo.full_name == github.repository ) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-staging
@@ -176,7 +291,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: gh api -X DELETE "repos/$REPO/issues/$PR/labels/backend:apply-migrations" || true
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -188,6 +303,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -205,13 +321,14 @@ jobs:
           bun migrate.ts --env staging --dir "$RUNNER_TEMP/head-migrations" --verify
 
   apply-production:
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     needs: apply-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-production
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -223,6 +340,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -242,13 +360,18 @@ jobs:
           bun migrate.ts --env production --dir "$RUNNER_TEMP/head-migrations" --verify
 
   gate:
-    name: backend migrations applied
+    # A skipped job reads as success for a required check, so a title or body edit's or another
+    # label's skipped run publishes another name and never answers for `backend migrations applied`.
+    # A plan that succeeded with no migration change starts no gate VM: the skipped gate keeps its
+    # name and reads as success, as on main (#48999; #49237 merged the test without this change).
+    # A failed or cancelled plan still runs the gate, which fails.
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations') && 'backend migrations label (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
-    if: always()
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens
     # Under 10s without migration changes; with them, bun install and a verify.
     timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
@@ -281,7 +404,7 @@ jobs:
       - name: No migration changes, or merge queue (verified at PR time)
         if: needs.plan.outputs.migrations != 'true' || github.event_name == 'merge_group'
         run: echo "nothing to verify here (no migration changes, or a merge group of PRs whose gate passed)"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -296,6 +419,7 @@ jobs:
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

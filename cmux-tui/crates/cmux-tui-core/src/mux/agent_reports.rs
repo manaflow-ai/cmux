@@ -1,5 +1,6 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
+use super::agent_roster_fold::ReportEcho;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -194,7 +195,9 @@ impl Mux {
                 let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
                     anyhow::bail!("surface {surface} is not a terminal");
                 };
-                (surface, terminal_id.clone())
+                // A report names the terminal by any of its surfaces (a hook by its runtime's);
+                // the record and its event name the one its tab shows.
+                (state.terminal_view_surface(terminal_id).unwrap_or(surface), terminal_id.clone())
             }
             AgentReportTarget::Resource { selectors, terminal_id } => {
                 self.resolve_resource_path_in_state(
@@ -205,10 +208,7 @@ impl Mux {
                 )
                 .map_err(anyhow::Error::new)?;
                 let surface = state
-                    .placements_of_content(&ContentPublicId::Terminal((*terminal_id).clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+                    .terminal_view_surface(terminal_id)
                     .with_context(|| format!("unknown terminal {terminal_id}"))?;
                 (surface, (*terminal_id).clone())
             }
@@ -321,6 +321,8 @@ impl Mux {
                     && existing.agent_session_id == agent_session_id
             })
             .map(|existing| existing.since_ms);
+        let was_blocked =
+            records.get(&terminal_id).is_some_and(|existing| existing.state == AgentState::Blocked);
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -445,15 +447,34 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         let notified = joined.map(|(post, staged)| {
-            let ring = self.install_feed_post(post, &staged.notification, staged.numeric_id);
-            (staged, ring)
+            let installed = self.install_feed_post(post, &staged.notification, staged.numeric_id);
+            (staged, installed)
         });
         drop(registry);
+        // A direct report's echo, noted before the hook projector's lock
+        // goes: until it is in the journal the roster holds the agent's older
+        // state (`ReportEchoes`).
+        let echoed = origin == AgentReportOrigin::Direct && !commit.replayed;
+        if echoed {
+            self.note_report_echo(ReportEcho::new(
+                terminal_id.clone(),
+                record.state,
+                record.source,
+                record.session.clone(),
+                record.updated_at_ms,
+            ));
+        }
         drop(sequence_guard);
         // The notification's events come before the report's, as before.
-        if let Some((staged, ring)) = notified {
+        if let Some((staged, (ring, shown_by))) = notified {
             let (notification, id) = (&staged.notification, staged.numeric_id);
-            self.announce_notification(notification, id, ring, notified_session);
+            self.announce_notification(
+                notification,
+                id,
+                ring,
+                notified_session,
+                shown_by.as_deref(),
+            );
             self.prune_evicted_notification_reads();
         }
         let agent = AgentRecord {
@@ -476,10 +497,19 @@ impl Mux {
             self.forget_agent_question(&agent.terminal_id);
         }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
+        // A hook that blocks the agent carries its own alert (approval,
+        // question, plan review, error); any other source turning it Blocked
+        // posts the opt-in Blocked notification once per transition.
+        let newly_blocked = !commit.replayed
+            && !socket_report_ignored
+            && !was_blocked
+            && agent.state == AgentState::Blocked
+            && agent.source != AgentSource::Hook;
         if !commit.replayed {
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
+                terminal_id: Some(Arc::from(agent.terminal_id.as_str())),
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
@@ -500,19 +530,69 @@ impl Mux {
                 );
             }
             if origin == AgentReportOrigin::Direct {
+                #[cfg(test)]
+                if let Some(seam) = self
+                    .agent_roster_worker
+                    .report_echo_seam
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    seam();
+                }
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                );
+                // Every echo, in the terminal's commit order (`agent_report_echoes.rs`).
+                if echoed {
+                    self.write_report_echoes(&agent.terminal_id);
+                }
             }
         }
+        if newly_blocked {
+            self.notify_agent_blocked(&agent);
+        }
         Ok((commit, Some(agent)))
+    }
+
+    /// Post the opt-in `notifications.delivery.blocked` notification for an
+    /// agent a report just turned Blocked: off posts nothing, badge records
+    /// the unread item with no banner, banner posts as a hook alert does. The
+    /// key names the terminal and when its Blocked state began, so a replay
+    /// of the same transition posts nothing.
+    fn notify_agent_blocked(&self, agent: &AgentRecord) {
+        use super::agent_notification_delivery::{AgentEvent, Delivery};
+        let delivery = self.agent_notification_delivery(Some(AgentEvent::Blocked));
+        if delivery == Delivery::Off {
+            return;
+        }
+        let name = agent.agent.as_deref().map(str::trim).filter(|name| !name.is_empty());
+        let mut title = String::new();
+        match name {
+            Some(name) => {
+                let mut chars = name.chars();
+                if let Some(first) = chars.next() {
+                    title.extend(first.to_uppercase());
+                    title.push_str(chars.as_str());
+                }
+            }
+            None => title.push_str("Agent"),
+        }
+        title.push_str(" is blocked");
+        let posted = self.create_durable_notification_with(
+            &Actor::Daemon,
+            &format!("agent-blocked-{}-{}", agent.terminal_id, agent.since_ms),
+            title,
+            None,
+            String::new(),
+            NotificationLevel::Warning,
+            Some(agent.surface),
+            NotificationSource::Agent,
+            delivery == Delivery::Banner,
+        );
+        if posted.is_err() {
+            self.report_internal_diagnostic("agent blocked notification not posted");
+        }
     }
 
     #[track_caller]
@@ -548,13 +628,7 @@ impl Mux {
                 // A terminal without a runtime runs no agent: its tabs are
                 // dead (a host loss keeps them, invariant 3) or kept.
                 state_snapshot.terminal_catalog.get(&terminal_id)?;
-                let representative = state_snapshot
-                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| {
-                        state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
-                    })?;
+                let representative = state_snapshot.terminal_view_surface(&terminal_id)?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
                 // The hover card's folded cut; the whole prompt is the phone Feed's.

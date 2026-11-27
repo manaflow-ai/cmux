@@ -9,6 +9,7 @@
 // The two live cases of the mixed run test the `runs` arm of live-turn-work, not the shipped `line` arm:
 // their calls are finished calls of a turn that still runs, which only `runs` draws
 // (support/liveTurnRuns.ts). The other cases take the shipped arms.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -83,6 +84,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               if (!code) return [];
               const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
               const verb = walker.nextNode()!;
+              // A running command draws no verb, only its command (and the shimmer's copy of it).
+              if (code.contains(verb)) return [];
               const range = document.createRange();
               range.selectNodeContents(verb);
               const ran = verb.textContent!.trimEnd();
@@ -163,7 +166,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
             expect(gap).toBeGreaterThan(0);
             expect(gap).toBeLessThan(8);
           }
-          // A thought's text starts at its label's words, with no guide line, opened (under the brain
+          // A thought's text starts at its line's words (a streaming one's at its label's), with no guide line, opened (under the brain
           // glyph's row, on the tools' text column) and while it streams.
           await page.locator('[data-fixture-thoughts] button[aria-expanded="false"]').click();
           await page.locator("[data-fixture-thoughts] .cv-thought__body").waitFor();
@@ -182,7 +185,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               root.querySelector(".cv-thought__body")!,
               root.querySelector(".cv-thought.is-full .cv-thought__text")!,
             ].map((text) => {
-              const label = text.closest("[data-thought]")!.querySelector(".cv-thought__label")!;
+              const label = text.closest("[data-thought]")!.querySelector(".cv-thought__label, .cv-thought__preview")!;
               return {
                 guide: getComputedStyle(text).boxShadow,
                 offset: first(text) - first(label),
@@ -233,6 +236,16 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         const step = ":scope > .cv-step > .cv-tool";
         await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
         expect(await steps.locator(".is-run").count()).toBe(0);
+        // One row pitch: --cv-tool-row-height (22px plus --cv-row-air since #50376), read off the run.
+        const pitch = await steps.evaluate((run) => {
+          const probe = document.createElement("div");
+          probe.style.height = "var(--cv-tool-row-height)";
+          run.append(probe);
+          const height = probe.getBoundingClientRect().height;
+          probe.remove();
+          return height;
+        });
+        expect(pitch).toBeGreaterThanOrEqual(22);
         const geometry = await steps.locator(step).evaluateAll((rows) =>
           rows.map((row) => ({
             // A lone call with a picture draws in its visual's block (`.cv-tool-with-visual`): the
@@ -245,8 +258,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         for (let at = 0; at < geometry.length; at++) {
           expect(geometry[at]!.icon).toBe("visible");
           expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
-          if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - 22)).toBeLessThanOrEqual(0.5);
+          if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - pitch)).toBeLessThanOrEqual(0.5);
         }
+        expect(Math.abs(pitch - ROW_METRIC.height)).toBeLessThanOrEqual(0.5);
         await steps.getByRole("button", { name: "Find the retry handler" }).click();
         // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
         expect(await steps.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");

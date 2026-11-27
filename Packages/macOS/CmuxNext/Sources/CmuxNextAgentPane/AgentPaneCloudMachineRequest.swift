@@ -6,9 +6,11 @@ public import Foundation
 /// state, and the person can resume or open it from there. Fixed param keys (any other is
 /// refused); a machine id is checked here and again by the App against the machines it loaded.
 ///
-/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}]}`, read-only.
+/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}], lastSeenAt?}`, read-only.
+///   `lastSeenAt` (epoch ms) marks a list kept from an earlier launch, shown before the first fresh one lands.
 ///   `cloudMachine.list {fresh: true}` (``freshList``) reads the Cloud plan again, past the kept read: a Send the plan
-///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan.
+///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan. On a cold start it
+///   also waits for a fresh machine read (``freshList``) rather than answering the kept list: Retry and a pick of a kept row.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
@@ -24,6 +26,12 @@ public import Foundation
 ///   which asks the person first (its confirmation sheet) and deletes only on their answer.
 /// - `cloudMachine.prewarm {id}` -> `{}`: a passive typing hint; wakes a loaded paused machine
 ///   through the predictive/script route and never consumes a user gesture.
+/// - `cloudMachine.wakeHint {v, id, signal}` -> `{resume}`: wake on intent (v1): the page or shell saw
+///   the person focus that machine's chat, open a terminal on it or unlock with it in front, before any
+///   key. The App only forwards it; Rust decides (`cloud_handler_wake_hint`, cmux-cloud-handlers
+///   `wake_hint`): hidden setting `cloud.wakeOnIntent` (default on; the setting is the kill switch), paused machines only, debounced,
+///   capped, and re-paused when no input follows. Never a gesture. A host without it answers
+///   `unsupported`, which the page drops; a page without it never sends one.
 ///
 /// Open, Resume, Attach, Pause and Delete change a machine: each takes the person's own click (one gesture;
 /// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
@@ -38,10 +46,13 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case pause(id: String)
     case delete(id: String)
     case prewarm(id: String)
+    /// Wake on intent: `version` is the sender's (`v`), `signal` the raw event name Rust reads.
+    case wakeHint(id: String, signal: String, version: Int)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "cloudMachine.list", "cloudMachine.recoveryList", "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause", "cloudMachine.delete", "cloudMachine.prewarm",
+        "cloudMachine.wakeHint",
     ]
     /// Longest id the page may send back (the API's ids are far shorter).
     static let maximumIDLength = 128
@@ -68,9 +79,19 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
             case "cloudMachine.delete": self = .delete(id: id)
             default: self = .pause(id: id)
             }
+        case "cloudMachine.wakeHint":
+            // A newer page may add fields: the known three decide, the rest are ignored.
+            guard let id = Self.machineID(params["id"]), let version = params["v"] as? Int, version >= 1,
+                  let signal = params["signal"] as? String, Self.isSignalName(signal) else { return nil }
+            self = .wakeHint(id: id, signal: signal, version: version)
         default:
             return nil
         }
+    }
+
+    /// A raw signal name: 1-32 ASCII letters. Which ones count is Rust's.
+    static func isSignalName(_ raw: String) -> Bool {
+        !raw.isEmpty && raw.utf8.count <= 32 && raw.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.letters.contains($0) }
     }
 
     /// A machine id as the page sends it back: ASCII letters, digits, `-`, `_`, `.` and `:`.
@@ -91,6 +112,7 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case .pause: "cloudMachine.pause"
         case .delete: "cloudMachine.delete"
         case .prewarm: "cloudMachine.prewarm"
+        case .wakeHint: "cloudMachine.wakeHint"
         }
     }
 }
@@ -100,6 +122,11 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
 /// own instance. Unset, every method is refused.
 @MainActor
 public final class AgentPaneCloudMachines {
+    /// How old the App's machine list may be when a picker reads it: an open picker reads every
+    /// few seconds, the server's list at most this often (the store also follows each machine's
+    /// own link between reads).
+    public static let listAge: Duration = .seconds(60)
+
     /// One Cloud machine as the picker lists it.
     public struct Machine: Equatable, Sendable {
         public var id: String
@@ -159,9 +186,12 @@ public final class AgentPaneCloudMachines {
         public var teams: [Team]
         /// The Cloud plan as the server answered it (``Plan``); `unknown` when nothing was read.
         public var plan: Plan
+        /// When `machines` is the list kept from an earlier launch (cmux-cloud-machine `last_seen`), the time
+        /// the server answered it: the page marks those rows last seen until a fresh list lands. Nil for a fresh list.
+        public var lastSeenAt: Date?
         public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false,
-                    team: Team? = nil, teams: [Team] = [], plan: Plan = .unknown) {
-            (self.account, self.complete, self.team, self.teams, self.plan) = (account, complete, team, teams, plan)
+                    team: Team? = nil, teams: [Team] = [], plan: Plan = .unknown, lastSeenAt: Date? = nil) {
+            (self.account, self.complete, self.team, self.teams, self.plan, self.lastSeenAt) = (account, complete, team, teams, plan, lastSeenAt)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
         }
     }
@@ -183,6 +213,10 @@ public final class AgentPaneCloudMachines {
     }
 
     public var list: (@MainActor () async -> Inventory)?
+    /// The list for `cloudMachine.list {fresh: true}`: on a cold start it waits for a fresh read instead
+    /// of answering the kept list at once (``CloudLastSeenMachines``), so Retry and a pick of a kept row
+    /// act on what the server says now. Nil: ``list``.
+    public var freshList: (@MainActor () async -> Inventory)?
     /// Fresh inventory for a disconnected chat; avoids the picker cache hiding a paused machine.
     public var recoveryList: (@MainActor () async -> Inventory)?
     /// What Resume machine on an unavailable chat does, decided on a fresh read of the machine:
@@ -251,6 +285,17 @@ public final class AgentPaneCloudMachines {
     /// Sends a passive predictive wake hint to a paused machine of the loaded list; false otherwise.
     /// Unlike user actions, this never consumes a page gesture.
     public var prewarm: (@MainActor (String) async -> Bool)?
+    /// Forwards a wake-on-intent hint (machine, raw signal, sender version) to the rules; true when it
+    /// resumed the machine. Never a gesture.
+    public var wakeHint: (@MainActor (String, String, Int) async -> Bool)?
+
+    /// A raw wake-on-intent signal the Mac shell saw (a paused machine's terminal tab shown), sent like
+    /// the page's `cloudMachine.wakeHint`; the rules (debounce, cap, re-pause) are Rust's.
+    public func intent(_ id: String, signal: String) {
+        guard let wakeHint else { return }
+        // task-owner: one hint; the rules answer at once and the resume is bounded by its own Cloud call
+        Task { _ = await wakeHint(id, signal, AgentPaneCloudWakeOnIntent.version) }
+    }
     /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
     public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// The account's last Cloud plan read (``Plan``), reused for a minute: the list's `plan`.
@@ -303,7 +348,12 @@ extension AgentPaneCloudMachineRequest {
     func reply(_ machines: AgentPaneCloudMachines?, gestures: AgentPaneUserGestures) async -> [String: Any] {
         switch self {
         case .list, .freshList, .recoveryList:
-            guard let list = (self == .recoveryList ? machines?.recoveryList : machines?.list) else { return AgentPaneModel.unsupported(method) }
+            let read = switch self {
+            case .recoveryList: machines?.recoveryList
+            case .freshList: machines?.freshList ?? machines?.list
+            default: machines?.list
+            }
+            guard let list = read else { return AgentPaneModel.unsupported(method) }
             if self == .freshList { machines?.planReads.forget() }
             let inventory = await list()
             let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { machine in
@@ -319,6 +369,8 @@ extension AgentPaneCloudMachineRequest {
             if inventory.signedIn, let team = inventory.team { value["team"] = team.reply }
             if inventory.signedIn, !inventory.teams.isEmpty { value["teams"] = inventory.teams.map(\.reply) }
             value["plan"] = (inventory.signedIn ? inventory.plan : .unknown).reply
+            // Epoch ms (cloudMachines.ts `lastSeenAt`); a kept list is never complete.
+            if let lastSeenAt = inventory.lastSeenAt { value["lastSeenAt"] = (lastSeenAt.timeIntervalSince1970 * 1000).rounded(); value["complete"] = false }
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines?.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)
@@ -336,6 +388,10 @@ extension AgentPaneCloudMachineRequest {
             guard let prewarm = machines?.prewarm else { return AgentPaneModel.unsupported(method) }
             guard await prewarm(id) else { return Self.notRun(method) }
             return AgentPaneReply.success()
+        case .wakeHint(let id, let signal, let version):
+            guard let wakeHint = machines?.wakeHint else { return AgentPaneModel.unsupported(method) }
+            // A skipped hint is an answer, not a failure: the page never retries a hint.
+            return AgentPaneReply.success(["resume": await wakeHint(id, signal, version)])
         }
     }
 

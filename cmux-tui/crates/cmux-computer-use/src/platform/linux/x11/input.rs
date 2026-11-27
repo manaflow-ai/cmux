@@ -183,6 +183,27 @@ impl X11Desktop {
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
     }
 
+    /// The pointer onto `target`, nothing pressed (a hover): XTest where it
+    /// may move the real pointer (foreground, or headless), else a synthetic
+    /// MotionNotify to the X window under the point.
+    pub(crate) fn move_impl(
+        &self,
+        target: &PointerTarget,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
+        let c = self.client(target.window_id())?;
+        let p = self.point_of(&c, target)?;
+        if let Some(route) = self.xtest_route(&c, delivery, Some(p))? {
+            self.xtest_motion(p)?;
+            self.flush()?;
+            return Ok(ActionOutcome::delivered(route).at(p));
+        }
+        let (win, local) = self.deepest_at(&c, p)?;
+        self.send_motion(win, p, local, 0)?;
+        self.flush()?;
+        Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
+    }
+
     pub(crate) fn drag_impl(
         &self,
         window_id: &str,
@@ -353,7 +374,13 @@ impl X11Desktop {
             Some(name) => (Route::XTest, name, false),
             None => match self.focus_in(c) {
                 Some(focus) => (Route::Send(focus), "xsendevent", false),
-                None => match self.lend_plan(c) {
+                // A focus read that failed is read again for a moment
+                // (nothing is sent meanwhile) before the keys are refused.
+                None => match crate::reread::reread(crate::reread::REREAD_WAIT, || {
+                    Some(self.lend_plan(c)).filter(|plan| !matches!(plan, Lend::Unknown))
+                })
+                .unwrap_or(Lend::Unknown)
+                {
                     Lend::Yes => (Route::Send(c.win), "xsendevent", true),
                     Lend::No => (Route::Send(c.win), "xsendevent", false),
                     Lend::SameAppHasFocus => {
@@ -366,8 +393,9 @@ impl X11Desktop {
                     }
                     Lend::Unknown => {
                         return Err(DesktopError::Unsupported(
-                            "could not read which window has the keyboard focus, so keys for this window \
-                             might reach the person's; try again, or use set_value or an element action"
+                            "which window has the keyboard focus did not answer for over a second, so keys \
+                             for this window might reach the person's and none were sent; use set_value or \
+                             an element action"
                                 .into(),
                         ));
                     }

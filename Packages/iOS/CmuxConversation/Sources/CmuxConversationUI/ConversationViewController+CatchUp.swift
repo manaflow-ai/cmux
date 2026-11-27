@@ -117,7 +117,7 @@ extension ConversationViewController {
 
     @objc private func catchUpTapped() {
         catchUpButton.isEnabled = false
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        ConversationHaptics.impact(.light)
         Task { [weak self] in
             guard let self else { return }
             let rowID = await self.store.loadCatchUpTarget()
