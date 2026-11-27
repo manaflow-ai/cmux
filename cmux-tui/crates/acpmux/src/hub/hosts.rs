@@ -1105,6 +1105,7 @@ impl Hub {
                     let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
+                    let install_turn = self.harness_turn(session).await;
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1184,7 +1185,7 @@ impl Hub {
                         hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }
