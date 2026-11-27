@@ -860,6 +860,8 @@ with an inline `OPENCODE_CONFIG_CONTENT` (provider `byo`, `@ai-sdk/openai-compat
 
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
+In a NEXT chat, `/model astra-6.2 fast high` selects the matching model, service tier and reasoning effort together. To change only speed on an existing Codex chat, use `acpmux session set SESSION fast-mode=priority` for a model that offers the priority tier. The bridge reads service tiers from the session provider's catalog.
+
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
 `prime`, `gemini`) or a **profile** (`claude-sr`, `claude-acp`); an optional model follows the
 first slash and keeps its own slashes. Nothing is inferred: a head that is neither family nor
