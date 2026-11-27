@@ -41,8 +41,10 @@ pub struct ScorecardArgs {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum ScorecardCmd {
     /// Replay recorded session logs against RFD 0161's cache-prefix invariants with no model
-    /// call (2: model, tools and system prompt unchanged; 5: no cache-read collapse without a
-    /// declared compaction or surgery). Fails (exit 1) on a violation, for CI.
+    /// call (1: each call's context extends the last; 2: model, tools and system prompt
+    /// unchanged; 3: no tool result over the output cap; 4: re-reads after a compaction or
+    /// surgery bounded; 5: no cache-read collapse without a declared compaction or surgery).
+    /// Fails (exit 1) on a violation, for CI.
     Replay(ReplayArgs),
 }
 
@@ -203,13 +205,18 @@ fn replay_text(a: &Value) -> String {
     for m in a["missing"].as_array().into_iter().flatten() {
         out.push_str(&format!("{}: no such session\n", m.as_str().unwrap_or("")));
     }
-    let not_yet: Vec<String> =
-        a["notYet"].as_array().into_iter().flatten().map(|v| v["invariant"].to_string()).collect();
+    let list = |key: &str| -> String {
+        let n: Vec<String> =
+            a[key].as_array().into_iter().flatten().map(|v| v["invariant"].to_string()).collect();
+        n.join(", ")
+    };
+    let not_yet = list("notYet");
     out.push_str(&format!(
-        "{} session(s), {} violation(s); invariants 2 and 5 checked, {} not yet\n",
+        "{} session(s), {} violation(s); invariants {} checked{}\n",
         a["sessions"].as_array().map_or(0, Vec::len),
         a["violations"],
-        not_yet.join(", ")
+        list("checked"),
+        if not_yet.is_empty() { String::new() } else { format!(", {not_yet} not yet") }
     ));
     out
 }
@@ -355,6 +362,12 @@ mod tests {
         assert!(t.contains("invariant 5 cacheAgrees at seq 9: collapsed"), "{t}");
         assert!(t.contains("nope: no such session"), "{t}");
         assert!(t.contains("1, 3 not yet"), "{t}");
+        let all = json!({"sessions": [], "missing": [], "violations": 0, "notYet": [],
+            "checked": [{"invariant": 1}, {"invariant": 2}, {"invariant": 3}, {"invariant": 4},
+                {"invariant": 5}]});
+        let t = replay_text(&all);
+        assert!(t.contains("invariants 1, 2, 3, 4, 5 checked\n"), "{t}");
+        assert!(!t.contains("not yet"), "{t}");
     }
 
     #[test]
