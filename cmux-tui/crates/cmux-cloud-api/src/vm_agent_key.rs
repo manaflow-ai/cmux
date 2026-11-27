@@ -20,9 +20,15 @@ const SEGMENTS: [&str; 2] = ["v1", "agent-keys"];
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(crate) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let Some(body) = args.get("body").filter(|body| body.is_object()) else {
-        return Err(Failure::Transport("no agent key body".into()));
+    // `body` as JSON, or `body_json` as the app's serialized text (as `owner.op` takes it); one of them, an object.
+    let body = match (args.get("body"), args.get("body_json")) {
+        (Some(body), None) => body.clone(),
+        (None, Some(Value::String(text))) => serde_json::from_str(text).unwrap_or(Value::Null),
+        _ => Value::Null,
     };
+    if !body.is_object() {
+        return Err(Failure::Transport("no agent key body".into()));
+    }
     let Some(team) = http.team.clone() else {
         return Err(Failure::Transport("an agent key is minted for a team: no team".into()));
     };
@@ -31,7 +37,7 @@ pub(crate) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Val
         .send_named(
             Method::POST,
             http.url(&SEGMENTS, &[]),
-            Some(Body::Json(body.clone())),
+            Some(Body::Json(body)),
             (None, &[("x-cmux-team-id", team)]),
             TIMEOUT,
             &path,

@@ -37,7 +37,14 @@ fn an_agent_key_refusal_is_its_status_and_body_text() {
 #[test]
 fn an_agent_key_mint_needs_a_body_object_and_a_team_before_any_request() {
     let (origin, seen) = fake(|_| ok("{}"));
-    for args in [json!({}), json!({ "body": [1] }), json!({ "body": "x" })] {
+    for args in [
+        json!({}),
+        json!({ "body": [1] }),
+        json!({ "body": "x" }),
+        json!({ "body_json": "[1]" }),
+        json!({ "body_json": "{not json" }),
+        json!({ "body": {}, "body_json": "{}" }),
+    ] {
         let refused = mint(&origin, args);
         assert!(matches!(refused, Err(Failure::Transport(_))), "{refused:?}");
     }
@@ -45,4 +52,12 @@ fn an_agent_key_mint_needs_a_body_object_and_a_team_before_any_request() {
     no_team.team = None;
     assert!(matches!(go(&no_team), Err(Failure::Transport(_))));
     assert!(seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_agent_key_body_may_come_as_the_apps_json_text() {
+    let (origin, seen) = fake(|_| Some((201, "{}".into())));
+    let text = r#"{"name":"cli","budgetUsdPerHour":1.5}"#;
+    mint(&origin, json!({ "body_json": text })).unwrap();
+    assert_eq!(seen.lock().unwrap()[0].json(), json!({ "name": "cli", "budgetUsdPerHour": 1.5 }));
 }
