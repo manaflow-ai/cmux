@@ -22,6 +22,7 @@ type Props = {
   dismissLook?: "hover" | "always" | "corner";
   first?: "child";
   ask?: "long" | "short";
+  pagerLook?: "before" | "gap" | "roomy";
 };
 
 // The whole ask (Leo, 2026-11-11, on a coordinator's [irreversible] deploy ask cut mid-word): More
@@ -105,6 +106,24 @@ export default componentEntry<Props>({
     three: {
       note: "Three wait: the pager reads 1 of 3, and left and right step through them.",
       props: {},
+    },
+    // Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"
+    // The pager's spacing (design/chevrons.md; `<html data-pager-look>`), each with three waiting.
+    "pager-before": {
+      note: "Before: 20 px steps touching the count; each chevron's 12 px box stands 4 px from 1 of 3. Too close.",
+      props: { pagerLook: "before" },
+    },
+    "pager-gap": {
+      note: "20 px steps with a 4 px gap: 8 px from chevron to count, the guideline's floor, on a target under 24.",
+      props: { pagerLook: "gap" },
+    },
+    "pager-shipped": {
+      note: "Shipped: 24 px steps (the compact control) with a 4 px gap: 10 px from chevron to count, as the version switcher's capsule reads, and the head row keeps its height.",
+      props: {},
+    },
+    "pager-roomy": {
+      note: "24 px steps with an 8 px gap: 14 px; the chevrons drift from the count and the pager reads as three things.",
+      props: { pagerLook: "roomy" },
     },
     line: {
       note: "The one-line arm: the question cut to the room left, its answers at the line's end.",

@@ -208,21 +208,42 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The < 1 of 3 > pager follows design/chevrons.md (Leo, 2026-11-27: "these chevrons are too close dont we
+   have any guidelines for these yet?"): each step is a 24 px target (--ds-control-compact) with a
+   --ds-space-1 gap to the count, so a chevron's 12 px box stands 10 px from the words; before, 20 px
+   steps touching the count left 4. The steps' negative block margin keeps the head row's height.
+   test/chevron-spacing.test.ts measures it; gallery agent-pane.hat-questions `pager-*` compares the
+   looks (`<html data-pager-look>`). */
 .acpmux-hat-questions__pager {
+  --acpmux-hat-step: var(--ds-control-compact, 24px);
+  --acpmux-hat-step-gap: var(--ds-space-1, 4px);
   flex: none;
   display: inline-flex;
   align-items: center;
+  gap: var(--acpmux-hat-step-gap);
   margin-left: auto;
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
 }
+:root[data-pager-look="before"] .acpmux-hat-questions__pager {
+  --acpmux-hat-step: var(--ds-control-icon, 20px);
+  --acpmux-hat-step-gap: 0px;
+}
+:root[data-pager-look="gap"] .acpmux-hat-questions__pager {
+  --acpmux-hat-step: var(--ds-control-icon, 20px);
+  --acpmux-hat-step-gap: var(--ds-space-1, 4px);
+}
+:root[data-pager-look="roomy"] .acpmux-hat-questions__pager {
+  --acpmux-hat-step-gap: var(--ds-space-2, 8px);
+}
 .acpmux-hat-questions__step {
   display: inline-grid;
   place-items: center;
-  width: var(--ds-control-icon, 20px);
-  height: var(--ds-control-icon, 20px);
+  width: var(--acpmux-hat-step);
+  height: var(--acpmux-hat-step);
+  margin-block: calc((var(--ds-control-icon, 20px) - var(--acpmux-hat-step)) / 2);
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-md, 6px);
