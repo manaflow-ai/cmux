@@ -161,7 +161,6 @@ import {
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
-  hostPlannedRestart,
   reconnectRefusalStarts,
   RETRY_FIRST_MS,
 } from "../hostRetry";
