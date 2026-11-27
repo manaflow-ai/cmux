@@ -721,5 +721,50 @@ class GitCompareTest(unittest.TestCase):
             ci_receipt.git_compare = saved
 
 
+class LaneAskDeadlineTest(unittest.TestCase):
+    def test_lookup_waits_as_long_as_a_record(self):
+        seen = []
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: (seen.append(deadline), (200, b"{}", {}))[1]
+        try:
+            ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
+        finally:
+            ci_receipt.deadline_http.request = original
+        self.assertEqual(len(seen), 1)
+        self.assertAlmostEqual(seen[0], ci_receipt.LOOKUP_DEADLINE_S, delta=1)
+        self.assertGreaterEqual(ci_receipt.LOOKUP_DEADLINE_S, ci_receipt.RECORD_DEADLINE_S)
+
+    def _ask(self, answers):
+        now = [0.0]
+        slept = []
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: answers.pop(0)
+        try:
+            return ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt",
+                                       clock=lambda: now[0], sleep=sleep), slept
+        finally:
+            ci_receipt.deadline_http.request = original
+
+    def test_a_starting_controller_is_asked_again(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        answer, slept = self._ask([starting, starting, (200, b'{"receipt": null}', {})])
+        self.assertEqual(answer, {"receipt": None})
+        self.assertEqual(len(slept), 2)
+
+    def test_a_controller_down_past_the_deadline_is_no_receipt(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        with self.assertRaisesRegex(ci_receipt.Rejected, "503"):
+            self._ask([starting] * 100)
+
+    def test_a_refusal_is_not_asked_again(self):
+        with self.assertRaisesRegex(ci_receipt.Rejected, "403"):
+            self._ask([(403, b'{"error": "no"}', {}), (200, b"{}", {})])
+
+
+
 if __name__ == "__main__":
     unittest.main()
+
