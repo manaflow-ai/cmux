@@ -149,6 +149,47 @@ class PhonePairRequiredGate(unittest.TestCase):
         pair = yaml.safe_load((WORKFLOW.parent / "ios-link-ffi-linux.yml").read_text())
         self.assertIn("inputs.linkage", pair["concurrency"]["group"])
 
+
+    def job_runs(self, name, *, draft=False, ready=False, event="pull_request", affected=True, action="synchronize"):
+        # Evaluate the actual job condition (the supported expression subset), not a duplicate routing rule.
+        expression = job(workflow(), name)["if"].strip()[3:-2].strip()
+        values = {
+            "inputs.pair_required": affected,
+            "github.event_name": event, "github.event.action": action, "github.event.label.name": "other",
+            "github.event.pull_request.draft": draft,
+            "github.event.pull_request.labels.*.name": ["ready-to-land"] if ready else [],
+            "github.event.pull_request.base.ref": "feat-cmux-next",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.repository": "manaflow-ai/cmux",
+            "vars.CI_DRAFT_CHEAP_TIER": "1", "vars.CI_LAND_TIER": "1", "vars.CI_LAND_FULL_PER_PR": "1",
+            "needs.resolve.result": "success", "needs.resolve.outputs.post": "true",
+            "needs.resolve.outputs.receipt_valid": "false", "needs.resolve.outputs.receipt_audit": "false",
+            "needs.resolve.outputs.pair_required": "true" if affected else "false",
+        }
+        for key in sorted(values, key=len, reverse=True):
+            expression = expression.replace(key, repr(values[key]))
+        expression = re.sub(r"'[^']*'|\\b(true|false)\\b",
+                            lambda m: m[0] if m[1] is None else str(m[1] == "true"), expression)
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        expression = re.sub(r"!(?!=)", " not ", expression)
+        return bool(eval(expression, {"__builtins__": {}},
+                         {"always": lambda: True, "cancelled": lambda: False,
+                          "contains": lambda xs, x: x in xs, "fromJSON": json.loads}))
+
+    def test_affected_tiers_always_have_a_status_actor(self):
+        for draft, ready, event in ((True, False, "pull_request"), (False, False, "pull_request"),
+                                    (False, True, "pull_request"), (False, False, "workflow_dispatch")):
+            for name in ("resolve", "pair-skew", "post"):
+                with self.subTest(draft=draft, ready=ready, event=event, job=name):
+                    self.assertTrue(self.job_runs(name, draft=draft, ready=ready, event=event))
+        for name in ("resolve", "post"):
+            self.assertFalse(self.job_runs(name, action="labeled"))
+        self.assertFalse(self.job_runs("post", affected=False))
+        self.assertTrue(self.job_runs("post", affected=False, ready=True))
+        # A passing pair does not invent a verdict for tier-skipped fast gates.
+        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="success")[0], "pending")
+        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="failure")[0], "failure")
+
     def test_swift_pairing_projection_and_transport_paths_route(self):
         sys.path.insert(0, str(ROOT / "scripts/ci"))
         import pr_router
@@ -199,7 +240,7 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
+        self.assertEqual(list(doc["jobs"]), ["resolve", "pair-skew", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
                                            "lane-receipt-audit"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
@@ -393,7 +434,7 @@ class WorkflowShape(unittest.TestCase):
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
                 if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
                     # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
-                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                    self.assertIn("github.event_name == 'workflow_dispatch'", step["if"])
                     self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
                     continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
@@ -690,7 +731,7 @@ class WorkflowShape(unittest.TestCase):
             checkout = step_named(steps, name)
             self.assertLess(names.index("Resolve the head and the base"), names.index(name))
             self.assertLess(names.index(name), names.index("Verify the local test receipt"))
-            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIn("github.event_name == 'workflow_dispatch'", checkout["if"])
             self.assertIs(checkout["continue-on-error"], True)
         checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
         self.assertIs(checkout["with"]["persist-credentials"], False)
@@ -745,7 +786,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet", "pair-skew"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.resolve.outputs.receipt_valid != 'true' "
                       "|| needs.resolve.outputs.receipt_audit == 'true'", poster["if"])
