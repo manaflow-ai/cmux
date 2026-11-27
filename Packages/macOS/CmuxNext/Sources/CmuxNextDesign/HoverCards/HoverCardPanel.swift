@@ -38,7 +38,7 @@ public enum HoverCardPlacement: Sendable {
 /// one card. A retarget to a card of another size resizes the card on the same spring while it
 /// translates (`HoverCardPanel+Morph.swift`), instead of popping to the new size.
 @MainActor
-final class HoverCardPanel: NSPanel {
+final class HoverCardPanel: NSPanel, FullScreenFollowingChild {
     /// Live instances (the debug single-card check counts them).
     nonisolated(unsafe) static var liveInstances = 0
 

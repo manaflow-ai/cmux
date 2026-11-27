@@ -190,7 +190,7 @@ public final class DividerMouseCatchers {
 
 /// A transparent panel that takes the mouse over a divider's hit area. It sits under the overlay panel
 /// (``UnderOverlayWindow``): a toast over the divider takes the pointer, not this panel.
-final class DividerMousePanel: NSPanel, UnderOverlayWindow {
+final class DividerMousePanel: NSPanel, UnderOverlayWindow, FullScreenFollowingChild {
     let catcher = DividerMouseCatcherView()
     /// The divider this panel takes the mouse for now (a parked panel keeps its last one until reused).
     var areaID = ""

@@ -39,7 +39,7 @@ final class TabGroupEditorController {
 }
 
 /// Liquid Glass bubble: name field, color swatches, and group actions.
-final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
+final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate, FullScreenFollowingChild {
     var onCommand: ((TabGroupCommand) -> Void)?
     var onMore: ((TabGroupID) -> Void)?
     var onClose: (() -> Void)?

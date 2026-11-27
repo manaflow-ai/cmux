@@ -39,9 +39,10 @@ public struct ChildWindowPolicy {
     }
 
     /// `child` is about to become a child window of the main window `parent` (its `addChildWindow` override, before
-    /// AppKit attaches it): records a child the policy does not allow (`check(_:parent:)`), and a child panel that
-    /// declares `.fullScreenAuxiliary` carries it only while `parent` is in full screen (``ChildWindowSpaces``), so it
-    /// cannot take a windowed `parent` into another app's full screen Space. Returns whether it is allowed.
+    /// AppKit attaches it): records a child the policy does not allow (`check(_:parent:)`), and a child panel cmux marks
+    /// (``FullScreenFollowingChild``) that declares `.fullScreenAuxiliary` carries it only while `parent` is in full
+    /// screen (``ChildWindowSpaces``), so it cannot take a windowed `parent` into another app's full screen Space.
+    /// Returns whether it is allowed.
     @discardableResult
     public static func admit(_ child: NSWindow, parent: NSWindow) -> Bool {
         LiveResizeWindows.shared.adopt(child, parent: parent)
