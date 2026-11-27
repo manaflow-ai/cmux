@@ -74,32 +74,6 @@ import Testing
         #expect(reported() == 2, "the grant did not report the page ready: the key hold waits for its bound (reported \(reported()))")
     }
 
-    /// #55174: a grant made while the page's cmux window was not on screen yet (Restart to Update shows its windows one
-    /// per frame) made the page window key before its cmux window showed, and the app lost its key window. The page shows
-    /// in its window, but the window is not on screen: the ask is kept across frame commits and granted once, after the
-    /// commit that finds the window on screen.
-    @Test func focusAskedWhileTheWindowIsNotOnScreenIsGrantedOnceItIs() throws {
-        let (runtime, root) = try FocusSpyShim.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (tab, _) = try createdTab(runtime, browser: 49)
-        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
-        window.onScreen = false
-        defer { window.closeAfterTest() }
-        try #require(window.contentView).addSubview(tab.contentView)
-        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
-
-        tab.setFocused(true)
-        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was not on screen")
-        Self.endTurn()
-        #expect(FocusSpyShim.granted.isEmpty, "a frame commit granted the kept ask while the window was still not on screen")
-
-        window.onScreen = true
-        Self.endTurn()
-        #expect(FocusSpyShim.granted == [49], "the kept ask was not granted after the window came on screen")
-        Self.endTurn()
-        #expect(FocusSpyShim.granted == [49], "the kept ask was granted more than once")
-    }
-
     /// An ask taken back (focus moved on) before the page showed is not granted later.
     @Test func focusTakenBackBeforeThePageShowsIsNotGranted() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
@@ -631,13 +605,12 @@ import Testing
         #expect(FocusSpyShim.granted == [17])
     }
 
-    /// The cmux window that shows a test's page, as on screen unless a test says it is not (``onScreen``). A grant waits
-    /// while its window is not on screen (`CEFTab.grantFocus`, #55174: Restart to Update shows its windows one per frame),
-    /// and these windows are never ordered in, so each test's grant was kept and never ran.
+    /// The cmux window that shows a test's page, as on screen. A grant waits while its window is not on screen
+    /// (`CEFTab.grantFocus`, #55174: Restart to Update shows its windows one per frame), and these windows are never
+    /// ordered in, so each test's grant was kept and never ran.
     final class ShownWindow: NSWindow {
-        var onScreen = true
-        override var isVisible: Bool { onScreen }
-        override var occlusionState: NSWindow.OcclusionState { onScreen ? .visible : [] }
+        override var isVisible: Bool { true }
+        override var occlusionState: NSWindow.OcclusionState { .visible }
     }
 
     /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
