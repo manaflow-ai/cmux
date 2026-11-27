@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45950635878",
+  "recorded_at": "2026-11-27T06:45:04Z",
+  "reason": "image inputs changed in 53f2fbcbe262ace9c7f448b99b14ea9f6bc383bd..0fe79faf9cb6157ae51ec55e0eec9ff4852112d2; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "0fe79faf9cb6157ae51ec55e0eec9ff4852112d2",
+      "mergedAt": "2026-11-27T06:14:49Z",
+      "subject": "acpmux: the card and cmux capabilities say what an agent can get, and how to ask (#56653)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T06:45:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
