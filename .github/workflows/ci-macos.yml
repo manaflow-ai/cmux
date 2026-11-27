@@ -2209,13 +2209,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
-        run: python3 scripts/ci/parallel_artifact_download.py
+        # A JavaScript action receives the Actions runtime token, so the
+        # transport resolves the artifact without spending the installation
+        # REST quota (all consumers got HTTP 403 when it ran out, run 45890106663).
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            require('child_process').execFileSync('python3', ['scripts/ci/parallel_artifact_download.py'], { stdio: 'inherit' })
 
       - name: Download compiled app-host test product
+        id: download-product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
-        # The ranged transport has a six-minute deadline; cap the single-stream
-        # fallback after the observed 25–50 minute slow-download outliers.
-        timeout-minutes: 15
+        # A stalled blob stream holds this step until its timeout (run
+        # 45890106663 sat 15 min on one dead connection): bound the first
+        # stream and give one fresh stream instead of one long wait.
+        timeout-minutes: 9
+        continue-on-error: true
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Retry download compiled app-host test product on a fresh stream
+        if: steps.download-product.outcome == 'failure'
+        timeout-minutes: 6
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3026,12 +3043,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
-        run: python3 scripts/ci/parallel_artifact_download.py
+        # A JavaScript action receives the Actions runtime token, so the
+        # transport resolves the artifact without spending the installation
+        # REST quota (all consumers got HTTP 403 when it ran out, run 45890106663).
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            require('child_process').execFileSync('python3', ['scripts/ci/parallel_artifact_download.py'], { stdio: 'inherit' })
 
       - name: Download compiled test product
+        id: download-product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
-        # Keep a dead or crawling fallback from consuming the whole job.
-        timeout-minutes: 15
+        # A stalled blob stream holds this step until its timeout (run
+        # 45890106663 sat 15 min on one dead connection): bound the first
+        # stream and give one fresh stream instead of one long wait.
+        timeout-minutes: 9
+        continue-on-error: true
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Retry download compiled test product on a fresh stream
+        if: steps.download-product.outcome == 'failure'
+        timeout-minutes: 6
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3407,12 +3442,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
-        run: python3 scripts/ci/parallel_artifact_download.py
+        # A JavaScript action receives the Actions runtime token, so the
+        # transport resolves the artifact without spending the installation
+        # REST quota (all consumers got HTTP 403 when it ran out, run 45890106663).
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            require('child_process').execFileSync('python3', ['scripts/ci/parallel_artifact_download.py'], { stdio: 'inherit' })
 
       - name: Download compiled test product
+        id: download-product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
-        # Keep a dead or crawling fallback from consuming the whole job.
-        timeout-minutes: 15
+        # A stalled blob stream holds this step until its timeout (run
+        # 45890106663 sat 15 min on one dead connection): bound the first
+        # stream and give one fresh stream instead of one long wait.
+        timeout-minutes: 9
+        continue-on-error: true
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Retry download compiled test product on a fresh stream
+        if: steps.download-product.outcome == 'failure'
+        timeout-minutes: 6
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -4147,12 +4200,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
-        run: python3 scripts/ci/parallel_artifact_download.py
+        # A JavaScript action receives the Actions runtime token, so the
+        # transport resolves the artifact without spending the installation
+        # REST quota (all consumers got HTTP 403 when it ran out, run 45890106663).
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            require('child_process').execFileSync('python3', ['scripts/ci/parallel_artifact_download.py'], { stdio: 'inherit' })
 
       - name: Download compiled app-host test product
+        id: download-product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
-        # Keep a dead or crawling fallback from consuming the whole job.
-        timeout-minutes: 15
+        # A stalled blob stream holds this step until its timeout (run
+        # 45890106663 sat 15 min on one dead connection): bound the first
+        # stream and give one fresh stream instead of one long wait.
+        timeout-minutes: 9
+        continue-on-error: true
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Retry download compiled app-host test product on a fresh stream
+        if: steps.download-product.outcome == 'failure'
+        timeout-minutes: 6
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
