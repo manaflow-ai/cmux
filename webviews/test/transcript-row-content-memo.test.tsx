@@ -5,7 +5,7 @@
 // line under a running turn keeps one version while the send in flight changes recipient
 // (turns.ts `sendingTo`), and a stale "Sending to ..." is worse than a redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { act, memo } from "react";
+import { act, memo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -16,6 +16,8 @@ import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel
 import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
 import { LiveUpdatesContext } from "../src/ui/liveUpdates";
+import { RowFrame } from "../src/agent-session/acpmux/transcript/RowFrame";
+import { pageClocks, usePageNow } from "../src/ui/pageClock";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -107,6 +109,104 @@ test("offscreen row bodies retain state without reconciling status changes and r
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("the row frame pauses unseen and shelved clocks and keeps disclosure state on reveal", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  let now = 1_000;
+  const clock = () => now;
+  let bodies = 0;
+  function Clock() {
+    return <time>{usePageNow(true, clock)}</time>;
+  }
+  function Body({ row }: RowProps) {
+    bodies++;
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(!open)}>{open ? "open" : "closed"}</button>
+        <span data-recipient>{row.doingSendTo}</span>
+        <Clock />
+      </>
+    );
+  }
+  const noop = () => {};
+  const props = {
+    kind: THINKING,
+    joinsPrevious: false,
+    joinsNext: false,
+    opensTurn: false,
+    beforeFooter: false,
+    beforeIndicator: false,
+    replyActions: false,
+    status: undefined,
+    lastFooter: false,
+    finalFooter: false,
+    continuationFooter: false,
+    lastTurn: false,
+    index: 0,
+    setSizeRef: { current: "1" },
+    top: 0,
+    rowWidth: 800,
+    expanded: false,
+    observer: undefined,
+    queueDrawn: noop,
+    sendThinking: false,
+    enter: false,
+    onEntered: noop,
+    loadFade: false,
+    onLoadFaded: noop,
+    older: undefined,
+    onOlderShown: noop,
+    active: false,
+    selected: false,
+    tabStop: false,
+    onFocus: noop,
+    onRowKeyDown: noop,
+    contentType: Body,
+    onToggleActivity: noop,
+    gapBelow: 0,
+    offscreen: true,
+    placedHeight: 60,
+  };
+  const render = (to: string, shelved = 0) => {
+    const row = line(to);
+    root.render(
+      <RowFrame {...props} row={row} shelved={shelved}>
+        <RowContent Component={Body} row={row} expanded={false} onToggleActivity={noop} />
+      </RowFrame>,
+    );
+  };
+  try {
+    await act(async () => render("unseen"));
+    expect(pageClocks().subscribers).toBe(0);
+    await act(async () => render("before-reveal"));
+    expect(bodies).toBe(1);
+    now = 2_000;
+    await act(async () => {
+      const event = new dom.window.Event("contentvisibilityautostatechange");
+      Object.defineProperty(event, "skipped", { value: false });
+      document.querySelector("article")!.dispatchEvent(event);
+    });
+    expect(pageClocks().subscribers).toBe(1);
+    expect(document.querySelector("[data-recipient]")?.textContent).toBe("before-reveal");
+    expect(document.querySelector("time")?.textContent).toBe("2000");
+    await act(async () => document.querySelector("button")!.click());
+    await act(async () => render("shelved", 60));
+    expect(pageClocks().subscribers).toBe(0);
+    const before = bodies;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(`hidden-${tick}`, 60));
+    expect(bodies).toBe(before);
+    now = 30_000;
+    await act(async () => render("latest"));
+    expect(pageClocks().subscribers).toBe(1);
+    expect(document.querySelector("[data-recipient]")?.textContent).toBe("latest");
+    expect(document.querySelector("button")?.textContent).toBe("open");
+    expect(document.querySelector("time")?.textContent).toBe("30000");
+  } finally {
+    await act(async () => root.unmount());
+  }
+  expect(pageClocks().subscribers).toBe(0);
 });
 
 test("a recreated reply passes both memo boundaries even when its row id and version repeat", async () => {
