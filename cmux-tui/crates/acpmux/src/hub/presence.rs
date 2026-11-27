@@ -968,8 +968,9 @@ mod tests {
 
         presence.reset_remote("peer");
         held.seed(&none("chat"), held.revision());
-        presence.publish_remote_baseline(&active, "peer");
         assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"][0]["id"], "ana");
     }
 
     #[test]
