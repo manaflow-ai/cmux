@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "run": "https://github.com/manaflow-ai/cmux/actions/runs/46076497851",
-  "recorded_at": "2026-11-27T22:54:19Z",
+  "recorded_at": "2026-11-27T23:37:54Z",
   "reason": "image inputs changed in d7eba9abf08f8347a2465ba699536cafd5e8d025..ad537df9258f2d2a2161a772fefd3183eab77745; cmux-tui 9c3278a13ba4, the newest build published on HEAD (pinned be5cfa23956d; latest build 9b73ef66975b is not on HEAD)",
   "dry_run": false,
   "cmux_tui": "9c3278a13ba4f782ad9041ccc01c245e253ac1c0",
@@ -16,7 +16,7 @@
   "gate": {
     "result": "failed",
     "bake_job": "failure",
-    "done_at": "2026-11-27T22:54:19Z"
+    "done_at": "2026-11-27T23:37:54Z"
   },
   "promotion": {
     "result": "not-run",
