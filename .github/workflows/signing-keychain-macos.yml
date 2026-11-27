@@ -18,6 +18,11 @@ on:
       - tests/test_derive_sparkle_public_key.sh
       - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
+      - tests/test_ios_sim_bundles.py
+      - tests/test_ci_kit_sim_fleet.py
+      - scripts/ci/ios_sim_bundles.py
+      - scripts/ci/ios-sim-mac-bundles.txt
+      - cmux-next-ios/CmuxMobileKit/Package.swift
       - scripts/*.sh
       - scripts/cmux-next/*.sh
       - .github/workflows/nightly.yml
@@ -34,6 +39,11 @@ on:
       - tests/test_derive_sparkle_public_key.sh
       - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
+      - tests/test_ios_sim_bundles.py
+      - tests/test_ci_kit_sim_fleet.py
+      - scripts/ci/ios_sim_bundles.py
+      - scripts/ci/ios-sim-mac-bundles.txt
+      - cmux-next-ios/CmuxMobileKit/Package.swift
       - scripts/*.sh
       - scripts/cmux-next/*.sh
       - .github/workflows/nightly.yml
