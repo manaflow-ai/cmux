@@ -79,6 +79,10 @@ path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_guard_steps.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_git_token_env.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_git_token_env.py"
@@ -291,6 +295,11 @@ path = "tests/test_nightly_next_train_drive_pin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_web_bundles_gate.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_next_web_bundles_gate.py"
+
+[[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
 lane = "linux-guard"
 
@@ -419,6 +428,11 @@ lane = "linux-guard"
 path = "tests/test_nightly_warm_checkout_borrows_mirror.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Runs the warm nightly-next builder's checkout step from nightly.yml on an empty slot beside a temp git mirror, and needs the slot to borrow a healthy mirror (borrow record and alternates) before its fetch and to leave an unhealthy one alone; run python3 tests/test_nightly_warm_checkout_borrows_mirror.py yourself after changing that step or glaeda's borrow record (about 1 s, git only, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_bounded.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_warm_checkout_bounded.py"
 
 [[test]]
 path = "tests/test_nightly_warm_checkout_submodules_from_mirror.py"

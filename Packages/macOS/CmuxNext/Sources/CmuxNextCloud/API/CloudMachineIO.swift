@@ -191,7 +191,7 @@ extension CloudDaemon {
     /// No bundled cmux is `transport` ("cmux is not available"); there is no HTTP fallback. `timeout` bounds the
     /// child (a child past it is killed: `timedOut`, since the call may have run). `auth` is the credential's kind as
     /// cmux-cloud-api reads it: `owner` (the Stack session) or `worker` (this Mac's install token).
-    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
             run = daemonCall

@@ -18,9 +18,15 @@ test-support = []
 cmux-cloud-environment.workspace = true
 cmux-egress.workspace = true
 cmux-json.workspace = true
+cmux-relay-snapshot.workspace = true
+hex.workspace = true
+p256 = { version = "0.13", features = ["ecdsa"] }
 base64.workspace = true
 cmux-cloud-wire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+rand_core = { version = "0.6", features = ["getrandom"] }
