@@ -231,6 +231,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
 
+      - name: Validate every artifact download fails a stalled download
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_download_artifact_stall.py
+
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
