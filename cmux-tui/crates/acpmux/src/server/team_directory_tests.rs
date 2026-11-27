@@ -170,6 +170,7 @@ fn the_same_book_keeps_the_snapshot() {
 
 /// The phase-1 surfaces scale (`cmux-team-messaging/tests/surfaces.rs`): 1000 people and 1000
 /// agents, 200 spaces of about 300 members, 5000 recent threads, a third of everyone live.
+#[allow(clippy::field_reassign_with_default)] // `TeamView`'s index fields are private to the hub.
 fn surfaces_scale() -> TeamView {
     let principal = |id: String, kind: PrincipalKind, owner: Option<String>| Principal {
         handle: id.clone(),
@@ -254,27 +255,25 @@ fn surfaces_scale() -> TeamView {
             space_id: format!("space{}", i % 200),
         })
         .collect();
-    TeamView {
-        team_id: TEAM.into(),
-        person_id: Some(ME.into()),
-        teams: vec![Team {
-            id: TEAM.into(),
-            name: "Team".into(),
-            members: ids,
-            spaces: spaces.iter().map(|s| s.id.clone()).collect(),
-            integrations: Vec::new(),
-            policy: Grants::all(),
-            customization: BTreeMap::new(),
-        }],
-        unread: threads.iter().step_by(4).map(|t| (t.id.clone(), 1)).collect(),
-        spaces,
-        principals,
-        threads,
-        here,
-        sessions,
-        ..TeamView::default()
-    }
-    .indexed()
+    let mut view = TeamView::default();
+    view.team_id = TEAM.into();
+    view.person_id = Some(ME.into());
+    view.teams = vec![Team {
+        id: TEAM.into(),
+        name: "Team".into(),
+        members: ids,
+        spaces: spaces.iter().map(|s| s.id.clone()).collect(),
+        integrations: Vec::new(),
+        policy: Grants::all(),
+        customization: BTreeMap::new(),
+    }];
+    view.unread = threads.iter().step_by(4).map(|t| (t.id.clone(), 1)).collect();
+    view.spaces = spaces;
+    view.principals = principals;
+    view.threads = threads;
+    view.here = here;
+    view.sessions = sessions;
+    view.indexed()
 }
 
 fn percentile(sorted: &[Duration], p: f64) -> Duration {
