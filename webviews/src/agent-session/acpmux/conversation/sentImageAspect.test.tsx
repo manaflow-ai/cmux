@@ -17,8 +17,8 @@ import { UserBubble } from "./UserBubble";
 import { sentImageSize } from "./userBubbleModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 
-const PNG =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+/// A 4 x 7 picture: tall, as the report's screenshot, so the shape checks are not of a square.
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAHCAIAAACgB3uHAAAAD0lEQVR4nGNoQAIMVOUAAHfEKgFpN9kLAAAAAElFTkSuQmCC";
 const PATH = "/Users/someone/Library/Caches/cmux/pasted/image.png";
 
 let dom: JSDOM | undefined;
@@ -138,6 +138,7 @@ test("a sent image keeps its own shape: its style sets a width, an aspect ratio 
   });
   expect(image!.style.width).toBe(`${width}px`);
   expect(image!.style.aspectRatio.replace(/\s/g, "")).toBe(`${width}/${height}`);
+  expect([image!.getAttribute("width"), image!.getAttribute("height")]).toEqual(["4", "7"]);
 });
 
 test("a sent image's box keeps the issue's screenshot's shape", () => {
