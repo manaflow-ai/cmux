@@ -106,6 +106,9 @@ Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidenc
 # A read GitHub rate-limited, where the evidence reader tells it apart (main's main_fix_evidence.py): exit 3, which
 # gh-merge-green reports as a rate limit rather than a red. A reader without it raises Refused (exit 1).
 RateLimited = getattr(_evidence, "RateLimited", ())
+# A read that never happened (main_fix_evidence.Unread: a request past its deadline, an answer over the size cap, a
+# `gh` that failed): exit 3, "not judged, a retry", never a verdict on the red. A reader without it leaves ().
+Unread = getattr(_evidence, "Unread", ())
 
 
 class RateLimitedRead(Exception):
@@ -114,6 +117,17 @@ class RateLimitedRead(Exception):
     main's RateLimited is a Refused, and the comparison turns a Refused from a read into a refusal of its
     own ("no rollup red is excused", say) in a dozen places, so a rate limit read as a verdict on the red
     and main() returned 1 where gh-merge-green expects 3. This is not a Refused, so only main() catches it.
+    """
+
+
+class UnreadRead(Exception):
+    """A read that never happened, as rate_limit_aware re-raises it so the comparison cannot swallow it.
+
+    RateLimitedRead's reason exactly (above): main's Unread is a Refused, and the comparison turns a Refused from a
+    read into a refusal of its own ("no rollup red is excused", say) in a dozen places, so a 90 s `gh` deadline came
+    out as a verdict on the code and main() returned 1 -- which land-judge records as red_not_excused, a strike no
+    rerun clears. leo-workspace#9276 and #9153 both sat unlandable on that line (2026-11-24). Not a Refused, so only
+    main() catches it.
     """
 
 
@@ -134,6 +148,13 @@ def rate_limited_classes() -> tuple:
     inherit from BaseException"), which would break the ordinary exit-1 path. Read at call time, so a caller that
     loads a reader with RateLimited (main's) is honoured."""
     return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
+
+
+def unread_classes() -> tuple:
+    """What main() reports as a read that never happened, as one flat tuple. Same shape and the same reason as
+    rate_limited_classes: a reader without Unread leaves it the empty tuple, and `except ((), UnreadRead)` is a
+    TypeError on every other refusal. Read at call time, so a caller that loads a reader with Unread is honoured."""
+    return ((Unread,) if isinstance(Unread, type) else tuple(Unread)) + (UnreadRead,)
 
 
 def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
@@ -177,7 +198,7 @@ def read_once(key: tuple, read: Callable[[], object]):
     if key not in memo:
         try:
             memo[key] = (True, read())
-        except (Refused, RateLimitedRead) as why:
+        except (Refused, RateLimitedRead, UnreadRead) as why:
             memo[key] = (False, why)
     ok, found = memo[key]
     if not ok:
@@ -271,6 +292,10 @@ def rate_limit_aware(github):
             def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
+                except unread_classes() as error:
+                    # Before RateLimited: both are Refused subclasses on main's reader, and a read that never
+                    # happened must not be answered as one that a quota refused.
+                    raise UnreadRead(str(error)) from None
                 except RateLimited as error:
                     raise RateLimitedRead(str(error)) from None
                 if name == "json" and args:
@@ -10399,6 +10424,11 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
+    except unread_classes() as error:
+        # Not "not excused": nothing was read, so nothing was judged. land-judge reads 3 as a retry
+        # (classifier_rate_limited), never as the red_not_excused strike an exit 1 would record.
+        print(f"not judged: a read that never happened: {error}", file=sys.stderr)
         return 3
     except Infra as error:
         print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
