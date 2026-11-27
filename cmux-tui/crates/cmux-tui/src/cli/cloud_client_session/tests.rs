@@ -38,6 +38,12 @@ fn parses_create_and_exec() {
     ]))
     .unwrap();
     assert_eq!(exec.verb, Verb::Exec { command: "uname -a".into(), timeout_ms: 5000 });
+    // Several words keep their argv (each shell-quoted); one word is a shell line as written.
+    let quoted =
+        parse(&strings(&["exec", &format!("--target={VM}"), "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(quoted.verb, Verb::Exec { command: "sh -c 'cat > f'".into(), timeout_ms: 30_000 });
+    let line = parse(&strings(&["exec", &format!("--target={VM}"), "--", "ls | wc -l"])).unwrap();
+    assert_eq!(line.verb, Verb::Exec { command: "ls | wc -l".into(), timeout_ms: 30_000 });
     for bad in [
         vec!["create"],
         vec!["create", "--target", "machine:builder"],
