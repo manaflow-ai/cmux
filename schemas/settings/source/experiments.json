@@ -605,6 +605,31 @@
           ]
         },
         {
+          "key": "experiments.cloudToggle",
+          "note": "Taste prototype: a chat's cloud controls. The composer's place chip and rainbow cloud toggle (Local, Cloud, Auto), the move card over the composer, Session Info's cloud rows, the chat cards' place and Evacuate rows, and the palette's Evacuate, Bring Back All and place actions (webviews useExperimentSwitch(\"cloudToggle\"), hybrid/hybridModel.ts CLOUD_TOGGLE_SWITCH; the App refuses the place actions while it is off). Off by default; off keeps today's Move to Cloud and Bring Back Local only.",
+          "title": {
+            "key": "settings.experiments.cloudToggle",
+            "text": "Cloud Toggle"
+          },
+          "help": {
+            "key": "settings.experiments.cloudToggle.help",
+            "text": "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "cloud",
+            "toggle",
+            "rainbow",
+            "hybrid",
+            "evacuate",
+            "auto"
+          ]
+        },
+        {
           "key": "experiments.expandedEditsEstimate",
           "note": "Agent chat estimates an opened \"Edited N files\" group at its files' diff cards (conversation/editDiffBox.ts) instead of its 22 px closed line, so no gap opens under it before it mounts (model.ts editsEstimateOn, from experimentSwitchOn(\"expandedEditsEstimate\")). Off by default (Leo's UI hold, 2026-11-24, ask-82b08b7ed7); off keeps the old estimate.",
           "title": {
@@ -701,6 +726,32 @@
             "typing",
             "streaming",
             "performance"
+          ]
+        },
+        {
+          "key": "experiments.eventsAsToolCalls",
+          "note": "cmuxterm-hq docs/design/events-that-are-tool-calls.md, first unbuilt slice (plan: \"Add subagent_resume and announcement to the known kinds\"): the agent chat reads both acpmux provenance kinds by origin (webviews conversation/incomingMessage.ts, eventsAsToolCalls.experiment.ts, experimentSwitchOn(\"eventsAsToolCalls\")). An urgent forum rule acpmux pushes into a chat (hub/forum.rs, kind announcement) draws as acpmux's line instead of the person's prompt; a subagent's Resume (hub/subagent_resume.rs) is never read as an agent's message. Later slices of the design join this switch. Off by default; off reads every prompt as before.",
+          "title": {
+            "key": "settings.experiments.eventsAsToolCalls",
+            "text": "Harness Events Read by Origin"
+          },
+          "help": {
+            "key": "settings.experiments.eventsAsToolCalls.help",
+            "text": "A rule cmux pushes into a chat shows as cmux's line, never as your own message."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "events",
+            "tool calls",
+            "forum",
+            "rule",
+            "announcement",
+            "subagent",
+            "resume"
           ]
         },
         {
