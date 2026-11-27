@@ -6848,7 +6848,7 @@
       "type" : "boolean"
     },
     "sidebar.showLiveToggle" : {
-      "default" : false,
+      "default" : true,
       "description" : "A Live button after the profile button turns presence on or off. Off: use the palette.",
       "title" : "Show Live Button",
       "type" : "boolean"

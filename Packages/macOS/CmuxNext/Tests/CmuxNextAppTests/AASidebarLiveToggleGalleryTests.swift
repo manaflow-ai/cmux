@@ -8,20 +8,22 @@ import Foundation
 import Testing
 
 /// The footer's Live button (RFD 0141 phase 1) rendered through the real sidebar: the default footer (the button is
-/// off by default, so no button: Leo 2026-11-25 didn't want it on by default), then with `sidebar.showLiveToggle`
-/// turned on; Spaces off (one space) and on (three), Live off and on, light and dark. Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs to `sidebar-live-gallery/`.
+/// on by default, with an explicit hidden variant through `sidebar.showLiveToggle`; Spaces off (one space) and on
+/// (three), Live off and on, light and dark. Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs to `sidebar-live-gallery/`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarLiveToggleGalleryTests {
     struct Variant: Sendable {
         let name: String
         let spaces: Bool
         let live: Bool
-        /// `sidebar.showLiveToggle` turned on; nil keeps the default (off).
+        /// An explicit value for `sidebar.showLiveToggle`; nil keeps the default (on).
         var showToggle: Bool?
     }
 
     static let variants = [
         Variant(name: "default-spaces-off", spaces: false, live: false),
         Variant(name: "default-spaces-on", spaces: true, live: false),
+        Variant(name: "hidden-spaces-off", spaces: false, live: false, showToggle: false),
+        Variant(name: "hidden-spaces-on", spaces: true, live: false, showToggle: false),
         Variant(name: "spaces-off-live-off", spaces: false, live: false, showToggle: true),
         Variant(name: "spaces-off-live-on", spaces: false, live: true, showToggle: true),
         Variant(name: "spaces-on-live-off", spaces: true, live: false, showToggle: true),
@@ -71,7 +73,7 @@ import Testing
         sidebar.renderNow()
         sidebar.list.reload(animated: false)
         root.layoutSubtreeIfNeeded()
-        #expect(sidebar.liveButton.isHidden == (variant.showToggle != true), "\(variant.name): the Live button shows only when turned on")
+        #expect(sidebar.liveButton.isHidden == (variant.showToggle == false), "\(variant.name): the Live button hides only when turned off")
         for view in AANestedGroupsGalleryTests.all(root) {
             view.layoutSubtreeIfNeeded()
             view.layer?.removeAllAnimations()
