@@ -153,6 +153,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::HistoryDelete(args) if args.deleted || args.restore.is_some() => {
+            let client = connect(true).await?;
+            let params = match &args.restore {
+                Some(id) => json!({"restore": id}),
+                None => json!({"deleted": true}),
+            };
+            let v = client.request(method::MUX_HISTORY_DELETE, params).await?;
+            if json_out {
+                print_json(&v);
+            } else if args.restore.is_some() {
+                let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("?");
+                if v.get("restored").and_then(Value::as_bool).unwrap_or(false) {
+                    println!("{id} restored");
+                } else {
+                    println!("{id} was not deleted: nothing to restore");
+                }
+            } else {
+                print_recently_deleted(&v);
+            }
+            Ok(())
+        }
         Command::HistoryDelete(args) => {
             let client = connect(true).await?;
             let export = args.export.map(std::path::absolute).transpose()?;
@@ -2117,6 +2138,7 @@ fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
         older_than_ms: days.saturating_mul(86_400_000),
         delete_local: true,
         keep: Default::default(),
+        kept_now: Default::default(),
         now_ms,
     };
     let report = cmux_session_cloud::transcripts::pass(
