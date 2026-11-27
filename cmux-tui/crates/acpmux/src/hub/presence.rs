@@ -48,7 +48,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use cmux_presence::{Delta, Doing, Kind, Presence as Record, PresenceId};
@@ -268,6 +268,7 @@ impl State {
 
 struct Inner {
     state: Mutex<State>,
+    remote: Mutex<HashMap<(String, String), Weak<RemoteSnapshot>>>,
     live: AtomicBool,
     live_changes: tokio::sync::watch::Sender<bool>,
     off_changes: tokio::sync::watch::Sender<u64>,
@@ -284,11 +285,53 @@ impl Default for Presence {
         Presence {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
+                remote: Mutex::new(HashMap::new()),
                 live: AtomicBool::new(false),
                 live_changes: tokio::sync::watch::Sender::new(false),
                 off_changes: tokio::sync::watch::Sender::new(0),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
+        }
+    }
+}
+
+/// Latest remote state is retained only while at least one client holds its subscription.
+#[derive(Debug)]
+pub struct RemoteSnapshot {
+    owner: Weak<Inner>,
+    key: (String, String),
+    latest: Mutex<(u64, Option<Value>)>,
+}
+
+impl RemoteSnapshot {
+    pub fn snapshot(&self) -> Option<Value> {
+        self.latest.lock_or_recover().1.clone()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.latest.lock_or_recover().0
+    }
+
+    /// The attach response supplies a baseline only if no live note arrived during its request.
+    pub fn seed(&self, note: &Value, since: u64) {
+        let mut latest = self.latest.lock_or_recover();
+        if latest.0 == since {
+            let mut note = note.clone();
+            if let Some(object) = note.as_object_mut() {
+                object.insert(REMOTE_MARKER.into(), Value::String(self.key.0.clone()));
+                latest.1 = Some(note);
+            }
+        }
+    }
+}
+
+impl Drop for RemoteSnapshot {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.upgrade() {
+            let mut remote = owner.remote.lock_or_recover();
+            if remote.get(&self.key).is_some_and(|entry| std::ptr::eq(entry.as_ptr(), self)) {
+                remote.remove(&self.key);
+            }
         }
     }
 }
@@ -305,12 +348,55 @@ impl Presence {
         note(chat, &state.participants(chat))
     }
 
+    pub fn watch_remote(&self, peer: &str, chat: &str) -> Arc<RemoteSnapshot> {
+        let key = (peer.to_owned(), chat.to_owned());
+        let mut remote = self.inner.remote.lock_or_recover();
+        if let Some(snapshot) = remote.get(&key).and_then(Weak::upgrade) {
+            return snapshot;
+        }
+        let snapshot = Arc::new(RemoteSnapshot {
+            owner: Arc::downgrade(&self.inner),
+            key: key.clone(),
+            latest: Mutex::new((0, None)),
+        });
+        remote.insert(key, Arc::downgrade(&snapshot));
+        snapshot
+    }
+
+    /// A lost/replaced peer link cannot leave its participants visible indefinitely.
+    pub fn clear_remote(&self, peer: &str) {
+        let held: Vec<_> = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .iter()
+            .filter(|((source, _), _)| source == peer)
+            .filter_map(|(_, snapshot)| snapshot.upgrade())
+            .collect();
+        for snapshot in held {
+            self.publish_remote(&none(&snapshot.key.1), peer);
+        }
+    }
+
     /// Broadcast a complete presence snapshot received from `peer` without adding it to this
     /// daemon's local state. The marker keeps the snapshot from looping back over the link.
     pub fn publish_remote(&self, note: &Value, peer: &str) {
         let mut note = note.clone();
         if let Some(object) = note.as_object_mut() {
             object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
+            if let Some(chat) = note.get("sessionId").and_then(Value::as_str) {
+                let snapshot = self
+                    .inner
+                    .remote
+                    .lock_or_recover()
+                    .get(&(peer.to_owned(), chat.to_owned()))
+                    .and_then(Weak::upgrade);
+                if let Some(snapshot) = snapshot {
+                    let mut latest = snapshot.latest.lock_or_recover();
+                    latest.0 += 1;
+                    latest.1 = Some(note.clone());
+                }
+            }
             let _ = self.inner.changes.send(Arc::new(note));
         }
     }
@@ -776,6 +862,34 @@ mod tests {
 
     fn ana() -> Who {
         Who { id: "tailnet:ana".to_owned(), name: "Ana".to_owned() }
+    }
+
+    #[test]
+    fn remote_presence_recovers_after_a_burst_and_releases_its_cache() {
+        let presence = Presence::default();
+        let held = presence.watch_remote("peer", "chat");
+        let second = presence.watch_remote("peer", "chat");
+        let other = presence.watch_remote("other", "chat");
+        assert!(Arc::ptr_eq(&held, &second));
+        let mut changes = presence.subscribe();
+        let active = json!({"sessionId": "chat", "participants": [{"id": "ana", "typing": true}]});
+        held.seed(&active, 0);
+        presence.publish_remote(&none("chat"), "peer");
+        for _ in 0..CHANGES_BUFFER * 2 {
+            presence.publish_remote(&active, "other");
+        }
+        assert!(matches!(changes.try_recv(), Err(broadcast::error::TryRecvError::Lagged(_))));
+        // An attach response that arrived late must not undo the newer withdrawal.
+        held.seed(&active, 0);
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        assert_eq!(other.snapshot().unwrap()["participants"][0]["id"], "ana");
+        presence.clear_remote("other");
+        assert_eq!(other.snapshot().unwrap()["participants"], json!([]));
+        drop(held);
+        assert_eq!(presence.inner.remote.lock_or_recover().len(), 2);
+        drop(second);
+        drop(other);
+        assert!(presence.inner.remote.lock_or_recover().is_empty());
     }
 
     #[test]

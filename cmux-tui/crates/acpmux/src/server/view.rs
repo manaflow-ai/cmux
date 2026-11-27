@@ -64,7 +64,10 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => count_new(hub),
-        Some(before) if before.remote => count_new(hub),
+        Some(before) if before.remote => {
+            conn.outgoing_presence.detach(hub, &s.id);
+            count_new(hub);
+        }
         // Attaching again starts the look over: an idle one that shows attends again.
         Some(before) => {
             hub.look_changed(s, look(&before), after, None);
@@ -130,6 +133,7 @@ pub(super) fn subscribe_remote(
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.remote_peer = Some(peer.to_owned());
+    next.remote_presence = Some(hub.presence.watch_remote(peer, id));
     next.idle = false;
     conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
@@ -157,6 +161,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             conn.stream_cursors.start(&s.id, at);
             opts.remote = false;
             opts.remote_peer = None;
+            opts.remote_presence = None;
             hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices
                 .lock()

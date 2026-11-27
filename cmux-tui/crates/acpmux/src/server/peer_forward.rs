@@ -1046,6 +1046,17 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
+        let presence_baseline = (m == method::MUX_ATTACH)
+            .then(|| {
+                conn.sub_opts(&id)
+                    .filter(|sub| sub.remote_peer.as_deref() == Some(peer.name.as_str()))
+                    .and_then(|sub| sub.remote_presence)
+                    .map(|snapshot| {
+                        let revision = snapshot.revision();
+                        (snapshot, revision)
+                    })
+            })
+            .flatten();
         let result = if shared_presence {
             conn.outgoing_presence.send(hub, conn, peer.clone(), m, p, on.unwrap_or(link)).await
         } else if matches!(
@@ -1174,6 +1185,11 @@ async fn forward_inner(
         if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) && held(&result) == before {
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
+        }
+        if let Some((snapshot, revision)) = presence_baseline
+            && let Some(note) = result.get("presence")
+        {
+            snapshot.seed(note, revision);
         }
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());

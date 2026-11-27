@@ -302,6 +302,8 @@ pub struct SubOpts {
     pub remote: bool,
     /// Source of a remote presence snapshot; raw chat ids can coincide across peers.
     pub remote_peer: Option<String>,
+    /// Subscription-owned recovery state for the bounded presence broadcast.
+    pub remote_presence: Option<Arc<crate::hub::presence::RemoteSnapshot>>,
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,

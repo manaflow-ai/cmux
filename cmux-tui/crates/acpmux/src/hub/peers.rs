@@ -555,6 +555,7 @@ impl Hub {
         // Its link's channels close for their local side now: the link's own `Disconnected`
         // notice finds the peer gone (`server/channels.rs`).
         crate::server::channels::link_lost(self, &peer.name, peer.generation);
+        self.presence.clear_remote(&peer.name);
         self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
         self.events.origin_tee(&peer.name, OriginState::Removed, crate::store::now_ms());
     }
@@ -933,6 +934,7 @@ impl Hub {
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    self.presence.clear_remote(&peer);
                     self.peer_ready_rows(&peer, generation);
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
@@ -968,6 +970,7 @@ impl Hub {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        self.presence.clear_remote(&peer);
                         p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                     // Called directly, with no grace: this drop is its outage's first

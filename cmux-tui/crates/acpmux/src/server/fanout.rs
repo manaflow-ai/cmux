@@ -190,8 +190,16 @@ pub(super) fn start(
                         Ok(note) => send_presence(&hub, &conn, &note),
                         // Fell behind: the chats it holds, as they are now.
                         Err(broadcast::error::RecvError::Lagged(_)) => {
-                            for chat in conn.local_attached_ids() {
-                                send_presence(&hub, &conn, &hub.presence.snapshot(&chat));
+                            let held = conn.subs.lock_or_recover().clone();
+                            for (chat, opts) in held {
+                                let note = if opts.remote {
+                                    opts.remote_presence.and_then(|snapshot| snapshot.snapshot())
+                                } else {
+                                    Some(hub.presence.snapshot(&chat))
+                                };
+                                if let Some(note) = note {
+                                    send_presence(&hub, &conn, &note);
+                                }
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => break,

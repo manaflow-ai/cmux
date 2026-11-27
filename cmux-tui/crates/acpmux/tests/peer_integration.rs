@@ -625,6 +625,17 @@ async fn peer_presence_is_scoped_to_the_attached_source() {
         .await;
     assert_eq!(first["participants"][0]["id"], "right", "{first}");
     assert!(first.get("_acpmuxPeer").is_none());
+    // Overwrite the right chat's final withdrawal before this current-thread fanout can run.
+    // Recovery must replay its cached snapshot, not only this daemon's local attachments.
+    a.presence.publish_remote(&json!({"sessionId": "same-chat", "participants": []}), "right");
+    for _ in 0..1024 {
+        a.presence.publish_remote(
+            &json!({"sessionId": "same-chat", "participants": [{"id": "wrong"}]}),
+            "left",
+        );
+    }
+    let recovered = watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
+    assert!(recovered.get("_acpmuxPeer").is_none());
 }
 
 /// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
