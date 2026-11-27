@@ -131,7 +131,9 @@ async fn reconnect_prompt(
     *pause = (*pause * 2).min(Duration::from_secs(1));
     before_deadline(deadline, id, async {
         tokio::time::sleep(delay).await;
-        redial(client.socket(), update_reconnect_deadline()).await
+        // An explicit timeout is the caller's whole budget, including a slow daemon boot.
+        // Calls without one retain the bounded reconnect policy instead of hanging forever.
+        redial(client.socket(), deadline.unwrap_or_else(update_reconnect_deadline)).await
     })
     .await
     .map_err(|reconnect| {
@@ -743,6 +745,65 @@ pub(crate) async fn stream_prompt(
     }
 }
 
+/// Merge attach's authoritative pending asks with live notifications. A restarted daemon may
+/// have restored an ask before this connection subscribed, while an ask created during attach
+/// can appear in both places. Permission ids name one ask within this attachment.
+struct PromptNotes {
+    live: tokio::sync::mpsc::Receiver<Message>,
+    pending: std::collections::VecDeque<Message>,
+    permissions: std::collections::HashSet<String>,
+}
+
+impl PromptNotes {
+    fn new(live: tokio::sync::mpsc::Receiver<Message>, attached: &Value, id: &str) -> Self {
+        let pending = attached
+            .pointer("/session/pending")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|pending| {
+                let mut params = pending.clone();
+                params.set("sessionId", json!(id));
+                Message::notification(method::MUX_PERMISSION_PENDING, params)
+            })
+            .collect();
+        Self { live, pending, permissions: Default::default() }
+    }
+
+    async fn recv(&mut self) -> Option<Message> {
+        loop {
+            let note = match self.pending.pop_front() {
+                Some(note) => note,
+                None => self.live.recv().await?,
+            };
+            if let Message::Notification { method: m, params: Some(p) } = &note
+                && m == method::MUX_PERMISSION_PENDING
+                && let Some(permission) = p.get("permissionId").and_then(Value::as_str)
+                && !self.permissions.insert(permission.to_owned())
+            {
+                continue;
+            }
+            return Some(note);
+        }
+    }
+}
+
+async fn attach_prompt(
+    client: &Client,
+    id: &str,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<PromptNotes> {
+    let notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+    let attached = before_deadline(
+        deadline,
+        id,
+        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
+    )
+    .await?;
+    Ok(PromptNotes::new(notes, &attached, id))
+}
+
 /// Persist the prompt before starting its waiting request. The outbox replays an unacknowledged
 /// handoff after a restart; both requests use the same prompt id and consult its durable outcome.
 /// The second request follows that outcome (and permissions), whether it or the outbox gets to
@@ -774,14 +835,7 @@ async fn stream_prompt_once(
     progress: &mut StreamProgress,
     deadline: Option<tokio::time::Instant>,
 ) -> Result<()> {
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    before_deadline(
-        deadline,
-        id,
-        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
-    )
-    .await?;
+    let mut notes = attach_prompt(&client, id, deadline).await?;
     let c = client.clone();
     let params =
         before_deadline(deadline, id, durable_wait(&client, prompt.params(id, text, steer, None)))
@@ -1176,14 +1230,7 @@ async fn collect_once(
     prompt: &PromptId,
     deadline: Option<tokio::time::Instant>,
 ) -> Result<CollectResult> {
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    before_deadline(
-        deadline,
-        id,
-        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
-    )
-    .await?;
+    let mut notes = attach_prompt(&client, id, deadline).await?;
     let c = client.clone();
     let mut params = prompt.params(id, text, opts.steer, None);
     if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
@@ -1719,83 +1766,116 @@ mod prompt_tests {
     #[tokio::test]
     async fn waiting_sends_answer_permissions_when_the_outbox_wins() {
         for stream in [false, true] {
-            let (hub, client, _dir) = daemon().await;
-            hub.config.write().await.permission_policy = PermissionPolicy::Ask;
-            let session = client
-                .request(
-                    method::SESSION_NEW,
-                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
-                )
-                .await
-                .unwrap();
-            let id = session["sessionId"].as_str().unwrap();
-            let observer = Client::connect(client.socket()).await.unwrap();
-            let mut notes = observer.notifications().await.unwrap();
-            for attached in [&client, &observer] {
-                attached
-                    .request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0}))
-                    .await
-                    .unwrap();
-            }
-            let prompt = PromptId::new(None);
-            // Only the outbox submits it. Wait for the ask before starting the waiting view.
-            durable_wait(&observer, prompt.params(id, "ask: durable permission", false, None))
-                .await
-                .unwrap();
-            tokio::time::timeout(Duration::from_secs(20), async {
-                while let Some(note) = notes.recv().await {
-                    if let Message::Notification { method: m, params: Some(p) } = note
-                        && m == method::MUX_PERMISSION_PENDING
-                        && p["sessionId"] == id
-                    {
-                        return;
-                    }
-                }
-                panic!("permission observer disconnected");
-            })
-            .await
-            .expect("the outbox's turn must reach its permission ask");
-            let opts = CollectOpts {
-                timeout: Some(20),
-                deadline: None,
-                on_permission: OnPermission::Deny,
-                stall_secs: 0,
-                retries: 0,
-                steer: false,
-            };
-            let error = if stream {
-                stream_prompt(
-                    client,
-                    id,
-                    "ask: durable permission",
-                    false,
-                    false,
-                    false,
-                    opts,
-                    false,
-                    &prompt,
-                )
-                .await
-                .unwrap_err()
-            } else {
-                collect_reply(client, id, "ask: durable permission", opts, &prompt)
-                    .await
-                    .unwrap_err()
-            };
-            assert_eq!(
-                error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
-                Some("all_denied")
-            );
-            assert_eq!(last_replies(&observer, id, 1).await.unwrap(), vec!["chose no"]);
-            assert_eq!(
-                hub.events(id, 0, 1000)
-                    .unwrap()
-                    .iter()
-                    .filter(|e| e.kind == "user_message")
-                    .count(),
-                1
-            );
+            outbox_permission(stream, false).await;
         }
+    }
+
+    /// No live notification reaches the replacement: its attach snapshot is the only copy.
+    #[tokio::test]
+    async fn reconnected_waiting_sends_answer_preexisting_permission() {
+        for stream in [false, true] {
+            outbox_permission(stream, true).await;
+        }
+    }
+
+    async fn outbox_permission(stream: bool, reconnect: bool) {
+        let (hub, client, _dir) = daemon().await;
+        hub.config.write().await.permission_policy = PermissionPolicy::Ask;
+        let session = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = session["sessionId"].as_str().unwrap();
+        let observer = Client::connect(client.socket()).await.unwrap();
+        let mut notes = observer.notifications().await.unwrap();
+        observer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        if !reconnect {
+            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        }
+        let prompt = PromptId::new(None);
+        // Only the outbox submits it. Wait for the ask before starting the waiting view.
+        durable_wait(&observer, prompt.params(id, "ask: durable permission", false, None))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while let Some(note) = notes.recv().await {
+                if let Message::Notification { method: m, params: Some(p) } = note
+                    && m == method::MUX_PERMISSION_PENDING
+                    && p["sessionId"] == id
+                {
+                    return;
+                }
+            }
+            panic!("permission observer disconnected");
+        })
+        .await
+        .expect("the outbox's turn must reach its permission ask");
+        let client = if reconnect {
+            let replacement = Client::connect(client.socket()).await.unwrap();
+            drop(client);
+            replacement
+        } else {
+            client
+        };
+        let opts = CollectOpts {
+            timeout: Some(20),
+            deadline: None,
+            on_permission: OnPermission::Deny,
+            stall_secs: 0,
+            retries: 0,
+            steer: false,
+        };
+        let error = if stream {
+            stream_prompt(
+                client,
+                id,
+                "ask: durable permission",
+                false,
+                false,
+                false,
+                opts,
+                false,
+                &prompt,
+            )
+            .await
+            .unwrap_err()
+        } else {
+            collect_reply(client, id, "ask: durable permission", opts, &prompt).await.unwrap_err()
+        };
+        assert_eq!(
+            error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
+            Some("all_denied")
+        );
+        assert_eq!(last_replies(&observer, id, 1).await.unwrap(), vec!["chose no"]);
+        assert_eq!(
+            hub.events(id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count(),
+            1
+        );
+    }
+
+    /// An ask can arrive on the live subscription before the attach response containing it.
+    #[tokio::test]
+    async fn attach_pending_and_live_notification_are_one_permission() {
+        let (tx, live) = tokio::sync::mpsc::channel(4);
+        let pending = json!({"permissionId": "ask-1", "request": {"options": []}});
+        tx.send(Message::notification(
+            method::MUX_PERMISSION_PENDING,
+            json!({"sessionId": "session-1", "permissionId": "ask-1"}),
+        ))
+        .await
+        .unwrap();
+        tx.send(Message::notification(
+            method::SESSION_UPDATE,
+            json!({"sessionId": "session-1", "update": {}}),
+        ))
+        .await
+        .unwrap();
+        let mut notes =
+            PromptNotes::new(live, &json!({"session": {"pending": [pending]}}), "session-1");
+        assert!(matches!(notes.recv().await,
+            Some(Message::Notification { method: m, .. }) if m == method::MUX_PERMISSION_PENDING));
+        assert!(matches!(notes.recv().await,
+            Some(Message::Notification { method: m, .. }) if m == method::SESSION_UPDATE));
     }
 
     /// A replacement client attaches with limit=0 after the first prompt already completed.
