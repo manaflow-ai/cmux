@@ -233,24 +233,41 @@ jobs:
           out="$RUNNER_TEMP/out"
           mkdir -p "$out"
           bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh hub-view "$HOST_NAME" key "$SAMPLES" "$out/key.raw"
-          python3 -I - "$out/key.raw" "$out/result.json" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
-          import json, sys
-          line = next(l for l in reversed(open(sys.argv[1]).read().splitlines()) if l.startswith("iphonesim: "))
-          report = json.loads(line[len("iphonesim: "):])
-          json.dump(report, open(sys.argv[2], "w"), indent=1)
-          def pick(*keys):
-              for k in keys:
-                  if k in report:
-                      return report[k]
-              return None
-          print("## iPhone simulator to Linux cmux-rd host, key to presented marker\n")
-          print("| field | value |\n| --- | --- |")
-          for key in sorted(report):
-              value = report[key]
-              if isinstance(value, (int, float, str)) or value is None:
-                  print(f"| {key} | {value} |")
-              elif isinstance(value, dict):
-                  print(f"| {key} | `{json.dumps(value, separators=(',', ':'))[:300]}` |")
+          bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh latency-report key "$out/key.raw" "$out/key.json"
+          # results.json in screen-stream-eval's shape (eval.py SCHEMA), one iphone-sim target whose host is this
+          # run's Linux cmux-rd host: hq's screen_share_fast_receipt.py extract --format iphone-sim reads it into
+          # tools/screenshare-bench/iphone-sim/runs/, which NOW's screen_share_fast.iphone_present_p95_ms reads.
+          python3 -I - "$out/key.json" "$out/results.json" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import datetime, json, os, sys
+          key = json.load(open(sys.argv[1]))
+          g2g = key.get("g2g_ms") or {}
+          target = {
+              "name": "iphone-sim", "caps": ["latency-only", "no-host-grants"],
+              "host": {"kind": "linux-rd", "carrier": "cmux.rd/1 over the dev device hub", "capture": "x11 (Xvfb)",
+                       "name": os.environ["HOST_NAME"]},
+              "latency": {"key": {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": key.get("lost")},
+                          "pointer": {"p50_ms": None, "p95_ms": None, "n": None, "lost": None}},
+              "split": {"key": key.get("split")},
+              "errors": [] if g2g.get("p95") is not None else ["no presented key latency in the iphonesim: line"],
+          }
+          results = {
+              "schema": "cmux.screen-stream-eval/1",
+              "run": {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                      "rev": os.environ["GITHUB_SHA"], "worker": "gh-macos-sim",
+                      "workflow": "ios-linux-screen-e2e.yml",
+                      "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                      "samples": int(os.environ["SAMPLES"])},
+              "scenarios": [],
+              "targets": {"iphone-sim": target},
+          }
+          json.dump(results, open(sys.argv[2], "w"), indent=1)
+          lat = target["latency"]["key"]
+          print("## iPhone simulator to Linux cmux-rd host: key to presented marker\n")
+          print(f"p50 {lat['p50_ms']} ms, p95 {lat['p95_ms']} ms, n {lat['n']} of {results['run']['samples']}, lost {lat['lost']}\n")
+          print(f"engine: {(key.get('raw') or {}).get('engine')}\n")
+          print("```json\n" + json.dumps(key.get("split"), indent=1)[:3000] + "\n```")
+          if lat["p95_ms"] is None:
+              sys.exit("no presented key latency")
           EOF
 
       - name: Remove the token and simulator
@@ -263,9 +280,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: ios-linux-screen-e2e-iphone
-          path: |
-            ${{ runner.temp }}/out/
-            ${{ runner.temp }}/eval-state/xcodebuild.log
+          # screen-stream-eval's artifact name, results.json at its root (screen_share_fast_receipt fetch_eval_results).
+          name: screen-stream-eval
+          path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
           retention-days: 14
