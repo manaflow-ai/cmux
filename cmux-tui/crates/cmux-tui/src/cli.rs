@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -81,6 +83,8 @@ mod cloud_agent;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
+mod cloud_apps_relay;
+#[cfg(unix)]
 mod cloud_auth_handoff_relay;
 #[cfg(unix)]
 mod cloud_automation_relay;
@@ -128,9 +132,13 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod env_command;
 mod intent;
 #[cfg(unix)]
 mod key_broker;
+#[cfg(unix)]
+mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
@@ -183,6 +191,8 @@ mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
+mod repo_archive;
+#[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
@@ -208,6 +218,8 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
+mod vm_exec_input;
 #[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
@@ -330,6 +342,8 @@ mod setup;
 mod share_cli;
 mod shorthand;
 #[cfg(unix)]
+mod sign_clones;
+#[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod stale_app;
@@ -355,6 +369,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod usage_insights;
 #[cfg(unix)]
 mod video;
 #[cfg(unix)]
@@ -665,12 +681,14 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "computer-use",
     "chat",
     "vm",
+    "env",
     "customize",
     "agent-config",
     "move",
     "teleport",
     "evacuate",
     "video",
+    "usage",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1112,6 +1130,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
@@ -1124,6 +1143,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
@@ -1140,6 +1160,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
+        .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
@@ -1148,6 +1169,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| sign_clones::run_if_requested(args))
         .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
@@ -1158,6 +1180,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
         .or_else(|| video::run_if_requested(args))
+        .or_else(|| usage_insights::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
