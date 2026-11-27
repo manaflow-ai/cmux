@@ -84,6 +84,56 @@ test("timestamp deadlines share the nearest timer and stop when no label will ch
   expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
 
+test("timestamp labels mounting and unmounting arm no timer of their own", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  const set = globalThis.setTimeout;
+  const clear = globalThis.clearTimeout;
+  let armed = 0;
+  let cleared = 0;
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    armed += 1;
+    return set(...args);
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id?: Parameters<typeof clearTimeout>[0]) => {
+    cleared += 1;
+    return clear(id);
+  }) as typeof clearTimeout;
+  let notified = 0;
+  const stops: (() => void)[] = [];
+  try {
+    // The newest label first (its words change soonest), then a fling's worth of older ones coming and going.
+    stops.push(
+      subscribePageDeadline(
+        () => notified++,
+        () => 60_000,
+      ),
+    );
+    for (let frame = 0; frame < 100; frame += 1) {
+      for (let row = 0; row < 40; row += 1)
+        stops.push(
+          subscribePageDeadline(
+            () => notified++,
+            () => 3_600_000 + row,
+          ),
+        );
+      for (const stop of stops.splice(1)) stop();
+    }
+  } finally {
+    globalThis.setTimeout = set;
+    globalThis.clearTimeout = clear;
+  }
+  // 4,000 labels came and went: the first label's one timer is all that was armed.
+  expect(armed).toBe(1);
+  expect(cleared).toBe(0);
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 1 });
+  jest.advanceTimersByTime(60_005);
+  expect(notified).toBe(1);
+  stops[0]!();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});
+
 // A chat switch unmounts one chat's timestamp labels and mounts the next one's: each join or leave
 // rebuilt the timer and scanned every label for the nearest deadline, quadratic in the rows
 // (bench/settled-page.bench.ts chat_switch). A join rebuilds only for a label due before the timer.

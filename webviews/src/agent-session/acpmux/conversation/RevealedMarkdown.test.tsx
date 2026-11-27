@@ -444,3 +444,22 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
   expect(wordEdge(url, 60, false, 53)).toBe(60);
 });
+
+test("a reply's stream end shows all of it in that commit, with nothing left to grow after it", () => {
+  // cmux#50299: the reply's last lines revealed over the frames after the turn's end grew it under the
+  // fold that had just settled the turn. The commit that ends the stream shows them all, so the turn
+  // end's fold (turnEndFold.ts) carries them in its one motion.
+  root = createRoot(container);
+  const text = "The answer has a first sentence. And a second one that is still waiting to show.";
+  const draw = (streaming: boolean, body = text) =>
+    act(() => {
+      root!.render(<RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />);
+    });
+  draw(true, "");
+  draw(true);
+  frames(0, 3);
+  draw(false);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
+  // No frame after it changes what shows.
+  expect(frames(48, 30).every((seen) => seen === text)).toBe(true);
+});

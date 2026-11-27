@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxScreenKit
 import GameController
+import Observation
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -68,6 +69,10 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private var videoSize: CGSize?
     /// The 2 s viewer demand reports (stream mode).
     private var demandReports: Task<Void, Never>?
+    /// Follow mode: one tick per display frame while the session's camera follows.
+    private var cameraLink: CADisplayLink?
+    /// The camera is moving the scroll view (not the person).
+    private var applyingCamera = false
 
     public init(session: ScreenSession) {
         self.session = session
@@ -150,6 +155,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         if session.isStream { installVideo() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
         session.onTelepointers = { [weak self] person, agent in self?.setTelepointers(person: person, agent: agent) }
+        observeCamera()
         session.onStreamCursor = { [weak self] cursor in
             self?.streamCursor = cursor
             self?.updateCursor()
@@ -196,6 +202,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         if let fps = view.window?.windowScene?.screen.maximumFramesPerSecond, fps > 0 {
             session.displayMaximumFrameRate = fps
         }
+        syncCameraLink()
+    }
+
+    override public func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        syncCameraLink()
     }
 
     override public func viewDidLayoutSubviews() {
@@ -504,6 +516,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        reportCameraTakeover()
         guard fitToDisplay, frameSize != .zero else { return }
         // A swipe at fit may move sideways (to page); everything else stays in the display.
         let paging = allowsDisplayPaging && scrollView.isDragging && (screens.count > 1 || streamDisplays.count > 1) && atFit
@@ -574,6 +587,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     public func viewForZooming(in scrollView: UIScrollView) -> UIView? { content }
 
     public func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        reportCameraTakeover()
         centerContent()
         if fitToDisplay, !scrollView.isZoomBouncing {
             let next = clamped(scrollView.contentOffset, allowHorizontal: false)
@@ -719,7 +733,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         switch recognizer.state {
         case .began:
             syncKeyboardFocus()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            ScreenKitHaptics.impact(.medium)
             session.movePointer(to: framebufferPoint(recognizer))
             pressButton(.left)
         case .changed:
@@ -735,8 +749,10 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Clicks at once on touch-up (no double-tap recognizer waits): two
     /// quick taps are two clicks at one point, which the Mac counts as a
-    /// double click.
+    /// double click. In Follow mode, a tap while the person holds the view
+    /// hands it back to the camera instead.
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        if session.camera?.personTapped() == true { return }
         syncKeyboardFocus()
         let point = clickSnap.point(for: framebufferPoint(recognizer), at: CACurrentMediaTime(), radius: 24 * pixelsPerPoint)
         session.movePointer(to: point)
@@ -848,7 +864,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
             let actions = trackpad.advance(to: ProcessInfo.processInfo.systemUptime)
-            if actions.contains(.press) { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+            if actions.contains(.press) { ScreenKitHaptics.impact(.medium) }
             applyTrackpad(actions)
             scheduleTrackpadDeadline()
         }
@@ -901,7 +917,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
     private func followCursor() {
-        guard inputMode == .trackpad || trackpadPadActive, frameSize != .zero, view.bounds.width > 0 else { return }
+        // Follow mode moves the view itself.
+        guard inputMode == .trackpad || trackpadPadActive, session.camera?.isFollowing != true, frameSize != .zero,
+              view.bounds.width > 0 else { return }
         let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
         let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
         let margin = min(bounds.width, bounds.height) * 0.12
@@ -922,6 +940,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     }
 
     public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+        reportCameraTakeover(ended: true)
         followCursor()
         reportDemand(pinch: true)
     }
@@ -1013,6 +1032,81 @@ extension UIResponder {
     /// Answers `ScreenViewController.currentFirstResponder()`: the action goes to the focus.
     @objc fileprivate func screenReportFirstResponder(_ sender: Any?) {
         (sender as? ScreenFirstResponderBox)?.responder = self
+    }
+}
+
+// MARK: Follow mode
+
+extension ScreenViewController {
+    /// Runs the display link while the session's camera follows, and again
+    /// each time that changes.
+    fileprivate func observeCamera() {
+        withObservationTracking {
+            _ = session.camera?.isFollowing
+        } onChange: { [weak self] in
+            // task-owner: one main-actor hop per change of the camera or its Follow state; re-arms the observation
+            Task { @MainActor [weak self] in self?.observeCamera() }
+        }
+        syncCameraLink()
+    }
+
+    /// The display link exists only while the camera follows and the view is on screen.
+    fileprivate func syncCameraLink() {
+        let wanted = session.camera?.isFollowing == true && view.window != nil
+        if wanted, cameraLink == nil {
+            let ticker = ScreenCameraTicker()
+            ticker.owner = self
+            let link = CADisplayLink(target: ticker, selector: #selector(ScreenCameraTicker.tick(_:)))
+            let fps = Float(max(view.window?.windowScene?.screen.maximumFramesPerSecond ?? 60, 60))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: fps, preferred: fps)
+            link.add(to: .main, forMode: .common)
+            cameraLink = link
+        } else if !wanted, let link = cameraLink {
+            link.invalidate()
+            cameraLink = nil
+        }
+    }
+
+    /// One display frame: the camera's crop becomes the scroll view's zoom
+    /// and offset, set directly (no scroll view animation; the camera's own
+    /// motion is the animation). Skipped while a finger moves the view.
+    // perf-hot: 1ms screen-follow-frame
+    fileprivate func cameraTick(_ link: CADisplayLink) {
+        guard let camera = session.camera, camera.isFollowing, frameSize != .zero else { return }
+        let size = scrollView.bounds.size
+        guard size.width > 0, size.height > 0,
+              !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating,
+              !scrollView.isZooming, !scrollView.isZoomBouncing,
+              let crop = camera.crop(at: link.targetTimestamp, aspect: size.width / size.height) else { return }
+        let framing = ScreenCameraFraming(crop: crop, display: focusRect, viewSize: size)
+        applyingCamera = true
+        defer { applyingCamera = false }
+        if framing.zoomScale < scrollView.minimumZoomScale { scrollView.minimumZoomScale = framing.zoomScale }
+        if framing.zoomScale > scrollView.maximumZoomScale { scrollView.maximumZoomScale = framing.zoomScale }
+        if abs(scrollView.zoomScale - framing.zoomScale) > 1e-6 { scrollView.zoomScale = framing.zoomScale }
+        if scrollView.contentOffset != framing.contentOffset { scrollView.contentOffset = framing.contentOffset }
+    }
+
+    /// A pinch or a drag while Follow is on: the camera holds what the
+    /// person framed (until a tap hands it back).
+    fileprivate func reportCameraTakeover(ended: Bool = false) {
+        guard !applyingCamera, let camera = session.camera, camera.isFollowing, frameSize != .zero,
+              ended || scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating || scrollView.isZooming
+        else { return }
+        let framing = ScreenCameraFraming(zoomScale: scrollView.zoomScale, contentOffset: scrollView.contentOffset)
+        camera.personMoved(framing.visible(display: focusRect, viewSize: scrollView.bounds.size))
+    }
+}
+
+/// The display link's target: it holds the view controller weakly (a
+/// display link retains its target until invalidated). Main actor: the link
+/// is added to the main run loop, which calls `tick` on the main thread.
+@MainActor
+private final class ScreenCameraTicker: NSObject {
+    weak var owner: ScreenViewController?
+
+    @objc func tick(_ link: CADisplayLink) {
+        owner?.cameraTick(link)
     }
 }
 #endif

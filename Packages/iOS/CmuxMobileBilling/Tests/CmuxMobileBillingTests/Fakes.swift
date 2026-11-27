@@ -23,6 +23,13 @@ actor FakeBillingAPI: BillingAPI {
     var receipt: BillingTransactionReceipt?
     private(set) var submitted: [String] = []
     private(set) var accountLoads = 0
+    /// The `paymentPastDue` answer; an error makes the read throw.
+    var pastDue: Result<Bool, BillingAPIError> = .success(false)
+    private(set) var pastDueReads = 0
+    /// While true, each submission waits in `submitTransaction` until
+    /// ``releaseSubmissions()``.
+    private var holding = false
+    private var held: [CheckedContinuation<Void, Never>] = []
 
     init(log: EffectLog, account: BillingAccount) {
         self.log = log
@@ -41,6 +48,31 @@ actor FakeBillingAPI: BillingAPI {
         self.account = account
     }
 
+    func setPastDue(_ pastDue: Result<Bool, BillingAPIError>) {
+        self.pastDue = pastDue
+    }
+
+    func paymentPastDue() async throws -> Bool {
+        pastDueReads += 1
+        return try pastDue.get()
+    }
+
+    /// Holds every later submission (after recording it) until released.
+    func holdSubmissions() {
+        holding = true
+    }
+
+    /// Lets the held submissions return, and later ones return at once.
+    func releaseSubmissions() {
+        holding = false
+        let waiting = held
+        held = []
+        waiting.forEach { $0.resume() }
+    }
+
+    /// The submissions waiting in ``holdSubmissions()``.
+    var heldCount: Int { held.count }
+
     func accountToken() async throws -> BillingAccount {
         accountLoads += 1
         if let accountError { throw accountError }
@@ -50,6 +82,9 @@ actor FakeBillingAPI: BillingAPI {
     func submitTransaction(signedTransactionInfo: String) async throws -> BillingTransactionReceipt {
         submitted.append(signedTransactionInfo)
         await log.append("submit:\(signedTransactionInfo)")
+        if holding {
+            await withCheckedContinuation { held.append($0) }
+        }
         if !submitErrors.isEmpty {
             throw submitErrors.removeFirst()
         }

@@ -37,7 +37,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
     /// has now; one that cannot lays out live, as it would at the hold's start.
     func resumePageHold() {
         guard pageMotionHold != nil, heldPageSize == nil, !pageFollowsPane else { return }
-        if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
+        if startPageHold() { requestLayout() } else { pageMotionHold = nil }
     }
 
     /// The page window stays attached through the hold (RESIZE P0 5): only a divider drag detaches it (``paneMotion(active:)``).
@@ -57,7 +57,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         }
         if pageFollowsPane {
             pageMotionHold = hold
-            needsLayout = true
+            requestLayout()
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
@@ -66,17 +66,18 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             pageHoldTopLeft = true
         }
         pageMotionHold = hold
-        needsLayout = true
+        requestLayout()
     }
 }
 
 extension CEFTabContentView {
-    /// A divider drag of this container's pane began (its press) or landed: the shown page's window detaches for it unless
+    /// A divider drag of this container's pane moved its page for the first time (``pageWillMoveInMotion()``) or landed: the shown page's window detaches for it unless
     /// the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``). A key resize keeps the page attached (RESIZE P0
     /// 5, cmux21 120 Hz: detached, its spring's first tick paid the detach, 1-4 ms, and a page in a pane that grew upward
     /// showed at its old place for about 25 frames; attached, it showed at its pane's size in every frame with the same
     /// missed refreshes). One share per container; a start while one is held and an end with none are ignored.
     func paneMotion(active: Bool) {
+        paneMotionAwaitsMove = false
         if active {
             guard motionHosting == nil, window != nil, let tab, tab.host.hostView.superview === self else { return }
             let hosting = tab.host.hostView.layerHosting
@@ -87,6 +88,16 @@ extension CEFTabContentView {
             motionHosting = nil
             hosting.resizeMotion(active: false)
         }
+    }
+
+    /// The shown page (its host view, or a docked DevTools beside it) is about to move or resize, or the fork is about
+    /// to re-place it: in a divider drag that has not moved it yet, its window detaches now, before the fork's tracker
+    /// update, so that update moves no window (``CEFLayerHosting/resizeMotion(active:)``). A page whose pane the drag
+    /// never moves stays attached: no detach at the press and no attach at the landing, each a fork call that orders
+    /// a child window out or in (1-4 ms each, RESIZE P0 5) and runs Chromium's window observers.
+    func pageWillMoveInMotion() {
+        guard paneMotionAwaitsMove else { return }
+        paneMotion(active: true)
     }
 
     /// The shown page holds the keys (its window is key, or a focus ask waits for it).

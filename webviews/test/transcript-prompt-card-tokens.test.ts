@@ -50,7 +50,8 @@ describe("transcript prompt and card tokens", () => {
     const literal = rules(CARDS).flatMap(([selector, body]) =>
       [...body.matchAll(/border-radius:\s*([^;]+);/g)]
         .map((match) => match[1]!.trim())
-        .filter((value) => /^\d/.test(value))
+        // A capsule (the < n/m > switcher's pill looks, #48583) or a circle is a shape, not a corner.
+        .filter((value) => /^\d/.test(value) && value !== "999px" && value !== "50%")
         .map((value) => `${selector}: ${value}`),
     );
     expect(literal).toEqual([]);
@@ -65,15 +66,21 @@ describe("transcript prompt and card tokens", () => {
     expect(margins).toEqual([]);
   });
 
-  // A sent attachment is part of its message and takes the bubble's corner (Leo, 2026-11-21: "if you
-  // sent it iinline you prob shouldn't have such odd stuff"; conversation.css
-  // --cv-user-attachment-radius); a reply's image keeps the media radius.
-  test("sent thumbnails take the bubble's corner, and reply images the media radius", () => {
+  // A reply's image takes the media radius; a sent attachment takes its bubble's corner
+  // (--cv-user-attachment-radius, #48558), falling back to the media radius.
+  test("reply images take the media radius, sent thumbnails their bubble's", () => {
+    const reply = rules(/^\.cv-img$/).map(([, body]) => body);
+    expect(reply.some((body) => /border-radius:\s*var\(--cv-media-radius\)/.test(body))).toBe(true);
     for (const selector of [/\.cv-user__images img/, /\.cv-user__image-placeholder/]) {
       const bodies = rules(selector).map(([, body]) => body);
-      expect(bodies.some((body) => /border-radius:\s*var\(--cv-user-attachment-radius\b/.test(body))).toBe(true);
+      expect(
+        bodies.some((body) =>
+          /border-radius:\s*var\(--cv-user-attachment-radius,\s*var\(--cv-media-radius\)\)/.test(body),
+        ),
+      ).toBe(true);
     }
     const reply = rules(/^\.cv-img$/).map(([, body]) => body);
     expect(reply.some((body) => /border-radius:\s*var\(--cv-media-radius\)/.test(body))).toBe(true);
+    expect(defined.has("--cv-user-attachment-radius")).toBe(true);
   });
 });

@@ -25,8 +25,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
 import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
+import { exitLeadMs, EXIT_LEAD_MS } from "../src/agent-session/acpmux/conversation/exitLead";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -169,12 +169,11 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
       expect(samples.at(-1)!.b).toBeCloseTo(34, 1);
       // The clock started again two frames in: b still moves past the first clock's 180 ms, and rests
       // one settle after the restart, never on a longer clock (before: 720 ms for this move). The move
-      // waits out the copy's exit lead first (exitLead.ts, #48554: the text is gone before anything
-      // moves), so its settle ends one lead later.
-      const lead = exitLeadMs(MOTION_SETTLE_MS);
+      // starts once the copies' exit lead is over (#48554, exitLead.ts: the leaving text is gone before
+      // anything travels), so its end comes that lead later too.
       const moving = samples.filter((sample) => sample.b > 34.02).at(-1)!;
       expect(moving.t - samples[0]!.t).toBeGreaterThan(180);
-      expect(moving.t - samples[0]!.t).toBeLessThan(180 + lead + 25);
+      expect(moving.t - samples[0]!.t).toBeLessThan(180 + EXIT_LEAD_MS + 25);
       // The copy of the work only ever fades.
       const brightened = samples
         .map((sample, index) => ({ index, step: index ? sample.ink - samples[index - 1]!.ink : 0 }))

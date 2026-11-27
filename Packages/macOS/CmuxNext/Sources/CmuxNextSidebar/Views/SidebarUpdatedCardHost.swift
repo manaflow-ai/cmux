@@ -58,9 +58,9 @@ final class SidebarUpdatedCardHost: NSView {
     /// included, sent no exit when the view shrank under a still pointer, so the page kept hearing
     /// "inside" over the rows and reopened the list (Leo 2026-11-08: "flicker upon hovering over what's new").
     private var pointerHover: PointerHover?
-    /// The frost behind the page: the card and its open preview, at the card corner. Only the
+    /// The frost behind the page: the card and its open preview, at the composer's corner. Only the
     /// material: the page paints the composer's tint over it.
-    let glass = GlassPanelView(cornerRadius: LayoutGrid.cardRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
+    let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
     /// The glass's frame for the preview height it was last laid out at.
     private(set) var glassFrame = NSRect.zero
     /// The glass's frame before a close that is still running: the preview still shows there, so the
@@ -375,7 +375,20 @@ final class SidebarUpdatedCardHost: NSView {
             return heldHeight > 0 ? held : Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
         }
         let content = island.contentHeight
-        return content > 0 ? max(content, held) : 0
+        // The hold lasts while the words load; once they are final the card is as tall as they are (u51892
+        // review F1: the card's height varies with its change line, so a taller card remembered from the last
+        // showing stood with a blank band above shorter words, its x above their title).
+        guard content > 0 else { return 0 }
+        return island.contentSettled ? content : max(content, held)
+    }
+
+    /// The top of the page's card box (its `.wn-card-rest`) in this view: the page stands its card on the
+    /// view's resting edge (surface.css), so at the bottom, with the preview closed, the words' box is the
+    /// page's reported height up from the bottom even while the slot holds more room than that.
+    private var wordsTop: CGFloat {
+        let card = cardRect
+        guard anchor != .top, !previewIsOpen, let content = island?.contentHeight, content > 0 else { return card.minY }
+        return max(card.minY, bounds.maxY - content)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce
@@ -445,10 +458,28 @@ final class SidebarUpdatedCardHost: NSView {
     override func layout() {
         super.layout()
         layoutGlass()
-        // In the card's top trailing corner, concentric with the glass (laid out first: its corner follows the zoom).
-        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide), side = Self.closeSide
-        closeButton.frame = corner.topTrailingFrame(side: side, in: cardRect, flipped: true)
+        // On the title line, at the corner's trailing inset (the glass laid out first: its corner follows the zoom).
+        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide)
+        let rect = cardRect
+        var words = rect
+        (words.origin.y, words.size.height) = (wordsTop, rect.maxY - wordsTop)
+        closeButton.frame = Self.closeFrame(corner: corner.topTrailingFrame(side: Self.closeSide, in: rect, flipped: true), card: words,
+                                            titleLineMid: card == nil ? 0 : island?.titleLineMid ?? 0)
         closeButton.concentricRadius = corner.childRadius
+    }
+
+    /// The x's frame in the card at `card` (flipped), from its concentric frame in the corner (`corner`): at the
+    /// corner's trailing inset, and centered on the
+    /// title line `titleLineMid` points down from the card's top (u51892, 2026-11-23: "why the x icon
+    /// is not aligned vertically with the Updated to Nightly thing? let's put it on the right side in line
+    /// with the Updated to Nightly"). The corner's concentric inset from the top sat the x below the title's
+    /// capitals, and further below once the card grew for its lines. Before the page reports its title line
+    /// (0), the x keeps the concentric corner. It never stands past the card's top.
+    static func closeFrame(corner: NSRect, card: NSRect, titleLineMid: CGFloat) -> NSRect {
+        guard titleLineMid > 0 else { return corner }
+        var frame = corner
+        frame.origin.y = max(card.minY, card.minY + titleLineMid - corner.height / 2)
+        return frame
     }
 
     /// The glass behind the card and its open preview, on the card's resting edge. A preview that opens
@@ -460,8 +491,8 @@ final class SidebarUpdatedCardHost: NSView {
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
         glass.isHidden = card == nil || tall <= 0 || !drawn
-        // The card corner (LayoutGrid.cardRadius, the page's --grid-card-radius) at the page's zoom: the page's corner grows with the interface scale.
-        glass.cornerRadius = LayoutGrid.cardRadius * (island?.zoom ?? 1) // concentric-allow: the card's own corner (a third of its box); its x derives from it (Metrics.cornerControl(outerRadius:))
+        // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
+        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
         defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty

@@ -12,11 +12,16 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+# The one cmux.particles/1 validator (src/particles.rs), for agentPane.display.thinking.glyph:
+# only its wire types, no VM (`default-features = false` in the workspace).
+cmux-app-host.workspace = true
 # The sidebar row layout reducer: the bounds of sidebar.workspaceRow.lines/linesByKind/linesByAgent
 # (schema/sidebar_rows.rs). Pure, serde only.
 cmux-layout-reducer.workspace = true
 # The settings schema compiled in compressed (src/schema/mod.rs).
 cmux-embed.workspace = true
+# A Home reply's pipe tables (app_ops/home_table.rs).
+cmux-message-preview.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true
@@ -27,6 +32,8 @@ serde.workspace = true
 # raw_value: the embedded settings schema keeps each row as a slice of its text.
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
+# Swift's `count` (grapheme clusters) for a one-character shortcut key (app_ops/shortcut.rs).
+unicode-segmentation.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

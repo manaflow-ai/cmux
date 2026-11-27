@@ -55,7 +55,7 @@ env:
 jobs:
   duress:
     name: cmux-duress tests, bench and scenarios
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A cold build of cmux-duress with ghostty-vt and cmux-agent-cli-render, debug and release, plus the bench
     # and the scenarios; a warm cache leaves most of this unused.
     timeout-minutes: 45
@@ -66,7 +66,7 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -92,8 +92,13 @@ jobs:
       - name: Install Linux build dependencies
         if: steps.crate.outputs.have == 'true' && runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         if: steps.crate.outputs.have == 'true'
@@ -118,7 +123,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux
+          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit
@@ -185,17 +190,20 @@ jobs:
             name="${name%%[[:space:]]*}"
             [[ -n "$name" && "$name" != \#* && "$name" != name ]] || continue
             echo "::group::scenario $name"
-            if line="$("$bin" scenario run "$name")"; then
-              line="$(printf '%s\n' "$line" | grep -E '^\{' | tail -n 1)"
-              if [[ -n "$line" ]] && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$line" 2>/dev/null; then
-                printf '{"scenario": %s, "result": %s}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$name")" "$line" >> "$out/scenarios.jsonl"
-              else
-                echo "::error::scenario $name printed no JSON line"
-                echo "$name: no JSON line" >> "$out/broken.txt"
-              fi
+            # A failing scenario still prints its JSON line: keep its numbers either way, so the next run
+            # has a baseline and the summary shows how far off the check is.
+            line="$("$bin" scenario run "$name")"
+            rc=$?
+            line="$(printf '%s\n' "$line" | grep -E '^\{' | tail -n 1)"
+            if [[ -n "$line" ]] && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$line" 2>/dev/null; then
+              printf '{"scenario": %s, "result": %s}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$name")" "$line" >> "$out/scenarios.jsonl"
             else
-              echo "::error::scenario $name exited $?"
-              echo "$name: exited non-zero" >> "$out/broken.txt"
+              echo "::error::scenario $name printed no JSON line"
+              echo "$name: no JSON line" >> "$out/broken.txt"
+            fi
+            if [[ $rc -ne 0 ]]; then
+              echo "::error::scenario $name exited $rc"
+              echo "$name: exited $rc" >> "$out/broken.txt"
             fi
             echo "::endgroup::"
           done < "$out/names.txt"
@@ -213,10 +221,13 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
+          # The newest earlier push run that finished its replay (green or red: a red run still uploads its
+          # lines, and a run that only ever compared with green ones had no baseline while a scenario failed).
           prev="$(gh run list -R "$REPO" --workflow cmux-duress.yml --branch feat-cmux-next --event push \
-            --status success --limit 5 --json databaseId --jq "[.[] | select(.databaseId != $RUN_ID)][0].databaseId // empty")"
+            --status completed --limit 10 --json databaseId,conclusion \
+            --jq "[.[] | select(.databaseId != $RUN_ID and (.conclusion == \"success\" or .conclusion == \"failure\"))][0].databaseId // empty")"
           if [[ -z "$prev" ]]; then
-            echo "no earlier green feat-cmux-next push run"
+            echo "no earlier finished feat-cmux-next push run"
             exit 0
           fi
           gh run download "$prev" -R "$REPO" -n duress-scenarios -D "$RUNNER_TEMP/duress-previous"
@@ -257,23 +268,38 @@ jobs:
               return found
 
           def failed(result):
-              """A scenario's own verdict, when its line carries one."""
+              """A scenario's own verdict (`"verdict": "fail"`), when its line carries one."""
               if not isinstance(result, dict):
                   return False
               return any(result.get(key) is False for key in ("ok", "pass", "passed")) or \
-                  str(result.get("status", "")).lower() in ("fail", "failed", "error")
+                  str(result.get("verdict", result.get("status", ""))).lower() in ("fail", "failed", "error")
+
+          def known(result):
+              """The open bug a scenario reproduces (`known_failing`), if its file names one."""
+              return result.get("known_failing") if isinstance(result, dict) else None
 
           now, before = load(out / "scenarios.jsonl"), load(prev / "scenarios.jsonl")
           broken = [line for line in (out / "broken.txt").read_text().splitlines() if line.strip()]
-          broken += [f"{name}: its line says it failed" for name, result in now.items() if failed(result)]
+          broken += [f"{name}: its line says it failed" for name, result in now.items()
+                     if failed(result) and not known(result)
+                     and not any(item.startswith(f"{name}:") for item in broken)]
+          known_failing = [f"`{name}`: {known(result)}" for name, result in sorted(now.items())
+                           if failed(result) and known(result)]
+          fixed = [name for name, result in sorted(now.items()) if known(result) and not failed(result)]
+          for name in fixed:
+              print(f"::warning::scenario {name} passes now: drop known_failing from its scenarios/{name}.toml")
           prev_run = (prev / "run-id").read_text().strip() if (prev / "run-id").is_file() else ""
 
           lines = ["### Duress scenarios", ""]
           lines.append(f"{len(now)} scenario(s) replayed; before = run {prev_run}" if prev_run
-                       else f"{len(now)} scenario(s) replayed; no earlier green feat-cmux-next push to compare with")
+                       else f"{len(now)} scenario(s) replayed; no earlier finished feat-cmux-next push to compare with")
           lines.append("")
           if broken:
               lines += ["**Broken:**", ""] + [f"- {item}" for item in broken] + [""]
+          if known_failing:
+              lines += ["**Known failing** (an open bug; not a red):", ""] + [f"- {item}" for item in known_failing] + [""]
+          if fixed:
+              lines += ["**Passes now** (drop `known_failing`): " + ", ".join(f"`{name}`" for name in fixed), ""]
           gone = sorted(set(before) - set(now))
           if gone:
               lines += ["Gone since the previous run: " + ", ".join(f"`{name}`" for name in gone), ""]

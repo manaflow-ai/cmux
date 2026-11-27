@@ -84,7 +84,9 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 /// `--harness local`: every profile in this machine's harness folder (what
 /// Add Machine copies, so a remote chat starts with the agents this Mac has).
 pub(crate) const LOCAL_HARNESSES: &str = "local";
-const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
+/// The remote's harness folder: cmux NEXT's own `cmux-next` on a Mac
+/// (`cmux_config::NEXT_DIR`), `cmux` elsewhere.
+const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux; case $(uname -s) in Darwin) d=$d-next;; esac; d=$d/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
 /// Machine card, `HostCLI.stop`).
@@ -138,7 +140,12 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
-    // Last: whether an agent is ready there, with the install and sign-in offers.
+    // Last: install missing agent CLIs during Add Machine (safe and
+    // non-secret), then report readiness and the person-owned sign-in offer.
+    // `host doctor` remains read-only and calls `step` directly.
+    if plan.lends_github && fix && gate(Step::Agents, &done).is_none() {
+        let _ = crate::cli::host_agents::install_missing(&remote, &plan.name, &mut emit);
+    }
     let agents = gate(Step::Agents, &done)
         .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
     emit(&agents);
@@ -504,7 +511,7 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
 }
 
 /// The build in a `--version` line: `acpmux 0.1.0 (BUILD)`.
-fn build_of(line: &str) -> Option<&str> {
+pub(super) fn build_of(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once('(')?;
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }

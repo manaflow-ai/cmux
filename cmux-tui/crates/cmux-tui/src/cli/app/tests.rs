@@ -1229,12 +1229,15 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
+        | AppCommand::Health(_)
         | AppCommand::Live(_)
         | AppCommand::Try(_)
         | AppCommand::Share(_)
         | AppCommand::Published(_)
         | AppCommand::LaunchTimes(_)
+        | AppCommand::Record(_)
         | AppCommand::WebPieces(_)
+        | AppCommand::WebCas(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1630,7 +1633,7 @@ fn on_is_the_default_chat_target_key() {
         assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
         assert_eq!(super::super::command::resolve_alias(alias), *key);
         // The key is in the embedded export (settings-schema.json), which the CLI's list and
-        // validate and MCP's settings_* tools read; agents may set it (agent-policy.json).
+        // validate and MCP's settings_* tools read; agents may set it (schemas/settings/source/agent-policy/).
         let row = cmux_config::Schema::embedded().row(key);
         assert!(row.is_some_and(|row| row.agent_settable), "{key} is not an agent-settable key");
     }

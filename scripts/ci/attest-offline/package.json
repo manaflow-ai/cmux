@@ -1,0 +1,9 @@
+{
+  "name": "cmux-attest-offline",
+  "private": true,
+  "description": "Signs build provenance into a local Sigstore bundle with no GitHub REST call (sign.mjs).",
+  "type": "module",
+  "dependencies": {
+    "@actions/attest": "3.2.0"
+  }
+}

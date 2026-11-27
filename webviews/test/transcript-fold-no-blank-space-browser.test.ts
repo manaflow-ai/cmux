@@ -293,9 +293,9 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
 
     await toggle(page);
     const opened = await blankSpace(page);
-    // A step of only quiet thoughts draws no row once the turn ends (turns.ts drawsNoWork, #46787: "a
-    // turn with nothing to show draws no empty Worked for"): a3 and a5 are gone from the open fold, not
-    // left as rows of their own, and a4's calls draw on their own line under the edit run's copy.
+    // An ended turn's body drops the steps that draw no row, as it drops empty messages and hidden calls
+    // (#46787: a step of only quiet thoughts, a3 and a5, draws nothing), so a4's calls draw on their own row
+    // and no quiet-only step is left as a row of its own.
     expect(opened.ids).toContain("a4");
     for (const id of ["a3", "a5"]) expect(opened.ids).not.toContain(id);
     expect(opened.blank).toEqual([]);

@@ -79,9 +79,12 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
 
     private static let idBytes = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-".utf8)
 
-    /// Only the App installation page `integration.connect` answers may open (https://github.com/apps/<slug>/installations/new).
+    /// Only the pages `integration.connect` answers may open: the App's installation page
+    /// (https://github.com/apps/<slug>/installations/new, or `/new/permissions` preselecting the repository's owner), or,
+    /// for a repository whose owner has the App installed already, GitHub's authorize page
+    /// (https://github.com/login/oauth/authorize), which comes back with a code and no install step (#55104).
     public static func installationURL(_ raw: String) -> URL? {
-        gitHubPage(raw, path: #"^/apps/[A-Za-z0-9-]+/installations/new$"#)
+        gitHubPage(raw, path: #"^(/apps/[A-Za-z0-9-]+/installations/new(/permissions)?|/login/oauth/authorize)$"#)
     }
 
     /// A ready (or suspended, ``needsReauth``) connection's installation settings (`connection.configure_url`), where the

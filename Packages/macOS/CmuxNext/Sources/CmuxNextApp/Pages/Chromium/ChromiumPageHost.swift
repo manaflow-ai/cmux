@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import struct CmuxNextControl.LaunchFirstPage
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -25,6 +26,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
     private let paneFocus: @MainActor (PageWebView) -> Bool
+    private let firstPage = CEFFirstPageProbe() // the first page's own load times this launch (startup-tti)
     let healthFeed: (any PageHealthFeed)?
 
     /// - Parameters:
@@ -68,15 +70,18 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         DebugTimings.markLaunch("chromium_page.make_start")
         let made = try await cef.makeTab(configuration)
-        for mark in cef.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
         (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
         tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
+        // The first page's load times (startup-tti), asked once its own document loaded and painted: a page made with no
+        // URL is ready for keys on its empty document, which has no DOMContentLoaded or contentful paint to report.
+        tab.onRealDocumentLoaded = { [weak tab, firstPage] in if let tab { firstPage.ask(tab, script: LaunchFirstPage.script) { for mark in LaunchFirstPage.marks($0) { DebugTimings.markLaunch(mark.name, at: mark.at) } } } }
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
         DebugTimings.markLaunch("chromium_page.browser_created")
+        for mark in cef.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         return chromiumPage
     }
 }
