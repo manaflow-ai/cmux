@@ -84,6 +84,11 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // A user line of the chat's own (the prompt's echo, a steer, tool results, a hook's
+        // feedback) goes out as its next model call's request (`model_calls.rs`).
+        if kind == "user" && parent.is_none() {
+            self.model_clock.requested(super::prompt_cache::now_ms());
+        }
         // The turn's last assistant line on the main loop: Claude Code's own API error or not.
         if kind == "assistant" && parent.is_none() {
             *self.api_error.lock().await = super::api_error::text(line);
@@ -169,6 +174,8 @@ impl Translator {
                         if parent.is_none() {
                             let model = ev.pointer("/message/model").and_then(Value::as_str);
                             self.call_started(ev.pointer("/message/usage"), model).await;
+                            // The call's first byte (`model_calls.rs`).
+                            self.model_clock.started(super::prompt_cache::now_ms());
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -211,6 +218,8 @@ impl Translator {
                             Some("thinking_delta") => {
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
+                                } else {
+                                    self.model_clock.thought();
                                 }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {

@@ -30,6 +30,7 @@ import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
+  AcpmuxModelCall,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -561,6 +562,22 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// context a harness holds (Claude Code's result repeats its last call's for the context ring;
 /// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// When a marked call went out and came back, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs): unix ms on the daemon's clock, the clock of every event's `at`.
+/// None from an older daemon, or for times that do not read.
+const modelCallTiming = (update: any): AcpmuxModelCall | undefined => {
+  const timing = update?._meta?.acpmux?.timing;
+  const first = Number(timing?.firstTokenAt);
+  const last = Number(timing?.lastTokenAt);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return undefined;
+  const request = Number(timing?.requestAt);
+  return {
+    ...(Number.isFinite(request) && request <= first && { requestAt: request }),
+    firstTokenAt: first,
+    lastTokenAt: last,
+    ...(timing?.thought === true && { thought: true as const }),
+  };
+};
 /// The generated side of one model call. Older daemons only sent `used`, which is a context
 /// snapshot and must never be mistaken for output; those calls therefore do not contribute.
 const callOutputTokens = (update: any): number | undefined => {
@@ -10155,6 +10172,8 @@ export class AcpmuxDirectClient {
       // count belongs on the running line; adding `used` here counted the whole context again on
       // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
       // calls read stays apart, in the split, for the line's "in" and its hover.
+      const timed = isCallUsage(update) ? modelCallTiming(update) : undefined;
+      if (timed) this.timeModelCall(timed);
       if (this.turnTokens !== undefined && isCallUsage(update)) {
         const output = callOutputTokens(update);
         if (output !== undefined) this.turnTokens += output;
@@ -11040,6 +11059,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "assistant",
         ...(messageTurnStartedAtMs !== undefined && { turnStartedAtMs: messageTurnStartedAtMs }),
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
         text: `${existing?.text ?? ""}${text}`,
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
@@ -11105,6 +11125,7 @@ export class AcpmuxDirectClient {
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
         streaming: true,
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -11184,6 +11205,7 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
@@ -11773,6 +11795,16 @@ export class AcpmuxDirectClient {
     const text = row.text ?? "";
     const claims = readClaims(msg.claims).filter((claim) => text.includes(claim.text));
     if (claims.length) this.rows.set(row.id, { ...row, version: row.version + 1, claims });
+  }
+
+  /// A model call acpmux timed goes on the row its output streamed into, which the turn's footer
+  /// Timeline reads (conversation/waterfallSpans.ts `turnWork`). A call read twice (a catch-up over
+  /// events already read) is kept once.
+  private timeModelCall(call: AcpmuxModelCall): void {
+    const id = this.streamingActivity ?? this.streamingAssistant;
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row || row.modelCalls?.some((held) => held.lastTokenAt === call.lastTokenAt)) return;
+    this.rows.set(id!, { ...row, version: row.version + 1, modelCalls: [...(row.modelCalls ?? []), call] });
   }
 
   private endAssistantSegment(): void {

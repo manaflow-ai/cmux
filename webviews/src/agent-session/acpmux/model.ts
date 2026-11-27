@@ -685,6 +685,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The model calls that ended on this row, as acpmux timed them (claude_stdio/model_calls.rs): its
+  /// turn's footer draws each on its Timeline (conversation/waterfallSpans.ts `turnWork`).
+  modelCalls?: AcpmuxModelCall[];
   /// The chat's last turn's GitHub call that found no GitHub connection for this chat
   /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
   githubConnect?: GitHubConnectNeed;
@@ -965,14 +968,30 @@ export type AcpmuxRow = {
   subagentReportFirst?: true;
 };
 
+/// One model call of the chat's own, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs, `_meta.acpmux.timing` on the call's `usage_update`), unix ms on the
+/// daemon's clock: its request went out, its first byte came, its last token came.
+export type AcpmuxModelCall = {
+  requestAt?: number;
+  firstTokenAt: number;
+  lastTokenAt: number;
+  /// The call streamed thinking.
+  thought?: true;
+};
+
 export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
   /// A thought's first and latest chunk (epoch ms), for a folded thought's "Thought for 12s"
-  /// (conversation/ThoughtRow.tsx `thoughtDuration`).
+  /// (conversation/ThoughtRow.tsx `thoughtDuration`). A Timeline's model call (kind `model`,
+  /// waterfallSpans.ts `turnWork`): its request to its last token.
   startedAt?: number;
   endedAt?: number;
+  /// A Timeline model call's first byte (epoch ms), for its hover's wait.
+  firstTokenAt?: number;
+  /// A Timeline model call that thought.
+  thought?: true;
   tool?: {
     id: string;
     title: string;
