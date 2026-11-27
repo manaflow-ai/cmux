@@ -54,6 +54,7 @@ mod terminal_projection;
 mod vnc;
 mod window_layout;
 mod workspace_arrangement;
+mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
