@@ -503,6 +503,21 @@ for file in "$pin_file" "$manifest"; do
 done
 [[ "$pin_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no signed pin commit" >&2; exit 1; }
 git fetch --no-tags origin "$pin_commit"
+# The re-pin PR is a stack blocker: every PR that needs the new FFI, and every app build, waits on it landing. The
+# `stack-blocker` label puts its Mac jobs on the nightly slot (scripts/ci/side_lane_placement.py STACK_SLOT) and ranks
+# them right after nightly in glaeda's runner hook, which reads labels from the event payload, so the label goes on an
+# open PR before the push that makes its next run. cmux#60275's compile waited 69 min for ~4 min of work (03:54Z push,
+# 05:03Z pass) behind ordinary PR CI. A label call is plain gh, never gh_retry: a rate-limited label must not set
+# rate_limit_failed and stop the pin itself. Its failure is a warning.
+stack_blocker_label() {
+  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' >/dev/null 2>&1 && return 0
+  echo "::warning title=Re-pin label::could not add stack-blocker to #$1; its CI queues as an ordinary PR's"
+}
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
+    --jq '.[0] | select(. != null) | select([.labels[].name] | index("stack-blocker") | not) | .number' 2>/dev/null || true)"
+  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
+fi
 if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_commit:refs/heads/$branch"; then
   # A lost push response is harmless only if the intended commit is published.
   [[ "$(remote_head "$branch")" == "$pin_commit" ]] || exit 1
@@ -532,6 +547,8 @@ if [[ -n "$pr_number" ]]; then
 else
   url="$(gh_retry gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body")"
   pr_number="${url##*/}"
+  # A new PR is labelled right after create (the next push's run, and the lander's update-branch, carry it).
+  [[ "$pr_number" =~ ^[0-9]+$ ]] && stack_blocker_label "$pr_number"
 fi
 [[ "$pr_number" =~ ^[0-9]+$ ]] || { echo "::error::no re-pin PR number" >&2; exit 1; }
 # GitHub syncs a pull request's head some time after a push: on 2026-11-25 the PR still read 4910b844 after the
