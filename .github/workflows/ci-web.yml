@@ -2817,9 +2817,11 @@ jobs:
           retention-days: 3
 
       # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
-      # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
-      # restore-keys prefix takes the newest. Use the same staging directory in each step. The R2
-      # action archives a directory and restores its contents there, including history.json.
+      # request. Keyed by the history's own hash, not the run (tests/test_ci_no_run_scoped_cache_keys.py): one fixed
+      # key was never replaced (2026-11-08), each push's history differs (it records that push), and the restore-keys
+      # prefix takes the newest save. Base branches only: pull requests read only their base's prefix. Use the same
+      # staging directory in each step: the R2 action archives a directory and restores its contents there, including
+      # history.json.
       - name: Stage the history for the cache
         id: history-stage
         if: ${{ steps.history-record.outcome == 'success' }}
@@ -2837,7 +2839,7 @@ jobs:
           fi
 
       - name: Save the history to the cache
-        if: ${{ steps.history-stage.outcome == 'success' }}
+        if: ${{ steps.history-stage.outcome == 'success' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: ./.github/actions/cache-save
@@ -2850,7 +2852,7 @@ jobs:
         with:
           backend: r2
           path: .webviews-test-history-cache
-          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: webviews-test-history-${{ github.ref_name }}-${{ hashFiles('.webviews-test-history-cache/history.json') }}
           # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
           required: true
 

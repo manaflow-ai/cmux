@@ -12,6 +12,7 @@ import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray"
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../../agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext, type WorkingCounts } from "../../agent-session/acpmux/conversation/workingForModel";
+import { Button } from "../../ui/Button";
 
 /// The hat's subagent steps, and the live line's: Thinking (no call), a call, Thinking, a command.
 const HAT_STEPS = ["Read SubagentTray.tsx", "Grep latestLine", "Edit trayMotion.tsx", "Read conversation.css"];
@@ -87,13 +88,13 @@ export function StatusSwapStage({ sequence, dwell = true }: { sequence?: "leo" |
       <div
         style={{ display: "flex", gap: "var(--ds-space-2)", padding: 8, borderBottom: "1px solid var(--agent-border)" }}
       >
-        <button type="button" data-stage="next" onClick={() => setStep((current) => current + 1)}>
+        <Button bare type="button" data-stage="next" onClick={() => setStep((current) => current + 1)}>
           Next step
-        </button>
+        </Button>
         {sequence === "burst" ? (
-          <button type="button" data-stage="burst" onClick={() => setBurst(0)}>
+          <Button bare type="button" data-stage="burst" onClick={() => setBurst(0)}>
             Send a burst
-          </button>
+          </Button>
         ) : null}
       </div>
       <main className="acpmux-main" data-dock="float" style={{ position: "relative", flex: 1, minHeight: 0 }}>
