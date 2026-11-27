@@ -393,7 +393,22 @@ async fn heartbeats(
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        let health = match hub.upgrade() {
+            Some(hub) => {
+                // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
+                let reading = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    super::peer_status::host_health(&hub, crate::conn_origin::Origin::Peer),
+                )
+                .await
+                .ok();
+                reading
+                    .map(|r| crate::peer::health::wire(&r))
+                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()))
+            }
+            None => break,
+        };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -485,7 +500,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
@@ -836,6 +851,15 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // A mixed grant may allow the daemon without matching its user. Only the
+            // hub-stamped person can confer the owner's host execution profile.
+            let same_person = own_user
+                .as_deref()
+                .filter(|user| !user.is_empty())
+                .is_some_and(|user| message.from.user.as_deref() == Some(user))
+                && self.allowed.iter().any(|entry| {
+                    entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
+                });
             // The widest policy the owner granted this sender for `op` here (`maxPolicy`).
             let cap = crate::mesh_relay_config::control_cap(
                 &self.allowed,
@@ -891,7 +915,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message, cap) => ack,
+                            ack = run_control(&hub, &message, cap, same_person) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -946,6 +970,7 @@ async fn run_control(
     hub: &Arc<Hub>,
     message: &InMessage,
     cap: crate::config::PermissionPolicy,
+    same_person: bool,
 ) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -1047,7 +1072,7 @@ async fn run_control(
         };
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
-    let session_id = params.get("sessionId").cloned();
+    super::lane_parent::mark_control_boundary(&mut params, same_person);
     let (tx, mut rx) = relay_connection_as(hub, control_auth(cap));
     let initialized = rpc_call(
         &tx,
@@ -1071,7 +1096,9 @@ async fn run_control(
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
-            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params.clone())
+                .await
+            {
                 Ok(info) => info,
                 Err(error) => return error.ack(),
             };
@@ -1084,18 +1111,10 @@ async fn run_control(
                 .map(str::to_owned);
             match held {
                 Some(prompt_id) => {
-                    rpc_call(
-                        &tx,
-                        &mut rx,
-                        3,
-                        crate::rpc::method::MUX_QUEUE_EDIT,
-                        serde_json::json!({
-                            "sessionId": session_id,
-                            "promptId": prompt_id,
-                            "op": "resume"
-                        }),
-                    )
-                    .await
+                    // Keep the same server-derived provenance on the write after the read.
+                    params["promptId"] = serde_json::json!(prompt_id);
+                    params["op"] = serde_json::json!("resume");
+                    rpc_call(&tx, &mut rx, 3, crate::rpc::method::MUX_QUEUE_EDIT, params).await
                 }
                 None => Ok(serde_json::json!({"resumed": false})),
             }

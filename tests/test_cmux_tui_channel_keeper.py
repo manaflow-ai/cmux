@@ -106,6 +106,16 @@ class KeeperTests(unittest.TestCase):
             self.assertEqual(keeper.drive(drive_args(point_only=True)), keeper.EXIT_CURRENT)
         run.assert_not_called()
 
+    def test_point_only_advances_past_channel_while_newest_tree_is_unpublished(self) -> None:
+        history = ["a" * 40, "b" * 40, CHANNEL_COMMIT]
+        fake = Fake(history, published={key_of("b" * 40)}, tested={key_of("b" * 40)})
+        with fake.patch(), mock.patch.object(keeper, "can_write", return_value=[]), \
+                mock.patch.object(keeper.subprocess, "run") as run:
+            self.assertEqual(keeper.drive(drive_args(point_only=True)), keeper.EXIT_CURRENT)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0][1:], [keeper.CHANNEL, key_of("b" * 40)])
+        self.assertEqual(run.call_args.kwargs["env"]["GITHUB_SHA"], "b" * 40)
+
     def test_point_only_is_never_red_while_newer_trees_build(self) -> None:
         history = ["a" * 40, CHANNEL_COMMIT]
         with Fake(history, published=set(), tested=set()).patch(), \
