@@ -28,7 +28,12 @@ describe("high contrast chat experiment", () => {
       "agentPane.display.font.size": 12,
       "agentPane.display.width": 640,
     });
-    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-text"]).toBe("#ffffff");
-    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-link"]).toBe("#ffd400");
+    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-text"]).toBe("var(--agent-text)");
+    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-link"]).toBe("var(--agent-link)");
+  });
+
+  test("the high arm holds no literal colors, so it follows the theme in light and dark", () => {
+    for (const value of Object.values(HIGH_CONTRAST_CHAT_VARIABLES))
+      expect(value).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/i);
   });
 });

@@ -11,7 +11,7 @@
     "sidebar.cards.tips": false,
     "tabs.hideLoneChatTab": true,
     "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
-    "agentPane.display.presentation": "messages",
+    "agentPane.display.detail": "messages",
     "agentPane.display.font.preset": "system",
     "agentPane.display.font.ui": "system-ui",
     "agentPane.display.font.size": 15,

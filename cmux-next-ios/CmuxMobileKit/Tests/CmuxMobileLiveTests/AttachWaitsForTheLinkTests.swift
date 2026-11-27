@@ -87,6 +87,36 @@ import Testing
         #expect(rig.notSent.isEmpty)
     }
 
+    /// A first attach on a cold launch: the terminal's open reads "no link" just before the link
+    /// is served, and the link's `reconnect()` of every terminal comes while that attach is still
+    /// out. Before, that reconnect was dropped (`attaching`) and the attach then waited for a
+    /// link that had already come: the page's skeleton for good (Aziz's TestFlight, 2026-11-25).
+    @Test func aLinkThatComesDuringTheFirstAttachIsNotMissed() async throws {
+        let daemon = FakeTerminalDaemon()
+        let gate = OpenGate()
+        let flag = LinkFlag()
+        flag.up = false
+        let mac = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            let up = flag.up
+            // The first open read the link (down) and is still on its way back.
+            await gate.passFirst()
+            guard up else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            return DaemonClient(channel: try await mac.openChannel(service: "daemon", args: [:]))
+        }
+        defer { session.stop() }
+        session.reattachBackoff = [0.02, 0.02]
+        session.start { _ in }
+        try await Self.waitUntil("the first open is out") { gate.waiting }
+        // The link is served now, and the coordinator reconnects every terminal of the Mac.
+        flag.up = true
+        session.reconnect()
+        // The first open comes back with "no link".
+        gate.open()
+        try await Self.waitUntil("the attach on the link that came") { session.isAttached }
+        #expect(session.connectionState == .attached)
+    }
+
     @Test func onlyAMissingLinkWaits() {
         #expect(DaemonTerminalSession.waitsForTheLink(LinkError(code: "no-link", message: "Not connected to the Mac")))
         #expect(!DaemonTerminalSession.waitsForTheLink(LinkError(code: "unpaired", message: "")))
@@ -100,5 +130,41 @@ final class LinkFlag: @unchecked Sendable {
     var up: Bool {
         get { lock.withLock { value } }
         set { lock.withLock { value = newValue } }
+    }
+}
+
+/// Holds the session's first open until the test lets it go; later opens pass at once.
+final class OpenGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var first = true
+    private var held: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    /// The first open is held now.
+    var waiting: Bool { lock.withLock { held != nil } }
+
+    func passFirst() async {
+        let hold = lock.withLock { () -> Bool in
+            defer { first = false }
+            return first && !released
+        }
+        guard hold else { return }
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock { () -> Bool in
+                if released { return true }
+                held = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { held = nil }
+            return held
+        }
+        continuation?.resume()
     }
 }

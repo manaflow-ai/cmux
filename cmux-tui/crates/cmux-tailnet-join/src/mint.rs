@@ -158,7 +158,7 @@ pub fn check_source(
         }
         MintSource::Headscale { server, api_key, user } => {
             let https = server.starts_with("https://");
-            if !https && !(allow_http && server.starts_with("http://")) {
+            if !(https || (allow_http && server.starts_with("http://"))) {
                 return Err(MintError(
                     "the Headscale server must be https:// (or http:// with --allow-http)".into(),
                 ));

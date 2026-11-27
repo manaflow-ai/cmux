@@ -12,8 +12,10 @@
 // between them.
 //
 // The page is send-stream-motion's (browser/send-stream-motion.harness.tsx, `heldFold`) on the frames'
-// own clock, on the blocks follow arm (below), with live-turn-work `runs` as the app ships it (each
-// finished run of a running turn is a closed line that a click opens).
+// own clock, on the blocks follow arm (below), on live-turn-work's `runs` arm (each finished run of a
+// running turn is a closed line that a click opens). The app ships `open` since #48766 ("a running
+// turn folds nothing until it ends"), where a running turn draws no closed line to open, so the page
+// sets `runs` itself: the arm is still in the gallery and this is the scene it draws.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { HeldFold, RowSample, Sample } from "./browser/send-stream-motion.harness";
@@ -86,6 +88,11 @@ await requireBrowserLane("held-live-line-fold-browser.test.ts", async () => {
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
       await frames.page.getByText(`History answer ${HISTORY - 1}.`).waitFor();
+      // Read on every shaping of the rows (experiment.ts `experimentArm`), so the turn below draws on it.
+      await frames.page.evaluate(() => {
+        const scope = window as unknown as { cmuxExperiments?: Record<string, string> };
+        scope.cmuxExperiments = { ...scope.cmuxExperiments, "live-turn-work": "runs" };
+      });
       frames.start();
       out = (await frames.page.evaluate(() =>
         (window as unknown as { __sendStream: { heldFold(): Promise<HeldFold> } }).__sendStream.heldFold(),

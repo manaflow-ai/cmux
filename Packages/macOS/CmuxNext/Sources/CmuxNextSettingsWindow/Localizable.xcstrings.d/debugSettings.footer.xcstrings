@@ -7,127 +7,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Changes apply live, except where a row says it needs a relaunch, and persist for this build. Defaults stay in code: copy the changed values for an agent to bake in."
+            "value" : "Changes apply live unless a row says it needs a relaunch, and persist for this build. Copy changed values for an agent to bake in."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "変更は、再起動が必要と書かれた行を除いてすぐに反映され、このビルドで保持されます。既定値はコードにあります。変更をコピーしてエージェントに組み込んでもらってください。"
+            "state" : "translated",
+            "value" : "変更は、再起動が必要と書かれた行を除いてすぐに反映され、このビルドで保持されます。変更した値をコピーしてエージェントに組み込んでもらってください。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تُطبَّق التغييرات فورًا، إلا في الصفوف التي تذكر الحاجة إلى إعادة التشغيل، وتبقى لهذا الإصدار. القيم الافتراضية في الشيفرة: انسخ القيم المعدّلة ليدمجها وكيل."
+            "state" : "translated",
+            "value" : "تُطبَّق التغييرات فورًا ما لم يذكر صف أنه يحتاج إلى إعادة تشغيل، وتبقى لهذا الإصدار. انسخ القيم المتغيرة ليثبّتها وكيل."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Promjene se primjenjuju odmah, osim tamo gdje red kaže da je potrebno ponovno pokretanje, i ostaju za ovu verziju. Zadane vrijednosti su u kodu: kopirajte promjene da ih agent ugradi."
+            "state" : "translated",
+            "value" : "Promjene važe odmah osim ako red kaže da treba ponovno pokretanje, i ostaju za ovaj build. Kopiraj promijenjene vrijednosti da ih agent ugradi."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ændringer gælder med det samme, undtagen hvor en række siger, at den kræver en genstart, og gemmes for denne build. Standarder ligger i koden: kopiér ændringerne, så en agent kan bage dem ind."
+            "state" : "translated",
+            "value" : "Ændringer gælder med det samme, medmindre en række kræver genstart, og bevares for denne build. Kopiér ændrede værdier, så en agent kan bage dem ind."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Änderungen wirken sofort, außer wo eine Zeile einen Neustart verlangt, und bleiben für diesen Build erhalten. Standardwerte stehen im Code: Kopiere die Änderungen, damit ein Agent sie übernimmt."
+            "state" : "translated",
+            "value" : "Änderungen wirken sofort, außer eine Zeile verlangt einen Neustart, und bleiben für diesen Build. Kopiere geänderte Werte, damit ein Agent sie einbaut."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Los cambios se aplican al instante, salvo donde una fila indique que necesita reiniciar, y se guardan para esta compilación. Los valores predeterminados están en el código: copia los cambios para que un agente los incorpore."
+            "state" : "translated",
+            "value" : "Los cambios se aplican al momento salvo que una fila pida reiniciar, y se mantienen en esta compilación. Copia los valores cambiados para que un agente los integre."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Les modifications s’appliquent en direct, sauf là où une ligne indique qu’un redémarrage est nécessaire, et restent pour cette version. Les valeurs par défaut sont dans le code : copiez les modifications pour qu’un agent les intègre."
+            "state" : "translated",
+            "value" : "Les modifications s’appliquent en direct sauf si une ligne demande un redémarrage, et restent pour cette version. Copiez les valeurs modifiées pour qu’un agent les intègre."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le modifiche si applicano subito, tranne dove una riga indica che serve un riavvio, e restano per questa build. I valori predefiniti sono nel codice: copia le modifiche perché un agente le integri."
+            "state" : "translated",
+            "value" : "Le modifiche si applicano subito, salvo dove una riga chiede un riavvio, e restano per questa build. Copia i valori modificati perché un agente li integri."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ការផ្លាស់ប្ដូរអនុវត្តភ្លាមៗ លើកលែងកន្លែងដែលជួរនោះនិយាយថាត្រូវបើកដំណើរការឡើងវិញ ហើយរក្សាសម្រាប់កំណែនេះ។ តម្លៃលំនាំដើមនៅក្នុងកូដ៖ ចម្លងការផ្លាស់ប្ដូរឱ្យភ្នាក់ងារបញ្ចូល។"
+            "state" : "translated",
+            "value" : "ការផ្លាស់ប្ដូរមានប្រសិទ្ធភាពភ្លាមៗ លុះត្រាតែជួរដេកប្រាប់ថាត្រូវចាប់ផ្ដើមឡើងវិញ ហើយរក្សាទុកសម្រាប់កំណែនេះ។ ចម្លងតម្លៃដែលបានប្ដូរឱ្យភ្នាក់ងារដាក់បញ្ចូល។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "변경 사항은 재시작이 필요하다고 표시된 행을 제외하면 바로 적용되고 이 빌드에 유지됩니다. 기본값은 코드에 있으니 변경 값을 복사해 에이전트가 반영하게 하세요."
+            "state" : "translated",
+            "value" : "변경 사항은 재시작이 필요하다고 표시된 행을 제외하고 바로 적용되며 이 빌드에서 유지됩니다. 바뀐 값을 복사해 에이전트가 반영하게 하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Endringer gjelder med én gang, bortsett fra der en rad sier at den krever omstart, og beholdes for denne byggingen. Standardverdier ligger i koden: kopier endringene så en agent kan bake dem inn."
+            "state" : "translated",
+            "value" : "Endringer gjelder med en gang med mindre en rad krever omstart, og beholdes for dette bygget. Kopier endrede verdier så en agent kan bygge dem inn."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Zmiany działają od razu, z wyjątkiem wierszy, przy których napisano, że wymagają ponownego uruchomienia, i zostają w tej kompilacji. Wartości domyślne są w kodzie: skopiuj zmiany, aby agent je wbudował."
+            "state" : "translated",
+            "value" : "Zmiany działają od razu, chyba że wiersz wymaga ponownego uruchomienia, i zostają dla tej wersji. Skopiuj zmienione wartości, aby agent je wbudował."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "As alterações se aplicam na hora, exceto onde uma linha diz que é preciso reiniciar, e ficam nesta build. Os padrões estão no código: copie as alterações para um agente incorporá-las."
+            "state" : "translated",
+            "value" : "As mudanças valem na hora, a menos que uma linha peça reinício, e ficam nesta build. Copie os valores alterados para um agente incorporá-los."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Изменения применяются сразу, кроме строк, где указано, что нужен перезапуск, и сохраняются для этой сборки. Значения по умолчанию в коде: скопируйте изменения, чтобы агент их внёс."
+            "state" : "translated",
+            "value" : "Изменения применяются сразу, если строка не требует перезапуска, и сохраняются для этой сборки. Скопируйте изменённые значения, чтобы агент их внёс."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "การเปลี่ยนแปลงมีผลทันที ยกเว้นแถวที่ระบุว่าต้องเปิดโปรแกรมใหม่ และคงอยู่สำหรับบิลด์นี้ ค่าเริ่มต้นอยู่ในโค้ด: คัดลอกค่าที่เปลี่ยนให้เอเจนต์นำไปใส่"
+            "state" : "translated",
+            "value" : "การเปลี่ยนแปลงมีผลทันที เว้นแต่แถวระบุว่าต้องเปิดใหม่ และคงอยู่สำหรับบิลด์นี้ คัดลอกค่าที่เปลี่ยนให้เอเจนต์นำไปใส่ในโค้ด"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Değişiklikler, bir satırda yeniden başlatma gerektiği yazmadıkça anında geçerli olur ve bu derleme için saklanır. Varsayılanlar kodda durur: değişen değerleri kopyalayıp bir aracının gömmesini sağlayın."
+            "state" : "translated",
+            "value" : "Değişiklikler, bir satır yeniden başlatma gerektirmedikçe hemen uygulanır ve bu derlemede kalır. Bir ajanın işlemesi için değişen değerleri kopyalayın."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Зміни застосовуються відразу, окрім рядків, де зазначено, що потрібен перезапуск, і зберігаються для цієї збірки. Типові значення лежать у коді: скопіюйте зміни, щоб агент їх вписав."
+            "state" : "translated",
+            "value" : "Зміни діють одразу, якщо рядок не вимагає перезапуску, і зберігаються для цієї збірки. Скопіюйте змінені значення, щоб агент їх вніс."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Thay đổi áp dụng ngay, trừ những dòng ghi là cần khởi động lại, và được giữ cho bản dựng này. Giá trị mặc định nằm trong mã: hãy sao chép các thay đổi để một agent đưa vào."
+            "state" : "translated",
+            "value" : "Thay đổi áp dụng ngay trừ khi một hàng cần khởi động lại, và được giữ cho bản dựng này. Sao chép các giá trị đã đổi để tác tử đưa vào mã."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "更改立即生效（标明需要重新启动的行除外），并在此构建中保留。默认值留在代码里：复制更改后的值，交给代理写入。"
+            "state" : "translated",
+            "value" : "更改立即生效（标明需要重新启动的行除外），并在此构建中保留。复制更改后的值，交给代理写入。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "變更會立即生效（標明需要重新啟動的列除外），並在此建置中保留。預設值留在程式碼裡：複製變更後的值，交給代理寫入。"
+            "state" : "translated",
+            "value" : "變更立即生效（標明需要重新啟動的列除外），並在此版本中保留。複製變更後的值，交給代理寫入。"
           }
         }
       }

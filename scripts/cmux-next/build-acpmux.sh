@@ -76,7 +76,20 @@ normalize_archs() {
 archs="$(normalize_archs)"
 arch_key="${archs// /-}"
 cache_root="${CMUX_NEXT_ACPMUX_CACHE:-$repo_root/cmux-tui/target/hosted/acpmux}"
-cache_dir="$cache_root/in-tree-$source_commit/$arch_key"
+# A build under CARGO_PROFILE_RELEASE_* overrides (tools/devbuild, a fast
+# reload-build) is not the shipped binary: its cache entry and Cargo target dir
+# name the overrides, so a nightly or release never picks up a DEV binary and
+# the two profiles never invalidate each other's incremental state. With no
+# override both paths are exactly what they were.
+profile_spec=""
+for profile_var in $(compgen -v CARGO_PROFILE_RELEASE_ | LC_ALL=C sort); do
+  profile_spec+="${profile_var#CARGO_PROFILE_RELEASE_}=${!profile_var};"
+done
+profile_suffix=""
+if [[ -n "$profile_spec" ]]; then
+  profile_suffix="-profile-$(printf '%s' "$profile_spec" | shasum -a 256 | cut -c1-12)"
+fi
+cache_dir="$cache_root/in-tree-$source_commit$profile_suffix/$arch_key"
 cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -252,14 +265,14 @@ source "$repo_root/scripts/lib/rust-targets.sh"
 # A persistent target dir in the tree's own (ignored) cmux-tui/target: the
 # next commit of a warm tree or fleet slot compiles incrementally instead of
 # all 200+ crates (cx-t3e5). Cargo locks it against concurrent builds.
-build_root="${CMUX_NEXT_ACPMUX_TARGET_DIR:-$source_root/cmux-tui/target/acpmux-app}"
+build_root="${CMUX_NEXT_ACPMUX_TARGET_DIR:-$source_root/cmux-tui/target/acpmux-app}$profile_suffix"
 mkdir -p "$build_root" "$cache_dir"
 built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
   target_dir="$build_root"
   if [[ -n "$fleet_target_helper" ]]; then
-    target_dir="$(fleet_rust_target_dir acpmux "$target" "$source_root/cmux-tui")"
+    target_dir="$(fleet_rust_target_dir "acpmux$profile_suffix" "$target" "$source_root/cmux-tui")"
     mkdir -p "$target_dir"
   fi
   echo "==> building acpmux ($source_mode $source_commit, $target)"
@@ -281,7 +294,7 @@ else
 fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$source_commit" "source=$source_mode" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+printf '%s\n' "commit=$source_commit" "source=$source_mode" "profile=${profile_spec:-release}" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
 
 if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
   mkdir -p "$(dirname "$output")"

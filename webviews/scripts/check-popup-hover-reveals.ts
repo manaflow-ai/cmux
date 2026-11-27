@@ -5,7 +5,9 @@
  * A row owns a hidden action strip while each popup opener owns the `data-popup-open` marker (the
  * shared Menu and ContextMenu triggers both set it). The pointer can leave the row for the popup,
  * so a `:hover` reveal without a matching `:has([data-popup-open])` selector hides the trigger
- * before the menu can be used. This checker scans every webview stylesheet and only exempts
+ * before the menu can be used. A transcript row's reveal may match `[data-popup-within]` instead, which
+ * the same openers put on every ancestor up to their row (ui/popupWithin.ts), with no `:has()` for
+ * Chromium to walk the row for on every element it styles. This checker scans every webview stylesheet and only exempts
  * controls that are documented as non-popup reveals (keyboard hints, status text, and similar
  * affordances).
  */
@@ -38,6 +40,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   [
     "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited-summary:hover .acpmux-edited-summary-link",
     "direct diff navigation label",
+  ],
+  // The closed card's "View changes" is text in place of its counts, never a control: no popup to keep open.
+  [
+    "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-edited-hover-label",
+    "alternate label",
   ],
   ["agent-session/acpmux/conversation/CardCopy.css|.cv-disclosure__panel:hover > .cv-card-copy", "copy affordance"],
   [
@@ -251,13 +258,16 @@ export function findHoverRevealViolations(source: string, file = ""): HoverRevea
       const normalizedSelector = normalized(selector);
       if (NON_POPUP_REVEALS.has(`${file}|${normalizedSelector}`)) continue;
       const expected = normalized(selector.replace(/:hover\b/g, ":has([data-popup-open])"));
-      const popupDeclarations = revealed.get(`${rule.context}|${expected}`);
-      if (
-        !all.includes(`${rule.context}|${expected}`) ||
-        !popupDeclarations ||
-        [...declarations].some((declaration) => !popupDeclarations.has(declaration))
-      )
-        violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
+      const within = normalized(selector.replace(/:hover\b/g, "[data-popup-within]"));
+      const kept = [expected, within].some((candidate) => {
+        const popupDeclarations = revealed.get(`${rule.context}|${candidate}`);
+        return (
+          all.includes(`${rule.context}|${candidate}`) &&
+          !!popupDeclarations &&
+          [...declarations].every((declaration) => popupDeclarations.has(declaration))
+        );
+      });
+      if (!kept) violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
     }
   }
   return violations;
