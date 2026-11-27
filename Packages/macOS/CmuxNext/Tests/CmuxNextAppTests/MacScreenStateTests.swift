@@ -171,6 +171,18 @@ struct MacScreenStateControlTests {
         #expect(MacScreenPages.screenStill(hostFrames: nil, hostStatsAgeMs: nil, decoded: 2, dropped: 0) == nil)
     }
 
+    /// A still screen's last frames sit in the counter's unheard batch (the pane hears every 15th):
+    /// they still count as decoded, so 3 host frames on a still screen read as 3, not 1.
+    @Test func aStillScreensUnheardFramesCountAsDecoded() {
+        let counter = MacScreenFrameCounter()
+        #expect(counter.tick(frame: 1))
+        #expect(counter.take() == 1)
+        #expect(!counter.tick(frame: 2))
+        #expect(!counter.tick(frame: 3))
+        #expect(counter.uncounted == 2)
+        #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 1700, decoded: 1 + Double(counter.uncounted), dropped: 0) == true)
+    }
+
     /// A device tab reads its device, phase and timings; a home tab is not listed. The first
     /// frame through the pane's own counter sets `first_frame_ms` and `frames_dropped`.
     @Test func aDeviceTabReadsItsPhaseAndFirstFrame() throws {
