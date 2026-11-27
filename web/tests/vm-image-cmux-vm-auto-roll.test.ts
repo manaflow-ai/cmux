@@ -797,6 +797,69 @@ describe("auto-roll scripts", () => {
       expect(missing.stderr).toMatch(/not in this checkout/);
     }), 60_000);
 
+  // 2026-11-26: push rolls kept the lock's cmux-tui 99de33e5 (13:23Z) while builds to 97bd0527 were published, so the
+  // 16:52Z push roll promoted the stale build again and NOW's Cloud image lag sat past its bound.
+  test("a push roll pins the newest published build only when it is on the tip, newer and different", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const newer = await commitOf("newer");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      await git(full, "checkout", "-q", "-b", "lane", before);
+      const offTip = await commitOf("lane build");
+      await git(full, "checkout", "-q", "feat-cmux-next");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      // files.cmux.com's latest manifest, as pin-cmux-tui.ts --latest prints it; LATEST=fail answers like a 503.
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  [ "$LATEST" = fail ] && { echo "latest/manifest.json: 503" >&2; exit 1; }\n  printf '{"commit":"%s","unchanged":%s}' "$LATEST" "\${UNCHANGED:-false}"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const plan = async (latest: string, unchanged = "false") => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: latest, UNCHANGED: unchanged },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+
+      const fresh = await plan(newer);
+      expect(fresh.roll).toBe(true);
+      expect(fresh.pin).toBe(newer);
+      expect(fresh.cmuxTui).toBe(newer);
+      expect(fresh.reason).toMatch(/newest published build/);
+      for (const [latest, unchanged, why] of [
+        [older, "false", /not newer/],
+        [pinned, "false", /carries the pinned binaries/],
+        [newer, "true", /carries the pinned binaries/],
+        [offTip, "false", /not on HEAD/],
+        ["fail", "false", /unreadable: .*503/],
+      ] as const) {
+        const kept = await plan(latest, unchanged);
+        expect(kept.roll).toBe(true);
+        expect(kept.pin).toBe("");
+        expect(kept.cmuxTui).toBe(pinned);
+        expect(kept.reason).toMatch(why);
+      }
+    }), 60_000);
+
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
   // newer ecd5f536 (04:30Z): plan() refused an older build only against the pin at plan time.
   test("behind refuses a pin older than the tip's, allows the same or a newer one, and fails closed when shallow", () =>

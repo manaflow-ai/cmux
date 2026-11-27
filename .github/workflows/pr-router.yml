@@ -54,8 +54,14 @@ jobs:
       statuses: write
     outputs:
       start: ${{ steps.route.outputs.start }}
+      # The land tier status this head should carry, and `true` when the post above did not get through.
+      land_status: ${{ steps.route.outputs.land_status }}
+      land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
+      # ios-fast-status below, which posts the verdict's own result.
+      ios_status: ${{ steps.route.outputs.ios_status }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -90,6 +96,7 @@ jobs:
             scripts/ci/cmux_machine_channel_head_built.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/ios_fast_verdict.py
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
@@ -127,6 +134,8 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
+          CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -170,7 +179,11 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
+      # A post that still fails says so: an ::error on this run and `unposted`, on which the land tier status post
+      # job below retries past a spent hourly budget and goes red when it cannot (cmux#57743 waited 6 h on a
+      # success that four runs computed and never posted, under the ::warning this step used to print).
       - name: Post the land tier status
+        id: land-status-post
         if: ${{ steps.route.outputs.land_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
         timeout-minutes: 3
         continue-on-error: true
@@ -187,7 +200,7 @@ jobs:
           STATE: ${{ steps.route.outputs.land_status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LAND_STATUS_RETRY_S: '20'
-        run: |
+        run: &land-tier-post |
           if [ "$STATE" = success ]; then
             # GitHub refuses a status description over 140 characters ("Validation failed: Description is too long"),
             # and the post below caps it there too: run 45839458055 (2026-11-26 14:29Z) left this status unposted.
@@ -195,20 +208,79 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
-          # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the next, then again.
-          for round in 1 2 3; do
+          # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the next, then again.
+          rounds="${LAND_STATUS_ROUNDS:-3}"
+          err="$(mktemp)"
+          for round in $(seq 1 "$rounds"); do
             # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
             for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
               [ -n "$token" ] || continue
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
-                  -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null; then
+                  -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null 2>"$err"; then
                 exit 0
               fi
+              cat "$err" >&2
             done
-            [ "$round" = 3 ] || sleep "$((LAND_STATUS_RETRY_S * round))"
+            [ "$round" = "$rounds" ] || sleep "$((LAND_STATUS_RETRY_S * round))"
           done
-          echo "::warning::cmux/land-tier ($STATE) was not posted at $SHA: its land waits on the last state posted there"
+          last="$(tail -n 1 "$err" | cut -c1-200)"
+          echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
+      # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
+      # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
+      # 2026-11-26 22:32Z: "how can those breaks be prevented in the future?"
+      - name: Post the iOS fast verdict status
+        if: ${{ steps.route.outputs.ios_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATE: ${{ steps.route.outputs.ios_status }}
+          DESCRIPTION: ${{ steps.route.outputs.ios_status_description }}
+        run: python3 -I scripts/ci/ios_fast_verdict.py status "$STATE" "$DESCRIPTION"
+
+  land-tier-status:
+    # Runs only when the route job's post did not get through (spent budget, a refused description): it retries
+    # for about 15 minutes, long enough for an installation's hourly budget to come back, and fails red when it
+    # still cannot, so the PR shows a red check instead of a `pending` that nothing will move. `gh run rerun --failed`
+    # posts it again. Same script as the route job's step (the land-tier-post anchor).
+    name: land tier status post
+    needs: [route]
+    if: ${{ needs.route.outputs.land_status_unposted == 'true' }}
+    runs-on: cmux-linux
+    timeout-minutes: 20
+    permissions:
+      statuses: write
+    steps:
+      - name: Mint the land tier status token
+        id: land-status-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+      - name: Post the land tier status
+        timeout-minutes: 18
+        env:
+          APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          JOB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ needs.route.outputs.land_status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LAND_STATUS_RETRY_S: '60'
+          LAND_STATUS_ROUNDS: '6'
+        run: *land-tier-post
 
   machine-channel-pr-head:
     # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build. Started only on a
@@ -294,6 +366,18 @@ jobs:
     permissions:
       contents: read
 
+  compile-preflight:
+    # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
+    # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
+    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
+    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    name: compile preflight
+    needs: route
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    permissions:
+      contents: read
+
   fast-gates:
     # The cmux-next/fast-gates status (merge_hold, next-autoland). A head the router starts nothing for starts none of
     # its jobs; its jobs' own `if:`s keep their tier rules. The merger dispatches the workflow when a head has no status.
@@ -327,6 +411,48 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+
+  # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
+  # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
+  ios-fast-status:
+    name: ios fast verdict status
+    needs: [route, pipeline]
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/ios_fast_verdict.py
+            scripts/ci/ci_steps.py
+            ci/steps.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Post the verdict
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
+          VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
+          SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+        run: |
+          if [ "$RUN" = false ]; then
+            state=success; desc="The plan builds nothing on this head"
+          elif [ "$VERDICT" = success ]; then
+            state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
+          elif [ "$VERDICT" = failure ]; then
+            state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
+          else
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+          fi
+          python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
