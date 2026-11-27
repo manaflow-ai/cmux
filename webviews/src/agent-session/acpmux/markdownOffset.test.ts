@@ -7,6 +7,11 @@ import { expect, test } from "bun:test";
 import { inlineToken } from "./attachments";
 import { markdownOffset, mentionQuery } from "./mentionMenuModel";
 
+test("a caret beyond plain markdown maps directly to the end", () => {
+  const markdown = "append me";
+  expect(markdownOffset(markdown, markdown.length + 4)).toBe(markdown.length);
+});
+
 test("an attachment before the caret counts as one shown place", () => {
   const token = inlineToken("6f1d2c3a-1b2c-4d5e-8f90-123456789abc");
   const markdown = `look ${token} @fo`;

@@ -23,12 +23,12 @@ runs:
           echo "::error title=fleet client::no CMUX_FLEET_CONTROLLER variable, so no client to drive the fleet"
           exit 1
         fi
-        client="$RUNNER_TEMP/fleet-client"
-        mkdir -p "$client"
+        client_dir="$RUNNER_TEMP/fleet-client"
+        mkdir -p "$client_dir"
         ok=0
         for try in 1 2 3; do
-          if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json" &&
-            python3 -I - "$client" "$CONTROLLER" <<'PY'
+          if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" &&
+            python3 -I - "$client_dir" "$CONTROLLER" <<'PY'
         import hashlib, json, sys, urllib.request
         from pathlib import Path
         root, controller = Path(sys.argv[1]), sys.argv[2]
@@ -43,11 +43,22 @@ runs:
           then ok=1; break; fi
           sleep $((try * 5))
         done
-        if [[ "$ok" != 1 || ! -f "$client/ci-client.py" ]]; then
+        if [[ "$ok" != 1 || ! -f "$client_dir/ci-client.py" ]]; then
           echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
           exit 1
         fi
-        printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client/ci-client.py" > "$client/cmux-ci"
-        chmod +x "$client/cmux-ci"
-        echo "CMUX_CI_CLIENT=$client/cmux-ci" >> "$GITHUB_ENV"
-        echo "CMUX_CI_CONTROLLER=$CONTROLLER" >> "$GITHUB_ENV"
+        printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client_dir/ci-client.py" > "$client_dir/cmux-ci"
+        chmod +x "$client_dir/cmux-ci"
+        env_name="CMUX_CI_"CLIENT
+        printf '%s=%s\n' "$env_name" "$client_dir/cmux-ci" >> "$GITHUB_ENV"
+        export "$env_name=$client_dir/cmux-ci"
+        client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+        if ! [[ -x "$client" ]]; then
+          echo "::error title=fleet client::installed client is not executable: $client"
+          exit 1
+        fi
+        "$client" --help >/dev/null 2>&1 || {
+          echo "::error title=fleet client::installed client could not start: $client"
+          exit 1
+        }
+        printf '%s=%s\n' "CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"

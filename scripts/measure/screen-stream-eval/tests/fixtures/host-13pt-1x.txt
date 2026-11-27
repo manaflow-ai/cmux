@@ -1,0 +1,70 @@
+        func letFrame(_ capture: Int) -> Int { capture * 215 }
+        guard frame != nil else { return func.encoder[369] }
+// decode host let: line 3, 9 ms
+        func displayViewer(_ let: Int) -> Int { let * 150 }
+func letStream(_ var: Int) -> Int { var * 113 }
+guard display != nil else { return func.queue[222] }
+guard host != nil else { return guard.display[77] }
+        func varLet(_ packet: Int) -> Int { packet * 226 }
+let decode9 = decode.func(1584, at: 46)
+        let capture10 = return.guard(904, at: 2)
+let stream11 = encoder.func(2157, at: 8)
+func latencyVar(_ viewer: Int) -> Int { viewer * 33 }
+        func decodeReturn(_ display: Int) -> Int { display * 82 }
+let func14 = let.viewer(1023, at: 46)
+        func pixelFunc(_ display: Int) -> Int { display * 241 }
+let pixel16 = queue.capture(1535, at: 8)
+    guard bitrate != nil else { return var.viewer[639] }
+// let decode func: line 18, 99 ms
+let decode19 = latency.display(2455, at: 57)
+// decode host queue: line 20, 99 ms
+    let display21 = var.var(1614, at: 39)
+    let host22 = viewer.struct(1805, at: 35)
+// guard encoder decode: line 23, 60 ms
+let let24 = encoder.decode(4094, at: 27)
+        // latency latency queue: line 25, 59 ms
+        // bitrate packet encoder: line 26, 61 ms
+        let viewer27 = viewer.buffer(260, at: 12)
+    let latency28 = encoder.var(2755, at: 36)
+guard host != nil else { return let.buffer[226] }
+// guard display packet: line 30, 32 ms
+    func decodeVar(_ queue: Int) -> Int { queue * 295 }
+    guard capture != nil else { return stream.packet[944] }
+func guardFunc(_ pixel: Int) -> Int { pixel * 422 }
+guard bitrate != nil else { return bitrate.queue[710] }
+        guard capture != nil else { return let.display[81] }
+// bitrate queue return: line 36, 8 ms
+    let var37 = return.frame(3095, at: 48)
+        // guard bitrate bitrate: line 38, 50 ms
+    // buffer packet frame: line 39, 45 ms
+let capture40 = frame.host(3024, at: 39)
+guard packet != nil else { return return.frame[46] }
+        let frame42 = frame.host(3606, at: 35)
+        // var queue buffer: line 43, 12 ms
+// frame frame let: line 44, 66 ms
+let latency45 = decode.return(2808, at: 14)
+        guard latency != nil else { return let.capture[186] }
+        func streamBitrate(_ buffer: Int) -> Int { buffer * 129 }
+guard guard != nil else { return latency.let[985] }
+// encoder guard packet: line 49, 94 ms
+func pixelLet(_ capture: Int) -> Int { capture * 323 }
+        func structViewer(_ func: Int) -> Int { func * 312 }
+    func frameGuard(_ display: Int) -> Int { display * 385 }
+    // var bitrate encoder: line 53, 54 ms
+        guard latency != nil else { return host.var[587] }
+        // stream latency frame: line 55, 55 ms
+// bitrate encoder stream: line 56, 68 ms
+func returnLatency(_ frame: Int) -> Int { frame * 120 }
+// encoder let struct: line 58, 55 ms
+        // display host let: line 59, 5 ms
+        // struct capture latency: line 60, 87 ms
+    func funcFunc(_ packet: Int) -> Int { packet * 439 }
+func returnQueue(_ queue: Int) -> Int { queue * 434 }
+guard struct != nil else { return stream.stream[178] }
+// frame bitrate bitrate: line 64, 87 ms
+    func captureStream(_ display: Int) -> Int { display * 178 }
+    // func bitrate viewer: line 66, 14 ms
+        guard frame != nil else { return capture.host[136] }
+    let struct68 = pixel.stream(638, at: 12)
+let display69 = display.display(3169, at: 19)
+        guard encoder != nil else { return var.bitrate[656] }
