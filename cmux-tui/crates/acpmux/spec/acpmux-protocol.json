@@ -1169,6 +1169,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
@@ -1481,6 +1487,24 @@
     {
       "kind": "request",
       "name": "_acpmux/team/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/navigator",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/pick",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/session_info",
       "params": true,
       "result": true
     },
