@@ -1821,5 +1821,38 @@ async fn diagnose_per_read_memory() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     report.push(("relay_conn_status", rss_kib() - base));
     report.push(("live_after_status", super::super::queue_gauge::live().len() as u64));
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "pong"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let page =
+        json!({"limit": 5000, "kinds": ["transcript"], "maxBytes": 4 << 20, "beforeSeq": u64::MAX});
+    for (label, m, params) in [
+        ("sess_info", method::MUX_INFO, json!({})),
+        ("sess_attach", method::MUX_ATTACH, attach),
+        ("sess_events", method::MUX_EVENTS, page),
+    ] {
+        let base = rss_kib();
+        for _ in 0..300 {
+            read(&hub, "machine-b", &session, m, &params).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        report.push((label, rss_kib() - base));
+        report.push(("live", super::super::queue_gauge::live().len() as u64));
+    }
     eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
 }
