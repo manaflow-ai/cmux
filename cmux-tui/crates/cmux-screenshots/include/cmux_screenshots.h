@@ -214,19 +214,6 @@ uint32_t cmux_screenshots_rule_item_kind(const CmuxScreenshotsRule *rule,
                                          uint32_t system_kind);
 
 /*
- Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-
- # Safety
- `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
- */
-bool cmux_screenshots_rule_enters(const CmuxScreenshotsRule *rule,
-                                  uint32_t entry_kind,
-                                  bool hidden,
-                                  const uint8_t *name,
-                                  size_t name_len,
-                                  size_t depth);
-
-/*
  The position of the newest picture among `entries` (the first listed wins a tie), or -1.
 
  # Safety

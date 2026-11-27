@@ -75,8 +75,6 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
         return ScreenshotsFFI.kind(ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_item_kind(handle.pointer, entryKind, hidden, $0, $1, system) })
     }
 
-    /// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-    func enters(entryKind: UInt32, hidden: Bool, name: String, depth: Int) -> Bool {
-        ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_enters(handle.pointer, entryKind, hidden, $0, $1, depth) }
-    }
+    /// The Rust rule, for a walk (`cmux_screenshots_walk_new` copies it).
+    var pointer: OpaquePointer? { handle.pointer }
 }
