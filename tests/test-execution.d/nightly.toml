@@ -316,6 +316,10 @@ path = "tests/test_nightly_owned_minis_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_pr_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_pr_list_publish.py"
 lane = "linux-guard"
 
