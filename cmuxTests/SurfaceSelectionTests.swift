@@ -527,6 +527,76 @@ struct SurfaceSelectionTests {
         #expect(await panel.readSurfaceSelection() == .unavailable)
     }
 
+    @Test func browserUseSelectionForFindSeedsTheFindBarFromThePageSelection() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let contentRect = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let hostView = NSView(frame: contentRect)
+        panel.webView.frame = hostView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        hostView.addSubview(panel.webView)
+        window.contentView = hostView
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        #expect(window.makeFirstResponder(panel.webView))
+        defer {
+            panel.close()
+            window.orderOut(nil)
+            window.close()
+        }
+        let loader = SurfaceSelectionNavigationLoader()
+        try await loader.load(
+            """
+            <!doctype html>
+            <html><body><p id="passage">before needle words after</p></body></html>
+            """,
+            baseURL: URL(fileURLWithPath: "/tmp/cmux-use-selection-for-find/document.html"),
+            in: panel.webView
+        )
+
+        // No page selection: nothing to adopt, so the find bar stays closed.
+        #expect(await panel.useSelectionForFind() == false)
+        #expect(panel.searchState == nil)
+
+        let prepared = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const node = document.getElementById('passage').firstChild;
+              const start = node.textContent.indexOf('needle words');
+              const range = document.createRange();
+              range.setStart(node, start);
+              range.setEnd(node, start + 'needle words'.length);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(prepared as? String == "needle words")
+
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "needle words")
+
+        // With the bar already open, a new selection replaces the needle.
+        panel.searchState?.needle = "typed"
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "needle words")
+    }
+
     private func snapshot(
         from result: SurfaceSelectionReadResult
     ) throws -> SurfaceSelectionSnapshot {
