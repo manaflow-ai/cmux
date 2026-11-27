@@ -187,7 +187,8 @@ public final class BrowserPublishPopover: NSObject, NSTextFieldDelegate {
         switch answer {
         case .published(let link):
             url = link
-            result.stringValue = Strings.publishPublished(link?.absoluteString ?? typedName ?? source?.suggestedName ?? "")
+            result.stringValue = link.map { Strings.publishPublished($0.absoluteString) }
+                ?? Strings.publishPublishedNamed(typedName ?? source?.suggestedName ?? "")
         case .failed(let code, let message): url = nil; result.stringValue = Strings.publishFailed(code: code, message: message)
         case .unreadable(let exit): url = nil; result.stringValue = Strings.publishUnreadable(exit)
         case .unreachable(let reason): url = nil; result.stringValue = Strings.publishUnreachable(reason)
