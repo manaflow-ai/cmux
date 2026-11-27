@@ -19,7 +19,8 @@
 //! client), it holds a lease (`acpmux.sessionHold=on`, `fleet-pause.held`), its goal is not done,
 //! a pull request it opened is still open (not merged or closed by any chat's `gh`, opened within
 //! the review queue's window), it is a coordinator (by name, or any live chat reports to it), it
-//! is a person's own chat (`Hub::for_a_person`: started by a person, or shown), or it is pinned,
+//! is a person's own chat (created by a person, on a person's screen, or with no creator kept:
+//! a fork or a chat from before creators were kept, skipped as `no-creator`), or it is pinned,
 //! starred, a side chat or an aside.
 //!
 //! `_acpmux/lifecycle {dryRun?}` (`acpmux daemon lifecycle [--dry-run] [--json]`) runs one pass
@@ -170,10 +171,13 @@ impl Hub {
         {
             return Err("coordinator");
         }
-        if meta.created_by.as_ref().is_some_and(|c| c.kind == crate::store::CreatorKind::Person)
-            || self.for_a_person(session)
-        {
-            return Err("person");
+        match meta.created_by.as_ref().map(|c| c.kind) {
+            Some(crate::store::CreatorKind::Person) => return Err("person"),
+            // A fork, a moved-in chat, or one from before creators were kept: maybe the
+            // person's, so kept (`Hub::for_a_person` reads it the same way).
+            None => return Err("no-creator"),
+            Some(_) if self.shown(session) => return Err("person"),
+            Some(_) => {}
         }
         if meta.goal.as_ref().is_some_and(|g| g.status != crate::goal::GoalStatus::Done) {
             return Err("goal");
@@ -217,8 +221,7 @@ impl Hub {
 
     /// The chat's archive went to cloud history: cold, and no local archive left to offload.
     fn offloaded(&self, session: &Session) -> bool {
-        self.store.is_cold(&session.id)
-            && self.store.offload_cold_pending(&session.id) == Some(false)
+        self.store.is_cold(&session.id) && self.store.offloaded(&session.id)
     }
 
     /// Takes one done chat: archived (unless it is already, by anyone), cold, offloaded when
