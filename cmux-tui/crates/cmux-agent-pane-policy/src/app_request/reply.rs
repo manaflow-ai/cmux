@@ -4,6 +4,7 @@
 //! `composer.copy` and `environment.save` build a host type, so the host's decoder keeps them.
 
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::ids::is_uuid;
 use super::url::is_web_url;
@@ -95,18 +96,19 @@ fn whole(value: &Value) -> Option<i64> {
     format!("{float:.0}").parse().ok()
 }
 
-/// `name` cut to at most [`MAXIMUM_IMAGE_NAME`] UTF-8 bytes, on a character boundary.
+/// `name` cut to at most [`MAXIMUM_IMAGE_NAME`] UTF-8 bytes, on a grapheme boundary.
 fn image_name(name: &str) -> String {
-    let mut bytes = 0usize;
-    let mut kept = String::new();
-    for character in name.chars() {
-        bytes = bytes.saturating_add(character.len_utf8());
-        if bytes > MAXIMUM_IMAGE_NAME {
+    if name.len() <= MAXIMUM_IMAGE_NAME {
+        return name.to_owned();
+    }
+    let mut end = 0;
+    for grapheme in name.graphemes(true) {
+        if end + grapheme.len() > MAXIMUM_IMAGE_NAME {
             break;
         }
-        kept.push(character);
+        end += grapheme.len();
     }
-    kept
+    name[..end].to_owned()
 }
 
 fn reply(kind: &str, fields: Vec<(&str, Value)>) -> Value {

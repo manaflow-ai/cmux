@@ -31,13 +31,12 @@ pub fn is_preview_url(text: &str) -> bool {
     host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1"
 }
 
-/// Whether `text` is an absolute http or https address with a host (`AgentPaneReplyRequest.webURL`).
+/// Whether `text` is an absolute http or https address with a host and no credentials.
 pub fn is_web_url(text: &str) -> bool {
     if text.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return false;
     }
     split(text).is_some_and(|(authority, _)| {
-        let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-        !host.is_empty() && !host.starts_with(':')
+        !authority.is_empty() && !authority.starts_with(':') && !authority.contains('@')
     })
 }
