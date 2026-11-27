@@ -1839,6 +1839,11 @@
   max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
 }
+/* A list long enough to mount only the rows in view (EnvironmentPicker `windowed`): its rows no
+   longer size the popover, so it takes its widest size rather than the 200 px floor. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover.acpmux-env-windowed {
+  width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
+}
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is

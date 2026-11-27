@@ -59,11 +59,28 @@ public final class PageRouter {
     /// The script that delivers `envelope` to the page.
     /// One buffer: the envelope's JSON is appended in place, never built and copied.
     public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
-        envelope.appendCompactText(to: &script)
-        script += ");"
-        return script
+        receiveScript(text: receiveText(envelope))
     }
+
+    /// The same script from the envelope's JSON text (``receiveText(_:)``).
+    public nonisolated static func receiveScript(text: String) -> String {
+        "window.__cmuxPageReceive && window.__cmuxPageReceive(\(text));"
+    }
+
+    /// `envelope` as compact JSON text: the `envelope` argument of ``receiveBody``.
+    public nonisolated static func receiveText(_ envelope: JSONValue) -> String {
+        var text = ""
+        envelope.appendCompactText(to: &text)
+        return text
+    }
+
+    /// The push body WebKit runs with `callAsyncJavaScript`, the envelope's JSON text as its
+    /// `envelope` argument: one fixed text for every push. A new script text per push
+    /// (``receiveScript(_:)``) made WebKit's web process keep each one: +8.45 MB/min at 20 pushes a
+    /// second, -0.48 MB/min with the same data as an argument (RFD 0062, renderer idle growth;
+    /// webviews/bench/webkit-push-growth.bench.ts).
+    public nonisolated static let receiveBody =
+        "window.__cmuxPageReceive && window.__cmuxPageReceive(JSON.parse(envelope));"
 
     // MARK: Page to host
 
