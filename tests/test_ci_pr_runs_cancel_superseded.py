@@ -98,8 +98,6 @@ ALLOWED = {
 CLOSED_TWINS = {
     "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
     "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
-    # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
-    "ci-pr-closed-cancel.yml": "ci.yml",
 }
 
 
