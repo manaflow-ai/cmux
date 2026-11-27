@@ -9427,7 +9427,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
-      .then(({ projects, machine }) => {
+      .then(({ projects, machine, projectRows }) => {
         if (active) setDirectProjects({ page: newTabGeneration, projects, machine, projectRows });
       })
       .catch(() => undefined);

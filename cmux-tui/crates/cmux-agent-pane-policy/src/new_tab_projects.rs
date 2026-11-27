@@ -101,6 +101,17 @@ mod tests {
         assert!(settled[0].get("repo").is_none());
     }
     #[test]
+    fn appended_rows_keep_positions_on_subsequent_refresh() {
+        let first = snapshot(&json!({"projects":["/a","/b"]}))["rows"].clone();
+        let second =
+            snapshot(&json!({"projects":["/a","/b","/c","/d"],"seed":first}))["rows"].clone();
+        let refreshed = rows(json!({"projects":["/d","/c","/b","/a"],"seed":second}));
+        assert_eq!(
+            refreshed.iter().map(|row| row["cwd"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["/a", "/b", "/c", "/d"]
+        );
+    }
+    #[test]
     fn next_opening_uses_new_recency_and_metadata() {
         let result = rows(json!({"projects":["/a","/b"],"repos":{"/b":{"root":"/b","name":"b"}},
           "warm":r#"{"sessions":[{"cwd":"/b","activityAt":30},{"cwd":"/a","activityAt":20}]}"#}));

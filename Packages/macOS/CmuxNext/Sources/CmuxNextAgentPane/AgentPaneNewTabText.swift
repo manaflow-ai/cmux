@@ -47,7 +47,7 @@ extension AgentPaneNewTab {
     /// part takes it.
     nonisolated var ownTree: [String: Any]? {
         var page = self
-        (page.hotkeys, page.projects, page.projectRows, page.layout, page.lastPicks, page.warm) = ([:], [], nil, nil, nil, nil)
+        (page.hotkeys, page.projects, page.layout, page.lastPicks, page.warm) = ([:], [], nil, nil, nil)
         page.omnibar = AgentPaneOmnibar(tabs: omnibar.tabs)
         guard let data = try? JSONEncoder().encode(page),
               var tree = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
