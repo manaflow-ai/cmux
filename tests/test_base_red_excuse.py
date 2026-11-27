@@ -191,6 +191,10 @@ class FakeGitHub:
         if "/actions/runs/" in route:
             run = int(route.rsplit("/", 1)[1])
             return {"id": run, "workflow_id": self.workflows.get(run, 7)}
+        if route == f"repos/{REPO}":
+            # A pull_request_target run's workflow is read at the default branch's tip (workflow_ref): none named
+            # here, so it is read at the head, as before that rule; OtherPrPeerVerdict names one.
+            return {}
         raise AssertionError(route)
 
     workflows: dict[int, int] = {}
@@ -2757,6 +2761,40 @@ class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
                         3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
         with self.assertRaisesRegex(excuse.Refused, "timed_out"):
             self.judge()
+
+
+class FastGatesJobRedIsThePRsOwn(unittest.TestCase):
+    """Retro rf214bf6c: cmux#46930's `post cmux-next/fast-gates` job hit the rate limit, so the head had no
+    FAST_GATES_STATUS and its `fast gates` red (three base errors plus its own SetupCard TS2307) was excused by job name
+    because the base's `fast gates` was red too. It landed and broke the nightly's web bundle. Either job's red is
+    refused as the PR's own, with or without the status."""
+
+    STEP = "Run the webviews checks"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+
+    def red(self, name):
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step=self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, name=name, step=self.STEP)}
+        self.gh.logs = {1: log(name, self.STEP, ISSUE), 2: log(name, self.STEP, ISSUE, OTHER)}
+
+    def test_the_same_red_on_another_job_is_still_excused_by_the_base(self):
+        self.red("cmux-next swift test")
+        self.assertIn("excused 'cmux-next swift test'",
+                      "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)))
+
+    def test_a_fast_gates_red_the_base_shares_is_refused_as_the_prs_own(self):
+        for name in ("fast gates", "pr pipeline / fast gates"):
+            with self.subTest(name=name):
+                self.red(name)
+                with self.assertRaisesRegex(excuse.Refused, r"pull request's own.*\(run 10\)|\(run 10\) is the pull"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_failed_post_job_asks_for_its_rerun(self):
+        self.red("post cmux-next/fast-gates")
+        with self.assertRaisesRegex(excuse.Refused, "re-run the failed job to post it"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
 
 class StatusOnlyChecks(unittest.TestCase):
@@ -7976,6 +8014,89 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
 
+    def test_a_read_that_never_happened_exits_3_not_a_red(self):
+        # A GitHub read that timed out, was cut at its size cap or that gh failed outright is no verdict on the
+        # PR's red: nothing was compared. It used to come out as `not excused: GitHub evidence request exceeded
+        # 90 seconds` (exit 1), which land-judge records as red_not_excused -- a strike no rerun clears, and one
+        # the ws-check gate never excuses. leo-workspace#9276 sat unlandable on exactly that line (2026-11-24)
+        # while its reds were the base's. Exit 3 is what land-judge reads as "not judged, retry".
+        class Unread(excuse.Refused):
+            pass
+
+        class Unreadable:
+            def json(self, route, *, paginate=False):
+                raise Unread("GitHub evidence request exceeded 90 seconds")
+
+            def blob(self, repo, ref, path):
+                raise Unread("GitHub evidence request exceeded 90 seconds")
+
+            def log(self, repo, job):
+                raise AssertionError("no log is read once a read has failed")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "Unread", Unread), \
+                unittest.mock.patch.object(excuse, "GitHub", Unreadable), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_the_unread_classes_are_read_at_call_time_like_the_rate_limited_ones(self):
+        # Same shape as rate_limited_classes: a reader without Unread leaves the empty tuple, and an ordinary
+        # refusal must still exit 1 rather than raise TypeError out of the handler.
+        self.assertIn(excuse.UnreadRead, excuse.unread_classes())
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_the_evidence_reader_raises_unread_when_gh_passes_its_deadline(self):
+        # The reader's own half: GitHub.run's three read failures (the 90 s deadline, the size cap, a gh that
+        # exited non-zero) are Unread, a Refused subclass, so gh-merge-green still refuses to merge on them
+        # while base_red_excuse can tell a read that never happened from a verdict.
+        evidence = excuse._evidence
+        self.assertTrue(issubclass(evidence.Unread, evidence.Refused))
+
+        class Process:
+            returncode = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def wait(self, timeout=None):
+                if timeout is None:  # the reap after kill(), as GitHub.run does it
+                    return 0
+                raise subprocess.TimeoutExpired(cmd="gh", timeout=timeout)
+
+            def kill(self):
+                pass
+
+        with unittest.mock.patch.object(evidence.subprocess, "Popen", Process):
+            with self.assertRaises(evidence.Unread) as caught:
+                evidence.GitHub().run(["api", "repos/x/y"])
+        self.assertIn("90 seconds", str(caught.exception))
+        # And it names the read, so the next timeout says which of the ~60 reads spent the 90 s.
+        self.assertIn("gh api repos/x/y", str(caught.exception))
+
+    def test_an_unread_names_the_read_that_never_happened(self):
+        # The job log read is the one most likely to pass the deadline (a leo-workspace ws-check job's log is
+        # tens of MB; glaeda-gh's own log read of manaflow-ai/cmux run 45518999614 answered "timed out after
+        # 90s", 2026-11-25), so the message has to tell it apart from a cheap route read.
+        evidence = excuse._evidence
+        self.assertEqual(evidence.read_name(["api", "repos/o/r/actions/runs/1/jobs?per_page=100"]),
+                         "gh api repos/o/r/actions/runs/1/jobs?per_page=100")
+        self.assertEqual(evidence.read_name(["run", "view", "45516453123", "--repo", "o/r", "--job", "7", "--log"]),
+                         "gh run view 45516453123 --repo o/r --job 7 --log")
+        # A GraphQL body is thousands of characters; its operation name identifies it.
+        named = evidence.read_name(["api", "graphql", "-f", "query=query PullFiles($owner: String!) { x }",
+                                    "-f", "owner=manaflow-ai"])
+        self.assertIn("query=PullFiles", named)
+        self.assertNotIn("String!", named)
+        self.assertIn("owner=manaflow-ai", named)
+        # Never unbounded, whatever a caller passes.
+        self.assertLessEqual(len(evidence.read_name(["run", "view", "x" * 5000])), 200)
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
@@ -8206,10 +8327,62 @@ class GitHubQuotaRedIsInfra(unittest.TestCase):
         except excuse.Refused as caught:
             self.assertNotIsInstance(caught, excuse.Infra)
 
+    def test_a_plain_quota_line_before_the_exit_is_infra(self):
+        # cmux#58103 at f4231191: 'Fix safe namespace violations' printed `gh: API rate limit exceeded for
+        # installation` as plain output, then the runner's exit annotation: no error line, so its last words decide.
+        plain = "gh: API rate limit exceeded for installation. (HTTP 403)"
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*API rate limit exceeded for installation"):
+            self.judge("HEAD is now at f42311911 Merge", plain, self.EXIT)
+        # Other last words are no quota refusal: compared as before.
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(plain, "Namespace lint still has violations.", self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
     def test_only_the_quota_line_matches(self):
         self.assertIsNotNone(excuse.GITHUB_QUOTA.search("gh: API rate limit exceeded for installation ID 1"))
         self.assertIsNotNone(excuse.GITHUB_QUOTA.search("You have exceeded a secondary rate limit."))
         self.assertIsNone(excuse.GITHUB_QUOTA.search("Deployment rate limited"))
+
+
+class UnplacedGitHubQuotaRedIsInfra(unittest.TestCase):
+    """2026-11-26, cmux#58103 at f4231191 (job 140113770732) and cmux#58118: 'namespace autofix' failed 'Fix safe
+    namespace violations' on `gh: API rate limit exceeded for installation` and exit 1, a log step_owners did not
+    place, so github_quota_only (a placed view's) never read it and the red was refused as having no base verdict. An
+    unplaced log whose every error line is the quota refusal is Infra too (unplaced_quota_only); one with another
+    error line, or a failing test, is not."""
+
+    NAME, STEP = "namespace autofix", "Fix safe namespace violations"
+    QUOTA = ("gh: API rate limit exceeded for installation. If you reach out to GitHub Support for help, please "
+             "include the request ID EBB4:1D72BB:CCCD7D:27D73CF:6B087FD4 and timestamp 2026-11-26 18:52:04 UTC. (HTTP 403)")
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = unplaced_log(self.NAME, self.STEP, *lines)
+        self.assertIs(excuse.failed_view(github.jobs[1], github.logs[1], base=False, **UNKNOWN), excuse.UNPLACED)
+        base = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
+        base["conclusion"] = "success"
+        base["steps"] = [dict(step, conclusion="success") for step in base["steps"]]
+        github.base_runs[1]["conclusion"] = "success"
+        github.jobs[2], github.logs[2] = base, log(self.NAME, self.STEP, "ok")
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_an_unplaced_quota_only_red_is_infra(self):
+        with self.assertRaisesRegex(excuse.Infra, "'namespace autofix' is infra, not a verdict .*API rate limit "
+                                    "exceeded for installation.*needs a re-run"):
+            self.judge("HEAD is now at f42311911 Merge feat-cmux-next", self.QUOTA)
+
+    def test_another_error_line_keeps_it_the_prs(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.QUOTA, "##[error]Namespace lint still has violations that the safe fixer cannot rewrite.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
+    def test_the_rule_reads_the_signature_alone(self):
+        sig = excuse.unplaced_signature(failed_job(1, 10, HEAD, self.NAME, self.STEP),
+                                        unplaced_log(self.NAME, self.STEP, self.QUOTA))
+        self.assertIn("API rate limit exceeded for installation", excuse.unplaced_quota_only(sig))
+        self.assertIsNone(excuse.unplaced_quota_only(sig._replace(tests=excuse.Counter({"t": 1}))))
+        self.assertIsNone(excuse.unplaced_quota_only(None))
 
 
 class GitHubQuotaJobRed(unittest.TestCase):
@@ -18210,6 +18383,10 @@ class OtherPrSetupRed(unittest.TestCase):
                     run = int(route.rsplit("/", 1)[1])
                     return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", "head_sha": case.HEAD_SHA, **record[run]}
+                if route == f"repos/{REPO}":  # a pull_request_target run's workflow is the default branch's
+                    return {"default_branch": "main"}
+                if route == f"repos/{REPO}/branches/main":
+                    return {"name": "main", "commit": {"sha": case.HEAD_SHA}}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
@@ -18599,8 +18776,11 @@ class OtherPrPeerVerdict(unittest.TestCase):
                 if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base,
                 "conclusion": conclusion}
 
-    def github(self, peers, *, changed=(), event="pull_request"):
-        """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names."""
+    MAIN_SHA = "9" * 40  # the default branch's tip
+
+    def github(self, peers, *, changed=(), event="pull_request", main_only=False):
+        """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names. MAIN_ONLY: the
+        workflow is on the default branch alone (MAIN_SHA), absent at every PR head and merge-base."""
         case = self
         head_job, head_log = OtherPrSetupRed.fixture(self, self.HEAD_JOB)
         peer_job, peer_log = OtherPrSetupRed.fixture(self, self.PEER_JOB)
@@ -18672,10 +18852,18 @@ class OtherPrPeerVerdict(unittest.TestCase):
                     run = int(route.rsplit("/", 1)[1])
                     return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", **runs[run]}
+                if route == f"repos/{REPO}":
+                    return {"default_branch": "main"}
+                if route == f"repos/{REPO}/branches/main":
+                    return {"name": "main", "commit": {"sha": case.MAIN_SHA}}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
                 assert path == case.PATH, path
+                self.routes.append(f"blob {ref}")
+                if main_only and ref != case.MAIN_SHA:
+                    raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served (missing, or not a "
+                                         "file)")
                 return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text().replace(
                     "\n  pull_request:\n", f"\n  {event}:\n")
 
@@ -18756,6 +18944,29 @@ class OtherPrPeerVerdict(unittest.TestCase):
         self.assertEqual([route for route in github.routes if "status=completed" in route],
                          [f"repos/{REPO}/actions/workflows/{self.WORKFLOW}/runs?event=pull_request_target"
                           f"&status=completed&per_page={excuse.PR_ONLY_PEER_RUNS}"])
+
+    def test_a_pull_request_target_workflow_that_lives_on_the_default_branch_alone(self):
+        # cmux#58103 at f4231191, cmux#58118 at f80606d4 (2026-11-26): namespace-autofix.yml and risk-tier.yml are on
+        # main alone and run, as main declares them, on PRs into feat-cmux-next (pull_request_target). Read at the
+        # PR's head, "is not a text file GitHub served" refused every PR's red of them; read at main's tip, the
+        # peers decide as for any PR-only workflow.
+        peers = [self.peer(i) for i in (1, 2, 3)]
+        github = self.github(peers, event="pull_request_target", main_only=True)
+        self.assertIn("excused 'backend': not this PR (its workflow's red on other PRs)", self.judge(github))
+        read = {route.split(" ", 1)[1] for route in github.routes if route.startswith("blob ")}
+        self.assertIn(self.MAIN_SHA, read)
+        self.assertFalse(read & {self.HEAD_SHA, BASE_SHA}, read)  # never the PR's head or merge-base
+        self.assertEqual(github.routes.count(f"repos/{REPO}"), 1)  # the default tip is read once per judgement
+        # Its red stays this PR's own when it fails alone, or changes a file the workflow names.
+        with self.assertRaisesRegex(excuse.Refused, f"{self.REFUSED}.*on 2 other PR head\\(s\\)"):
+            self.judge(self.github(peers[:2], event="pull_request_target", main_only=True))
+        with self.assertRaisesRegex(excuse.Refused, "this PR changes the workflow's files"):
+            self.judge(self.github(peers, changed=["scripts/e2e/backend-up.sh"], event="pull_request_target",
+                                   main_only=True))
+        # A pull_request run's workflow is still the head's own: no default-branch read.
+        github = self.github(peers)
+        self.assertIn("excused 'backend'", self.judge(github))
+        self.assertNotIn(f"repos/{REPO}", github.routes)
 
     def test_its_reads_are_bounded(self):
         github = self.github([self.peer(i, step="Start per-run backend") for i in range(1, 15)])
