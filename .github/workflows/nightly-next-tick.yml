@@ -369,6 +369,15 @@ jobs:
               break
             fi
             git checkout -q --detach "$sha"
+            # A commit runs its own request-nightly-next.sh, so one older than a
+            # gate skips it: d5599c721e05 (2026-11-27 01:43Z tick) predated
+            # #60088's web bundle check, was promoted past 14 newer refusals,
+            # and its nightly failed on that exact red (run 45925107513). The
+            # gate's floor is this tick's: a commit without it is refused.
+            if ! grep -q '^web_bundles_green()' scripts/cmux-next/request-nightly-next.sh 2>/dev/null; then
+              echo "not promoting ${sha:0:12}: its request-nightly-next.sh predates the web bundle check (#60088), so its web bundles are unchecked" | tee -a "$refusals"
+              continue
+            fi
             if [[ -n "$dedupe" ]] && key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$sha" 2>/dev/null)" \
                && [[ "$key" =~ ^[0-9a-f]{40}$ ]]; then
               [[ "$asked_keys" != *" $key "* ]] || continue
