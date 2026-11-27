@@ -143,9 +143,6 @@ pub const WARM: &str = "projection.warm";
 pub const WARM_MAX_FILES: usize = 256;
 /// The most bytes one [`WARM`] fetches.
 pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
-/// What the agent changed that Bring Back would carry, and what stays on the machine, as counts
-/// (module docs).
-pub const UNSYNCED: &str = "projection.unsynced";
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -629,10 +626,6 @@ struct WayBackLine {
     /// [`WARM`]'s paths, relative to the projected folder.
     #[serde(default)]
     paths: Vec<String>,
-    /// [`LAYER`]: leave dependency, cache and build folders out of the listing
-    /// (`cmux_projection::layer::Layer::collect_pruned`); they follow it as `pruned_bytes`.
-    #[serde(default)]
-    prune: bool,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
