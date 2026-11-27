@@ -24,7 +24,6 @@ use serde_json::{Value, json};
 
 /// The link's round trip: about Leo's to a Cloud machine.
 const RTT: Duration = Duration::from_millis(50);
-
 /// A start key of this run's own, one per start. The projection is named by it, and its process
 /// table and the edits it keeps in the user's state folder outlive a test: two tests (or two runs)
 /// with one key attached to each other's mount, and a later run read the last one's upper layer.
@@ -199,8 +198,8 @@ struct Start {
 }
 
 impl Start {
-    /// FUSE is here but this host may not mount (a container without the right): the start
-    /// copied for that reason alone.
+    // Match the landed harness: restricted containers can expose /dev/fuse
+    // without permitting mounts. This is a skip, never mounted-path evidence.
     fn could_not_mount(&self) -> bool {
         self.answer["mode"] != "projected" && self.stderr.contains("mount failed")
     }
@@ -254,8 +253,8 @@ fn start_chat(
         "start-chat copy: {stdout}{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     Start { key, took, answer, folder, stderr }
 }
 
@@ -325,6 +324,7 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
         return;
     }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    assert_eq!(start.answer["chat"].as_str(), folder.to_str(), "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
     assert_eq!(
         start.answer["projected"]["name"],
@@ -418,12 +418,22 @@ fn the_apps_asking_copy_projects_too() {
     let w = world(50);
     let state = w.home.parent().unwrap().join("state");
     let work = w.home.join("work");
-    let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    let start = start_chat(
+        &state,
+        &w.socket,
+        &w.local,
+        &work,
+        true,
+        &["--on-seed-refusal", "ask", "--subpath", "cmux"],
+    );
     if start.could_not_mount() {
         eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
         return;
     }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("cmux"));
+    assert_eq!(git(chat, &["status", "--short"]), "");
     let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
     assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
     stop(&state, &start.folder);
@@ -497,6 +507,25 @@ fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
     assert_eq!(std::fs::read_to_string(remote.join("cmux/src/new.rs")).unwrap(), "fn new() {}\n");
     assert_eq!(git(&remote.join("cmux"), &["log", "--oneline"]).lines().count(), 1);
     stop(&state, &remote);
+}
+
+#[test]
+fn the_kill_switch_copies_the_attached_folder_without_a_projection_mount() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("local");
+    let home = root.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    write(&local.join("src/file.txt"), "local contents\n");
+    let socket = root.path().join("machine.sock");
+    machine(&socket, &home);
+    let state = root.path().join("state");
+    let start =
+        start_chat(&state, &socket, &local, &home.join("work"), false, &["--subpath", "src"]);
+    assert_ne!(start.answer["mode"], "projected");
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("src"));
+    assert_eq!(std::fs::read_to_string(chat.join("file.txt")).unwrap(), "local contents\n");
+    assert_eq!(std::fs::read_to_string(local.join("src/file.txt")).unwrap(), "local contents\n");
 }
 
 #[test]
