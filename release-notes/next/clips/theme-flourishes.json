@@ -3,6 +3,8 @@
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 3},
+    {"title": "A terminal workspace", "cmux": ["workspace", "new", "--name", "Panes"]},
+    {"title": "Show it", "cmux": ["workspace", "name:Panes", "focus"], "wait": 1},
     {"title": "Two panes", "cmux": ["action", "run", "splitRight"], "wait": 1.5},
     {"title": "Split", "cmux": ["action", "run", "splitDown"], "wait": 1.5},
     {"title": "Install the theme", "cmux": ["theme", "install", "github.com/teamleaderleo/teal-twin-theme@1.1.1", "--yes"], "wait": 5, "clip": true},

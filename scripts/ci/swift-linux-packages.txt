@@ -38,5 +38,6 @@ Packages/macOS/CmuxUpdater  CmuxUpdaterCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxVNC  CmuxVNCTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxAuthRuntime  CmuxAuthRuntimeTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/macOS/CmuxPhonePush  CmuxPhonePushTests  CMUX_SWIFTPM_TARGET_LINUX=1
-# The iPhone app's kit: its modules that need no UI framework or binary target (the manifest's Linux shape).
-cmux-next-ios/CmuxMobileKit  CmuxMobileAuthTests,CmuxMobileDesignCoreTests,CmuxMobileModelTests,CmuxMobileNotificationsTests,CmuxMobileRealtimeTests,CmuxMobileTransportTests  CMUX_SWIFTPM_TARGET_LINUX=1
+# The iPhone app's kit: its modules that need no UI framework or binary target, and the portable sources of Live and
+# Workspaces with their reliability suites (the manifest's Linux shape).
+cmux-next-ios/CmuxMobileKit  CmuxMobileAuthTests,CmuxMobileDesignCoreTests,CmuxMobileLiveTests,CmuxMobileModelTests,CmuxMobileNotificationsTests,CmuxMobileRealtimeTests,CmuxMobileTransportTests,CmuxMobileWorkspacesTests  CMUX_SWIFTPM_TARGET_LINUX=1
