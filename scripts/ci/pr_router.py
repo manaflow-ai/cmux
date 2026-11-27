@@ -175,9 +175,10 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
              for step in routed.get(job, [])]
     # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
     # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    # `**` next to named inputs (tooling-tests-5's, which route it under --pr-scope) is still that whole-tree route.
     if files and docs_only_paths.docs_only(files):
         table = ci_steps.load(table or ci_steps.TABLE).steps
-        steps = [step for step in steps if table[step].inputs != ("**",)]
+        steps = [step for step in steps if "**" not in table[step].inputs]
     return steps
 
 
@@ -277,7 +278,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
         if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
-            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
+            # The tier's own reason says what gives this head the full tier (a draft marked ready, full-ci, or the
+            # land label when CI_LAND_FULL_PER_PR is on): a fixed "ready-to-land or marked ready" here sent a ready
+            # pull request looking for a run its own marking could not start.
+            why[name] = f"cheap tier: its jobs ({', '.join(config['table_jobs'])}) run only on the full tier: {tier_reason}"
             continue
         if files is None:
             start.append(name)
