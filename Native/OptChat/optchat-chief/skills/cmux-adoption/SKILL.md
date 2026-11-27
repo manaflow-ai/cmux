@@ -114,8 +114,8 @@ On the new Mac (the person runs these, or you do over ssh):
 
 Undo: `cmux host disable --json` on that Mac.
 
-Not for Linux yet: the public installer
-(`curl -fsSL https://cmux.com/tui/install-static.sh | sh`) installs the
+Not for Linux yet: the public installer (the pinned install command in the
+cmux repository's README.md, never a bare `curl | sh`) installs the
 cmux of the `main` branch, which has no `cmux host` or `cmux acp` (checked
 2026-10-22: it answers `unknown resource scope "host"`). For a Linux box use
 Path B.

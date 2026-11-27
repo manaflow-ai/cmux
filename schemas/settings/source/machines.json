@@ -889,7 +889,7 @@
         {
           "key": "worktrees.cleanBuildCaches",
           "name": "cleanBuildCaches",
-          "note": "Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).",
+          "note": "On by default (was off before cmux care). On: machine cleanup also removes this machine's regenerable build caches nobody used lately (Xcode DerivedData, package caches, idle build folders and the like), under the disk budget; an explicit false keeps them (cmux-tui cmux-worktree-care).",
           "title": {
             "key": "settings.worktrees.cleanBuildCaches",
             "text": "Clean Up Build Caches"
@@ -899,7 +899,7 @@
             "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "disk",
             "storage",

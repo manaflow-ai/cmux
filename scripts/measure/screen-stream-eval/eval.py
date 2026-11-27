@@ -463,7 +463,8 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
     lines = [f"# Screen stream eval, {run.get('at', '?')}", ""]
     lines.append(f"Host {run.get('host', '?')} ({run.get('cpu', '?')}, macOS {run.get('macos', '?')}), display {run.get('display', '?')}, "
                  f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`"
-                 + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "") + ".")
+                 + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "")
+                 + (", rd host `--ltr 1`" if run.get("rd_ltr") == "1" else "") + ".")
     lines += ["", "Latency uses each target's recorded endpoint (see method below); "
               "a decoded-frame or display-capture endpoint does not establish physical glass-to-glass latency."]
     if previous:

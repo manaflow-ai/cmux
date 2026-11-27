@@ -134,7 +134,7 @@ when it names our own runner, as portable-placement does), else a 2 vCPU Blacksm
 only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
 step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
 When the client hands the tier back (verdict `queued`: a fleet step still queued past its wait),
-the tier runs in full, with 35 minutes, where fast-tier-handback-placement's fresh reading sends it
+the tier runs in full, with 60 minutes (note-39), where fast-tier-handback-placement's fresh reading sends it
 (an idle owned Mac, else Blacksmith 6 vCPU unless excluded, else the owned route), else on
 Blacksmith 6 vCPU.
 
@@ -2119,6 +2119,14 @@ Above `fast-tier-cargo: runs-on` in `.github/workflows/cmux-next.yml`.
 
 As cmux-tui.yml's Linux test job: a fork keeps the public or 4-vCPU lane.
 
+A same-repository run reads the linux_16 pool (GCP first, then Blacksmith), not linux_8: linux_8 is led
+by the Freestyle rung (#56349), and on Freestyle VMs this job mostly never got to its tests. Controller
+timing records, 2026-11-25 18:44Z to 2026-11-26 08:49Z: of 653 runs on `fsr-*` runners 98 passed, 243 hit
+the 30 min job timeout (GitHub reports a timed-out job as cancelled: 7,854 min, the "cancelled" half of the
+job's minutes) and 277 failed in setup (Set up job, checkout averaging 578 s against 69 s, apt, zig: 4,817
+min). On the GCP pool the same job passed 478 of 583 runs, median 15.5 min. 16 was already the overflow arm's size, so that
+arm is gone (linux_sizes: size 16, no failover).
+
 ## note-207
 
 Above `fast-tier-cargo: env` in `.github/workflows/cmux-next.yml`.
@@ -2486,8 +2494,8 @@ job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
 
 Above `daemon-test: Keep Swift package builds on this owned Mac` in `.github/workflows/cmux-next.yml`.
 
-Checkout removes .build. Link the owned Mac's kept build after Xcode
-selection so its fingerprint uses the compiler that runs this job.
+Checkout removes .build. Lease a build root after Xcode selection so its fingerprint
+uses this job's compiler (2026-11-25-daemon-test-seed-root.md in cmux-next-workflow-notes/).
 
 ## note-252
 
@@ -3617,7 +3625,7 @@ the run and 300 s with no test finished, or above the suite's own
 
 Above the `Compute the fast-tier seed keys` step of `daemon-test` in `.github/workflows/cmux-next.yml`.
 
-Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
+Off the owned Macs, and in the mini's seed root on one (note-251), start from the build a feat-cmux-next push seeded for the fast tier
 (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
 recent base, at the same workspace path. With the seed's input times replayed, only what
 this change touched compiles, so a daemon-only change compiles no Swift and goes straight
