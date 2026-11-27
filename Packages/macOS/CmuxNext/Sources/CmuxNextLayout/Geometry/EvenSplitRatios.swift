@@ -69,7 +69,7 @@ public nonisolated enum EvenSplitRatios {
 }
 
 /// One split's new ratio.
-public nonisolated struct SplitRatioChange: Hashable, Sendable {
+public nonisolated struct SplitRatioChange: Hashable, Sendable, Decodable {
     public var split: SplitID
     public var ratio: Double
 
