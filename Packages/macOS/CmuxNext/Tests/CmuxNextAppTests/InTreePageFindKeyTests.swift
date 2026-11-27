@@ -154,6 +154,8 @@ import Testing
         defer {
             controller.teardown()
             window.close()
+            // The panels the app made for the window (a pane chrome's popups) outlive its controller.
+            AppHarnessWindows.closeThoseThisTestOpened()
         }
         window.orderFrontRegardless()
         controller.showWorkspace(requested: workspace.id)
