@@ -72,6 +72,7 @@ impl Sim {
             access_unit: vec![0x5a; self.next_len],
             idr: req.force_idr,
             t_capture_us: now,
+            ltr_token: None,
         };
         let out = self.engine.encoded(req, Some(enc), now).expect("packetize");
         self.encoded.push((now, req.frame));
@@ -147,6 +148,7 @@ impl Sim {
                 acked_frame: self.viewer.last_released(),
                 decode_us: 0,
                 need_recovery: self.viewer.need_recovery(),
+                acked_ltr_tokens: Vec::new(),
                 arrivals: self.arrivals.drain(..take).collect(),
                 nacks: self.viewer.take_nacks(now, NACK_AFTER_US, FEEDBACK_INTERVAL_US),
             };
@@ -264,7 +266,7 @@ fn rtt_tail_probes_back_off_and_the_keyframe_keeps_its_time() {
     sim.next_len = 300;
     let rect = Rect { x: 0, y: 0, width: 8, height: 8 };
     let req = sim.engine.damage(0, rect, now).expect("encode");
-    let enc = Encoded { access_unit: vec![1; 300], idr: false, t_capture_us: now };
+    let enc = Encoded { access_unit: vec![1; 300], idr: false, t_capture_us: now, ltr_token: None };
     let out = sim.engine.encoded(&req, Some(enc), now).expect("packetize");
     assert_eq!(out.datagrams.len(), 1);
     sim.engine.datagram_sent(&out.datagrams[0], now);

@@ -125,6 +125,65 @@ fn colors_edit_the_terminal_theme_the_file_names_and_keep_other_edits() {
     );
 }
 
+/// One look for both appearances: a `light` and a `dark` half paint only
+/// their side, over the plain colors.
+#[test]
+fn light_and_dark_halves_paint_only_their_side_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+              "colors": { "accent": "#907aa9", "foreground": "#575279",
+                          "light": { "background": "#faf4ed", "palette": ["#f2e9e1"] },
+                          "dark": { "background": "#191724", "foreground": "#e0def4" } } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({
+            "Rose Pine Dawn/accent": "#907aa9", "Rose Pine Dawn/foreground": "#575279",
+            "Rose Pine Dawn/background": "#faf4ed", "Rose Pine Dawn/0": "#f2e9e1",
+            "Rose Pine/accent": "#907aa9", "Rose Pine/foreground": "#e0def4",
+            "Rose Pine/background": "#191724",
+        }))
+    );
+}
+
+/// One theme for both appearances has no sides: its halves are refused, the
+/// plain colors still apply, and a half holds no half of its own.
+#[test]
+fn halves_need_a_light_dark_pair_and_hold_no_halves() {
+    let single = overlay(
+        r##"{ "appearance.theme": "Nord", "colors": { "accent": "#88c0d0", "light": { "accent": "#5e81ac" }, "dark": { "accent": "#81a1c1" } } }"##,
+    );
+    assert_eq!(
+        single.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["colors.light", "colors.dark"]
+    );
+    assert!(single.diagnostics.iter().all(|d| d.message == colors::HALF_NEEDS_PAIR));
+    let root = single.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.themeEdits"), Some(&json!({"Nord/accent": "#88c0d0"})));
+    let nested = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "light": { "dark": {}, "accent": "blue" }, "dark": "#000000" } }"##,
+    );
+    let mut paths: Vec<&str> = nested.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["colors.dark", "colors.light.accent", "colors.light.dark"]);
+}
+
+/// A plain `colors` map still paints both sides of a pair, as before halves.
+#[test]
+fn plain_colors_still_paint_both_sides_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "accent": "#907aa9" } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({"Rose Pine Dawn/accent": "#907aa9", "Rose Pine/accent": "#907aa9"}))
+    );
+}
+
 #[test]
 fn a_ghostty_block_is_read_as_a_ghostty_theme_file() {
     let file = overlay(
@@ -497,6 +556,13 @@ fn the_theme_file_schema_takes_the_shipped_files_and_flags_others() {
     }
     assert!(!validator.is_valid(&json!({"terminal.term": "xterm"})));
     assert!(!validator.is_valid(&json!({"colors": {"background": "blue"}})));
+    assert!(validator.is_valid(&json!({"colors": {
+        "accent": "#907aa9",
+        "light": {"background": "#faf4ed", "palette": ["#f2e9e1"]},
+        "dark": {"background": "#191724"},
+    }})));
+    assert!(!validator.is_valid(&json!({"colors": {"light": {"dark": {}}}})));
+    assert!(!validator.is_valid(&json!({"colors": {"dark": {"background": "blue"}}})));
 }
 
 /// The daemon's settings owner applies the active theme file: over the
@@ -593,6 +659,93 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"): the header, the sidebar's width and
+/// rows, the tab bar, the toolbar buttons, the spacing grid and the chat composer are `appearance.metrics.*` keys a
+/// theme file sets, each bounded by the schema's range as `cmux settings set` bounds it; a value outside it is
+/// refused with the range, and the file's other keys still apply.
+#[test]
+fn a_theme_file_sets_the_layout_proportions() {
+    let claude = overlay(
+        r#"{ "appearance.metrics": { "titlebarHeight": 44, "sidebarWidth": 284, "sidebarRowHeight": 26,
+             "sidebarRowInset": 6, "sidebarRowPadding": 10, "sidebarRowGap": 2, "tabStripHeight": 36,
+             "toolbarButtonSize": 21.5, "toolbarButtonGap": 3, "toolbarButtonCornerRadius": 7,
+             "spacingScale": 1.25, "composerPadding": 14, "composerMinHeight": 56,
+             "sidebarRowHeightWithSubtitle": 78, "toolbarButtonActiveFill": 0.14, "headerDivider": 1 } }"#,
+    );
+    assert!(claude.diagnostics.is_empty(), "{:?}", claude.diagnostics);
+    let root = claude.applied(&json!({}), &none());
+    for (key, value) in [
+        ("titlebarHeight", json!(44)),
+        ("sidebarRowInset", json!(6)),
+        ("sidebarRowPadding", json!(10)),
+        ("sidebarRowGap", json!(2)),
+        ("toolbarButtonSize", json!(21.5)),
+        ("toolbarButtonGap", json!(3)),
+        ("toolbarButtonCornerRadius", json!(7)),
+        ("spacingScale", json!(1.25)),
+        ("composerPadding", json!(14)),
+        ("composerMinHeight", json!(56)),
+        ("sidebarRowHeightWithSubtitle", json!(78)),
+        ("toolbarButtonActiveFill", json!(0.14)),
+        ("headerDivider", json!(1)),
+    ] {
+        assert_eq!(at(&root, &format!("appearance.metrics.{key}")), Some(&value), "{key}");
+    }
+
+    for (key, bad) in [
+        ("toolbarButtonSize", "4"),
+        ("toolbarButtonGap", "40"),
+        ("toolbarButtonCornerRadius", "-1"),
+        ("sidebarRowInset", "30"),
+        ("sidebarRowPadding", "25"),
+        ("sidebarRowGap", "13"),
+        ("spacingScale", "3"),
+        ("composerPadding", "\"wide\""),
+        ("composerMinHeight", "8"),
+        ("sidebarRowHeightWithSubtitle", "120"),
+        ("toolbarButtonActiveFill", "0.9"),
+        ("headerDivider", "2"),
+    ] {
+        let file = overlay(&format!(
+            r#"{{ "appearance.metrics.{key}": {bad}, "appearance.metrics.titlebarHeight": 44 }}"#
+        ));
+        let path = format!("appearance.metrics.{key}");
+        assert!(
+            file.diagnostics.iter().any(|d| d.path == path),
+            "{key}={bad}: {:?}",
+            file.diagnostics
+        );
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, &path), None, "{key}={bad} applied");
+        assert_eq!(at(&root, "appearance.metrics.titlebarHeight"), Some(&json!(44)));
+    }
+}
+
+/// With no proportion key set, nothing changes: every new key's default is null (the density's value), so a look
+/// without them draws today's layout.
+#[test]
+fn the_layout_proportions_default_to_the_density() {
+    let schema = Schema::embedded();
+    for key in [
+        "sidebarRowInset",
+        "sidebarRowPadding",
+        "sidebarRowGap",
+        "toolbarButtonSize",
+        "toolbarButtonGap",
+        "toolbarButtonCornerRadius",
+        "spacingScale",
+        "composerPadding",
+        "composerMinHeight",
+        "sidebarRowHeightWithSubtitle",
+        "toolbarButtonActiveFill",
+        "headerDivider",
+    ] {
+        let dotted = format!("appearance.metrics.{key}");
+        let row = schema.row(&dotted).unwrap_or_else(|| panic!("{dotted} is no schema row"));
+        assert!(row.default.as_ref().is_none_or(Value::is_null), "{dotted}: {:?}", row.default);
+    }
 }
 
 /// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
@@ -907,6 +1060,60 @@ fn a_theme_file_sets_the_tab_shape() {
     assert!(wobbly.keys().is_empty());
     let refused =
         wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+/// `appearance.toolbarButtonStyle` (standard, plain, grouped, glass) is a look a theme file sets; any other value is
+/// refused by the schema's choices, as `cmux settings set` refuses it. Absent, the file changes nothing (standard).
+#[test]
+fn a_theme_file_sets_the_toolbar_button_style() {
+    for style in ["standard", "plain", "grouped", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.toolbarButtonStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.toolbarButtonStyle"), Some(&json!(style)));
+    }
+    let shiny = overlay(r#"{ "appearance.toolbarButtonStyle": "shiny" }"#);
+    assert!(shiny.keys().is_empty());
+    let refused = shiny
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.toolbarButtonStyle")
+        .expect("shiny refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+/// The sidebar's width and buttons are looks a theme file sets: `appearance.metrics.sidebarWidth` within its range,
+/// and the sidebar's button toggles.
+#[test]
+fn a_theme_file_sets_the_sidebar_width_and_buttons() {
+    let file = overlay(
+        r#"{ "appearance.metrics.sidebarWidth": 300, "sidebar.showSearchButton": false, "sidebar.showProfileControl": false, "sidebar.showNewWorkspaceChooser": false, "sidebar.controlsOnHover": true }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.metrics.sidebarWidth"), Some(&json!(300)));
+    assert_eq!(at(&root, "sidebar.showSearchButton"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.controlsOnHover"), Some(&json!(true)));
+}
+
+/// `appearance.homeCardStyle` (standard, flat, raised, glass) is a look a theme file sets for Home's and the New Tab
+/// page's cards; any other value is refused by the schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_home_card_style() {
+    for style in ["standard", "flat", "raised", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.homeCardStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.homeCardStyle"), Some(&json!(style)));
+    }
+    let wobbly = overlay(r#"{ "appearance.homeCardStyle": "wobbly" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused = wobbly
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.homeCardStyle")
+        .expect("wobbly refused");
     assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }
 
