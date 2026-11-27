@@ -417,8 +417,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, ids: Union[List[str], None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, owners: Union[List[str], None, MissingType] = MISSING, scope: Union[str, None, MissingType] = MISSING, since: Union[int, None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(ids=ids, limit=limit, offset=offset, owners=owners, scope=scope, since=since))
 
-    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions))
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, restore_progress: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, restore_progress=restore_progress, revisions=revisions))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -729,8 +729,8 @@ class GeneratedClientMixin:
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
 
-    def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING) -> ServerStatsResult:
-        return self._invoke_command('server-stats', ServerStatsRequest(include=include))
+    def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING, restore_progress: Union[bool, MissingType] = MISSING) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest(include=include, restore_progress=restore_progress))
 
     def set_attach_visibility(self, surface: Id, visible: bool) -> SetAttachVisibilityResult:
         return self._invoke_command('set-attach-visibility', SetAttachVisibilityRequest(surface=surface, visible=visible))
@@ -816,8 +816,8 @@ class GeneratedClientMixin:
     def set_window_title(self, title: str) -> EmptyResult:
         return self._invoke_command('set-window-title', SetWindowTitleRequest(title=title))
 
-    def set_workspace_metadata(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, marked_unread: Union[bool, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('set-workspace-metadata', SetWorkspaceMetadataRequest(workspace=workspace, color=color, expected_generation=expected_generation, expected_revision=expected_revision, icon=icon, key=key, marked_unread=marked_unread, mutation_id=mutation_id, origin=origin, pinned=pinned, title=title))
+    def set_workspace_metadata(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, keep_awake: Union[bool, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, marked_unread: Union[bool, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-workspace-metadata', SetWorkspaceMetadataRequest(workspace=workspace, color=color, expected_generation=expected_generation, expected_revision=expected_revision, icon=icon, keep_awake=keep_awake, key=key, marked_unread=marked_unread, mutation_id=mutation_id, origin=origin, pinned=pinned, title=title))
 
     def shell_read(self, run: str, *, after: Union[int, MissingType] = MISSING, wait_ms: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('shell-read', ShellReadRequest(run=run, after=after, wait_ms=wait_ms))

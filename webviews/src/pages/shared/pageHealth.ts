@@ -165,7 +165,9 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     slackTimersFor(view).ride();
     quiet++;
     if (quiet < REST_AFTER_BEATS || !hostTakesRest || client.holding || holdsEdits()) return beat();
-    // Nothing happened for a while: the last beat says so, then no timer runs until something does.
+    // Nothing happened for a while: the last beat says so, then no timer runs until something does. The
+    // jobs that waited only for this quiet run with it rather than wake the resting page (slackTimers.ts).
+    slackTimersFor(view).rest();
     beat(true);
     stop();
     resting = true;

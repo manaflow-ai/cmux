@@ -45,7 +45,7 @@
    "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
   },
   "cmux_git_cache::server": {
-   "none": "the fleet's git and crates cache server, not the app: it fetches what its git and cargo clients ask for from the upstreams its operator configured (--upstream, --edge, --peer, --crates-index, --crates-dl), passing on only each client's own request and credential; it adds no secret of its own"
+   "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
   },
   "cmux_mobile_host::auth": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"

@@ -145,10 +145,10 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux-next/cmux-next.json`
   that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
   on; when it is off, `review.sh` reports that as the blocker.
-- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux-next/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
 - A development profile on this Mac for each bundle (the app and its two notification
   extensions) that names each phone; the team wildcard profile covers all three. A phone no

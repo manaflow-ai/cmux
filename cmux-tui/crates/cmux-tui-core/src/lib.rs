@@ -115,6 +115,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod restore_progress;
 pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;

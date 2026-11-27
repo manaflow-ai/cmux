@@ -222,6 +222,7 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
+mod idle_freeing;
 mod journal;
 mod journal_maintenance;
 mod journal_plugin_demand;
@@ -232,6 +233,7 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod output_cleanup;
+mod park_eligibility;
 mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
@@ -937,6 +939,8 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
     pty_reclaim_forced: AtomicBool,
+    /// The idle freeing timer (`workspaces.freeing.*`, `idle_freeing.rs`).
+    idle_freeing: idle_freeing::IdleFreeing,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.

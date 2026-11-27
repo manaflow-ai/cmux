@@ -434,6 +434,16 @@ held_pr() {
   status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
   [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
   [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
+  # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
+  # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended
+  # startup_failure, cmux-next/compile never left pending, and this hold kept the head while the pin fell 402 min
+  # behind. The head's own workflow file is what failed, so a move onto the newer base is the fix.
+  local unstarted
+  unstarted="$(read_api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$previous&per_page=100" \
+    --jq '[.workflow_runs[] | select(.conclusion == "startup_failure")] | length')" || return 2
+  [[ "$unstarted" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + unstarted))
   if (( failed > 0 )); then
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1

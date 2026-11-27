@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
+READ_PR = "Read the pull request"
 WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fetch fixture's
 # repositories get git's auto maintenance off, so no detached writer is left when the temp folder goes.
@@ -492,11 +493,16 @@ class Workflow(unittest.TestCase):
                    len(lines))
         return lines[start:end]
 
-    def run_block(self, job: str, gh_out: str, env: dict, step: str = "") -> tuple[subprocess.CompletedProcess, Path, list[str]]:
-        """Run JOB's first `run: |` script (or STEP's), from the checkout's root, with a gh on PATH that prints GH_OUT
-        and logs its argv; returns the process, the GITHUB_OUTPUT file and the gh calls."""
+    def run_block(self, job: str, gh_out: str, env: dict, step: str) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+        """Run JOB's STEP `run: |` script, from the checkout's root, with a gh on PATH that prints GH_OUT and logs its
+        argv; returns the process, the GITHUB_OUTPUT file and the gh calls.
+
+        STEP is named, never "the job's first script": each job's first one is now "Drop a reused workspace's
+        repository" (`rm -rf "$GITHUB_WORKSPACE/.git"`), and run with the job's environment it deleted the checks
+        job's own .git mid-run (cmux-next.yml checks, runs 45871176600 and 45884200942: ~20 checks then failed with
+        "not a git repository"). GITHUB_WORKSPACE points at the scratch directory too, so no step body reaches it."""
         block = self.job_block(job)
-        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}") if step else 0
+        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}")
         at = next(i for i in range(first, len(block)) if block[i].strip() == "run: |")
         indent = len(block[at]) - len(block[at].lstrip()) + 2
         end = next((j for j in range(at + 1, len(block)) if block[j].strip()
@@ -511,7 +517,7 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
                               env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "GH_OUT": gh_out,
                                    "GH_CALLS": str(calls), "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", **env})
+                                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_WORKSPACE": str(scratch), **env})
         argv = calls.read_text().split("\0")[:-1] if calls.exists() else []
         return done, out, argv
 
@@ -530,7 +536,7 @@ class Workflow(unittest.TestCase):
         }
         for name, (row, ok) in cases.items():
             with self.subTest(name):
-                done, out, _ = self.run_block("target", row, env)
+                done, out, _ = self.run_block("target", row, env, READ_PR)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertIn(f"ok={ok}\n", out.read_text())
 
@@ -605,19 +611,21 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.kind == 'merge') && '-merge'", text)
         merge = "c" * 40
         row = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T10:00:00Z\t{merge}"
-        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"})
+        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"}, READ_PR)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("ok=true\n", out.read_text())
         self.assertIn(f"pr_head={OTHER}\n", out.read_text())  # the web layer waits for the PR's own head
         unmerged = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\topen\tfalse\t-\t{merge}"
-        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
+        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"}, READ_PR)
         self.assertIn("ok=false\n", out.read_text())
 
     def test_a_receipt_check_that_cannot_read_github_still_looks(self) -> None:
         # Run 44033383427 (cmux#45098, 2026-11-17): the receipt read hit "API rate limit exceeded for installation",
         # receipt=unknown counted as a receipt, and the merged daemon PR got no look. Only receipt=true skips.
+        # From the Plan step on, not the job's first script: that is the workspace drop (see run_block).
         block = self.job_block("plan")
-        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        plan = block.index("      - name: Plan")
+        start = next(i for i in range(plan, len(block)) if block[i].strip() == "run: |") + 1
         script = textwrap.dedent("\n".join(block[start:]))
         unreadable = "import sys\nprint('hot-verify-receipt: API rate limit exceeded', file=sys.stderr)\nsys.exit(1)\n"
         for answer, skips in ((unreadable, False), ("print('receipt=false')\n", False), ("print('receipt=true')\n", True)):
@@ -633,7 +641,8 @@ class Workflow(unittest.TestCase):
                 done = subprocess.run(["bash", "-c", script], cwd=scratch, capture_output=True, text=True,
                                       env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}",
                                            "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR": "7", "BASE_REF": "feat-cmux-next",
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_WORKSPACE": str(scratch),
+                                           "PR": "7", "BASE_REF": "feat-cmux-next",
                                            "HEAD_SHA": "c" * 40, "MERGED": "true"})
                 said = summary.read_text() if summary.exists() else ""
                 if skips:
@@ -696,11 +705,11 @@ class Workflow(unittest.TestCase):
         row = f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\tfalse\t-\t-"
         for env, want in (({"KIND": "", "ATTEMPT": "", "EVENT_AT": "1794800000"}, ("kind=head", "attempt=0", "event_at=1794800000")),
                           ({"KIND": "merge", "ATTEMPT": "1", "EVENT_AT": "x y=z"}, ("kind=merge", "attempt=1", "event_at=\n"))):
-            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env})
+            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env}, READ_PR)
             self.assertEqual(done.returncode, 0, done.stderr)
             for line in want:
                 self.assertIn(line, out.read_text())
-        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"})
+        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"}, READ_PR)
         self.assertNotEqual(done.returncode, 0)
 
     def test_the_look_result_names_its_pr_and_head_and_its_out_tar(self) -> None:
@@ -787,7 +796,7 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
                               env={**os.environ, "PATH": f"{scratch}:{os.environ['PATH']}", "RUNNER_TEMP": str(scratch),
                                    "GITHUB_STEP_SUMMARY": str(scratch / "summary"), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                                   **env})
+                                   "GITHUB_WORKSPACE": str(scratch), **env})
         calls = (scratch / "calls").read_text() if (scratch / "calls").exists() else ""
         summary = (scratch / "summary").read_text() if (scratch / "summary").exists() else ""
         return done, calls, summary
@@ -935,8 +944,9 @@ class PullRequestRead(unittest.TestCase):
     def test_workflow_reads_take_the_spare_and_target_caps_its_wait(self) -> None:
         text = WORKFLOW.read_text()
         self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
-        # plan's dispatch, web layer's dispatch, and the two pull request reads.
-        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 4)
+        # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
+        # one-more-look dispatch.
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 6)
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)
@@ -949,6 +959,18 @@ class PullRequestRead(unittest.TestCase):
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", web)
         # The budget wrapper is gh for the dispatch, so a rate limit moves to the spare and each pool.
         self.assertLess(web.index("gh_budget_wait.sh --install"), web.index("- name: Start the web layer"))
+
+    # 2026-11-26 15:00-19:00Z: post the look ran 584 s at the median and 2,290 s at p90 over 215 jobs, nearly all of
+    # it in the one-more-look dispatch and the gallery read sleeping out github.token's spent hour.
+    def test_publish_dispatch_and_gallery_read_go_out_on_the_pools_and_spare(self) -> None:
+        publish = WORKFLOW.read_text().split("name: post the look", 1)[1]
+        self.assertIn('CI_POOL_PERMISSIONS: \'{"contents":"read","actions":"write"}\'', publish)
+        self.assertIn("permission-actions: write", publish.split("- name: Mint the pull request read's spare token", 1)[1].split("- name:", 1)[0])
+        for step in ("- name: Dispatch one more look", "- name: Is the gallery advisory also on this head"):
+            env = publish.split(step, 1)[1].split("run: |", 1)[0]
+            self.assertIn("GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}", env)
+            self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", env)
+            self.assertIn("GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}", env)
 
     def test_rust_layer_reads_the_pull_request_only_when_it_will_dispatch(self) -> None:
         rust = WORKFLOW.read_text().split("\n  rust:", 1)[1].split("\n  request:", 1)[0]

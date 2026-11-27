@@ -120,6 +120,9 @@ import {
   type Checklist,
   type ChecklistFact,
   type PreviousBuild,
+  type CreatedToken,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -926,6 +929,42 @@ export class SettingsStore {
     return this.hubState();
   }
 
+  /** Settings > Developer (API tokens); null when the host has none. */
+  async tokensState(): Promise<DeveloperTokensState | null> {
+    const reply = await this.request("cmux.settings.tokens.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
+  async runTokens(
+    run: DeveloperTokensRun,
+  ): Promise<{ ok: boolean; state: DeveloperTokensState | null; created: CreatedToken | null }> {
+    const reply = await this.request("cmux.settings.tokens.run", run);
+    const created = reply.ok ? (reply.value?.created ?? null) : null;
+    const ok = reply.ok && reply.value?.ok !== false;
+    const state = await this.tokensState();
+    if (reply.ok) return { ok, state, created };
+    // Validation and bridge refusals never reach the provider's lastError. Preserve them across
+    // the read so the card can explain the failed gesture, even if the host is no longer there.
+    return {
+      ok: false,
+      created: null,
+      state: {
+        ...(state ?? {
+          loading: false,
+          problem: "unavailable",
+          listError: null,
+          platform: null,
+          team: null,
+          tokens: [],
+          canManageTeamTokens: false,
+          githubRules: null,
+        }),
+        error: { action: run.action, code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) },
+      },
+    };
+  }
+
   /** Settings > Automations (Cloud automations); null when the host has none. */
   async autocloudState(): Promise<AutocloudState | null> {
     const reply = await this.request("cmux.settings.autocloud.state", {});
@@ -1550,10 +1589,13 @@ export class SettingsStore {
   /** The host holds one live preview at a time, whatever its key: its latest owner. */
   private previewOwner: object | null = null;
 
-  preview(key: string, value: unknown, owner?: object): void {
+  /** `also` previews more keys with `key` as one preview (the whole-app theme preview). */
+  preview(key: string, value: unknown, owner?: object, also?: readonly { key: string; value: unknown }[]): void {
     this.previewOwner = owner ?? {};
     this.setLive({ key, value });
-    if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
+    if (this.ui.connected) {
+      void this.request("cmux.settings.preview", also?.length ? { key, value, also } : { key, value });
+    }
   }
 
   /** With an `owner`, ends the preview only while that owner's is still the one showing. */

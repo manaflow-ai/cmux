@@ -213,6 +213,23 @@ import Testing
         #expect(hub.status == .idle && hub.pendingRequests.isEmpty && hub.devices.isEmpty)
     }
 
+    /// A socket that never connects still reads the list once registered, so This Mac draws (CMUX-13 on the Mac hub).
+    @Test func startReadsTheListWithoutTheSocket() async {
+        let me = self.me
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if request.method == "POST" { return (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#) }
+            return (200, devicesJSON([(me, "Studio")]))
+        }
+        let hub = DeviceHub(client: makeClient(stub, identity: me), socket: DeviceHubSocket(connector: FakeConnector([])),
+                            secrets: MemoryRelaySecretStore(), deviceName: "Studio", now: fixedNow)
+        await hub.start()
+        #expect(hub.devicesListed)
+        #expect(hub.thisDevice?.id == me.id)
+        #expect(stub.requests.contains { $0.method == "GET" && $0.url.path == "/v1/devices" })
+        hub.stop()
+    }
+
     @Test func aRemovedDeviceRegistersAgainAsANewDevice() async {
         let me = self.me, fresh = DeviceIdentity.software("b0b0b0b0-0000-4000-8000-000000000002")
         let stub = StubHub { request in

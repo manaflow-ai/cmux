@@ -15,6 +15,7 @@
 // The daemon's `identify` reply: a leaf of the build, so editing it rebuilds this
 // crate and the link only (cmux-tui-core server/identify_reply.rs).
 #[cfg(not(all(windows, feature = "windows-thin-exe")))]
+#[path = "cmux-tui/identify.rs"]
 mod identify;
 
 #[cfg(not(all(windows, feature = "windows-thin-exe")))]

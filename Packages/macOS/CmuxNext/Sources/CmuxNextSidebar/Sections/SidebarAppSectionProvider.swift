@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// Draws the sections that apps contribute (`SectionContent.app`,
 /// plans/cmux-next/sidebar-sections.md; the app platform supplies it). One
@@ -17,6 +18,11 @@ public protocol SidebarAppSectionProvider: AnyObject {
     /// The section left the layout (removed, or its app hidden): drop its
     /// view and end what feeds it. A collapsed or moved section is not released.
     func release(_ contribution: String)
+    /// A workspace list an extension draws, named here so a conformer needs no CmuxNextDesign import.
+    typealias WorkspaceList = any SidebarListReplacement
+    /// This window's own workspace list (`cmux.sidebar/1`, opt-in), drawn in place of the built-in
+    /// list while it is drawn; nil keeps the built-in list.
+    var workspaceList: WorkspaceList? { get }
     /// App sections the provider draws that the layout document does not hold (the widget area),
     /// shown at the end of the band below the list.
     var providedSections: [LayoutSection] { get }
@@ -24,5 +30,6 @@ public protocol SidebarAppSectionProvider: AnyObject {
 
 public extension SidebarAppSectionProvider {
     func release(_ contribution: String) {}
+    var workspaceList: WorkspaceList? { nil }
     var providedSections: [LayoutSection] { [] }
 }

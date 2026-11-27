@@ -46,6 +46,9 @@ cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 # Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
 cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# The system proxy (PAC included), CONNECT and SOCKS5 tunnels and the OS trust store, shared with
+# cmux-remote (cmux-mobile-link re-exports it as `egress`).
+cmux-proxy = { path = "../../cmux-tui/crates/cmux-proxy" }
 # Braid carriers (RFD 0164 B7): the kinds a dial ranks its rungs by, and the trait it opens them through.
 cmux-braid-carrier = { path = "../../cmux-tui/crates/cmux-braid-carrier" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).

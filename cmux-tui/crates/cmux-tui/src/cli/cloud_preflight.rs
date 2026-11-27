@@ -109,7 +109,11 @@ pub(super) fn parse(
         return Err("--agent is claude or codex".into());
     }
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let api = api.or_else(|| env("CMUX_CLOUD_API_URL"));
     if api.is_none() && token != TokenSource::App {

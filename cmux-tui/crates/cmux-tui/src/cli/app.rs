@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -718,7 +719,12 @@ pub(super) fn run_action(
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };
         match name {
-            "wait" | "no-wait" | "interactive" => {
+            "wait" | "no-wait" | "interactive" | "join-only" => {
+                if name == "join-only" {
+                    params.insert("join_only".into(), json!(true));
+                    index += 1;
+                    continue;
+                }
                 let key = if name == "interactive" { "interactive" } else { "wait" };
                 params.insert(key.into(), json!(name != "no-wait"));
                 index += 1;
@@ -1180,6 +1186,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1200,6 +1212,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
@@ -1562,9 +1582,9 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     if let Some(session) = set("CMUX_AGENT_SESSION") {
         let mut caller = json!({ "agent_session": session });
         if home_chat {
-            caller["home_chat"] = json!(true);
+            caller.set("home_chat", json!(true));
         } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
-            caller["workspace"] = json!(workspace);
+            caller.set("workspace", json!(workspace));
         }
         return Some(caller);
     }

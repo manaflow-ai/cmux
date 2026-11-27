@@ -156,6 +156,63 @@ test("a person's row is one button for their role, with Remove its own button be
   expect(calls).toEqual(["role @sam talk"]);
 });
 
+// An invite nobody opened yet says so under the name; one in the chat now says that instead.
+test("a pending invitee's row says they haven't opened it yet", async () => {
+  const container = installDom();
+  const view: ShareView = {
+    ...shared,
+    people: [
+      { account: "@new", role: "view", joined: false, opened: false },
+      { account: "@here", role: "talk", joined: true, opened: true },
+      { account: "@left", role: "view", joined: false, opened: true },
+    ],
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={view}
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const hints = [...container.querySelectorAll(".share-dialog__people li")].map(
+    (row) => row.querySelector(".share-dialog__hint")?.textContent ?? null,
+  );
+  expect(hints).toEqual([null, translate("share.notJoined"), translate("share.inChatNow"), null]);
+});
+
+// A result that is not a refusal (a role change) shows muted on the status line, not as an alert.
+test("a notice shows muted on the status line", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={shared}
+        notice="@sam changed to Can send."
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const line = container.querySelector(".share-dialog__status")!;
+  expect(line.textContent).toBe("@sam changed to Can send.");
+  expect(line.getAttribute("role")).toBeNull();
+  expect(line.hasAttribute("data-hint")).toBe(true);
+});
+
 test("a failed read of the chat's shares is read again on its own, with no Try again", async () => {
   // Leo, 2026-11-22: "vacuous decisions like that should be just done": the open's read asks again
   // on the shared backoff (autoRetry.ts, first ask within 1 s) and says nothing at first.

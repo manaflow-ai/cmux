@@ -129,6 +129,20 @@ final class MacScreenPageService: InternalPageProvider {
         return key
     }
 
+    /// Opens `record`'s tab unselected in `model`, a pane no window shows: nothing is selected, focused or raised,
+    /// and the screen connects unseen, so an agent's probe needs no idle person (as `file.open` into a parked pane).
+    func open(_ record: MacScreenRecord, parkedIn model: PaneModel, byPerson: Bool) {
+        let key = LocalPageTab.makeKey(.macScreen)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
+        guard let services else { return }
+        let made = pages.whenCreated(key, focus: false, then: nil), daemon = services.daemon(for: model)
+        if let window = services.windows.active ?? services.windows.controllersActingFirst.first,
+           services.pages.openStoreTab(.macScreen, in: model, of: daemon, services: services, controller: nil, window: window,
+                                       focus: false, key: key, created: { _ in made?() }) != nil { return }
+        services.pages.open(.macScreen, in: model.id, of: daemon.store, key: key)
+        made?()
+    }
+
     /// A Mac Screen address (`cmux://mac-screen…`) typed in a browser's
     /// address bar or opened as a browser tab: its tab opens in `pane`, else
     /// the active window's focused pane. Only a person's input connects at once.
