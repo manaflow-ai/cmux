@@ -2439,6 +2439,9 @@ export function paneSnapshotEffect({
         // Composer drafts belong to the daemon session so every host can restore them.
         "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
         "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+        "chat.readDraftAttachments": ({ sessionId }) => client.readDraftAttachments(String(sessionId)),
+        "chat.writeDraftAttachments": ({ sessionId, attachments }) =>
+          client.writeDraftAttachments(String(sessionId), Array.isArray(attachments) ? attachments : []),
         "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
         "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
         "file.search": ({ path, query, limit }) =>
