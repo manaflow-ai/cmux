@@ -937,6 +937,11 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
+        # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
+        for path in ("ci/steps.toml", ".github/workflows/pr-router.yml"):
+            with self.subTest(path=path):
+                self.assertIn("tooling-tests-5", ci_steps.route(ci_steps.load(ci_steps.TABLE), [path], pr_scope=True)["linux"])
         # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
         repo = {"full_name": "manaflow-ai/cmux"}
         web = ["web/app/lib/indexnow.ts"]
@@ -1282,7 +1287,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(carried, [i for i in tt_ids if i not in staying])
         for step in tooling:
             with self.subTest(step=step.name):
-                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                # `**` routes it on every change; named inputs after it are what route it under --pr-scope.
+                self.assertEqual((step.job, step.inputs[0], step.alone), ("linux", "**", False))
+                self.assertTrue(all("**" not in g for g in step.inputs[1:]), step.inputs)
                 self.assertLessEqual(step.timeout, 360)
                 self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
                               step.run)
