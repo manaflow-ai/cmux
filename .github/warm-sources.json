@@ -147,7 +147,7 @@
     "cmux-next-ios-kit.yml:kit-tests": {"class": "ios", "warm": ["actions-cache"]},
     "cmux-next-media.yml:tour": {"class": "mac-build", "warm": ["deriveddata-reuse", "product-reuse"]},
     "cmux-next-perf-bench.yml:bench": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
-    "cmux-next-stress-bench.yml:measure": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
+    "cmux-next-web-perf.yml:stress-measure": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-tab-switch.yml:frames": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "mobile-worker-dev-deploy.yml:deploy-dev": {"class": "linux-js", "warm": [], "exempt": "cold: bun install, TypeScript check and vitest on workerd before a dev deploy, with no dependency cache; no warm source wired yet"},
     "device-hub.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: npm ci, TypeScript check, vitest on workerd and a wrangler dry-run for the device hub Worker, with no dependency cache; no warm source wired yet"},

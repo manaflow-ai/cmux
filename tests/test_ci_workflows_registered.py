@@ -47,8 +47,8 @@ REGISTERED = frozenset({
 
 UNREGISTERED = frozenset({
     "classic-migration-staging.yml", "cmux-mobile-link-stats.yml", "cmux-next-fast-tier-batch.yml",
-    "cmux-next-pr-pipeline-linux-batch.yml", "cmux-next-stress-bench.yml", "cmux-next-tooling-tests-batch.yml",
-    "cmux-next-web-perf.yml", "cmux-web-layer-fork.yml", "device-hub-logs.yml", "internal-token-staging.yml",
+    "cmux-next-pr-pipeline-linux-batch.yml", "cmux-next-tooling-tests-batch.yml",
+    "cmux-web-layer-fork.yml", "device-hub-logs.yml", "internal-token-staging.yml",
     "ios-asc-subscription-records.yml", "ios-testflight.yml",
 })
 
