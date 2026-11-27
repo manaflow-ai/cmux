@@ -29,8 +29,8 @@ name: fleet test-compile (advisory)
 # head (scripts/ci/fleet_compile_result.py --phase test-compile, the trusted
 # base copy), as cmux-next.yml's app compile does: the read submits it, and no
 # Mac runner waits on the pool. Before, the job held a gateway Mac
-# (vars.CI_TEST_COMPILE_GATEWAY) only to wait for the client. That label is now
-# a fallback: the mac-fallback job runs the old client on it only when the read
+# (vars.CI_TEST_COMPILE_GATEWAY) only to wait for the client. That variable now
+# enables a Linux fallback: mac-fallback runs the client only when the read
 # gives no verdict and the variable is set (never the required compile's
 # CI_COMPILE_CHECK_GATEWAY: on 2026-10-22 this check held 13 of the 19 runners
 # serving glaeda-side-light-xcode-26.6 while 71 required app compiles queued).
@@ -230,21 +230,39 @@ jobs:
             *) no_verdict "${why:-$word}" ;;
           esac
 
-  # Only when the read gives no verdict and CI_TEST_COMPILE_GATEWAY names a label: the old gateway client, which
-  # holds a fleet runner while the pool compiles. Unset, nothing queues.
+  # Only when the read gives no verdict and CI_TEST_COMPILE_GATEWAY is set: the Linux fleet client
+  # waits while the pool compiles. Unset, nothing queues.
   mac-fallback:
     name: fleet/test-compile fallback (advisory)
     needs: [plan, compile]
     if: ${{ needs.compile.outputs.verdict == 'none' && vars.CI_TEST_COMPILE_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TEST_COMPILE_GATEWAY (cmux#54437)
-    permissions: {}
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      contents: read
     # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
     # report: a job timeout concludes as a failure, which would read as red.
     timeout-minutes: 90
     steps:
+      - name: Checkout fleet client tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
       - name: Say why this runs
         run: echo "::warning title=mac fallback::The Linux read of the controller's test-target compile gave no verdict; compiling through the gateway client."
-      # The gateway checks nothing out: the pool fetches the merge commit itself.
+      # Only client tooling is checked out here: the pool fetches the merge commit itself.
       # Exit 0 is a pass. Exit 1 is a compile failure (this check goes red).
       # Anything else (69, 75 or 124: no pool VM, queue or run timeout, the
       # client) is no verdict: a warning, and this check stays green.

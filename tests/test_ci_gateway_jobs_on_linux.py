@@ -12,6 +12,7 @@ and a listed job that left the label must leave the list.
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -21,28 +22,40 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "fleet-client" / "action.yml"
 LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+ISOLATED_LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}"
+WRITE_TOKEN_GATEWAYS = {"fleet-compile-check.yml#compile-check", "ios-base-bisect.yml#bisect"}
 
 GATEWAY_MAC = frozenset({
     "chief-evals.yml#fleet-ab",
-    "cmux-next-head-compile.yml#compile",
-    "cmux-next-ios-energy-nightly.yml#bench",
-    "cmux-next-ios-keyboard-motion.yml#bench",
-    "cmux-next-iphone-clips.yml#record",
-    "cmux-next-perf-bench.yml#bench",
-    "cmux-next-perf-budgets.yml#measure",
-    "cmux-next-stress-bench.yml#measure",
-    "cmux-next-tab-switch.yml#frames",
-    "fleet-compile-check.yml#compile-check",
-    "fleet-test-compile.yml#mac-fallback",
-    "ios-base-bisect.yml#bisect",
-    "ios-sim-linux-build.yml#build-fleet",
-    "screen-stream-eval.yml#eval",
 })
+
+PORTABLE_GATEWAYS = {
+    "cmux-next-head-compile.yml#compile": "scripts/ci/head_compile.py",
+    "cmux-next-ios-energy-nightly.yml#bench": "CMUX_CI_CLIENT",
+    "cmux-next-ios-keyboard-motion.yml#bench": "CMUX_CI_CLIENT",
+    "cmux-next-iphone-clips.yml#record": "CMUX_CI_CLIENT",
+    "cmux-next-perf-bench.yml#bench": "CMUX_CI_CLIENT",
+    "cmux-next-perf-budgets.yml#measure": "scripts/cmux-next/perf-cron.py",
+    "cmux-next-stress-bench.yml#measure": "CMUX_CI_CLIENT",
+    "cmux-next-tab-switch.yml#frames": "CMUX_CI_CLIENT",
+    "fleet-compile-check.yml#compile-check": "CMUX_CI_CLIENT",
+    "fleet-test-compile.yml#mac-fallback": "CMUX_CI_CLIENT",
+    "ios-base-bisect.yml#bisect": "scripts/ci/ios_base_bisect.py",
+    "ios-sim-linux-build.yml#build-fleet": "CMUX_CI_CLIENT",
+    "screen-stream-eval.yml#eval": "CMUX_CI_CLIENT",
+}
 
 MOVED = {
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
     "cmux-next-fast-tier-batch.yml#swift-fleet": "CMUX_CI_CLIENT",
+    **PORTABLE_GATEWAYS,
 }
+
+HISTORICAL = {
+    "cmux-next-head-compile.yml#compile": "${{ inputs.head || github.sha }}",
+    "ios-base-bisect.yml#bisect": "${{ needs.plan.outputs.red }}",
+}
+NEEDS_GH = {*HISTORICAL, "ios-sim-linux-build.yml#build-fleet"}
 
 
 def jobs():
@@ -70,16 +83,74 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         for key, marker in MOVED.items():
             with self.subTest(key):
                 job = found[key]
-                self.assertEqual(job["runs-on"], LINUX)
+                self.assertEqual(job["runs-on"], ISOLATED_LINUX if key in WRITE_TOKEN_GATEWAYS else LINUX)
                 steps = job["steps"]
-                checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
+                prefix = ".fleet-tooling/" if key in HISTORICAL else ""
+                checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")
+                                and s.get("with", {}).get("path", "") == prefix.rstrip("/"))
                 self.assertIn(".github/actions/fleet-client", checkout["with"]["sparse-checkout"])
                 uses = [s.get("uses") for s in steps]
-                self.assertIn("./.github/actions/fleet-client", uses)
-                client = uses.index("./.github/actions/fleet-client")
+                action = f"./{prefix}.github/actions/fleet-client"
+                self.assertIn(action, uses)
+                client = uses.index(action)
+                self.assertLess(steps.index(checkout), client)
                 self.assertEqual(steps[client]["with"]["controller"], "${{ vars.CMUX_FLEET_CONTROLLER }}")
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
+
+    def test_replays_bootstrap_from_the_workflow_commit_after_the_target_checkout(self) -> None:
+        found = dict(jobs())
+        for key, target in HISTORICAL.items():
+            with self.subTest(key):
+                checkouts = [s["with"] for s in found[key]["steps"]
+                             if str(s.get("uses", "")).startswith("actions/checkout")]
+                self.assertEqual(checkouts[0]["ref"], target)
+                self.assertEqual(checkouts[1]["ref"], "${{ github.workflow_sha }}")
+                self.assertEqual(checkouts[1]["path"], ".fleet-tooling")
+                self.assertIs(checkouts[1]["persist-credentials"], False)
+
+    def test_checkouts_have_read_permission_and_portable_jobs_leave_the_mac_map(self) -> None:
+        routes = json.loads((ROOT / ".github" / "runners.json").read_text())["macos_jobs"]
+        found = dict(jobs())
+        for key in PORTABLE_GATEWAYS:
+            with self.subTest(key):
+                document = yaml.safe_load((WORKFLOWS / key.split("#")[0]).read_text())
+                permissions = found[key].get("permissions", document.get("permissions", {}))
+                self.assertIn(permissions.get("contents"), {"read", "write"})
+                self.assertNotIn(key, routes)
+
+    def test_write_token_clients_keep_one_job_isolation(self) -> None:
+        found = dict(jobs())
+        for key in PORTABLE_GATEWAYS:
+            with self.subTest(key):
+                source = (WORKFLOWS / key.split("#")[0]).read_text()
+                document = yaml.safe_load(source)
+                permissions = found[key].get("permissions", document.get("permissions", {}))
+                writes = permissions == "write-all" or (
+                    isinstance(permissions, dict) and "write" in permissions.values())
+                self.assertEqual(writes, key in WRITE_TOKEN_GATEWAYS,
+                                 "a new write permission requires an isolated runner")
+                if writes:
+                    self.assertEqual(found[key]["runs-on"], ISOLATED_LINUX)
+                    self.assertIn("# ephemeral-required:", source)
+
+    def test_gh_is_installed_before_its_first_use(self) -> None:
+        found = dict(jobs())
+        for key in NEEDS_GH:
+            with self.subTest(key):
+                steps = found[key]["steps"]
+                prefix = ".fleet-tooling/" if key in HISTORICAL else ""
+                command = f"bash {prefix}scripts/ci/nightly-steps/ensure-gh.sh"
+                setup = next(i for i, s in enumerate(steps) if s.get("run") == command)
+                self.assertEqual(steps[setup]["env"]["GH_PIN_TOKEN"], "${{ github.token }}")
+                sparse = next(s["with"]["sparse-checkout"] for s in steps[:setup]
+                              if str(s.get("uses", "")).startswith("actions/checkout")
+                              and s.get("with", {}).get("path", "") == prefix.rstrip("/"))
+                self.assertIn("scripts/ci/nightly-steps/ensure-gh.sh", sparse)
+                self.assertIn("scripts/ci/github-release-download.sh", sparse)
+                for step in steps[:setup]:
+                    self.assertNotIn("gh api", step.get("run", ""))
+                self.assertIn(MOVED[key], yaml.safe_dump(steps[setup + 1:]))
 
     def test_the_action_checks_every_file_and_exports_the_client_only_when_whole(self) -> None:
         text = ACTION.read_text(encoding="utf-8")

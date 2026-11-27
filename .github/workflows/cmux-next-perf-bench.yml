@@ -6,7 +6,7 @@ name: cmux-next perf bench
 # (class exclusive) and fails when a cmux row regressed past
 # scripts/perf-bench/baseline/<chip>-macos<major>.json, or broke an enforced resource budget
 # (cmux-budget, scripts/perf-bench/budgets.json). It goes through the
-# build-fleet gateway runner (the one CI_EVAL_STEP_GATEWAY names),
+# Linux fleet client, enabled by CI_EVAL_STEP_GATEWAY,
 # which only hands the step to the controller with `cmux-ci run`.
 
 on:
@@ -45,11 +45,27 @@ env:
 jobs:
   bench:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 420
     steps:
-      # No checkout: the gateway runner takes only thin cmux-ci clients (glaeda GATEWAY_JOBS), and this
-      # job needs only the measured commit's sha. The bench mini checks the tree out itself.
+      - name: Checkout fleet client tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
+      # Only client tooling is checked out here. The bench mini checks out the measured commit itself.
       - name: xbench on a fleet mini
         env:
           # Manual PR-branch dispatches measure that branch's immutable commit, as NEXT dispatches already do.
