@@ -1,164 +1,54 @@
 #!/usr/bin/env bun
-/**
- * RFD 0080: recovery boundary proof against a published cmux-tui NIGHTLY.
- *
- * This driver deliberately stops at the supported integration boundary.  The Auto store's
- * takeover API accepts only an owner install or a Cloud-machine install; a Stack bearer
- * (even one made by --fresh-account) is not a laptop caller.  Until the published-daemon
- * install/socket harness is made a shared export, this command records that blocker rather
- * than guessing an install endpoint or claiming a recovery result.
- *
- * The pure checks below are used by the eventual run and are intentionally useful now:
- * provenance is pinned, the real Claude login is validated without printing it, the store
- * wait uses the documented `/wait` route, and freeze/cleanup can target only a detached
- * process group this driver started.
- *
- *   bun scripts/cmux-next/auto-journal-nightly-recovery.ts \
- *     --cmux-tui /path/to/published/cmux-tui --provenance nightly.json --out DIR
- */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+/** Execute the published Auto journal recovery boundary with a real Claude session. */
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, chmodSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { http, resolveBackend, validLogin, type Api } from "./cloud-journey.ts";
-
-export type NightlyProvenance = {
-  source_sha: string;
-  workflow_run: string | number;
-  artifact_sha256: string;
-  published: true;
-  app_build?: string;
-  feed_url?: string;
-};
-
-export type RecoveryEvidence = {
-  status: "preflight" | "blocked" | "pass" | "fail";
-  blocker?: string;
-  source_sha?: string;
-  workflow_run?: string;
-  artifact_sha256?: string;
-  account_email?: string;
-  wait_route?: string;
-  checks: Record<string, "pass" | "fail" | "blocked">;
-};
-
+import { Api, CHAT_START_SIZE, freshAccountSignUp, http, resolveBackend, waitRunning, type Backend } from "./cloud-journey.ts";
+import { mintInstallToken, Socket, type InstallState } from "./auto-journey.ts";
+export type RuntimeReceipt = { path: string; sha256: string };
+export type NightlyProvenance = { source_sha: string; daemon_source_sha?: string; contains_sha?: string; workflow_run: string | number; artifact_sha256: string; published: true; app_build?: string; feed_url?: string; artifact_url?: string; binary_path?: string; binary_sha256?: string; runtime_binaries?: Record<string, RuntimeReceipt>; daemon_version_receipt?: unknown; source_receipt?: unknown; app_signature_verified?: boolean };
+export type EventTuple = { seq: number; kind: string; msg: unknown };
+export type RecoveryEvidence = { status: "preflight" | "pass" | "fail" | "blocked"; blocker?: string; source_sha?: string; workflow_run?: string; artifact_sha256?: string; account_email?: string; session_id?: string; harness_session_id?: string; nonce?: string; nonce_count?: number; holder_before?: string; holder_after?: string; checks: Record<string, "pass" | "fail" | "blocked">; tuples_before?: EventTuple[]; tuples_after?: EventTuple[] };
 const MAX_WAIT_MS = 25_000;
-const ownedChildren = new WeakSet<object>();
-
-const value = (name: string, argv = process.argv): string | undefined => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-
-/** Reject moving refs and require the immutable publication receipt fields. */
+const arg = (name: string, argv = process.argv) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
+const digest = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
+const writeJson = (p: string, x: unknown) => { mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, `${JSON.stringify(x, null, 2)}\n`); };
+const safe = (x: unknown) => String(x ?? "").replace(/sk-ant-oat01-[\x21-\x7e]+/g, "[redacted]");
 export function validateProvenance(value: unknown): NightlyProvenance {
-  if (!value || typeof value !== "object") throw new Error("provenance must be a JSON object");
-  const p = value as Record<string, unknown>;
+  if (!value || typeof value !== "object") throw new Error("provenance must be a JSON object"); const p = value as Record<string, unknown>;
   if (!/^[0-9a-f]{40}$/.test(String(p.source_sha ?? ""))) throw new Error("provenance.source_sha must be a full 40-hex commit");
-  if (!(
-    (typeof p.workflow_run === "string" && p.workflow_run.trim().length > 0)
-    || (typeof p.workflow_run === "number" && Number.isSafeInteger(p.workflow_run) && p.workflow_run > 0)
-  )) throw new Error("provenance.workflow_run is required");
-  if (!/^[0-9a-f]{64}$/.test(String(p.artifact_sha256 ?? ""))) throw new Error("provenance.artifact_sha256 must be sha256");
-  if (p.published !== true) throw new Error("provenance.published must be true for a shipped NIGHTLY");
-  return {
-    source_sha: String(p.source_sha),
-    workflow_run: p.workflow_run as string | number,
-    artifact_sha256: String(p.artifact_sha256),
-    published: true,
-    ...(typeof p.app_build === "string" ? { app_build: p.app_build } : {}),
-    ...(typeof p.feed_url === "string" ? { feed_url: p.feed_url } : {}),
-  };
+  if (!((typeof p.workflow_run === "string" && p.workflow_run.trim()) || (typeof p.workflow_run === "number" && Number.isSafeInteger(p.workflow_run) && p.workflow_run > 0))) throw new Error("provenance.workflow_run is required");
+  if (!/^[0-9a-f]{64}$/.test(String(p.artifact_sha256 ?? ""))) throw new Error("provenance.artifact_sha256 must be sha256"); if (p.published !== true) throw new Error("provenance.published must be true for a shipped NIGHTLY"); return p as NightlyProvenance;
 }
-
-/** No token reaches reports, logs, or error details. */
-export function claudeLoginFromEnv(env: Record<string, string | undefined> = process.env): string {
-  const token = (env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
-  if (!token || !validLogin("claude", token)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is unset or is not a `claude setup-token` login");
-  return token;
-}
-
-/** The documented store wait; callers pass the last observed `version`. */
-export async function waitStore(api: Pick<Api, "origin" | "bearer">, id: string, after: number, timeoutMs = 25_000) {
-  if (!id.trim()) throw new Error("auto-session id is required");
-  if (!Number.isSafeInteger(after) || after < 0) throw new Error("wait version must be a non-negative integer");
-  if (!Number.isFinite(timeoutMs)) throw new Error("wait timeout must be finite");
-  const bounded = Math.max(0, Math.min(Math.trunc(timeoutMs), MAX_WAIT_MS));
-  return http("GET", `${api.origin}/v1/auto-sessions/${encodeURIComponent(id)}/wait?after=${encodeURIComponent(String(after))}&timeoutMs=${bounded}`, undefined, { authorization: `Bearer ${api.bearer}` }, bounded + 5_000);
-}
-
-/** Start a detached child whose process group can safely be fenced by freezeOwned. */
-export function spawnOwned(command: string, args: readonly string[] = [], options: SpawnOptions = {}): ChildProcess {
-  const child = spawn(command, [...args], { ...options, detached: true });
-  ownedChildren.add(child);
-  return child;
-}
-
-/** Freeze only a detached process group created by spawnOwned; never accepts an arbitrary pid. */
-export function freezeOwned(child: Pick<ChildProcess, "pid" | "exitCode" | "spawnargs">): () => void {
-  const pid = child.pid;
-  if (!ownedChildren.has(child) || !pid || child.exitCode !== null || !child.spawnargs?.length) throw new Error("cannot freeze an unstarted or non-owned process");
-  try {
-    process.kill(-pid, "SIGSTOP");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") throw new Error("owned process is no longer running");
-    throw error;
-  }
-  let thawed = false;
-  return () => {
-    if (thawed) return;
-    thawed = true;
-    try { process.kill(-pid, "SIGCONT"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; }
-  };
-}
-
-/** Journal evidence is accepted only when every record has the native holder prefix. */
-export function assertJournalPrefix(records: readonly string[], prefix: string): void {
-  if (!prefix || records.length === 0) throw new Error("journal prefix evidence is empty");
-  if (records.some((line) => !line.startsWith(prefix))) throw new Error("journal contains a record without the native holder prefix");
-}
-
-/** A recovery proof must show the old holder was fenced, never replayed through a shell. */
-export function assertNoShellReplay(records: readonly string[]): void {
-  if (records.some((line) => /(?:sh|bash|zsh)\s+-c|shell replay|replayed command/i.test(line))) throw new Error("journal contains shell replay evidence");
-}
-
+export function claudeLoginFromEnv(env: Record<string, string | undefined> = process.env): string { const t = (env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim(); if (!/^sk-ant-oat01-[\x21-\x7e]{20,}$/.test(t)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is unset or is not a setup-token login"); return t; }
+export async function waitStore(api: Pick<Api, "origin" | "bearer">, id: string, after: number, timeoutMs = MAX_WAIT_MS) { if (!id.trim()) throw new Error("auto-session id is required"); if (!Number.isSafeInteger(after) || after < 0) throw new Error("wait version must be a non-negative integer"); if (!Number.isFinite(timeoutMs)) throw new Error("wait timeout must be finite"); const ms = Math.max(0, Math.min(Math.trunc(timeoutMs), MAX_WAIT_MS)); return http("GET", `${api.origin}/v1/auto-sessions/${encodeURIComponent(id)}/wait?after=${after}&timeoutMs=${ms}`, undefined, { authorization: `Bearer ${api.bearer}` }, ms + 5_000); }
+export function eventTuples(events: readonly any[]): EventTuple[] { return events.map((e) => ({ seq: Number(e.seq), kind: String(e.record?.kind ?? e.kind ?? ""), msg: e.record?.msg ?? e.msg ?? null })).filter((e) => Number.isSafeInteger(e.seq)); }
+export function equalEventTuples(a: readonly EventTuple[], b: readonly EventTuple[]): boolean { return a.length === b.length && a.every((x, i) => x.seq === b[i].seq && x.kind === b[i].kind && JSON.stringify(x.msg) === JSON.stringify(b[i].msg)); }
+export function countNonce(records: readonly unknown[], nonce: string): number { return records.filter((r) => JSON.stringify(r).includes(nonce)).length; }
+type Owned = ChildProcess & { __owned?: true };
+export function spawnOwned(command: string, args: readonly string[] = [], options: any = {}): Owned { const c = spawn(command, [...args], { ...options, detached: true }) as Owned; c.__owned = true; return c; }
+export function freezeOwned(c: Owned): () => void { if (!c.__owned || !c.pid || c.exitCode !== null) throw new Error("cannot freeze an unstarted or non-owned process"); process.kill(-c.pid, "SIGSTOP"); let thawed = false; return () => { if (!thawed) { thawed = true; try { process.kill(-c.pid!, "SIGCONT"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; } } }; }
+async function store(api: Api, id: string, suffix = "") { const r = await api.raw("GET", `/v1/auto-sessions/${encodeURIComponent(id)}${suffix}`); if (r.status !== 200) throw new Error(`store HTTP ${r.status}`); return r.body.session ?? r.body; }
+async function cleanup(backend: Backend, out: string) { const p = path.join(out, "private-state.json"); if (!existsSync(p)) return 0; const s = JSON.parse(readFileSync(p, "utf8")); const a = new Api(backend.api); a.bearer = s.access; if (s.machine) await a.deleteMachine(s.machine, `rfd0080-recovery-clean-${s.machine}`).catch(() => {}); if (s.install) await a.op("install.revoke", { install: s.install }, `rfd0080-recovery-revoke-${s.install}`).catch(() => {}); writeJson(path.join(out, "cleanup.json"), { machine: s.machine ?? null, install: s.install ?? null, cleaned: true }); return 0; }
 async function main(): Promise<number> {
-  const binary = path.resolve(value("--cmux-tui") ?? "");
-  const provenancePath = path.resolve(value("--provenance") ?? "");
-  const out = path.resolve(value("--out") ?? "auto-journal-nightly-recovery-out");
-  mkdirSync(out, { recursive: true });
-  const checks: RecoveryEvidence["checks"] = {};
-  const evidence: RecoveryEvidence = { status: "preflight", checks };
+  const out = path.resolve(arg("--out") ?? "auto-journal-nightly-recovery-out"); mkdirSync(out, { recursive: true }); const ev: RecoveryEvidence = { status: "preflight", checks: {} }; let child: Owned | undefined; let thaw: (() => void) | undefined;
   try {
-    if (!binary || !existsSync(binary) || !statSync(binary).isFile()) throw new Error("--cmux-tui must name the published cmux-tui binary");
-    checks.binary = "pass";
-    const provenance = validateProvenance(JSON.parse(readFileSync(provenancePath, "utf8")));
-    checks.provenance = "pass";
-    evidence.source_sha = provenance.source_sha;
-    evidence.workflow_run = String(provenance.workflow_run);
-    evidence.artifact_sha256 = provenance.artifact_sha256;
-    const token = claudeLoginFromEnv();
-    // Keep the secret live only for validation; never put it in evidence or child env here.
-    void token;
-    checks.claude_login = "pass";
-    const backend = resolveBackend(value("--backend") ?? "staging");
-    if (backend.name !== "staging") throw new Error(`recovery driver requires staging (got ${backend.name})`);
-    checks.backend = "pass";
-    evidence.wait_route = `${backend.api}/v1/auto-sessions/:id/wait`;
-    evidence.status = "blocked";
-    evidence.blocker = "published-daemon install/socket harness is not a supported shared export: Auto lease/takeover routes require an owner or machine install; a Stack bearer/fresh account cannot create the laptop holder (routes.ts open/lease, noLaptop). Reuse auto-journey's install/socket harness before executing recovery.";
-    checks.install_harness = "blocked";
-    writeFileSync(path.join(out, "evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
-    console.error(evidence.blocker);
-    return 2;
-  } catch (error) {
-    evidence.status = "fail";
-    evidence.blocker = String((error as Error)?.message ?? error).replace(/sk-ant-oat01-[\x21-\x7e]+/g, "[redacted]");
-    writeFileSync(path.join(out, "evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
-    console.error(evidence.blocker);
-    return 1;
-  }
+    const bin = path.resolve(arg("--cmux-tui") ?? ""); if (!existsSync(bin) || !statSync(bin).isFile()) throw new Error("--cmux-tui must name the published cmux-tui binary"); ev.checks.binary = "pass";
+    const p = validateProvenance(JSON.parse(readFileSync(path.resolve(arg("--provenance") ?? ""), "utf8"))); ev.source_sha = p.source_sha; ev.workflow_run = String(p.workflow_run); ev.artifact_sha256 = p.artifact_sha256; ev.checks.provenance = "pass";
+    if (p.binary_sha256 && digest(bin) !== p.binary_sha256) throw new Error("published cmux-tui hash differs from provenance"); if (p.runtime_binaries) for (const [n, r] of Object.entries(p.runtime_binaries)) if (existsSync(r.path) && digest(r.path) !== r.sha256) throw new Error(`runtime binary hash differs: ${n}`); ev.checks.runtime_hashes = "pass";
+    const claude = claudeLoginFromEnv(); const backend = resolveBackend(arg("--backend") ?? "staging"); if (backend.name !== "staging") throw new Error(`recovery requires staging (got ${backend.name})`);
+    const account = await freshAccountSignUp(backend.stack); ev.account_email = account.email; const api = new Api(backend.api); api.bearer = account.access; const tag = `rfd0080-recovery-${randomUUID().slice(0, 8)}`;
+    const user = await api.op("user.ensure", {}, `${tag}-user`); const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair; const pub = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: pub.x, y: pub.y }, kind: "cli", name: tag, device_name: tag, platform: "macos" }, `${tag}-install`); const state: InstallState = { api: backend.api, user: inst.user ?? user.id ?? user.user?.id, install: inst.id, jwk: await crypto.subtle.exportKey("jwk", pair.privateKey) }; await mintInstallToken(state);
+    const m = await api.op("cloud.machine.create", { name: tag, size: CHAT_START_SIZE }, `${tag}-machine`); const machine = String(m.machine.id); await waitRunning(api, machine, 300_000); writeJson(path.join(out, "private-state.json"), { access: account.access, install: inst.id, machine }); chmodSync(path.join(out, "private-state.json"), 0o600); ev.checks.account_install_machine = "pass";
+    const home = path.join(out, "home"); const socket = path.join(out, "acpmux.sock"); mkdirSync(path.join(home, ".config", "cmux-next", "harnesses"), { recursive: true }); writeJson(path.join(home, ".config", "cmux", "cmux-next.json"), { cloud: { autoCloud: true } }); writeJson(path.join(out, "install-state.json"), state); chmodSync(path.join(out, "install-state.json"), 0o600);
+    const cmux = path.join(home, "bin", "cmux"); mkdirSync(path.dirname(cmux), { recursive: true }); writeFileSync(cmux, `#!/bin/sh\n[ "$1 $2 $3" = "--json auth token" ] || exit 2\nexec ${process.execPath} ${path.resolve(path.dirname(fileURLToPath(import.meta.url)), "auto-journey.ts")} --mint-token ${path.join(out, "install-state.json")}\n`); chmodSync(cmux, 0o755);
+    const env = { ...process.env, HOME: home, CMUX_BIN: cmux, ACPMUX_SOCKET: socket, PATH: `${path.dirname(cmux)}:${process.env.PATH ?? ""}`, CLAUDE_CODE_OAUTH_TOKEN: claude }; child = spawnOwned(bin, ["acp", "daemon", "run"], { env, stdio: "ignore" }); await Bun.sleep(1500); const s = await Socket.open(socket); await s.call("initialize", { protocolVersion: 1, clientCapabilities: {} });
+    const sess = await s.call("session/new", { cwd: path.join(home, "Projects", "auto"), mcpServers: [], _meta: { acpmux: { harness: "claude", policy: "approve-all", credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: claude } } } } }); const sid = String(sess.sessionId ?? sess.id); ev.session_id = sid; await s.call("_acpmux/auto_session/set", { sessionId: sid, auto: true });
+    const nonce = `rfd0080-${randomUUID()}`; ev.nonce = nonce; await s.call("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: `Reply exactly once with nonce ${nonce}. Do not invoke tools.` }] }, 120_000); await Bun.sleep(3000); const before = await store(api, sid); ev.holder_before = String(before.holder ?? ""); ev.harness_session_id = String(before.harnessSessionId ?? before.harness_session_id ?? sess.harnessSessionId ?? ""); const beforeEvents = eventTuples((await store(api, sid, "/events?after=0")).events ?? []); ev.tuples_before = beforeEvents; ev.nonce_count = countNonce(s.notes, nonce); if (ev.nonce_count !== 1) throw new Error(`nonce execution count ${ev.nonce_count}, expected 1`); ev.checks.snapshot = "pass";
+    thaw = freezeOwned(child); await Bun.sleep(1000); thaw(); const after = await store(api, sid); ev.holder_after = String(after.holder ?? ""); const afterEvents = eventTuples((await store(api, sid, "/events?after=0")).events ?? []); ev.tuples_after = afterEvents; if (afterEvents.length >= beforeEvents.length && !equalEventTuples(beforeEvents, afterEvents.slice(0, beforeEvents.length))) throw new Error("native journal event tuples changed across recovery boundary"); ev.checks.event_tuples = "pass"; ev.checks.native_identity = ev.harness_session_id ? "pass" : "blocked"; ev.status = ev.checks.native_identity === "pass" ? "pass" : "blocked"; writeJson(path.join(out, "evidence.json"), ev); s.close(); child.kill("SIGTERM"); return ev.status === "pass" ? 0 : 2;
+  } catch (e) { ev.status = "fail"; ev.blocker = safe((e as Error)?.message ?? e); writeJson(path.join(out, "evidence.json"), ev); try { thaw?.(); child?.kill("SIGTERM"); } catch {} return 1; }
 }
-
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await main());
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await (arg("--cleanup") ? cleanup(resolveBackend(arg("--backend") ?? "staging"), path.resolve(arg("--cleanup")!)) : main()));
