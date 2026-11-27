@@ -3843,6 +3843,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           () => true,
           () => false,
         ),
+      // A sign-in that ended closes the tab it opened, while still on its own hosts (AgentPaneSignInTabs.swift).
+      signInEnded: (urls, hosts) => void callChipHost("browser.signInEnded", { urls, hosts }),
       isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
       currentClient: () => directClient.current ?? undefined,
     };
@@ -3876,6 +3878,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     ? (directClient.current ?? undefined)
                     : undefined,
                 openURL: login.openURL,
+                signInEnded: login.signInEnded,
               }),
             }
           : cloudSignIn,

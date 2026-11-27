@@ -232,3 +232,64 @@ test("an older Cloud machine offers Sign in again only for a login that finishes
     });
   }
 });
+
+test("a login's end tells the host its pages and hosts once, so the tab it opened closes (finish, refusal, Cancel)", async () => {
+  // Logins done right (Leo: "this is simply logins, done righr. end of story."): the sign-in page's
+  // tab goes once the login ended; the host decides which tab (AgentPaneSignInTabs.swift).
+  const hosts = ["claude.com", "claude.ai"];
+  const ended: [string[], string[]][] = [];
+  let finish: () => Promise<unknown> = () => Promise.resolve({ signedIn: true });
+  const { login } = options({ machineID: "vm-1", elsewhere: true });
+  const client = {
+    ...(login.currentClient() as object),
+    agentLoginStart: () =>
+      Promise.resolve({
+        loginId: "login-1",
+        url: "https://claude.ai/oauth/authorize",
+        needsCode: true,
+        pageHosts: hosts,
+      }),
+    agentLoginFinish: () => finish(),
+  };
+  const signIn = cloudAgentLogin({
+    ...login,
+    currentClient: () => client as never,
+    signInEnded: (urls, named) => ended.push([urls, named]),
+  })!;
+  const started = await signIn.start();
+  expect(started.pageHosts).toEqual(hosts);
+  expect(ended).toEqual([]);
+  // Signed in: told once; a second finish or a Cancel of the same login tells nothing more.
+  expect(await signIn.finish("login-1", "code")).toBe(true);
+  await signIn.finish("login-1").catch(() => undefined);
+  signIn.cancel("login-1");
+  expect(ended).toEqual([[["https://claude.ai/oauth/authorize"], hosts]]);
+
+  // A refused finish (a wrong code, an expired login) ends the login in acpmux too.
+  ended.length = 0;
+  finish = () => Promise.reject({ code: -32000, data: { reason: "bad_code" } });
+  await signIn.start();
+  await expect(signIn.finish("login-1", "nope")).rejects.toBeDefined();
+  expect(ended).toEqual([[["https://claude.ai/oauth/authorize"], hosts]]);
+
+  // Cancel (the card's Cancel, its expiry, the card going away) tells it too.
+  ended.length = 0;
+  await signIn.start();
+  signIn.cancel("login-1");
+  expect(ended).toEqual([[["https://claude.ai/oauth/authorize"], hosts]]);
+
+  // A login this card never started tells nothing.
+  ended.length = 0;
+  signIn.cancel("login-other");
+  expect(ended).toEqual([]);
+});
+
+test("an older acpmux names no pageHosts: the host still closes a tab on the page's own host", async () => {
+  const ended: [string[], string[]][] = [];
+  const { login } = options({ machineID: "vm-1", elsewhere: true });
+  const signIn = cloudAgentLogin({ ...login, signInEnded: (urls, hosts) => ended.push([urls, hosts]) })!;
+  const started = await signIn.start();
+  expect(started.pageHosts).toBeUndefined();
+  signIn.cancel(started.loginId);
+  expect(ended).toEqual([[["https://claude.ai/oauth/authorize"], []]]);
+});

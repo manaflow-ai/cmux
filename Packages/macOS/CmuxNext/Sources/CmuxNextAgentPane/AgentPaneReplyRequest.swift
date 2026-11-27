@@ -23,6 +23,9 @@ public import Foundation
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
+/// - `browser.signInEnded {urls, hosts?}`: a sign-in whose pages (`urls`) this chat opened ended, so
+///   the tab each opened closes while it is still on the page's host or one of `hosts`
+///   (``AgentPaneSignInTabs``). Passive: it never opens anything, and an expiry sends it with no click.
 /// - `image.reveal {src, name, path?}`: show an image the viewer holds in Finder: the file `path`
 ///   names when it is one inside the roots of a local chat, else a copy of the `data:` image `src`
 ///   (``AgentPaneImageCopies``). Spends one user gesture.
@@ -61,6 +64,8 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case quickLookVideo(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
+    /// `browser.signInEnded {urls, hosts?}`: the sign-in pages among `urls` (``AgentPaneSignInPage/allowed(_:)``).
+    case signInEnded(urls: [URL], hosts: [String])
     case revealImage(src: String, name: String, path: String?)
     case openImageInPane(src: String, name: String)
     case copyImage(src: String, name: String)
@@ -76,14 +81,14 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
-        "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
-        "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
+        "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "browser.signInEnded",
+        "image.reveal", "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
         "video.info", "video.probes", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
         "composer.copy.begin", "composer.copy.chunk", "composer.copy.finish", "composer.copy.cancel", "composer.copy.staged",
     ]
 
-    /// Each method's exact param keys (all required; `link.inspect` takes either list, and
-    /// `image.load`'s `auto` may be left out).
+    /// Each method's exact param keys (all required; `link.inspect` takes either list,
+    /// `image.load`'s `auto` and `browser.signInEnded`'s `hosts` may be left out).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path", "line"],
@@ -96,6 +101,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "video.quickLook": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
+        "browser.signInEnded": ["urls", "hosts"],
         "image.reveal": ["src", "name", "path"],
         "image.openInPane": ["src", "name"],
         "image.copy": ["src", "name"],
@@ -142,7 +148,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath, .signInEnded: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
              .dragFile, .copyComposer, .stageComposer, .copyStagedComposer: false
         }
@@ -213,6 +219,14 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
+        case "browser.signInEnded":
+            // At most a few pages and hosts (one sign-in's link and its automatic page; acpmux's
+            // `pageHosts`); any URL that is not a sign-in page refuses the request.
+            guard params["urls"] != nil, let raw = list("urls", Self.maximumURL), raw.count <= 8,
+                  let hosts = list("hosts", 253), hosts.count <= 16 else { return nil }
+            let urls = raw.compactMap(Self.webURL).filter(AgentPaneSignInPage.allowed)
+            guard urls.count == raw.count else { return nil }
+            self = .signInEnded(urls: urls, hosts: hosts)
         case "file.drag":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = .dragFile(path)

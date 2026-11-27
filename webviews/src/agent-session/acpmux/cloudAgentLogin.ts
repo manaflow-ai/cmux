@@ -76,7 +76,19 @@ export type LoginStart = {
   userCode?: string;
   needsCode: boolean;
   expiresAtMs?: number;
+  /// The hosts the sign-in's page may move between while the person signs in (acpmux
+  /// `agent_login::parse::page_hosts`): once the login ended, the host closes the tab it opened while
+  /// it is still on one of them (``LoginOptions/signInEnded``). Absent from an older acpmux.
+  pageHosts?: string[];
 };
+
+/// The hosts of a start's `pageHosts`: its strings, at most 16.
+export function pageHostsOf(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((host): host is string => typeof host === "string" && host.length > 0 && host.length <= 253)
+    .slice(0, 16);
+}
 
 /// Why a login step failed, as the card words it (acpmux's `data.reason`; anything else is `failed`).
 export type LoginFailure =
@@ -194,6 +206,7 @@ function startOf(reply: unknown): LoginStart | undefined {
     ...(typeof value.userCode === "string" && value.userCode ? { userCode: value.userCode } : {}),
     needsCode: value.needsCode === true,
     ...(typeof value.expiresAtMs === "number" ? { expiresAtMs: value.expiresAtMs } : {}),
+    ...(Array.isArray(value.pageHosts) ? { pageHosts: pageHostsOf(value.pageHosts) } : {}),
   };
 }
 
@@ -275,6 +288,11 @@ type LoginOptions = {
   openURL: (url: string) => void;
   /// The host's machine-bound open (``CloudSignIn/openOnMachine``); true when it opened.
   openOnMachine?: (url: string) => Promise<boolean>;
+  /// Tells the host a login ended (signed in, refused, Cancel, expired or the card gone) with the
+  /// pages its start named and its `pageHosts` (`browser.signInEnded`): the host closes the tab it
+  /// opened for one of those pages while that tab is still on the sign-in's own hosts, and never any
+  /// other tab (AgentPaneSignInTabs.swift). The decision is the host's; this only says which login ended.
+  signInEnded?: (urls: string[], hosts: string[]) => void;
   isCurrent: (sessionId: string) => boolean;
   currentClient: () => LoginClient | undefined;
 };
@@ -410,6 +428,14 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     if (!live || !current()) throw new LoginStepError("failed");
     return live;
   };
+  // Each started login's pages, until it ends: told to the host once (``LoginOptions/signInEnded``).
+  const pages = new Map<string, { urls: string[]; hosts: string[] }>();
+  const ended = (loginId: string) => {
+    const login = pages.get(loginId);
+    if (!login) return;
+    pages.delete(loginId);
+    options.signInEnded?.(login.urls, login.hosts);
+  };
   const step = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
       return await run();
@@ -434,6 +460,10 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
               .catch(() => undefined);
           throw new LoginStepError("failed");
         }
+        pages.set(started.loginId, {
+          urls: [started.url, ...(started.autoUrl ? [started.autoUrl] : [])],
+          hosts: started.pageHosts ?? [],
+        });
         return started;
       }),
     open: (url) => {
@@ -447,10 +477,11 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
       return openOnMachine(auto.url).catch(() => false);
     },
     finish: (loginId, code) =>
+      // acpmux ends the login with any answer to its finish, a refusal (a wrong code too) as well.
       step(async () => {
         const reply = (await client().agentLoginFinish(loginId, sessionId, code)) as { signedIn?: unknown } | undefined;
         return reply?.signedIn === true;
-      }),
+      }).finally(() => ended(loginId)),
     apiKey: (key) =>
       step(async () => {
         const reply = (await client().agentLoginApiKey(agent, sessionId, key)) as { saved?: unknown } | undefined;
@@ -465,6 +496,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         return reply?.gateway === true;
       }),
     cancel: (loginId) => {
+      ended(loginId);
       void currentClient()
         ?.agentLoginCancel(loginId, sessionId)
         .catch(() => undefined);

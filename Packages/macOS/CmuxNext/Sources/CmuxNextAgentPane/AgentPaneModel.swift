@@ -345,6 +345,13 @@ public final class AgentPaneModel {
     /// can be made here (the card then opens the page that gives a code to paste). Asked before any
     /// gesture is spent.
     @ObservationIgnored public var onOpenSignInOnMachine: (@MainActor (URL) -> (@MainActor () -> Bool)?)?
+    /// Asked just before a sign-in page of this chat's card opens (`browser.openIn` of an
+    /// ``AgentPaneSignInPage/allowed(_:)`` page, either browser): the closer of the tab that open
+    /// makes, run with the sign-in's own hosts once the page says that sign-in ended
+    /// (`browser.signInEnded`, ``AgentPaneSignInTabs``). Nil: no tab of the card's ever closes.
+    @ObservationIgnored public var onSignInTabCloser: (@MainActor (URL) -> @MainActor ([String]) -> Void)?
+    /// The sign-in pages this chat's card opened, each with its tab's closer.
+    @ObservationIgnored var signInTabs = AgentPaneSignInTabs()
     /// Start Agent's panel (``AgentPaneQuickHooks``): its page's `quick.*` requests.
     @ObservationIgnored public var quick: AgentPaneQuickHooks?
     /// This build's URL scheme, handed to the page with every handshake so
