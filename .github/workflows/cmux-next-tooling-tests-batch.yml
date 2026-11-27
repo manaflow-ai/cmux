@@ -628,5 +628,5 @@ jobs:
         with:
           name: tooling-tests-passed-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tooling-reuse/tooling-passed.json
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore

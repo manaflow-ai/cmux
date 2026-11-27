@@ -200,4 +200,4 @@ jobs:
           name: cmux-next-fast-tier-batch-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

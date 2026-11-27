@@ -267,7 +267,7 @@ jobs:
             ${{ runner.temp }}/cas-replay-w1/rows.jsonl
             ${{ runner.temp }}/w1.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
@@ -328,7 +328,7 @@ jobs:
             ${{ runner.temp }}/cas-replay-b1/rows.jsonl
             ${{ runner.temp }}/b1.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   u2:
     name: cas/1 replay, row U2 (Mac update bytes, 20 NIGHTLYs behind)
@@ -425,7 +425,7 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/u2-marker" && cp "$RUNNER_TEMP/u2.json" "$RUNNER_TEMP/u2-marker/"
 
       - name: Save the marker
-        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.seen.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/u2-marker
@@ -440,7 +440,7 @@ jobs:
             ${{ runner.temp }}/cas-replay-u2/rows.jsonl
             ${{ runner.temp }}/u2.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   a1:
     name: cas/1 replay, row A1 (acpmux update bytes per published build)
@@ -526,7 +526,7 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/a1-marker" && cp "$RUNNER_TEMP/a1.json" "$RUNNER_TEMP/a1-marker/"
 
       - name: Save the marker
-        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.seen.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/a1-marker
@@ -541,4 +541,4 @@ jobs:
             ${{ runner.temp }}/cas-replay-a1/rows.jsonl
             ${{ runner.temp }}/a1.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3

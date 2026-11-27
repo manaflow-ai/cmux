@@ -368,7 +368,7 @@ jobs:
         with:
           name: linux-fallback-${{ matrix.group }}
           path: linux-failed-${{ matrix.group }}.tsv
-          retention-days: 7
+          retention-days: 1
 
       - name: Save .build
         if: success() && steps.handoff.outputs.handed != '1' && steps.fleet-suites.outcome != 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'

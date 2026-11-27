@@ -628,7 +628,7 @@ jobs:
           name: ios-gate-products-${{ needs.plan.outputs.lane }}
           path: ${{ steps.build.outputs.out }}/ios-sim-build.tar.gz
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
           compression-level: 0
       - name: Hand them to the legs
         id: done

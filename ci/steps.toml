@@ -2096,6 +2096,8 @@ inputs = [
   # web_subareas.py counts the react-apps-check fleet scripts in agent_pane too (REACT_EXACT).
   "scripts/ci/react-apps-check-fleet.sh",
   "scripts/ci/react_apps_fleet.py",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
@@ -3269,6 +3271,9 @@ inputs = [
   "scripts/cmux-next/check-cef-objc-contract.py",
   "scripts/cmux-next/chromium-objc-contract.json",
   "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-bridge-on-main.py",
+  "scripts/cmux-next/bridge-on-main-baseline.json",
+  "tests/test_check_bridge_on_main.py",
   ".github/workflows/cmux-next-crash-class.yml",
 ]
 run = '''

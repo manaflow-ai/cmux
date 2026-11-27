@@ -532,7 +532,7 @@ jobs:
         with:
           name: CCmuxAppFFI.xcframework
           # A universal run's artifact is what a stable release downloads; it publishes no release to keep it.
-          retention-days: ${{ inputs.universal && 30 || 7 }}
+          retention-days: 3
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
 

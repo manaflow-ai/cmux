@@ -75,4 +75,4 @@ jobs:
           name: accounts-nightly-probe-${{ github.run_id }}
           path: runtime/.build/accounts-nightly-probe/run-*/report.tgz
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 3

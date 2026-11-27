@@ -2371,7 +2371,7 @@ jobs:
         with:
           name: tooling-tests-passed-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tooling-reuse/tooling-passed.json
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).

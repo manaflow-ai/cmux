@@ -114,4 +114,4 @@ jobs:
           name: vault-edge-e2e-evidence
           path: ${{ runner.temp }}/vault-edge-e2e-evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3

@@ -3065,7 +3065,7 @@ jobs:
           name: cmux-nightly-remote-daemon-provenance
           path: ${{ runner.temp }}/cmuxd-remote.sigstore.json
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 3
           overwrite: true
 
       - name: Store the daemon attestation (one try, no budget wait)

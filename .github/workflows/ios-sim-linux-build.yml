@@ -85,7 +85,7 @@ jobs:
           name: ios-sim-build
           path: ${{ env.OUT }}/ios-sim-build.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           compression-level: 0
       - name: Upload ios-sim-xctest-platform
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -93,7 +93,7 @@ jobs:
           name: ios-sim-xctest-platform
           path: ${{ env.OUT }}/ios-sim-xctest-platform.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           compression-level: 0
       # Both tarballs in one artifact, the form the fleet scheduler's simsdk step takes
       # (CMUX_IOS_PRODUCTS=<run id>/ios-sim-products; scripts/ci/ios-sim-linux-test.sh).
@@ -105,7 +105,7 @@ jobs:
             ${{ env.OUT }}/ios-sim-build.tar.gz
             ${{ env.OUT }}/ios-sim-xctest-platform.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           compression-level: 0
       # The bare CmuxMobileApp.app, for `agent-sim install`.
       - name: Upload ios-sim-app
@@ -114,7 +114,7 @@ jobs:
           name: ios-sim-app
           path: ${{ env.OUT }}/ios-sim-app.zip
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           compression-level: 0
 
   # The goldens are filed by content hash (cmux-shotdiff key, family ios-screen-parity in .github/golden-inputs.json:
@@ -201,7 +201,7 @@ jobs:
           name: ios-sim-mac-shots
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # Golden screenshots for the screen-parity check (cmux-next-ios/verify/screen-parity): the fixture screens on an
   # iPhone 17 Pro fleet simulator, taken by the fleet's own shots step (it builds the app at the same commit), and
@@ -252,7 +252,7 @@ jobs:
           name: ios-sim-mac-shots
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # A Mac render of a key not yet filed goes into the goldens cache, so the next run of the same inputs skips the Mac.
   # Writing needs next-cache-writer, whose deployment branches are feat-cmux-next only: a lane's render is used

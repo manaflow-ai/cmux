@@ -68,4 +68,4 @@ jobs:
           name: intro-walk-report
           path: ${{ runner.temp }}/intro-walk/report.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3

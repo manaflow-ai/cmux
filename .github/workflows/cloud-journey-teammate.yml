@@ -85,4 +85,4 @@ jobs:
             ${{ runner.temp }}/cloud-journey-teammate/journey.json
             ${{ runner.temp }}/cloud-journey-teammate/summary.md
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

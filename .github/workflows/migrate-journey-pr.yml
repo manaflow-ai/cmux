@@ -264,4 +264,4 @@ jobs:
             ${{ runner.temp }}/migrate-ssh-host/sshd.log
             ${{ runner.temp }}/migrate-journey/home-*/.cmux/migrate/**
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

@@ -303,7 +303,7 @@ jobs:
           name: cloud-chat-proof-published-app
           path: ${{ runner.temp }}/published/app.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
 
   flow:
     # github-connect and cloud-first-chat use the journey environment. One flow file (scripts/cmux-next/flows/<flow>.json) through

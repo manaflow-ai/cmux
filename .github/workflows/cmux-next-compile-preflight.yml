@@ -299,7 +299,7 @@ jobs:
       # this pull request's next head with the same web sources passes on the lookup above. A pull request's save is
       # scoped to its own ref; R2 stays written by the feat-cmux-next push alone.
       - name: Cache the web bundles under this source key
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

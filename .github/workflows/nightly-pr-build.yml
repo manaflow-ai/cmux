@@ -123,7 +123,7 @@ jobs:
         if: ${{ steps.compile.outputs.passed == 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
       - name: Save the pass
-        if: ${{ steps.compile.outputs.passed == 'true' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.passed == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/nightly-pr-build-pass
@@ -173,7 +173,7 @@ jobs:
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
       - name: Save the pass
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/nightly-pr-build-pass
