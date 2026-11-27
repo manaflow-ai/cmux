@@ -77,6 +77,8 @@ on:
       - docs/remote-agents-and-cloud.md
       # Why: 2026-11-24-paths-2.md
       - docs/cmux-next/customize-recipes.md
+      - docs/cmux-next/guide/llms-full.txt
+      - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
       - webviews/test/fixtures/**
@@ -381,6 +383,8 @@ on:
       - docs/configuration.md
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
+      - docs/cmux-next/guide/llms-full.txt
+      - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
       - scripts/cmux-next/check-generator-inputs.sh
