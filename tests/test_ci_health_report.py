@@ -1017,11 +1017,11 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_is_the_owned_one_job_linux_fleet_no_variable_moves(self):
+    def test_the_runner_is_the_one_job_secret_jit_no_variable_moves(self):
         # The job holds App keys for its read token, so no variable may route it.
         self.assertIn(
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' "
-            "|| 'cmux-fleet-linux-x64' }}",
+            "|| 'cmux-gcp-secret-jit-x64' }}",
             self.text,
         )
 
