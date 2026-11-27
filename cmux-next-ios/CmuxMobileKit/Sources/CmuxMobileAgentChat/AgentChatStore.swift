@@ -1280,15 +1280,8 @@ public final class AgentChatStore {
             lastReplayBatch = events
         }
         revision &+= 1
-        // News about the link, not the chat (the catch-up's end right after its history batch,
-        // a status): the opening batch stays the last change. Cleared here, the composer read a
-        // chat opening on its history as a person's change and animated its collapse, the stack
-        // moving 35 pt over a dozen frames (#59189, slow-history-chat; the live source sends
-        // `.historyLoading(false)` right after the batch too).
-        if !event.isLinkState {
-            lastChangeWasReplay = false
-            placeBottomStackInstantly = false
-        }
+        lastChangeWasReplay = false
+        placeBottomStackInstantly = false
         if gapFiller != nil { noteNewer(event) }
         switch event {
         case .turnRetried(let previousTurnID, let turnID):
