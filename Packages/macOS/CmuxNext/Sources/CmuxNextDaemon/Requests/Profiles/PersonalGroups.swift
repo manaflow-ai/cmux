@@ -8,27 +8,6 @@ public struct PersonalGroupResult: Decodable, Sendable, Equatable {
     public var changed: Bool
 }
 
-public struct CreatePersonalGroupRequest: DaemonRequest {
-    public typealias Response = PersonalGroupResult
-    public static let command = "create-personal-group"
-    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
-    public var name: String
-    public var group: WorkspaceGroupID?
-    public var profile: ProfileID?
-    public var color: String?
-    public var collapsed: Bool?
-    public var index: Int?
-    public init(name: String, group: WorkspaceGroupID? = nil, profile: ProfileID? = nil, color: String? = nil,
-                collapsed: Bool? = nil, index: Int? = nil) {
-        self.name = name
-        self.group = group
-        self.profile = profile
-        self.color = color
-        self.collapsed = collapsed
-        self.index = index
-    }
-}
-
 public struct UpdatePersonalGroupRequest: DaemonRequest {
     public typealias Response = PersonalGroupResult
     public static let command = "update-personal-group"

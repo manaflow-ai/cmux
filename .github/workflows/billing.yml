@@ -33,6 +33,7 @@ on:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -101,6 +102,7 @@ on:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -245,7 +247,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # HEAD^1 is the base the pull request merges onto.
           fetch-depth: 2
@@ -406,7 +408,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         if: ${{ steps.route.outputs.web == 'true' }}
@@ -537,7 +540,7 @@ jobs:
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

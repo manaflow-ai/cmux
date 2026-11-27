@@ -22,6 +22,8 @@ public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
     public let surface: String
     /// A terminal comment's terminal tab id.
     public let terminalID: String?
+    /// A terminal comment's scrollback rows (``CommentedTerminal/rows``), when it has them.
+    public let terminalRows: ClosedRange<Int>?
     public let quote: String
     public let message: String
     public let state: State
@@ -34,6 +36,7 @@ public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
         version = record["updatedAt"]
         surface = record["surface"]?.stringValue ?? "diff"
         terminalID = record["terminal"]?["id"]?.stringValue
+        terminalRows = CommentedTerminal.rows(of: record["terminal"]?["rows"])
         quote = record["quote"]?.stringValue ?? record["lineText"]?.stringValue ?? ""
         message = record["message"]?.stringValue ?? ""
         reply = Self.agentReply(of: record)
@@ -48,23 +51,39 @@ public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
     }
 }
 
-/// The terminal a comment is on: `terminal: {id, title, cwd}` of its record.
+/// The terminal a comment is on: `terminal: {id, title, cwd, rows}` of its record.
 public nonisolated struct CommentedTerminal: Sendable, Equatable {
     public let id: String
     public let title: String?
     public let cwd: String?
+    /// The scrollback rows the selection covered (`rows: {first, last}`, the scrollbar's numbering:
+    /// row 0 the oldest the terminal keeps), so the thread's card can show them again.
+    public let rows: ClosedRange<Int>?
 
-    public init(id: String, title: String?, cwd: String?) {
+    public init(id: String, title: String?, cwd: String?, rows: ClosedRange<Int>? = nil) {
         self.id = id
         self.title = title
         self.cwd = cwd
+        self.rows = rows
+    }
+
+    /// This terminal with the selection's `rows`.
+    public func at(_ rows: ClosedRange<Int>?) -> Self {
+        Self(id: id, title: title, cwd: cwd, rows: rows)
     }
 
     var json: JSONValue {
         var object: [String: JSONValue] = ["id": .string(id)]
         if let title, !title.isEmpty { object["title"] = .string(title) }
         if let cwd, !cwd.isEmpty { object["cwd"] = .string(cwd) }
+        if let rows { object["rows"] = ["first": .number(Double(rows.lowerBound)), "last": .number(Double(rows.upperBound))] }
         return .object(object)
+    }
+
+    /// A record's `rows: {first, last}`; nil when absent or not a range.
+    static func rows(of value: JSONValue?) -> ClosedRange<Int>? {
+        guard let first = value?["first"]?.intValue, let last = value?["last"]?.intValue, first >= 0, last >= first else { return nil }
+        return first...last
     }
 
     /// Where the prompt says the thread is: the title and the folder.

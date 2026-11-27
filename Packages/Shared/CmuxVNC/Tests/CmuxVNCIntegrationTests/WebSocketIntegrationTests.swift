@@ -97,12 +97,12 @@ struct WebSocketIntegrationTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func theClientStreamsThroughWebsockify() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 320, height: 200, framesPerSecond: 30))
+        let server = VNCDemoServer(configuration: .init(width: 320, height: 200, framesPerSecond: 30, rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let websockify = Websockify(port: port)
         let transport = WebSocketRFBTransport(host: "localhost:6901") { websockify }
-        let client = VNCClient(endpoint: VNCEndpoint(host: "vm-test", port: 5901), transport: transport)
+        let client = VNCClient(endpoint: VNCEndpoint(host: "vm-test", port: 5901), options: VNCSessionOptions(rules: .fixture), transport: transport)
         await client.connect()
         var events = client.events.makeAsyncIterator()
         guard case let .connected(info)? = await events.next() else {
