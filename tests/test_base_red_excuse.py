@@ -8438,6 +8438,62 @@ class UnplacedGitHubQuotaRedIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.unplaced_quota_only(None))
 
 
+class RiskEvidenceQuotaJobRed(unittest.TestCase):
+    NAME = "risk evidence"
+    STEP = "Grade the pull request"
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def marker(self, **updates):
+        data = dict(endpoint="repos/o/r/pulls/7/files", status=403, reset=2000000000, graded=False)
+        data.update(updates)
+        return "risk-evidence.rate-limited " + json.dumps(data)
+
+    def judge(self, lines, name=NAME, step=STEP, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        github.logs[1] = log(name, step, *lines, self.EXIT)
+        if not base_red:
+            github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                                  steps=[dict(s, conclusion="success") for s in github.jobs[2]["steps"]])
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return caught.exception
+
+    def test_marker_refuses_with_retry_boundary_even_when_base_is_red(self):
+        for base_red in (False, True):
+            error = self.judge([self.marker()], base_red=base_red)
+            self.assertIsInstance(error, excuse.JobRateLimited)
+            self.assertIn("rerun after 2033-05-18 03:33:20Z", str(error))
+            self.assertIn("HTTP 403", str(error))
+
+    def test_wrong_job_or_step_never_gets_marker_verdict(self):
+        for name, step in (("other job", self.STEP), (self.NAME, "Hold only an unowned takeback")):
+            self.assertNotIsInstance(self.judge([self.marker()], name, step), excuse.JobRateLimited)
+
+    def test_marker_is_not_stderr_regex_and_must_be_a_single_ungraded_refusal(self):
+        variants = (["gh: API rate limit exceeded"], [self.marker(graded=True)],
+                    [self.marker(status=500)], [self.marker(reset=True)], [self.marker(reset="tomorrow")],
+                    [self.marker(endpoint="")], ["risk-evidence.rate-limited {bad json}"],
+                    [self.marker(), self.marker()],
+                    [self.marker(), "##[error]takeback found"],
+                    [self.marker(), "✘ Test realFailure() failed after 0.1 seconds."],
+                    ["echo '" + self.marker() + "'"])
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertNotIsInstance(self.judge(lines), excuse.JobRateLimited)
+
+    def test_actual_producer_stdout_is_consumed(self):
+        import risk_tier
+        import argparse
+        error = risk_tier.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/files"],
+                                     endpoint="repos/o/r/pulls/7/files", status=429, reset=2000000000)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = risk_tier.ungraded(argparse.Namespace(summary=None, github_output=None), error)
+        self.assertNotEqual(code, 0)
+        self.assertIsInstance(self.judge(output.getvalue().splitlines()), excuse.JobRateLimited)
+
+
 class GitHubQuotaJobRed(unittest.TestCase):
     """The published-tree hand-off's own quota refusal is a retryable job state, not a PR red."""
 
@@ -9053,7 +9109,9 @@ class WsCheckPerTest(unittest.TestCase):
         # main is still the head's own red.
         main8 = self.gh.TIP[:8]
         for description in (f"1 failed after discounting 1 on main {main8}: test_b.py",
-                            f"1 failed after discounting 1 on main {main8}: test_b"):  # cut at 139
+                            f"1 failed after discounting 1 on main {main8}: test_b",  # cut at 139
+                            f"1 failed after discounting 1 on main {main8}: test_b.py, test_c.py",  # more units
+                            f"1 failed after discounting 1 on main {main8}: test_b.py cmux-cp-1; log x"):  # a tag
             with self.subTest(description=description):
                 self.discounted_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:
@@ -9076,10 +9134,58 @@ class WsCheckPerTest(unittest.TestCase):
                 (f"1 failed after discounting 2 on main {main8}: test_b.py", {}),  # discount
                 (f"1 failed after discounting 1 on main {'0' * 8}: test_b.py", {}),  # main
                 (f"1 failed after discounting 1 on main {main8}: test_c.py", {}),  # unit
+                (f"1 failed after discounting 1 on main {main8}: test_b.pyc", {}),  # not the unit
                 (f"1 failed after discounting 1 on main {main8}: ", {}),  # no unit
                 (f"1 failed after discounting 1 on main {main8}: test_b.py", {"base_failed": False})):
             with self.subTest(description=description, **kwargs):
                 self.discounted_red(description, **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
+    def test_a_main_status_ending_in_its_published_failed_set_is_read(self):
+        # 2026-11-27: leo-workspace tools/ws-check publish_failed ends main's red status with " [fails N: HASHES]";
+        # read as part of the step, every red main verdict was "does not match", so no main commit had a readable
+        # verdict and lw#8374 at 110e5ff6 was refused "none of the 30 newest main commits has a ws-check verdict".
+        for description in (f"1 of 77 steps failed: {self.RELAY}"[:100] + " [fails 1: Iaih2]",
+                            f"1 of 77 steps failed: {self.RELAY}"[:80] + " [fails 3: Iaih2bS04fLm3fh]"):
+            with self.subTest(description=description):
+                self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, description=description)
+                self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # The set dropped, a description naming another step still does not match.
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
+                        description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
+        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+            self.judge()
+
+    def learned_red(self, description):
+        """HEAD red on DEPLOY's units test_a.py, test_b.py and test_c.py, its own base pass seeing only test_a.py fail
+        on main; main red on test_a and test_c. tools/ws-check also discounted test_c.py, learned from another run of
+        the same main (learn_base_reds), so its status DESCRIPTION counts one more discount than this log shows."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                       "test_c.py": self.ws_deploy("test_c")}})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                "test_b.py": self.ws_deploy("test_b"),
+                                                "test_c.py": self.ws_deploy("test_c")}}, description=description)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [test_a.py] (exit 1, ran 4, skipped 0, "
+                              "gh calls 0)",
+                      stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 3 failed units fail on main too (9.0 s)"]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_a_long_discounted_status_counting_learned_discounts_is_read(self):
+        main8 = self.gh.TIP[:8]
+        self.learned_red(f"1 failed after discounting 2 on main {main8}: test_b.py")
+        with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:  # read: test_b is the head's own red
+            self.judge()
+        self.assertNotIn("does not match", str(caught.exception))
+        for description in (f"2 failed after discounting 2 on main {main8}: test_b.py",  # counts split no log
+                            f"1 failed after discounting 2 on main {main8}: test_a.py",  # a unit main fails
+                            f"1 failed after discounting 2 on main {'0' * 8}: test_b.py",  # another main
+                            f"3 failed after discounting 0 on main {main8}: test_b.py"):  # less than the log's pass
+            with self.subTest(description=description):
+                self.learned_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
                     self.judge()
 
@@ -13423,7 +13529,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "risk_evidence_quota", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "journey",
@@ -17220,6 +17326,8 @@ SCANNERS = {
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
+    "base_red_excuse.risk_evidence_quota": lambda f: (excuse.risk_evidence_quota(f.view),
+                                                     excuse.risk_evidence_quota(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
