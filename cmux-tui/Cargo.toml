@@ -51,6 +51,7 @@ members = [
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "crates/cmux-chief",
+    "crates/cmux-upstream-error",
     "crates/cmux-shotdiff",
     "bindings/rust",
     "bindings/rust-sidebar",

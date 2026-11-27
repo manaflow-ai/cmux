@@ -961,7 +961,7 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s, so the request was not sent; `acpmux machine ls` shows the link's state",
         waited.as_secs()
     ))
     .with_data(json!({
