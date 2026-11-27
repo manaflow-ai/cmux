@@ -38,7 +38,7 @@ struct NewTabSpareHiddenFitTests {
             try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, report: { "the split never landed" })
             rig = try await NewTabRapidPairTests.filledPool(services, window: window, folder: folder)
             let spare = try #require(services.newTabSpares.spare?.view)
-            try await PasswordManagerRouteTests.until({ spare.frame.size == NewTabSparePool.newTabContentSize(in: pane) },
+            try await PasswordManagerRouteTests.until({ spare.frame.size == pane.newTabContentSize },
                                                       report: { "the spare \(spare.frame.size) never took its pane's size before the presses" })
 
             // Every frame of the two springs: the spare's size, while the layout moves.
@@ -58,12 +58,12 @@ struct NewTabSpareHiddenFitTests {
                 #expect(services.registry.perform(action, invocation: ActionInvocation(origin: .user)), "\(action) was refused")
                 try await PasswordManagerRouteTests.until({ layout.isInLayoutMotion }, within: .seconds(2), report: { "\(action) did not spring" })
                 try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, within: .seconds(3), report: { "\(action) never landed" })
-                steps.append("\(action): spare \(start), landed pane \(NewTabSparePool.newTabContentSize(in: pane)) spare \(spare.frame.size)")
+                steps.append("\(action): spare \(start), landed pane \(pane.newTabContentSize) spare \(spare.frame.size)")
             }
             #expect(sawMotion, "no frame of the springs was seen")
             #expect(sizesInMotion.isEmpty, "the hidden spare was laid out while the layout moved: \(start) -> \(sizesInMotion); \(steps)")
-            try await PasswordManagerRouteTests.until({ spare.frame.size == NewTabSparePool.newTabContentSize(in: pane) }, within: .seconds(2),
-                                                      report: { "after the landing the spare is \(spare.frame.size), its pane's content is \(NewTabSparePool.newTabContentSize(in: pane)); \(steps)" })
+            try await PasswordManagerRouteTests.until({ spare.frame.size == pane.newTabContentSize }, within: .seconds(2),
+                                                      report: { "after the landing the spare is \(spare.frame.size), its pane's content is \(pane.newTabContentSize); \(steps)" })
         }
     }
 
@@ -91,7 +91,7 @@ struct NewTabSpareHiddenFitTests {
             let content = try #require(window.contentView)
             window.setContentSize(NSSize(width: content.bounds.width - 240, height: content.bounds.height - 120))
             content.layoutSubtreeIfNeeded()
-            let size = NewTabSparePool.newTabContentSize(in: pane)
+            let size = pane.newTabContentSize
             try #require(size != spare.frame.size, "the pane kept the spare's size (\(size)): nothing to follow")
             try await PasswordManagerRouteTests.until({ spare.frame.size == size }, within: .seconds(2),
                                                       report: { "the spare is \(spare.frame.size), its pane's content is \(size)" })
@@ -136,7 +136,7 @@ struct NewTabSpareHiddenFitTests {
             defer { NewTabRapidPairTests.cleanUp(services, rig, folder) }
             rig = try await NewTabRapidPairTests.filledPool(services, window: window, folder: folder)
             let spare = try #require(services.newTabSpares.spare?.view)
-            try await PasswordManagerRouteTests.until({ spare.frame.size == NewTabSparePool.newTabContentSize(in: pane) },
+            try await PasswordManagerRouteTests.until({ spare.frame.size == pane.newTabContentSize },
                                                       report: { "the spare \(spare.frame.size) never took its pane's size before the steps" })
             let content = try #require(window.contentView)
             let base = content.bounds.size
@@ -149,7 +149,7 @@ struct NewTabSpareHiddenFitTests {
                 try await Task.sleep(for: .milliseconds(16)) // test harness wait: one frame between steps, as a drag
                 note()
             }
-            let final = NewTabSparePool.newTabContentSize(in: pane)
+            let final = pane.newTabContentSize
             try await PasswordManagerRouteTests.until({ note(); return spare.frame.size == final }, within: .seconds(2),
                                                       report: { "the spare is \(spare.frame.size), its pane's content is \(final)" })
             #expect(sizes.count == 2, "the hidden spare was laid out \(sizes.count - 1) times for one series of steps: \(sizes)")

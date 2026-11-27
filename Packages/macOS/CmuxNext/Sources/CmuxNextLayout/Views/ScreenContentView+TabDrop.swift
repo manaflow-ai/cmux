@@ -117,11 +117,29 @@ extension ScreenContentView {
         // Canvas splits retain the source pane's size. Strip splits can move the camera, which
         // suppresses a drop highlight but does not change the new pane's content size.
         if isCanvas { return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: context.style).size } }
-        guard let split = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: nil,
-                                           evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
-        let after = ScreenGeometry.compute(split.layout, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
+        guard let predicted = newTabSplitLayout(splitting: pane, zone: zone) else { return nil }
+        let after = ScreenGeometry.compute(predicted, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
         guard let cell = after.panes[DropPreviewLayout.newPane] else { return nil }
         return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
+    }
+
+    /// A keyboard split stays inside its row. Reuse the existing split predictor on that row's
+    /// tree, retaining the other rows and column widths when computing its target size.
+    private func newTabSplitLayout(splitting pane: PaneID, zone: PaneDropZone) -> ScreenLayout? {
+        func predict(_ source: ScreenLayout) -> ScreenLayout? {
+            DropPreviewLayout(splitting: pane, zone: zone, in: source, removing: nil,
+                              evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed)?.layout
+        }
+        if case var .columns(columns) = layout {
+            for column in columns.indices where columns[column].hasRows {
+                for row in columns[column].rows.indices where columns[column].rows[row].root.contains(pane) {
+                    guard case let .splits(root)? = predict(.splits(columns[column].rows[row].root)) else { return nil }
+                    columns[column].rows[row].root = root
+                    return .columns(columns)
+                }
+            }
+        }
+        return predict(layout)
     }
 
     /// Exact content size of the pane inserted at a divider. The divider keeps its old axis,

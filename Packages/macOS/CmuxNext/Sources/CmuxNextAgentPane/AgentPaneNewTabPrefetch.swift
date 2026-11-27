@@ -75,13 +75,22 @@ public final class AgentPaneNewTabPrefetch {
                 finished()
                 return
             }
-            // Register before layout: fitting can draw synchronously at an already cached size.
-            whenDrawn {
+            // Register before layout, but a synchronous answer can still describe the old size.
+            // Re-arm after fitting in that case; never capture or advance while resize is running.
+            var fitted = false
+            var answeredBeforeFit = false
+            let drawn: @MainActor () -> Void = {
                 guard self.token == current else { return }
                 guard isCurrent() else { return invalidate() }
+                guard fitted else { answeredBeforeFit = true; return }
                 capture(isCurrent) { render(index + 1) }
             }
+            whenDrawn(drawn)
+            guard self.token == current else { return }
+            guard isCurrent() else { return invalidate() }
             resize(plan[index])
+            fitted = true
+            if answeredBeforeFit, isCurrent() { whenDrawn(drawn) }
         }
         render(0)
     }

@@ -93,4 +93,23 @@ struct AgentPaneNewTabPrefetchTests {
         #expect(host.finished == 1)
         #expect(!renderer.active)
     }
+
+    @Test func synchronousOldSizeDrawCannotCaptureBeforeFitting() {
+        let renderer = AgentPaneNewTabPrefetch()
+        var size = full
+        var captured: [CGSize] = []
+        var fitted: [CGSize] = []
+        var finished = false
+        renderer.start(full: full, plan: [split, full], owns: { true }, valid: { true },
+                       resize: { size = $0; fitted.append($0) }, whenDrawn: { $0() },
+                       capture: { valid, done in
+                           #expect(valid())
+                           captured.append(size)
+                           done()
+                       }, finished: { finished = true }, invalidated: { Issue.record("unexpected invalidation") })
+        #expect(captured == [split, full])
+        #expect(fitted == [split, full])
+        #expect(finished)
+        #expect(!renderer.active)
+    }
 }

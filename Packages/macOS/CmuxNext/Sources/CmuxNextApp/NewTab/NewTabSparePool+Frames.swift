@@ -29,7 +29,7 @@ extension NewTabSparePool {
         guard !refills.isOpening, let view, view === slot.peek, let pane = targetPane,
               pane.workspace?.layoutView.isInLayoutMotion != true else { return nil }
         return .init(identity: targetIdentity ?? [], full: pane.newTabContentSize,
-                     splits: [PaneDropZone.right, .bottom].compactMap { pane.newTabSplitContentSize(zone: $0) })
+                     splits: pane.newTabPrefetchContentSizes)
     }
 
 }
