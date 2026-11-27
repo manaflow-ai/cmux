@@ -5108,6 +5108,12 @@
       "title" : "Use Bundled Codex App Server",
       "type" : "boolean"
     },
+    "labs.chatMultiplayer" : {
+      "default" : false,
+      "description" : "Teammates you share a chat with show when they view it and when they type.",
+      "title" : "Chat Multiplayer",
+      "type" : "boolean"
+    },
     "labs.commentThreads" : {
       "default" : false,
       "description" : "Send browser and terminal comments to the chat as threads that show the agent's reply.",
@@ -6884,7 +6890,7 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
