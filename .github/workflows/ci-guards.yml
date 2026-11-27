@@ -362,6 +362,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
 
+      # Warnings never fail a pull request's compile; nightly and release keep them errors (Leo, 2026-11-19).
+      - name: Route pull request warnings-as-errors flags through scripts/ci/warnings_policy.py
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_warnings_policy.py
+
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
