@@ -642,6 +642,12 @@ impl Hub {
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             session.meta.lock().unwrap().last_turn = Some(last);
+        } else if turn_result.get("status").and_then(Value::as_str) == Some("completed") {
+            // A trigger turn that completed proves the chat works (`background_turn.rs`).
+            super::super::background_turn::recover_last_turn(
+                &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
+                last["endedAt"].as_u64().unwrap_or_else(now_ms),
+            );
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);

@@ -25,6 +25,15 @@
 //! `lastTurn` and the notifications cmux-tui-core posts from it do not move), and its words never
 //! become the chat's `preview` / `lastMessage` (the sidebar line and a later notice's body).
 //!
+//! One thing it does move: a turn of its own that ends cleanly (its `result` is no error, or
+//! Codex's thread went idle) proves the chat works again, so a failed `lastTurn` before it gets
+//! `recoveredAt` ([`recover_last_turn`]) and the status dot stops reading `failed`
+//! (`views.rs` `status_indicator`). The turn's own outcome is unchanged. Its `ended` record says
+//! `"failed": true` when its `result` was an error, and such a turn recovers nothing. Before,
+//! after one failed turn a chat that went on working through task notifications and `/loop`
+//! ticks kept its red tab icon until the person prompted it again (Leo, 2026-11-27: "this isn't
+//! leaving the tab icon even after you're not erroring anymore").
+//!
 //! A turn of its own that ends on the account's rate limit (its `result` is the 429's error) is a
 //! strike of the chat and holds it as a prompted turn's 429 does (`rate_hold.rs`
 //! [`Hub::hold_at_failure`]): acpmux cannot stop Claude Code from starting it, but what acpmux
@@ -126,7 +135,13 @@ impl BackgroundTurns {
             m if m.starts_with("claude.result") => {
                 self.hint = None;
                 self.pending = None;
-                out.extend(self.end("result"));
+                let failed = line.get("is_error") == Some(&Value::Bool(true));
+                out.extend(self.end("result").map(|mut ended| {
+                    if failed {
+                        ended.set("failed", json!(true));
+                    }
+                    ended
+                }));
             }
             _ => {}
         }
@@ -223,6 +238,24 @@ impl BackgroundTurns {
     /// Whether a reply message is a background turn's.
     fn owns_message(&self, id: &str) -> bool {
         self.messages.iter().any(|m| m == id)
+    }
+}
+
+/// Whether a `background_turn` record is a turn of its own that ended cleanly: the chat works.
+pub(super) fn recovers(record: &Value) -> bool {
+    record.get("state").and_then(Value::as_str) == Some("ended")
+        && record.get("reason").and_then(Value::as_str) == Some("result")
+        && record.get("failed") != Some(&Value::Bool(true))
+}
+
+/// A later turn ended cleanly at `at` (a background turn, [`recovers`], or a trigger turn that
+/// completed): a `lastTurn` that did not complete is marked `recoveredAt`, so the status dot
+/// stops reading `failed` or `lost` (the module doc). Its status, error and the unread mark stay.
+pub(super) fn recover_last_turn(last: &mut Option<Value>, at: u64) {
+    let Some(last) = last.as_mut() else { return };
+    let status = last.get("status").and_then(Value::as_str);
+    if status.is_some_and(|s| s != "completed") && last.get("recoveredAt").is_none() {
+        last.set("recoveredAt", json!(at));
     }
 }
 
@@ -323,7 +356,7 @@ impl Hub {
         let records = state.on_line(method, line, acpmux_turn, seq);
         drop(state);
         for msg in records {
-            self.append(session, "mux", RECORD_KIND, msg);
+            self.append_background_record(session, msg);
         }
         if let Some((turn, error)) = limited {
             let _parked = self.hold_at_failure(session, &turn, &error, None);
@@ -339,8 +372,20 @@ impl Hub {
         let record = state.on_update(update, acpmux_turn, seq);
         drop(state);
         if let Some(msg) = record {
-            self.append(session, "mux", RECORD_KIND, msg);
+            self.append_background_record(session, msg);
         }
+    }
+
+    /// Logs a `background_turn` record; one that ends a turn cleanly first marks a failed
+    /// `lastTurn` recovered (the module doc), as the journal restore does (`count_restored`).
+    fn append_background_record(&self, session: &Session, msg: Value) {
+        if recovers(&msg) {
+            recover_last_turn(
+                &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
+                now_ms(),
+            );
+        }
+        self.append(session, "mux", RECORD_KIND, msg);
     }
 
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
