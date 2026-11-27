@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { groups, initialActivityState, normalizeFilter, type ActivitySession } from "./model";
+import { groups, initialActivityState, normalizeFilter, reduceActivity, type ActivitySession } from "./model";
 
 const session = (id: string, label: string): ActivitySession => ({
   id,
@@ -47,4 +47,34 @@ test("groups normalizes the filter once for all sessions", () => {
       .map((item) => item.id),
   ).toEqual(["a", "b"]);
   expect(trimCalls).toBe(1);
+});
+
+test("a host snapshot keeps the session objects whose values did not change", () => {
+  const a = session("a", "Alpha");
+  const b = session("b", "Beta");
+  const state = reduceActivity(initialActivityState(), {
+    type: "sessions",
+    machine: "local",
+    sessions: [a, b],
+  });
+  const projected = groups(state);
+  const wire = () => JSON.parse(JSON.stringify({ sessionsByMachine: state.sessionsByMachine }));
+
+  const same = reduceActivity(state, { type: "snapshot", state: wire() });
+  expect(same.sessionsByMachine).toBe(state.sessionsByMachine);
+  expect(groups(same)).toBe(projected);
+
+  const moved = wire();
+  moved.sessionsByMachine.local[1].lastActionAt = 5;
+  const next = reduceActivity(state, { type: "snapshot", state: moved });
+  expect(next.sessionsByMachine).not.toBe(state.sessionsByMachine);
+  expect(next.sessionsByMachine.local[0]).toBe(a);
+  expect(next.sessionsByMachine.local[1]).not.toBe(b);
+  expect(groups(next)[0].sessions.map((s) => s.id)).toEqual(["b", "a"]);
+
+  const ended = wire();
+  ended.sessionsByMachine.local[0].status = { ended: "done" };
+  expect(reduceActivity(state, { type: "snapshot", state: ended }).sessionsByMachine.local[0].status).toEqual({
+    ended: "done",
+  });
 });

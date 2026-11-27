@@ -100,7 +100,7 @@ public final class ChiefUsagePageProvider: PageProvider {
     }
 
     static var failed: String {
-        t("chiefUsage.failed", "The Chief's usage could not be read. Try again.")
+        t("chiefUsage.failed", "The Chief's usage could not be read.")
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {

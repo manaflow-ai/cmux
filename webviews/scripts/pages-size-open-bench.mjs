@@ -47,6 +47,7 @@ const pages = [
   "debug-settings",
   "feed",
   "files",
+  "forum",
   "github",
   "glass-parity",
   "group-editor",
@@ -67,6 +68,7 @@ const pages = [
   "stats",
   "task-manager",
   "tasks",
+  "terminal-history",
 ];
 // `--pages A,B` times only those Pages (every Page is still built and its bytes counted).
 const measured = args.pages ? args.pages.split(",") : pages;
@@ -101,7 +103,7 @@ const hostStates = {
     ask: null,
   },
 };
-// chief-inspector is one of the 37 Pages, not the standalone inspector bundle. Its HTTP-only
+// chief-inspector is one of the Pages, not the standalone inspector bundle. Its HTTP-only
 // dev data adapter replaces the native bridge under this HTTP mount while retaining the real CSP.
 const chiefData = {
   "/api/status": {
@@ -157,7 +159,7 @@ for (const variant of variants) {
     .map((file) => file.path.split("/")[0])
     .sort();
   if (JSON.stringify(documents) !== JSON.stringify([...pages].sort()))
-    throw new Error(`${variant}: expected all 37 Pages, got ${documents.join(",")}`);
+    throw new Error(`${variant}: expected all ${pages.length} Pages, got ${documents.join(",")}`);
   const bytes = (prefix) =>
     files.filter((file) => file.path.startsWith(prefix)).reduce((sum, file) => sum + file.bytes, 0);
   sizes[variant] = {

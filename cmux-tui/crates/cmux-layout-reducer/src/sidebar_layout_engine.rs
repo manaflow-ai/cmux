@@ -172,12 +172,12 @@ impl RollUp {
     fn of(states: impl Iterator<Item = AgentState>) -> RollUp {
         let mut r = RollUp::default();
         for state in states {
-            r.total += 1;
+            r.total = r.total.saturating_add(1);
             match state {
-                AgentState::Blocked => r.blocked += 1,
-                AgentState::Failed => r.failed += 1,
-                AgentState::Running => r.running += 1,
-                AgentState::FinishedUnread => r.unread += 1,
+                AgentState::Blocked => r.blocked = r.blocked.saturating_add(1),
+                AgentState::Failed => r.failed = r.failed.saturating_add(1),
+                AgentState::Running => r.running = r.running.saturating_add(1),
+                AgentState::FinishedUnread => r.unread = r.unread.saturating_add(1),
                 AgentState::Idle => {}
             }
         }
@@ -483,7 +483,8 @@ impl ChatHistory {
             return m.section_header_height;
         }
         let extra = usize::from(self.has_more || self.shows_loading);
-        m.section_header_height + (self.earlier + extra) as f64 * (m.row_height + m.row_spacing)
+        m.section_header_height
+            + self.earlier.saturating_add(extra) as f64 * (m.row_height + m.row_spacing)
     }
 }
 
@@ -850,7 +851,7 @@ fn folding_done<'a>(
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for run in runs(drawn) {
         let holds_active = run.iter().any(|e| workspace(e.0).is_some_and(|w| o.is_active(&w.id)));
-        let ws = workspace(run[0].0);
+        let ws = run.first().and_then(|e| workspace(e.0));
         match ws {
             Some(ws) if o.folds_archived && ws.archived && !holds_active => archived.push(run),
             Some(ws) if o.folds_done && ws.done && !holds_active => done.push(run),
@@ -886,8 +887,8 @@ fn limiting<'a>(
     o: &Options,
 ) -> Vec<Entry> {
     let all: Vec<Entry> = shown.iter().flatten().copied().collect();
-    let limited = shown.iter().filter(|run| limits(run[0].0)).count();
-    if o.row_limit == 0 || limited <= o.row_limit + 1 {
+    let limited = shown.iter().filter(|run| run.first().is_some_and(|e| limits(e.0))).count();
+    if o.row_limit == 0 || limited <= o.row_limit.saturating_add(1) {
         return all;
     }
     if o.open_show_more.contains(id) {
@@ -895,9 +896,9 @@ fn limiting<'a>(
         all.push((SHOW_MORE, 0));
         return all;
     }
-    let (mut kept, mut hidden, mut n) = (Vec::new(), 0, 0);
+    let (mut kept, mut hidden, mut n) = (Vec::new(), 0usize, 0usize);
     for run in shown {
-        if !limits(run[0].0) {
+        if !run.first().is_some_and(|e| limits(e.0)) {
             kept.extend_from_slice(run);
             continue;
         }
@@ -906,9 +907,9 @@ fn limiting<'a>(
         if n < o.row_limit || stays {
             kept.extend_from_slice(run);
         } else {
-            hidden += run.len();
+            hidden = hidden.saturating_add(run.len());
         }
-        n += 1;
+        n = n.saturating_add(1);
     }
     if hidden == 0 {
         return all;
@@ -1014,7 +1015,7 @@ fn tree_descendants(
     let mut stack = children.get(id).cloned().unwrap_or_default();
     while let Some(index) = stack.pop() {
         found.push(index);
-        if let Some(child) = ids[index]
+        if let Some(child) = ids.get(index).copied().flatten()
             && let Some(kids) = children.get(child)
         {
             stack.extend_from_slice(kids);
@@ -1049,12 +1050,12 @@ fn tree_order(
         let mut stack = vec![(root, 0usize)];
         while let Some((index, depth)) = stack.pop() {
             order.push((index, depth));
-            let Some(id) = ids[index] else { continue };
+            let Some(id) = ids.get(index).copied().flatten() else { continue };
             if folded(id, depth) {
                 continue;
             }
             if let Some(kids) = children.get(id) {
-                stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+                stack.extend(kids.iter().rev().map(|&k| (k, depth.saturating_add(1))));
             }
         }
     }
@@ -1106,7 +1107,7 @@ fn tree_rows<'a>(
             let Some(t) = tree.as_ref().filter(|t| !t.hides_started) else {
                 return TreeRow { index, depth, fold: None, roll_up: None };
             };
-            let (fold, roll_up) = match ids[index] {
+            let (fold, roll_up) = match ids.get(index).copied().flatten() {
                 Some(id) if children.get(id).is_some_and(|k| !k.is_empty()) => {
                     if t.is_folded(id, depth) {
                         let r =
@@ -1136,7 +1137,7 @@ fn folder_buckets(nodes: &[&Node]) -> (Vec<String>, HashMap<String, Vec<usize>>)
         members.entry(folder).or_default().push(index);
     }
     if let Some(none) = folders.iter().position(String::is_empty)
-        && none != folders.len() - 1
+        && none.saturating_add(1) != folders.len()
     {
         let f = folders.remove(none);
         folders.push(f);
@@ -1569,7 +1570,7 @@ impl<'o> Builder<'o> {
             row.parent_index = Some(index);
             row.is_last_in_group = true;
             row.group_color = group.color.clone();
-            row.depth = group.depth + 1;
+            row.depth = group.depth.saturating_add(1);
             row.stands_for_group = true;
             self.push(row);
             self.open_gap(section, gid, 0);
@@ -1591,8 +1592,8 @@ impl<'o> Builder<'o> {
         self.push(header);
         let member_rows_start = self.rows.len();
         self.append_members(group, &members, children, index, section, filtering, group_collapsed);
-        for row in &mut self.rows[member_rows_start..] {
-            row.depth = group.depth + 1;
+        for row in self.rows.iter_mut().skip(member_rows_start) {
+            row.depth = group.depth.saturating_add(1);
         }
     }
 
@@ -1630,7 +1631,7 @@ impl<'o> Builder<'o> {
                 .collect();
             for (n, (child_index, ws)) in kept.iter().enumerate() {
                 let row = self.workspace_row(ws, section, *child_index, Content::base(ws));
-                let row = member_row(row, *child_index, n + 1 == kept.len());
+                let row = member_row(row, *child_index, n.saturating_add(1) == kept.len());
                 self.push(row);
             }
             return;
@@ -1657,7 +1658,7 @@ impl<'o> Builder<'o> {
         let drawn = folding_done(&entries, &by_entry, &fold, &|_| true, o);
         let folded_gap = gap_entry(&drawn, o.gap.as_ref(), section, gid, members.len());
         for (position, &(child_index, depth)) in drawn.iter().enumerate() {
-            let last = position == drawn.len() - 1;
+            let last = position.saturating_add(1) == drawn.len();
             if Some(child_index) == folded_gap
                 && let Some(gap) = &o.gap
             {
@@ -1773,18 +1774,20 @@ pub(crate) fn sole_member<'a>(
     if members.len() != 1 || held(group, o) != 1 || has_subgroups {
         return None;
     }
-    let Member::Workspace(ws) = members[0] else { return None };
+    let Some(&Member::Workspace(ws)) = members.first() else { return None };
     names(group, &ws.title).then_some(ws)
 }
 
 /// `held`: the members a group holds, a dragged one excepted (a filter's hidden ones count).
 fn held(group: &Group, o: &Options) -> usize {
-    group.workspaces.iter().filter(|w| !o.excluded_workspaces.contains(&w.id)).count()
-        + group
-            .items
-            .iter()
-            .filter(|i| o.excluded_item.as_deref() != Some(i.item.id.as_str()))
-            .count()
+    let workspaces =
+        group.workspaces.iter().filter(|w| !o.excluded_workspaces.contains(&w.id)).count();
+    let items = group
+        .items
+        .iter()
+        .filter(|i| o.excluded_item.as_deref() != Some(i.item.id.as_str()))
+        .count();
+    workspaces.saturating_add(items)
 }
 
 /// `names`: `title` is the group's name, both trimmed, the name not empty.
