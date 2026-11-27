@@ -128,6 +128,11 @@ button.cv-agentmsg__name:focus-visible {
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
+/* Squeezed under room for an ellipsis and a letter (AgentMessageRow.tsx), the first line goes and
+   the toggle reads as an empty one below, so the chevron stays right after its words. */
+.cv-agentmsg__preview[data-squeezed] {
+  display: none;
+}
 .cv-agentmsg__chevron {
   cursor: default;
 }
@@ -148,16 +153,16 @@ button.cv-agentmsg__name:focus-visible {
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
    takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
    chip, as after any row's words (transcript-chevron-after-label). */
-.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest));
 }
 /* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
-.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest-open));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */
-.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:empty) {
+.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 6px;
