@@ -20,7 +20,7 @@ RECORD = {
     "kind": "cmux-proof-record", "version": 1, "suite": "ios-flows", "repo": "manaflow-ai/cmux", "pr": 7,
     "head_sha": HEAD, "base_ref": "feat-cmux-next", "base_sha": OTHER,
     "selection": {"flows": ["smoke-launch-sign-in", "terminal-first-attach"]},
-    "runs": [{"name": "sim 1/1", "result": "pass", "worker": "cmux23", "step": "abc12345", "seconds": 140}],
+    "runs": [{"name": "sim 1/1", "result": "pass", "step": "abc12345", "seconds": 140}],
     "captures": [{"name": "a.png", "sha256": "0" * 64, "verdict": "same"}],
     "verdict": "pass", "timing": {"push_to_proof_s": 212}, "tool": "scripts/ci/ios_verify.py@x",
 }
@@ -29,6 +29,26 @@ RECORD = {
 def comment(body, assoc="COLLABORATOR", login="someone", kind="User", at="2026-11-27T02:00:00Z"):
     return {"body": body, "author_association": assoc, "user": {"login": login, "type": kind},
             "created_at": at, "html_url": "u"}
+
+
+class ReadRetry(unittest.TestCase):
+    def test_a_passing_refusal_is_asked_again(self):
+        # One 502 used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        import functools
+        from unittest import mock
+        http = pr.gh_http.deadline_http
+        answers = [(502, b"", http.Headers({})), (200, json.dumps([comment("x")]).encode(), http.Headers({}))]
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            seen.append(req.full_url)
+            return answers.pop(0)
+
+        retrying = functools.partial(pr.gh_http.request, sleep=lambda s: None, log=lambda line: None)
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            got = pr.pr_comments("o/r", 7, "t")
+        self.assertEqual([c["body"] for c in got], ["x"])
+        self.assertEqual(len(seen), 2)
 
 
 class Record(unittest.TestCase):
@@ -151,6 +171,18 @@ class Plan(unittest.TestCase):
         self.assertFalse(ios_verify.visual(caps, None, None)["diffed"])
         self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
         self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
+
+    def test_posted_proof_names_no_worker(self):
+        # cmux#61688: public-body-guard refused the proof comment for naming the fleet hosts its shards ran on.
+        runs = [{"name": "sim 1/2", "mode": "test", "worker": "cmux22", "step": "abc12345", "result": "pass",
+                 "seconds": 140, "tail": "ran on cmux22"},
+                {"name": "script: x", "mode": "script", "worker": "gcp-agent-lane-2", "result": "pass"}]
+        rec = dict(RECORD, runs=ios_verify.public_runs(runs), timing={"push_to_proof_s": 212})
+        body = pr.render(rec, ios_verify.summary_md(rec))
+        for host in ("cmux22", "gcp-agent-lane-2"):
+            self.assertNotIn(host, body)
+        self.assertEqual(rec["runs"][0]["step"], "abc12345")
+        self.assertEqual(pr.problems(rec), [])
 
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
