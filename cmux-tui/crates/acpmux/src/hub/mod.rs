@@ -55,6 +55,7 @@ mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
+mod bg_registry;
 mod bg_tasks;
 pub(crate) mod book_tee;
 mod bookmarks;
@@ -291,6 +292,7 @@ mod permissions;
 pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+mod wait_edges;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -1626,6 +1628,8 @@ pub struct Hub {
     pub(super) lane_reports: lane_reports::LaneReports,
     /// Authenticated parents already receiving a lane result through wait/history.
     lane_report_reads: lane_report_reads::LaneReportReads,
+    /// Who waits on whom now, for class inheritance (`wait_edges.rs`).
+    wait_edges: wait_edges::WaitEdges,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
@@ -2065,6 +2069,7 @@ impl Hub {
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
+            wait_edges: Default::default(),
             subsessions: Default::default(),
             races_running: Default::default(),
             admitting: Default::default(),
