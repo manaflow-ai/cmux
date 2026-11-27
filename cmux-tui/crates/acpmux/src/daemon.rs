@@ -1051,7 +1051,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // The connections the previous daemon had accepted and handed over (`server/conn_handover.rs`):
     // served as the ones accepted above.
     #[cfg(unix)]
-    if let Some(side) = handed.conns {
+    if let Some(side) = taken_over.conns {
         let (hub, v2) = (hub.clone(), v2.clone());
         listener_handover::receive_connections(side, move |stream| {
             crate::server::serve_accepted(hub.clone(), stream, v2.clone());
