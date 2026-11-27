@@ -41,6 +41,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
+    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
     Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
 ];
 
