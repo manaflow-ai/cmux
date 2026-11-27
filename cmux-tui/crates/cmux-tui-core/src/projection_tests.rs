@@ -611,6 +611,121 @@ fn detach_draining_a_write_does_not_seal_a_replacement() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn detach_times_out_without_unmounting_or_losing_an_admitted_copy_up() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use cmux_projection::{Fetch, FetchError};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    struct HeldFetch {
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Fetch for HeldFetch {
+        fn read(&self, _: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+            self.entered.send(()).map_err(|_| FetchError::Failed)?;
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| FetchError::Failed)?;
+            Ok(b"old".iter().copied().skip(offset as usize).take(len as usize).collect())
+        }
+        fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+            entries.iter().map(|&entry| self.read(entry, 0, 3)).collect()
+        }
+    }
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "detach-timeout-test";
+    let (state, at) = projected_state(home.path(), name);
+    std::fs::create_dir_all(&at).unwrap();
+    let before = cmux_projection::state::read(&state).unwrap();
+    let manifest = Arc::new(
+        Manifest::build(
+            1,
+            vec![Item {
+                path: "file".into(),
+                kind: Kind::File,
+                mode: 0o644,
+                size: 3,
+                mtime_ns: 1,
+                link: None,
+            }],
+        )
+        .unwrap(),
+    );
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let projected = Arc::new(Projected {
+        link: Arc::new(cmux_projection::link::Link::default()),
+        digest: AtomicU64::new(0),
+        at: at.clone(),
+        mounted: Mutex::new(None),
+        overlay: Arc::new(
+            cmux_projection::overlay::Overlay::open(
+                manifest,
+                &state,
+                Arc::new(HeldFetch { entered: entered_tx, resume: Mutex::new(resume_rx) }),
+                (0, 0),
+            )
+            .unwrap(),
+        ),
+        ext: Mutex::new(None),
+        barrier: Mutex::new(None),
+        away: cmux_projection::away::Away::new(|_| {}),
+    });
+    projections().lock().unwrap().insert(name.into(), projected.clone());
+    let ino = projected.overlay.lookup(1, "file").unwrap().ino;
+    let writing = projected.clone();
+    let writer = std::thread::spawn(move || writing.overlay.write(ino, 0, b"kept"));
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let detaching_state = state.clone();
+    let (finished, finished_rx) = mpsc::channel();
+    let detacher = std::thread::spawn(move || {
+        finished
+            .send(detach_with_timeout(
+                &control_line(name, None, None),
+                &detaching_state,
+                Duration::from_millis(25),
+            ))
+            .unwrap();
+    });
+    let refusal = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+    detacher.join().unwrap();
+    assert_eq!(refusal.0, "projection.busy");
+    assert!(refusal.1.contains("retry detach"));
+    assert!(Arc::ptr_eq(&projections().lock().unwrap()[name], &projected));
+    assert_eq!(cmux_projection::state::read(&state).unwrap(), before);
+    assert!(at.is_dir());
+    assert!(projected.overlay.is_sealed());
+    assert_eq!(projected.overlay.write(ino, 0, b"late"), Err(libc::EROFS));
+
+    // Even a new serve must not reopen the shared upper layer while the old copy-up drains.
+    // This check runs before FUSE setup, so a refusal cannot accidentally replace the mount.
+    let line: ServeLine = serde_json::from_value(json!({
+        "cmd": SERVE, "name": name, "at": at, "manifest_bytes": 1,
+    }))
+    .unwrap();
+    let refused = mount(&line, Manifest::build(1, vec![]).unwrap(), &state, &at, 1)
+        .err()
+        .expect("a draining overlay must stay mounted until detach completes");
+    assert_eq!(refused.0, "projection.busy");
+    assert!(Arc::ptr_eq(&projections().lock().unwrap()[name], &projected));
+    assert_eq!(cmux_projection::state::read(&state).unwrap(), before);
+
+    resume_tx.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(4));
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+    let result =
+        detach_with_timeout(&control_line(name, None, None), &state, Duration::ZERO).unwrap();
+    assert_eq!(result["detached"], true);
+    assert!(!projections().lock().unwrap().contains_key(name));
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn an_extend_finishing_after_detach_does_not_refresh_the_removed_or_replacement_mount() {
     use cmux_projection::manifest::{Item, Kind, Manifest};
     use std::time::{Duration, Instant};

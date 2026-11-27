@@ -7,7 +7,10 @@
 //! [`swap`] installs the prepared repository as one upper-layer symlink rename. Both packed
 //! and loose refs are kept so a Git reader crossing the rename can resolve either layout.
 //! HEAD, refs and index are fingerprinted before preparation and again before the rename.
-//! Busy, shallow, unsupported or failed preparations retain the projected repository.
+//! Busy, shallow, unsupported or failed preparations retain the projected repository. A swap
+//! is opportunistic: after the first admitted overlay mutation, it stays projected for this
+//! mount's lifetime. This includes worktree edits, so an active agent may forgo the optimization.
+//! The final pristine check and rename exclude mutations through the same admission gate.
 //!
 //! Bring Back expands this owned link and includes the local repository in its transfer mark,
 //! so commits and staged work made after the swap return to the Mac before the state is freed.

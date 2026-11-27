@@ -451,7 +451,7 @@ fn a_sealed_projection_does_not_swap_its_git_folder() {
     let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
     let target = tempfile::tempdir().unwrap();
 
-    overlay.seal();
+    assert!(overlay.seal(std::time::Duration::from_secs(1)));
     assert_eq!(overlay.swap_to_link(".git", target.path()), Err(libc::EROFS));
     assert_eq!(overlay.lookup(overlay.root(), ".git").unwrap().ino, git);
     assert_eq!(
@@ -463,10 +463,21 @@ fn a_sealed_projection_does_not_swap_its_git_folder() {
 #[test]
 fn bring_back_sync_record_survives_git_swap_and_moving_it_refuses_the_swap() {
     let repo = repo(3, 64);
+    let baseline = br#"{"files":{"a":{"hash":"first"}}}"#;
+    std::fs::write(repo.mac.join(".git").join(SYNC_RECORD), baseline).unwrap();
+    // A record present when projection starts must survive a successful, pristine swap.
+    {
+        let Some(p) = mount(&repo.mac) else { return };
+        let local = p.state.path().join(LOCAL_DIR);
+        assert_eq!(
+            run(&p.overlay, &p.forget(), p.at.path(), p.state.path()).unwrap(),
+            Outcome::Swapped(local.clone())
+        );
+        assert_eq!(std::fs::read(p.at.path().join(".git").join(SYNC_RECORD)).unwrap(), baseline);
+        assert_eq!(std::fs::read(local.join(SYNC_RECORD)).unwrap(), baseline);
+    }
     let Some(p) = mount(&repo.mac) else { return };
     let projected = p.at.path().join(".git");
-    let baseline = br#"{"files":{"a":{"hash":"first"}}}"#;
-    std::fs::write(projected.join(SYNC_RECORD), baseline).unwrap();
     let local = p.state.path().join(LOCAL_DIR);
     let base = std::fs::read_to_string(projected.join(CARRY_BASE)).unwrap();
     let ready =
@@ -479,12 +490,119 @@ fn bring_back_sync_record_survives_git_swap_and_moving_it_refuses_the_swap() {
     assert!(std::fs::symlink_metadata(&projected).unwrap().is_dir());
     assert_eq!(std::fs::read(projected.join(SYNC_RECORD)).unwrap(), later);
 
-    assert_eq!(
-        run(&p.overlay, &p.forget(), p.at.path(), p.state.path()).unwrap(),
-        Outcome::Swapped(local.clone())
-    );
+    // A later copy carries the record too, but a written overlay stays projected: it may
+    // have an idle writer holding a descriptor between requests even after the copy settles.
+    let ready =
+        prepare_carry(&projected, &local, &projected.join(CARRY_PACK), base.trim()).unwrap();
+    assert!(swap(&p.overlay, &p.forget(), &projected, &local, &ready).is_err());
     assert_eq!(std::fs::read(projected.join(SYNC_RECORD)).unwrap(), later);
     assert_eq!(std::fs::read(local.join(SYNC_RECORD)).unwrap(), later);
+}
+
+fn unmounted_git() -> (tempfile::TempDir, tempfile::TempDir, Arc<Overlay>) {
+    let mac = tempfile::tempdir().unwrap();
+    std::fs::create_dir(mac.path().join(".git")).unwrap();
+    std::fs::write(mac.path().join(".git/index"), b"index").unwrap();
+    let (manifest, disk) = project(mac.path());
+    let state = tempfile::tempdir().unwrap();
+    let meta = state.path().metadata().unwrap();
+    let overlay = Arc::new(
+        Overlay::open(Arc::new(manifest), state.path(), Arc::new(disk), (meta.uid(), meta.gid()))
+            .unwrap(),
+    );
+    (mac, state, overlay)
+}
+
+#[test]
+fn an_admitted_git_writer_prevents_swap_before_its_first_bytes() {
+    let (_mac, state, overlay) = unmounted_git();
+    let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
+    let index = overlay.lookup(git, "index").unwrap().ino;
+    let target = tempfile::tempdir().unwrap();
+    let (entered, release) = overlay.pause_next_mutation();
+    let writing = overlay.clone();
+    let writer = std::thread::spawn(move || writing.open_handle(index, libc::O_RDWR));
+    entered.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+    let result = overlay.swap_to_link(".git", target.path());
+    release.send(()).unwrap();
+    let handle = writer.join().unwrap().unwrap();
+    assert_eq!(result, Err(libc::EBUSY));
+    assert_eq!(overlay.write_handle(handle, index, 0, b"saved"), Ok(5));
+    overlay.release(handle);
+    assert_eq!(std::fs::read(state.path().join("upper/.git/index")).unwrap(), b"saved");
+    assert_eq!(overlay.lookup(overlay.root(), ".git").unwrap().ino, git);
+}
+
+#[test]
+fn an_idle_atomic_git_write_keeps_its_temporary_file_and_commits() {
+    let (mac, state, overlay) = unmounted_git();
+    let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
+    let meta = state.path().metadata().unwrap();
+    let who = crate::overlay::Who { uid: meta.uid(), gid: meta.gid() };
+    let name = ".cmux-sync.json.cmux-held.tmp";
+    let (temp, handle) = overlay.create(git, name, 0o600, who).unwrap();
+    assert_eq!(overlay.write_handle(handle, temp.ino, 0, b"next base"), Ok(9));
+    let target = tempfile::tempdir().unwrap();
+    // No active request remains; the descriptor/transaction still owns accepted bytes.
+    assert_eq!(overlay.swap_to_link(".git", target.path()), Err(libc::EBUSY));
+    overlay.release(handle);
+    overlay.rename(git, name, git, SYNC_RECORD, 0).unwrap();
+    assert_eq!(
+        std::fs::read(state.path().join("upper/.git").join(SYNC_RECORD)).unwrap(),
+        b"next base"
+    );
+    drop(overlay);
+    let (manifest, disk) = project(mac.path());
+    let reopened =
+        Overlay::open(Arc::new(manifest), state.path(), Arc::new(disk), (meta.uid(), meta.gid()))
+            .unwrap();
+    assert_eq!(reopened.swap_to_link(".git", target.path()), Err(libc::EBUSY));
+    assert_eq!(
+        std::fs::read(state.path().join("upper/.git").join(SYNC_RECORD)).unwrap(),
+        b"next base"
+    );
+}
+
+#[test]
+fn an_unfingerprinted_atomic_write_after_validation_prevents_git_swap() {
+    let repo = repo(3, 64);
+    let Some(p) = mount(&repo.mac) else { return };
+    let projected = p.at.path().join(".git");
+    let local = p.state.path().join(LOCAL_DIR);
+    let base = std::fs::read_to_string(projected.join(CARRY_BASE)).unwrap();
+    let ready =
+        prepare_carry(&projected, &local, &projected.join(CARRY_PACK), base.trim()).unwrap();
+    assert_eq!(fingerprint(&projected).unwrap().as_deref(), Some(ready.as_str()));
+    // fs.write uses a temporary name and a held directory descriptor; neither the
+    // temporary name nor these accepted bytes are part of the Git fingerprint.
+    let temporary = projected.join(".cmux-sync.json.cmux-held.tmp");
+    let mut writer = std::fs::File::create(&temporary).unwrap();
+    writer.write_all(b"next ").unwrap();
+    assert_eq!(fingerprint(&projected).unwrap().as_deref(), Some(ready.as_str()));
+    assert!(swap(&p.overlay, &p.forget(), &projected, &local, &ready).is_err());
+    writer.write_all(b"base").unwrap();
+    drop(writer);
+    std::fs::rename(&temporary, projected.join(SYNC_RECORD)).unwrap();
+    assert_eq!(std::fs::read(projected.join(SYNC_RECORD)).unwrap(), b"next base");
+    assert!(std::fs::symlink_metadata(&projected).unwrap().is_dir());
+}
+
+#[test]
+fn a_clean_git_swap_refuses_a_later_create_through_the_old_directory() {
+    let (_mac, _state, overlay) = unmounted_git();
+    let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
+    let index = overlay.lookup(git, "index").unwrap().ino;
+    let held = overlay.open_handle(git, libc::O_RDONLY | libc::O_DIRECTORY).unwrap();
+    let target = tempfile::tempdir().unwrap();
+    std::fs::write(target.path().join("index"), b"local").unwrap();
+    assert_eq!(overlay.swap_to_link(".git", target.path()), Ok(git));
+    let meta = target.path().metadata().unwrap();
+    let who = crate::overlay::Who { uid: meta.uid(), gid: meta.gid() };
+    assert_eq!(overlay.create(git, "index.lock", 0o600, who).unwrap_err(), libc::ENOENT);
+    assert!(overlay.open_handle(index, libc::O_RDWR).is_err());
+    overlay.release(held);
+    assert_eq!(std::fs::read(target.path().join("index")).unwrap(), b"local");
+    assert!(!target.path().join("index.lock").exists());
 }
 
 #[test]

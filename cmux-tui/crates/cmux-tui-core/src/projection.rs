@@ -1005,6 +1005,16 @@ pub(crate) fn detach_notice(at: &Path) -> (String, String) {
 /// [`DETACH`] of projection `line.name`, whose state folder is `state`: sealed now, unmounted
 /// lazily, recorded detached, the agents told. Never deletes state.
 fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
+    detach_with_timeout(line, state, std::time::Duration::from_secs(5))
+}
+
+fn detach_with_timeout(
+    line: &WayBackLine,
+    state: &Path,
+    drain_timeout: std::time::Duration,
+) -> Result<Value, Refusal> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = drain_timeout;
     use cmux_projection::state::{self as record, Detached};
     let io = |error: std::io::Error| ("projection.io", error.to_string());
     if !state.is_dir() {
@@ -1021,7 +1031,16 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
         // An admitted copy-up can be waiting for bytes from the Mac. Other projections
         // must remain usable while it finishes. Only unmount the instance we sealed.
         drop(table);
-        projected.overlay.seal();
+        if !projected.overlay.seal(drain_timeout) {
+            return Err((
+                "projection.busy",
+                format!(
+                    "projection {} is draining admitted writes; new writes are refused, \
+                     mount and edits are kept; retry detach when the writes finish",
+                    line.name
+                ),
+            ));
+        }
         table = projections().lock().unwrap_or_else(PoisonError::into_inner);
         if !table.get(&line.name).is_some_and(|current| Arc::ptr_eq(current, &projected)) {
             return Err((
@@ -1309,6 +1328,12 @@ fn attach(
     let digest = fnv(&encoded);
     let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
     let existing = table.get(&line.name).cloned();
+    // A timed-out detach keeps the old overlay until its admitted edits drain. A redial
+    // may supply those edits' missing bytes, but a serve/extend must not replace their state.
+    #[cfg(target_os = "linux")]
+    if line.extend || (!line.redial && !encoded.is_empty()) {
+        allow_replacement(existing.as_ref(), &line.name)?;
+    }
     if line.extend {
         drop(table);
         let (extended, data) = extend(&line.name, &at, &encoded, existing, started)?;
@@ -1380,6 +1405,17 @@ fn with_pins(mut data: Value, projected: &Projected) -> Value {
         fields.extend(status);
     }
     data
+}
+
+#[cfg(target_os = "linux")]
+fn allow_replacement(existing: Option<&Arc<Projected>>, name: &str) -> Result<(), Refusal> {
+    if existing.is_some_and(|projected| projected.overlay.is_sealed()) {
+        return Err((
+            "projection.busy",
+            format!("projection {name} is detaching; finish detach before serving it again"),
+        ));
+    }
+    Ok(())
 }
 
 /// `projection-extend-v1`: the mount of `name` at `at` takes the full manifest `encoded` in place
@@ -1531,6 +1567,7 @@ fn mount(
     if line.redial || line.manifest_bytes == 0 {
         allow_redial(state, name)?;
     }
+    allow_replacement(table.get(name), name)?;
     // A barrier the old mount held at its head: a remount that is no head dial has the whole
     // folder to offer, so it opens (below, once that mount is up); another head dial takes its own.
     let mut old_barrier = None;

@@ -380,7 +380,7 @@ fn a_removed_folders_edits_stay_even_when_its_notification_chat_is_gone() {
     fs::create_dir_all(&extra).unwrap();
     let (state, overlay) = machine.project("p-removed", &extra);
     edit(&overlay);
-    overlay.seal();
+    assert!(overlay.seal(Duration::from_secs(1)));
     let root = overlay.root();
     assert_eq!(overlay.create(root, "after.txt", 0o644, me()).err(), Some(libc::EROFS));
     let src = overlay.lookup(root, "src").unwrap().ino;
@@ -453,21 +453,76 @@ fn seal_waits_for_an_admitted_write_before_returning() {
 
     let writer_overlay = Arc::clone(&overlay);
     let writer = thread::spawn(move || writer_overlay.write(a, 0, b"admitted"));
-    entered.recv().unwrap();
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
 
     let (sealed, sealed_rx) = mpsc::channel();
     let sealer_overlay = Arc::clone(&overlay);
     let sealer = thread::spawn(move || {
-        sealer_overlay.seal();
+        assert!(sealer_overlay.seal(Duration::from_secs(5)));
         sealed.send(()).unwrap();
     });
-    assert!(sealed_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while !overlay.is_sealed() && std::time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(overlay.is_sealed());
+    let (refused, refused_rx) = mpsc::channel();
+    let late = overlay.clone();
+    let late_writer = thread::spawn(move || refused.send(late.write(a, 0, b"late")).unwrap());
+    assert_eq!(refused_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(libc::EROFS));
+    late_writer.join().unwrap();
+    assert!(sealed_rx.try_recv().is_err(), "admitted edit must still be draining");
 
     release.send(()).unwrap();
     assert_eq!(writer.join().unwrap(), Ok(8));
     sealed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     sealer.join().unwrap();
 
+    assert!(fs::read(state.join("upper/src/a.rs")).unwrap().starts_with(b"admitted"));
+    assert_eq!(overlay.write(a, 0, b"late"), Err(libc::EROFS));
+}
+
+/// Concurrent detach callers time out independently without reopening admission or cancelling
+/// the admitted edit. A retry can finish once the writer releases its guard.
+#[test]
+fn a_timed_out_seal_stays_closed_and_retries_after_the_admitted_write() {
+    let machine = Machine::new();
+    let (state, overlay) = machine.project("p-timeout", &machine.chat_folder("timeout"));
+    let overlay = Arc::new(overlay);
+    let src = overlay.lookup(overlay.root(), "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    let (entered, release) = overlay.pause_next_mutation();
+    let writing = overlay.clone();
+    let writer = thread::spawn(move || writing.write(a, 0, b"admitted"));
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let (finished, finished_rx) = mpsc::channel();
+    let sealers: Vec<_> = (0..2)
+        .map(|_| {
+            let sealing = overlay.clone();
+            let finished = finished.clone();
+            thread::spawn(move || {
+                finished.send(sealing.seal(Duration::from_millis(50))).unwrap();
+            })
+        })
+        .collect();
+    for _ in 0..2 {
+        assert!(!finished_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    }
+    for sealer in sealers {
+        sealer.join().unwrap();
+    }
+    assert!(overlay.is_sealed());
+    let (refused, refused_rx) = mpsc::channel();
+    let late = overlay.clone();
+    let late_writer = thread::spawn(move || refused.send(late.write(a, 0, b"late")).unwrap());
+    assert_eq!(refused_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(libc::EROFS));
+    late_writer.join().unwrap();
+    assert!(!overlay.seal(Duration::ZERO));
+
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(8));
+    assert!(overlay.seal(Duration::ZERO));
     assert!(fs::read(state.join("upper/src/a.rs")).unwrap().starts_with(b"admitted"));
     assert_eq!(overlay.write(a, 0, b"late"), Err(libc::EROFS));
 }

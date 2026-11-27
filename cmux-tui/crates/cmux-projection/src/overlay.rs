@@ -37,8 +37,8 @@ use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
-use std::time::{Duration, UNIX_EPOCH};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
@@ -390,10 +390,19 @@ struct Handle {
 }
 
 struct MutationGate {
-    sealed: AtomicBool,
-    access: RwLock<()>,
+    state: Mutex<MutationState>,
+    drained: Condvar,
     #[cfg(test)]
     pause: Mutex<Option<TestMutationPause>>,
+}
+
+struct MutationState {
+    sealed: bool,
+    active: usize,
+    /// A write can hold a descriptor or a transaction between FUSE requests. Once any
+    /// mutation was admitted, replacing a directory can strand that later work.
+    admitted: bool,
+    replacing: bool,
 }
 
 #[cfg(test)]
@@ -403,24 +412,50 @@ struct TestMutationPause {
 }
 
 struct MutationGuard<'a> {
-    _access: RwLockReadGuard<'a, ()>,
+    gate: &'a MutationGate,
+    replacing: bool,
+}
+
+impl Drop for MutationGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.active -= 1;
+        if self.replacing {
+            state.replacing = false;
+        }
+        if state.active == 0 {
+            self.gate.drained.notify_all();
+        }
+    }
 }
 
 impl MutationGate {
     fn new() -> Self {
         Self {
-            sealed: AtomicBool::new(false),
-            access: RwLock::new(()),
+            state: Mutex::new(MutationState {
+                sealed: false,
+                active: 0,
+                admitted: false,
+                replacing: false,
+            }),
+            drained: Condvar::new(),
             #[cfg(test)]
             pause: Mutex::new(None),
         }
     }
 
     fn enter(&self) -> Result<MutationGuard<'_>, i32> {
-        let access = self.access.read().unwrap_or_else(PoisonError::into_inner);
-        if self.sealed.load(Ordering::SeqCst) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        while state.replacing && !state.sealed {
+            state = self.drained.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+        if state.sealed {
             return Err(libc::EROFS);
         }
+        state.admitted = true;
+        state.active += 1;
+        let admitted = MutationGuard { gate: self, replacing: false };
+        drop(state);
         #[cfg(test)]
         let pause = { self.pause.lock().unwrap_or_else(PoisonError::into_inner).take() };
         #[cfg(test)]
@@ -428,16 +463,47 @@ impl MutationGate {
             let _ = pause.entered.send(());
             let _ = pause.release.recv();
         }
-        Ok(MutationGuard { _access: access })
+        Ok(admitted)
     }
 
-    fn seal(&self) {
-        self.sealed.store(true, Ordering::SeqCst);
-        let _access = self.access.write().unwrap_or_else(PoisonError::into_inner);
+    /// An opportunistic directory replacement may run only before the first mutation.
+    /// The guard excludes other admissions without holding the mutex across filesystem
+    /// work, so a concurrent seal still has a bounded wait. A fingerprint alone cannot
+    /// protect an open temporary file or a Git transaction.
+    fn replace_pristine(&self) -> Result<MutationGuard<'_>, i32> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.sealed {
+            return Err(libc::EROFS);
+        }
+        if state.admitted {
+            return Err(libc::EBUSY);
+        }
+        state.admitted = true;
+        state.replacing = true;
+        state.active += 1;
+        Ok(MutationGuard { gate: self, replacing: true })
+    }
+
+    fn seal(&self, timeout: Duration) -> bool {
+        let started = Instant::now();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Sticky even on timeout: a concurrent or retried detach must never reopen admission.
+        state.sealed = true;
+        self.drained.notify_all();
+        while state.active != 0 {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, _) =
+                self.drained.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner);
+            state = next;
+        }
+        true
     }
 
     fn is_sealed(&self) -> bool {
-        self.sealed.load(Ordering::SeqCst)
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).sealed
     }
 
     #[cfg(test)]
@@ -2115,6 +2181,10 @@ impl Overlay {
     /// Opens `ino` with open(2) `flags`. A write open copies a lower file up first; the handle
     /// then reads and writes the upper file's own descriptor.
     pub fn open_handle(&self, ino: u64, flags: i32) -> Result<u64, i32> {
+        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
+        // Admission precedes resolving an inode: a directory swap that wins the gate may
+        // retire it, so the write must not continue from a path resolved before that swap.
+        let _mutation = write.then(|| self.mutation.enter()).transpose()?;
         if let Some(index) = self.retired_index(ino) {
             if flags & libc::O_ACCMODE != libc::O_RDONLY {
                 return Err(EISDIR);
@@ -2126,8 +2196,6 @@ impl Overlay {
         if let Some(Node::Lower(index)) = self.node(&path) {
             self.refuse_kept(index)?;
         }
-        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
-        let _mutation = write.then(|| self.mutation.enter()).transpose()?;
         if write {
             match self.node(&path).ok_or(ENOENT)? {
                 Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
@@ -2167,11 +2235,13 @@ impl Overlay {
         self.handles().get(&handle).and_then(|handle| handle.file.clone())
     }
 
-    /// Refuses every change from now on (`EROFS`): the folder was removed from its chat. Reads
-    /// still answer, so a tool mid-read finishes; nothing more lands in the upper layer, which
-    /// stays whole for Bring Back or Discard.
-    pub fn seal(&self) {
-        self.mutation.seal();
+    /// Refuses new changes (`EROFS`) and waits at most `timeout` for admitted mutations.
+    /// Returns true only once they have drained, when the upper layer is safe to mark and
+    /// unmount. On timeout, admission stays sealed but admitted edits can still finish;
+    /// retain the mount and state and retry. Reads remain available throughout.
+    #[must_use]
+    pub fn seal(&self, timeout: Duration) -> bool {
+        self.mutation.seal(timeout)
     }
 
     /// Whether [`Overlay::seal`] was called.
