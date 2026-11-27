@@ -945,6 +945,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
