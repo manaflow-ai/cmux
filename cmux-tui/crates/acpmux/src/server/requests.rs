@@ -4197,6 +4197,7 @@ async fn dispatch_request_with_identity(
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
         m if queued::handles(m) => queued::handle(hub, conn, m, &params).await,
+        method::MUX_SEND_HOP => heap(|| super::send_hop::serve(hub, conn, &params)).await,
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             heap(|| super::outbox::handle(hub, conn, m, &params)).await
         }
