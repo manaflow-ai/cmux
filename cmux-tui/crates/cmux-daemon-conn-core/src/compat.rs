@@ -2,7 +2,7 @@
 //! the handshake that refused it). Features follow the capabilities, never
 //! the version string.
 
-use crate::handshake::{DAEMON_APP, PROTOCOL_VERSION};
+use crate::handshake::{DAEMON_APP, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use crate::identity::Identity;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -82,16 +82,24 @@ pub fn of_identity(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
     MissingCapabilities(Vec<String>),
-    UnsupportedProtocol(i64),
+    /// The daemon's protocol and advertised `min_protocol`.
+    UnsupportedProtocol(i64, Option<i64>),
     WrongApp(String),
+}
+
+/// A refused protocol naming both ranges: the daemon's (`min_protocol`, else
+/// just its protocol) and the app's, `protocol 11..=11 (need 12..=12)`.
+pub fn protocol_refusal(version: i64, floor: Option<i64>) -> String {
+    let floor = floor.unwrap_or(version).min(version);
+    format!("protocol {floor}..={version} (need {MIN_PROTOCOL_VERSION}..={PROTOCOL_VERSION})")
 }
 
 /// The compatibility a refused handshake shows.
 pub fn of_refusal(refusal: &Refusal) -> Compatibility {
     let missing_required = match refusal {
         Refusal::MissingCapabilities(names) => names.clone(),
-        Refusal::UnsupportedProtocol(version) => {
-            vec![format!("protocol {version} (need {PROTOCOL_VERSION})")]
+        Refusal::UnsupportedProtocol(version, floor) => {
+            vec![protocol_refusal(*version, *floor)]
         }
         Refusal::WrongApp(app) => vec![format!("app {app} (need {DAEMON_APP})")],
     };

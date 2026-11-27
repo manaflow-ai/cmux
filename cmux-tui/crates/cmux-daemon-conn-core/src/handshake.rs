@@ -2,8 +2,12 @@
 
 use crate::identity::Identity;
 
-/// The protocol the app speaks (cmux-tui-core `PROTOCOL_VERSION`).
+/// The newest protocol the app speaks (cmux-tui-core `PROTOCOL_VERSION`).
 pub const PROTOCOL_VERSION: i64 = 12;
+/// The oldest daemon protocol the app still speaks. Older daemons are
+/// refused (and a local owner handed off). Raise it one release after a
+/// framing break, never with it (docs/cloud-cmux-tui-daemon.md).
+pub const MIN_PROTOCOL_VERSION: i64 = 12;
 /// The app name a cmux-tui daemon reports.
 pub const DAEMON_APP: &str = "cmux-tui";
 /// Owner machine metadata on `identify` (`identify {machine_metadata: true}`).
@@ -22,10 +26,24 @@ pub enum Verdict {
     Accept,
     /// Another program serves the socket: close at once, no handoff.
     WrongApp(String),
-    /// Another protocol: the app's local owner may be handed off first.
-    UnsupportedProtocol(i64),
+    /// A protocol range that misses the app's: the daemon's protocol and its
+    /// advertised `min_protocol`. The app's local owner may be handed off first.
+    UnsupportedProtocol(i64, Option<i64>),
     /// Required capabilities missing, in the order asked.
     MissingCapabilities(Vec<String>),
+}
+
+/// The app speaks the daemon's protocol: it falls in
+/// `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION`, or the daemon is newer and
+/// its advertised `min_protocol` reaches back to ours. Features past that
+/// ride on capabilities, never on the number.
+pub fn protocol_supported(identity: &Identity) -> bool {
+    let theirs = identity.protocol;
+    if (MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&theirs) {
+        return true;
+    }
+    theirs > PROTOCOL_VERSION
+        && identity.min_protocol.is_some_and(|floor| floor <= PROTOCOL_VERSION)
 }
 
 /// The main connection's verdict: the app, then the protocol, then the
@@ -34,8 +52,8 @@ pub fn verdict(identity: &Identity, required: &[String]) -> Verdict {
     if identity.app != DAEMON_APP {
         return Verdict::WrongApp(identity.app.clone());
     }
-    if identity.protocol != PROTOCOL_VERSION {
-        return Verdict::UnsupportedProtocol(identity.protocol);
+    if !protocol_supported(identity) {
+        return Verdict::UnsupportedProtocol(identity.protocol, identity.min_protocol);
     }
     let have = identity.capability_set();
     let missing: Vec<String> =
@@ -53,8 +71,8 @@ pub fn page_relay_verdict(
     if identity.app != DAEMON_APP {
         return Err(Verdict::WrongApp(identity.app.clone()));
     }
-    if identity.protocol != PROTOCOL_VERSION {
-        return Err(Verdict::UnsupportedProtocol(identity.protocol));
+    if !protocol_supported(identity) {
+        return Err(Verdict::UnsupportedProtocol(identity.protocol, identity.min_protocol));
     }
     if !identity.supports(ORIGIN_CLAIM) {
         return Err(Verdict::MissingCapabilities(vec![ORIGIN_CLAIM.to_string()]));
@@ -65,7 +83,7 @@ pub fn page_relay_verdict(
 /// The daemon serves owner machine metadata: ask `identify` again with it.
 pub fn serves_machine_metadata(identity: &Identity) -> bool {
     identity.app == DAEMON_APP
-        && identity.protocol == PROTOCOL_VERSION
+        && protocol_supported(identity)
         && identity.supports(MACHINE_IDENTITY)
 }
 

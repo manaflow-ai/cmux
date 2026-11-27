@@ -17,6 +17,10 @@ pub struct Identity {
     pub build_commit: Option<String>,
     #[serde(rename = "protocol")]
     pub protocol: i64,
+    /// The oldest app protocol a newer daemon still serves; absent on
+    /// daemons that predate version ranges.
+    #[serde(default)]
+    pub min_protocol: Option<i64>,
     #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
