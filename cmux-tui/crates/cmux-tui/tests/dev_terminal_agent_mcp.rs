@@ -26,10 +26,10 @@ fn claude_in_a_dev_build_terminal_gets_cmux_with_its_settings_file_and_no_global
         fs::create_dir_all(dir).unwrap();
     }
     // The shared file says no; the DEV build's own file says yes.
-    fs::create_dir_all(home.join(".config/cmux")).unwrap();
-    fs::write(home.join(".config/cmux/cmux-next.json"), r#"{"agents": {"cmuxMcp": "off"}}"#)
-        .unwrap();
-    let own = home.join(".config/cmux/cmux-next-cu-fresh.json");
+    let config = home.join(".config").join(cmux_config::NEXT_DIR);
+    fs::create_dir_all(&config).unwrap();
+    fs::write(config.join("cmux-next.json"), r#"{"agents": {"cmuxMcp": "off"}}"#).unwrap();
+    let own = config.join("cmux-next-cu-fresh.json");
     fs::write(&own, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
     let received = root.path().join("claude-args");
     let claude = bin.join("claude");
@@ -125,7 +125,7 @@ fn claude_in_a_terminal_tells_its_own_servers_the_answer() {
     for dir in [&home, &bin] {
         fs::create_dir_all(dir).unwrap();
     }
-    let settings = home.join(".config/cmux/cmux-next.json");
+    let settings = home.join(".config").join(cmux_config::NEXT_DIR).join("cmux-next.json");
     fs::create_dir_all(settings.parent().unwrap()).unwrap();
     let received = root.path().join("claude-env");
     let claude = bin.join("claude");

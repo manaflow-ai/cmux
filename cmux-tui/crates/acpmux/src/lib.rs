@@ -23,6 +23,7 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
@@ -172,6 +173,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -198,6 +200,7 @@ pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
+pub mod lane_death_watch;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -446,6 +449,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
