@@ -24,6 +24,7 @@ cmux-cloud-handlers = { path = "../cmux-cloud-handlers" }
 cmux-cloud-machine = { path = "../cmux-cloud-machine" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
+cmux-error-journal = { path = "../cmux-error-journal" }
 cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
