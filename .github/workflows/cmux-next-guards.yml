@@ -101,8 +101,12 @@ env:
 # still pending. Per commit, at about 20 landings an hour, 53 of 60 base runs sat unstarted at once
 # (2026-11-18 06:57Z), about 15 Linux jobs each, ahead of every pull request's light jobs. The base-red
 # excuse and the feed watch read the newest base run at or before a commit, not one per commit.
+# ready_for_review gets a group of its own too: every job that judges the head skips that event (the draft's
+# run already judges the same head), so in the PR's shared group it cancelled the draft's run and left the
+# head with no guard verdict (4 of the 10 heads marked ready while their run was going, 03:34Z-04:40Z
+# 2026-11-27; tests/test_cmux_next_guards_route.py).
 concurrency:
-  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
