@@ -478,7 +478,7 @@ test("a timed turn's model calls run from request to last token, in place of the
   const markup = renderToStaticMarkup(<TurnWaterfall row={{ at: 10_400, durationMs: 800 }} work={work} form="chart" />);
   // The call that thought reads Thinking, the one that did not reads Model call, each with its wait.
   expect(markup).toContain("Thinking · 6s · first token after 2s");
-  expect(markup).toContain("Model call · 2s · first token after 2s");
+  expect(markup).toContain("Model call · 2s · first token after 1s");
   expect(markup).not.toContain("3ms");
 });
 
