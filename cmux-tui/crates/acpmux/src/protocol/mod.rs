@@ -20,6 +20,7 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
+pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
@@ -260,6 +261,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<presence::LiveParams, presence::LiveResult>(method::MUX_LIVE),
+        request::<presence::LiveListParams, presence::LiveListResult>(method::MUX_LIVE_LIST),
         request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
         request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
@@ -424,6 +427,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_TEAM_LISTEN, Request),
+        untyped(method::MUX_TEAM_NAVIGATOR, Request),
+        untyped(method::MUX_TEAM_PICK, Request),
+        untyped(method::MUX_TEAM_SESSION_INFO, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
@@ -635,9 +641,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/wireguard_admit", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/autocloud_enroll", Request),
@@ -668,6 +676,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_SET, Request),
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
+        untyped(method::MUX_CONSENT_REMOTE_STATUS, Request),
+        untyped(method::MUX_CONSENT_REMOTE_SET, Request),
+        untyped(method::MUX_CONSENT_GRANTOR_TRUST, Request),
+        untyped(method::MUX_CONSENT_ACCOUNT_SET, Request),
+        untyped(method::MUX_CONSENT_TRUST_REFRESH, Request),
+        untyped(method::MUX_CONSENT_SCREEN_AUTO, Request),
         untyped(method::MUX_MACHINE_ROUTES, Request),
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_SHARE_HOST_STATUS, Request),
