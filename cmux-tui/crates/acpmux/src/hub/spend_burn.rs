@@ -16,7 +16,8 @@
 //! Warnings only: nothing here stops, cancels or holds a turn. The budget is
 //! `ACPMUX_TASK_BUDGET_USD` (default [`DEFAULT_BUDGET_USD`]; `0`, `off` or `none` sets none, which
 //! leaves the fast-burn heuristic alone), the no-budget rate `ACPMUX_FAST_BURN_USD_PER_MIN`, and
-//! `ACPMUX_SPEND_WARNINGS=0` turns the warnings off; all read once.
+//! `ACPMUX_SPEND_WARNINGS=1` turns the warnings on (they are off by default: a person's spend is
+//! theirs to watch); all read once.
 //!
 //! The running spend: a harness that reports its cumulative cost on `usage_update` (ACP's
 //! `cost: {amount, currency: "USD"}`) gives it as the rise since the session's last report before
@@ -68,7 +69,7 @@ pub struct Settings {
 impl Settings {
     /// From the three variables' values (module docs).
     pub fn parse(enabled: Option<&str>, budget: Option<&str>, rate: Option<&str>) -> Self {
-        let enabled = !matches!(enabled.map(str::trim), Some("0" | "off" | "false" | "no"));
+        let enabled = matches!(enabled.map(str::trim), Some("1" | "on" | "true" | "yes"));
         let budget_usd = match budget.map(str::trim) {
             None | Some("") => Some(DEFAULT_BUDGET_USD),
             Some("off" | "none") => None,

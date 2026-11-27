@@ -8,8 +8,10 @@ fn levels(w: &[Warning]) -> Vec<&'static str> {
 }
 
 #[test]
-fn settings_default_on_with_a_budget_and_parse_off() {
-    assert_eq!(Settings::parse(None, None, None), ON);
+fn settings_default_off_and_parse_on() {
+    assert!(!Settings::parse(None, None, None).enabled);
+    assert!(!Settings::parse(None, Some("2.5"), None).enabled);
+    assert_eq!(Settings::parse(Some("1"), None, None), ON);
     assert_eq!(Settings::parse(None, Some("off"), None).budget_usd, None);
     assert_eq!(Settings::parse(None, Some("0"), None).budget_usd, None);
     assert_eq!(Settings::parse(None, Some("2.5"), None).budget_usd, Some(2.5));
