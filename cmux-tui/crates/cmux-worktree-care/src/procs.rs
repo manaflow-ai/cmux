@@ -181,7 +181,9 @@ fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
     let mut command = std::process::Command::new("lsof");
     command
         .env("PATH", path)
-        .args(["-w", "-t", depth])
+        .args(["-w", "-t"])
+        // Preserve recursive checks for PR archives; lone files use lsof's operand form.
+        .args(if folder.is_dir() { [depth] } else { ["--"] })
         .arg(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

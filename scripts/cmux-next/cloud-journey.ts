@@ -5627,6 +5627,52 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
     }
+    // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
+    // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
+    // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
+    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
+    const setUpModelStub = async (machine: string, run: Exec): Promise<string | undefined> => {
+      const file = "/home/cmux/.cmux/journey-model-stub.py";
+      const script = "/home/cmux/.cmux/journey-model-stub.json";
+      const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+      const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
+      for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+        const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+      }
+      // Port 0: the stub binds a free port and writes it to the ready file.
+      const point = provider === "codex"
+        ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
+        : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
+      const r = await run(
+        `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
+          `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+          `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+          `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
+          `echo "@@port $port"; ` + point,
+      );
+      if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+      const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+      return port;
+    };
+    // --model stub with the reserved home chat: warm-home starts the agent on the spare before the claim, so the stub
+    // must point it there first. A Claude launched before settings.json names the stub, on an owner machine whose edge
+    // name resolves, takes the team model plane (claude_cloud_auth team_pair) and keeps it: prod runs 45934051875 and
+    // 45939724879 answered "No cmux inference gateway is online for this team" while the stub step passed.
+    // A spare it could not be set up on is only noted: the step after the claim sets it up there as before.
+    let stubOn: string | null = null;
+    if (modelStub && provider && homeChat === "reserved" && prepared?.spare && !only.has("chat")) {
+      const spare = prepared.spare;
+      const t0 = Date.now();
+      const port = await setUpModelStub(spare, directExec(api, spare, J)).catch((error: unknown) => {
+        J.record({ step: "model stub on the spare", status: "skip", ms: Date.now() - t0, detail: `set up after the claim instead: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
+        return null;
+      });
+      if (port !== null) {
+        stubOn = spare;
+        J.record({ step: "model stub on the machine", status: "pass", ms: Date.now() - t0, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider}), on the spare before warm-home` });
+      }
+    }
     if (homeChat === "reserved") {
       const t0 = Date.now();
       const name = "home chat warmed ahead (warm-home)";
@@ -6202,33 +6248,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: 'model = "stub-model"; model_provider stays "cmux" (the edge, the placeholder key)' };
       });
     }
-    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
-    if (modelStub && provider && !only.has("chat")) {
-      // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
-      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
-      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
+    if (modelStub && provider && !only.has("chat") && stubOn !== created.id) {
       await J.step("model stub on the machine", async () => {
-        const file = "/home/cmux/.cmux/journey-model-stub.py";
-        const script = "/home/cmux/.cmux/journey-model-stub.json";
-        const ready = "/home/cmux/.cmux/journey-model-stub.ready";
-        const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
-        for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
-          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
-          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
-        }
-        // Port 0: the stub binds a free port and writes it to the ready file.
-        const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
-          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
-        const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
-            `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
-            `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
-            `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
-            `echo "@@port $port"; ` + point,
-        );
-        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-        const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+        const port = await setUpModelStub(created.id, exec);
         return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
       });
     }
