@@ -99,8 +99,8 @@ fn canonical(path: &Path) -> PathBuf {
 
 /// Make a settings override absolute before passing it to Seatbelt. An override can name a
 /// missing file, so canonicalization alone is insufficient for the policy to protect it.
-fn absolute(path: PathBuf) -> PathBuf {
-    if path.is_absolute() { path } else { std::env::current_dir().unwrap_or_default().join(path) }
+fn absolute(base: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() { path } else { base.join(path) }
 }
 
 /// A literal path as a regex: Seatbelt's regex is POSIX extended.
@@ -399,17 +399,17 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .join(config_dir)
         .join(cmux_config::location::LEGACY_DIR)
         .join(cmux_config::location::NEXT_FILE_NAME);
-    let cmux_config = absolute(crate::user_settings::resolved_path());
+    let cmux_config = absolute(&cwd, crate::user_settings::resolved_path());
     let cmux_config_real = canonical(&cmux_config);
     let gh_config_dir = env
         .get("GH_CONFIG_DIR")
         .filter(|p| !p.is_empty())
-        .map(|p| canonical(&absolute(PathBuf::from(p))))
+        .map(|p| canonical(&absolute(&cwd, PathBuf::from(p))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
     let xdg_gh_config_dir = env
         .get("XDG_CONFIG_HOME")
         .filter(|p| !p.is_empty())
-        .map(|p| canonical(&absolute(PathBuf::from(p).join("gh"))))
+        .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
     Some(Bound {
         cwd,
