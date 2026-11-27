@@ -55,7 +55,7 @@ jobs:
     # Analysis only reads trusted main history and the Actions/PR APIs, but it
     # mints App tokens to read on their budget, so it runs on a literal
     # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       actions: read
@@ -86,6 +86,17 @@ jobs:
       # Reads draw on the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-21); a refused read falls back to
       # GH_TOKEN (guard_attribution.GitHub). The guard steps it runs never see either token.
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the cmux-bot read token
         # Every run reads on cmux-bot's installation budget, so per-PR reads
         # stop draining the build controller's routing App (5067688 read 0
@@ -113,10 +124,12 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -129,7 +142,7 @@ jobs:
         # A red fast guard on main is bisected: main's history, without blobs
         # until a commit is checked out, for the commits between two runs.
         if: ${{ github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           filter: blob:none
@@ -138,7 +151,7 @@ jobs:
       - name: Checkout main
         # Everything else only reads a log and ci-guards.yml.
         if: ${{ !(github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           filter: blob:none
@@ -220,7 +233,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer
     timeout-minutes: 10
     permissions:
       contents: read
@@ -244,6 +257,17 @@ jobs:
 
       # Reads (the PR's comments, the tracking issues) on the App's budget; the comment and
       # issue writes stay on GH_TOKEN, since pr_status finds the status comment by its author.
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the cmux-bot read token
         # Every run reads on cmux-bot's installation budget, so per-PR reads
         # stop draining the build controller's routing App (5067688 read 0
@@ -269,10 +293,12 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-issues: read
@@ -280,7 +306,7 @@ jobs:
           skip-token-revoke: true
 
       - name: Checkout main's analyzed head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.analyze.outputs.head }}
           fetch-depth: 1

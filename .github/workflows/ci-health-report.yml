@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out trusted report code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -97,6 +97,7 @@ jobs:
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_REACT_SHARD_RUNNER=${{ vars.CI_REACT_SHARD_RUNNER }}
@@ -115,6 +116,7 @@ jobs:
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            CMUX_IOS_SIM_LINUX_BUILD_RUNNER=${{ vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}

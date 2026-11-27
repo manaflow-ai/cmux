@@ -73,7 +73,7 @@ jobs:
     # after a first attempt (2026-10-28: every Blacksmith Linux size stopped starting jobs from
     # ~20:00Z); a tick's first attempt has run on the JIT VM since 2026-11-20, and
     # RUNNER_POOLS.linux_2 still moves a re-run between Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the request step's 25-minute bound (its rate-limit waits
     # included, below). It was 75 for an hour of waits, and ticks then held the one tick group
     # 30+ minutes (2026-11-25 23:41Z to 11-26 02:45Z: the feed stood still for 3 hours).
@@ -101,7 +101,7 @@ jobs:
       # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
       # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with:
@@ -109,17 +109,21 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
       - if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
-      # This workflow's own copy of the wrapper, not the checked-out branch's.
+      # This workflow's own copy of the wrapper, not the checked-out branch's. A reset fetch is
+      # tried once more, as the branch checkout above is: one curl 56 here ends the tick too.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        id: tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 4
+        continue-on-error: true
+        with: &request-tooling
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -129,6 +133,11 @@ jobs:
           # from promisor remote") and the tick died in checkout; a plain depth-1 fetch has no
           # second fetch to stall.
           fetch-depth: 1
+      - name: Checkout the gh rate-limit wait (retry)
+        if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 4
+        with: *request-tooling
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
       # github.token as the fallback. Every workflow here shares github.token's budget; when
@@ -233,6 +242,11 @@ jobs:
       # 3 hours then 3 at once?"): no start within NIGHTLY_NEXT_CADENCE_MINUTES (default 20) of the
       # newest one, even with the slot free; the start that falls due (this cron's 5-minute tick)
       # takes the newest buildable commit, and a longer gap promotes at once. 0 turns it off.
+      # Fast pass (Leo, 2026-11-25: "when can we get the next nightly. like just the fast pass way to
+      # go"): when every landing nightly-next lacks is a safe fix (scripts/ci/nightly_fast_pass.py: at most
+      # 3 commits, 12 files and 200 lines, none on .github/release-surface.txt, CI, build or dependency
+      # files, read from this checkout), the cadence is 5 minutes, not 20. The running-build wait, the
+      # precheck and every build check still hold. The step's fast_pass output names it.
       # The rolling rule's spare reader: a read the job's token is refused goes out once more on this
       # read-only route App token (its own budget; main's promote job reads on it too), so a dry
       # github.token and cmux-bot budget do not cost the tick its answer. Ticks 45118875109 and
@@ -410,7 +424,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
     # no variable may put it on a machine this line does not name (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # Two bounded steps of reads and at most one cancel and one re-run.
     timeout-minutes: 25
     concurrency:
@@ -422,9 +436,13 @@ jobs:
       contents: read
     steps:
       # This workflow's own copy of the scripts; nightly_next_cancelled_tip.sh needs a git
-      # checkout with an `origin` (it reads nightly-next with ls-remote).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+      # checkout with an `origin` (it reads nightly-next with ls-remote). A reset fetch is tried
+      # once more.
+      - id: tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 4
+        continue-on-error: true
+        with: &unstick-tooling
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -434,6 +452,10 @@ jobs:
           # from promisor remote") and the tick died in checkout; a plain depth-1 fetch has no
           # second fetch to stall.
           fetch-depth: 1
+      - if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 4
+        with: *unstick-tooling
 
       # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
       # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its

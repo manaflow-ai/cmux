@@ -321,10 +321,11 @@ allowed = {
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
     # The sweeper's fixed-name marker: without it the run is only not watched.
     ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
-    # The routing App's token: without it the pool choice reads the janitor snapshot.
-    ("runner", "route-token", "Mint the owned-pool routing token", "actions/create-github-app-token"),
+    # The routing token (minted on both Apps, the fuller one spent): without it the pool
+    # choice reads the janitor snapshot.
+    ("runner", "route-token", "Mint the owned-pool routing token", "./.github/actions/app-token-spread"),
     ("runner", "route-token-repo", "Mint the routing token without the org permission",
-     "actions/create-github-app-token"),
+     "./.github/actions/app-token-spread"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
