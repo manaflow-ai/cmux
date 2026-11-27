@@ -102,6 +102,13 @@ const openMachine: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 2);
 };
 
+/// The received line, opened by a click on it (its chevron then points down).
+const openLine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('.cv-agentmsg[data-direction="received"] .cv-agentmsg__line'));
+  await ctx.click({ selector: '.cv-agentmsg[data-direction="received"] .cv-agentmsg__line' });
+  await ctx.waitFor(() => ctx.document.querySelector('.cv-agentmsg[data-direction="received"][data-open]'));
+};
+
 function snapshot(
   from?: string,
   last = report(3, from),
@@ -141,6 +148,22 @@ export default agentPaneEntry({
     machine: {
       note: "codex-lane runs on studio-mac: the line names the machine after the name, and the machine is a control of its own.",
       snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+    },
+    "machine-open": {
+      note: 'Leo, 2026-11-27, on "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?" Opened, the machine ends the line\'s words: its chevron keeps the ink gap after the machine\'s name (design/chevrons.md), never the chip\'s pull-back.',
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+      play: openLine,
+    },
+    "machine-open-quiet": {
+      note: "The same, in the quiet look (no first line on the line, even closed).",
+      theme: { messageLineLook: "quiet" },
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+    },
+    "machine-open-quiet-open": {
+      note: "The quiet look, opened.",
+      theme: { messageLineLook: "quiet" },
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+      play: openLine,
     },
     "machine-menu": {
       note: "Play: the machine opens a menu of the chats on studio-mac (archived ones left out), each opening beside this chat, and Copy machine name.",

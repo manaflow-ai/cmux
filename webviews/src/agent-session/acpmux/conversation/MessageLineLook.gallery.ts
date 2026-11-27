@@ -224,6 +224,12 @@ const openFirstSend: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more"));
 };
 
+/// The first send, opened by a click on its line (the quiet look has no first line to click).
+const openFirstSendLine: Play = async (ctx) => {
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__line" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg[data-open]"));
+};
+
 /// A received line, opened by a click on its chevron (the line holds no first line to click).
 const openReceived: Play = async (ctx) => {
   await ctx.click({ selector: '.cv-agentmsg[data-direction="received"] .cv-agentmsg__line' });
@@ -286,6 +292,12 @@ export default agentPaneEntry({
       theme: { messageLineLook: "quiet" },
       snapshot: coordinatorTurn(),
       play: openReceived,
+    },
+    "quiet-sent-open": {
+      note: 'Leo, 2026-11-27, on "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?" A send to a chat on another machine, opened in the quiet look: the machine ends the words and the chevron keeps its ink gap after it.',
+      theme: { messageLineLook: "quiet" },
+      snapshot: coordinatorTurn(),
+      play: openFirstSendLine,
     },
     quiet: {
       note: "Gallery version (theme messageLineLook quiet): the line alone, the first line only once the row opens.",
