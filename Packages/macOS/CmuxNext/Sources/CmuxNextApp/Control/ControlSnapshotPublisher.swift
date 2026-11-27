@@ -192,8 +192,7 @@ final class ControlSnapshotPublisher {
         var topology = ControlTopology(store: services.daemon.store, selectedTab: selectedTab, pages: pages, cache: cache, scope: scope)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         if sequences { topology.daemonSequence = services.daemon.store.appliedSequence }
-        // Home's first dock move may still retire the pane Home shows in: not loaded yet, and actions wait (HomeDockSettle).
-        topology.isSettling = services.homeDockSettle.isSettling(store: services.daemon.store)
+        topology.isSettling = services.homeDockSettle.isSettling(store: services.daemon.store) // Home's dock move may retire a pane: actions wait
         let machines = services.machines
         // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
         topology.sessions = ControlSessions.sessions(machines: machines)

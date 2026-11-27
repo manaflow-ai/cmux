@@ -34,10 +34,7 @@ extension HomeService {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
         chiefTabStep = .notStarted
-        let generation = ensure.begin()
-        // Until its dock move is applied, Home's page may still leave the pane it shows in (HomeDockSettle).
-        let settle = services.homeDockSettle
-        settle.begin(generation)
+        let generation = ensure.begin(), settle = services.homeDockSettle; settle.begin(generation) // its dock steps (HomeDockSettle)
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             defer { self?.ensureOwner.end(generation); settle.end(generation) }
@@ -48,16 +45,9 @@ extension HomeService {
                 homeWorkspaceID = home
                 ensure.settle(generation); DebugTimings.markLaunch("home.ensure_home")
                 async let chiefTab: Void = ensureChiefTab(connection, home: home, generation: generation) // beside the dock steps: Home's first page waits for both
-                let store = services.machines.local.store
-                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: store, home: home) { [services] tab, anchor, respawn, pinned, completion in
-                    services.homeDockMove(tab, anchor, respawn, pinned) { moved in
-                        settle.end(generation) // applied: the rest of the dock steps (pin, allow tabs) retire no pane
-                        completion(moved)
-                    }
-                })
-                settle.end(generation) // no move, or it landed: Home's page stays in the pane it shows in
+                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home, settle: settle, dock: services.windowHomeDock))
                 // Each window's own Home is docked on every connect too (cmux#27880), never behind the Chief's owner.
-                DebugTimings.markLaunch("home.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
+                settle.end(generation); DebugTimings.markLaunch("home.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
                 DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {

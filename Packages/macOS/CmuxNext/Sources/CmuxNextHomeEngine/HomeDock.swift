@@ -104,20 +104,22 @@ public final class HomeDock {
     /// tabs (tabs with a conversation source, which only Home creates there) gone, since the page
     /// shows the Chief conversation. Returns the step for `debug.home`; a failure is that step too
     /// (logged), so the Chief conversation's own setup still runs. Reads the home from the live
-    /// tree each time (it changes while this waits).
-    public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async -> String {
+    /// tree each time (it changes while this waits). `settle` counts the dock move until the tree shows its dock.
+    public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, settle: HomeDockSettle? = nil,
+                       dock: Dock) async -> String {
         let needs = [DaemonCapability.pageTabs.rawValue, DaemonCapability.dockColumnRole.rawValue, DaemonCapability.tabColumnRespawn.rawValue]
         guard needs.allSatisfy({ store.supports($0) }) else { return "no home dock: the daemon lacks page tabs, dock roles or column respawn" }
         guard !moveInFlight else { return "home dock move in flight" }
         do {
-            return try await ensureDock(connection, store: store, home: home, dock: dock)
+            return try await ensureDock(connection, store: store, home: home, settle: settle, dock: dock)
         } catch {
             logger.error("home dock: \(String(describing: error), privacy: .public)")
             return "home dock failed: \(String(describing: error))"
         }
     }
 
-    private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async throws -> String {
+    private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, settle: HomeDockSettle?,
+                            dock: Dock) async throws -> String {
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == home } }
         guard let first = await shown(workspace) else { return "home workspace gone" }
         if Self.pageTab(in: first) == nil {
@@ -148,12 +150,15 @@ public final class HomeDock {
         let respawn: SplitRespawn? = plan.respawnTerminal == true ? .terminal(SpawnOptions(workspace: workspace()?.key)) : nil
         moveInFlight = true
         defer { moveInFlight = false }
+        // The pane the page leaves may close: callers wait for the dock's pane until the tree shows it (HomeDockSettle).
+        settle?.moveSent()
         let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
         }
-        guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
-        _ = await shown { workspace().flatMap { Self.pageIsDocked(in: $0) ? true : nil } }
+        if moved { _ = await shown { workspace().flatMap { Self.pageIsDocked(in: $0) ? true : nil } } }
+        settle?.moveLanded()
+        guard moved else { return "home dock move failed (see the app log)" }
         _ = try await pin(connection, store: store, workspace: workspace)
         _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"

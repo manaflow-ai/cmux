@@ -62,7 +62,13 @@ public final class WindowHomes {
     private var pendingClose: Set<String> = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
-    public init(host: any WindowHomeHost) { self.host = host }
+    /// Counts each window Home's dock move (``HomeDock``), so no caller is handed the pane it closes.
+    private let settle: HomeDockSettle?
+
+    public init(host: any WindowHomeHost, settle: HomeDockSettle? = nil) {
+        self.host = host
+        self.settle = settle
+    }
 
     /// The Home window `window` shows: the store's home when the window holds it, else the
     /// window's own Home, else the store's home when no other open window holds it. Nil when
@@ -154,11 +160,12 @@ public final class WindowHomes {
 
     private func ensureDock(_ home: WorkspaceModel, _ connection: DaemonConnection) async {
         guard let host, let resource = home.resourceID else { return }
-        let id = home.id, earlier = docks[id], logger = logger
+        let id = home.id, earlier = docks[id], logger = logger, settle = settle
         // task-owner: one dock run per window Home after the one before it (each bounded by its daemon replies)
         let run = Task { @MainActor in
             await earlier?.value
-            let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
+            let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, settle: settle,
+                                               dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
             logger.info("window home \(id, privacy: .public): \(step, privacy: .public)")
         }
         docks[id] = run

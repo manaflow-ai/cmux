@@ -125,7 +125,7 @@ final class AppServices {
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, document: { [weak self] in self?.sidebarDoc.store.flatMap { $0.isActive ? $0 : nil } }, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// Each window's own Home (cmux#27880).
-    private(set) lazy var windowHomes = WindowHomes(host: self)
+    private(set) lazy var windowHomes = WindowHomes(host: self, settle: homeDockSettle)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
@@ -359,7 +359,6 @@ final class AppServices {
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
-    /// Home's dock steps while they can still retire the pane Home shows in: the control socket waits for them.
     let homeDockSettle = HomeDockSettle()
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
