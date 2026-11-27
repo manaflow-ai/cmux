@@ -9,11 +9,14 @@ NIGHTLY, and new visible UI only whole.
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import os
 import struct
 import sys
 import tempfile
 import unittest
+import urllib.error
 import zlib
 from pathlib import Path
 from unittest import mock
@@ -231,6 +234,54 @@ class RevertedHistoryTest(unittest.TestCase):
                 with self.subTest(pr=pr):
                     self.assertEqual(u.verdict(u.affects([changed, added]), "", recs, u.new_ui([added]), pr)[0],
                                      "pending")
+
+
+class ReadFailureTest(unittest.TestCase):
+    def test_both_gates_report_http_metadata_without_secrets(self) -> None:
+        for code in (403, 429, 503):
+            for module, argv, target in ((u, ["gate"], "gate_now"),
+                                         (proof_record, ["gate", "--suite", "ios-flows"], "pr_comments")):
+                with self.subTest(code=code, module=module.__name__):
+                    error = urllib.error.HTTPError(
+                        "https://user:secret@api.github.com/repos/manaflow-ai/cmux/issues/7/comments?token=secret",
+                        code, "secret response reason", {"X-GitHub-Request-Id": "ABCD:1234", "Retry-After": "60",
+                        "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1795776600",
+                        "Authorization": "Bearer secret"}, io.BytesIO(b"secret response body"))
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with mock.patch.dict(os.environ, {"REPO": "manaflow-ai/cmux", "PR": "7", "SHA": HEAD,
+                                                      "GH_TOKEN": "secret"}), \
+                            mock.patch.object(module, target, side_effect=error), \
+                            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        self.assertEqual(module.main(argv), 0)
+                    self.assertTrue(stdout.getvalue().startswith("error\t"))
+                    self.assertIn(f"HTTPError {code}", stdout.getvalue())
+                    self.assertIn("see job log", stdout.getvalue())
+                    details = json.loads(stderr.getvalue())
+                    self.assertEqual(details["status"], code)
+                    self.assertEqual(details["endpoint"], "/repos/manaflow-ai/cmux/issues/7/comments")
+                    self.assertEqual(details["request_id"], "ABCD:1234")
+                    self.assertEqual(details["retry_after"], "60")
+                    self.assertEqual(details["rate_remaining"], "0")
+                    self.assertEqual(details["rate_reset"], "1795776600")
+                    self.assertNotIn("secret", stdout.getvalue() + stderr.getvalue())
+                    self.assertEqual(error.fp.tell(), 0)
+
+    def test_unknown_endpoint_and_unexpected_headers_are_omitted(self) -> None:
+        error = urllib.error.HTTPError("https://example.com/secret?token=secret", 403, "secret",
+                                       {"X-GitHub-Request-Id": "secret\nline", "Retry-After": "secret"}, None)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(proof_record.read_error(error), "HTTPError 403")
+        self.assertEqual(json.loads(stderr.getvalue()), {"error": "HTTPError", "status": 403})
+
+    def test_non_http_failure_keeps_its_type_without_exception_text(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(proof_record.read_error(TimeoutError("secret")), "TimeoutError")
+            self.assertEqual(proof_record.read_error(urllib.error.HTTPError(
+                "https://api.github.com/repos/manaflow-ai/cmux/pulls/7", 500, "secret", None, None)),
+                "HTTPError 500")
+        self.assertNotIn("secret", stderr.getvalue())
 
 
 class RouterTest(unittest.TestCase):
