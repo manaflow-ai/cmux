@@ -73,6 +73,8 @@ PIN = re.compile(
 # A conditioned arm that already names the label (`<condition> && 'cmux-linux'`): a placement, not a size.
 LABEL_ARM = re.compile(rf"^.+ && '{LABEL}'$")
 FORK_TEST = "head.repo.full_name != github.repository"
+# The fork branch as written, with a literal label: a rerun keeps the label it names instead of resetting it.
+FORK_LITERAL = re.compile(r"^" + re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'")) + r" && '[\w.-]+'$")
 # One Linux arm of a mixed (macOS first) expression's top-level chain: `<condition> && <Linux size picker>`.
 MIXED_TERM = re.compile(
     r"^(?P<cond>.+?) && (?:!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER"
@@ -211,7 +213,7 @@ def rewrite_expr(expr: str) -> str | None:
         return "${{ " + f"{OWNER_GUARD} || format('{fm['lead']}{{0}}', {inner})" + " }}"
     # Kept terms stay in their order; the fork branch takes the place of the first fork or size term, so a pin
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
-    kept, picked, fork_at = [], False, None
+    kept, picked, fork_at, fork = [], False, None, FORK_PR
     for term in terms:
         if term == OVERFLOW:
             continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
@@ -220,6 +222,8 @@ def rewrite_expr(expr: str) -> str | None:
         elif PICKER.search(term):
             picked = True
             fork_at = len(kept) if fork_at is None else fork_at
+            if FORK_LITERAL.match(term):
+                fork = term  # a fork branch already naming a literal label (a pinned Blacksmith size) keeps it
         elif PIN.search(term):
             kept.append(term)
         elif NOT_LINUX_X64.search(term):
@@ -228,7 +232,7 @@ def rewrite_expr(expr: str) -> str | None:
             return None
     if not picked:
         return None
-    kept.insert(fork_at, FORK_PR)
+    kept.insert(fork_at, fork)
     return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
 
 

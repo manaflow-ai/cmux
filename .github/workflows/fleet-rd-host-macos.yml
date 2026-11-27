@@ -86,7 +86,7 @@ jobs:
     # The fleet takes this repository's own refs only; a push a window's earlier run covers skips (no runner).
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
     # A Linux runner that only reads the controller's public verdict (the Mac is the fleet worker, not this runner).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: read
     # Longer than the read's wait (4800 s) and its no-record window: a job timeout concludes as a failure, which

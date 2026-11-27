@@ -47,6 +47,16 @@ on:
         required: false
         default: false
         type: boolean
+      scenarios:
+        description: "Run Leo's AutoCloud scenarios instead of the journey (scripts/cmux-next/cloud-scenarios.ts): comma-separated cases, or all"
+        required: false
+        default: ""
+        type: string
+      chromium_minutes:
+        description: "With scenarios including chromium: the fetch and build time box in minutes"
+        required: false
+        default: "60"
+        type: string
 
 permissions:
   contents: read
@@ -198,7 +208,7 @@ jobs:
   journey:
     needs: installer
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: ${{ inputs.lifecycle && 80 || 45 }}
+    timeout-minutes: ${{ inputs.scenarios != '' && 180 || inputs.lifecycle && 80 || 45 }}
     # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys). Paused reads on staging run as the
     # agent test account's Stack session instead: the files routes need vm:files, which the staging smoke key was not
     # issued (run 45856090047 skipped the leg for it). cmux-next-vm-image-dev holds that account as CMUX_DOGFOOD_STACK_*
@@ -278,7 +288,34 @@ jobs:
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 120)"
           echo "$line" | sudo tee -a /etc/hosts
 
+      - name: Scenarios
+        if: ${{ inputs.scenarios != '' }}
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+          CHROMIUM_MINUTES: ${{ inputs.chromium_minutes }}
+          CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
+          CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
+          CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dogfood"
+          [[ "$SCENARIOS" =~ ^[a-z,]+$ ]] || { echo "::error::scenarios takes case names and commas"; exit 1; }
+          [[ "$CHROMIUM_MINUTES" =~ ^[0-9]+$ ]] || { echo "::error::chromium_minutes takes a number"; exit 1; }
+          args=(--result-file "$RUNNER_TEMP/dogfood/scenarios.json" --chromium-minutes "$CHROMIUM_MINUTES")
+          if [ "$SCENARIOS" != "all" ]; then args+=(--cases "$SCENARIOS"); fi
+          bun scripts/cmux-next/cloud-scenarios.ts "${args[@]}"
+          {
+            echo "### AutoCloud scenarios ($CMUX_VM_DOGFOOD_URL)"
+            echo
+            echo "| Case | Result | What happened | Time to scale (s) | \$ |"
+            echo "| --- | --- | --- | ---: | ---: |"
+            jq -r '.rows[] | "| \(.case) | \(if .ok then "green" else "red" end) | \(.what) | \(.timeToScaleS // "") | \(.usd) |"' "$RUNNER_TEMP/dogfood/scenarios.json"
+            echo
+            jq -r '.rows[] | select(.gaps | length > 0) | "- \(.case): \(.gaps | join("; "))"' "$RUNNER_TEMP/dogfood/scenarios.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Journey
+        if: ${{ inputs.scenarios == '' }}
         env:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}

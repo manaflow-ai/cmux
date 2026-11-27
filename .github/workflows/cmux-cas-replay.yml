@@ -1,0 +1,60 @@
+name: cmux-cas replay (RFD 0166 W1)
+
+# The RFD 0166 scoreboard's W1 row: what cas/1 would move per web OTA update against today's
+# whole archive, replayed over the last 100 published bundles (scripts/cmux-next/cas-replay-web.py).
+# It reads artifacts only; it publishes nothing.
+# No schedule: a schedule runs main's copy of a workflow, and main has neither this file nor
+# cmux-cas, so a cron here would never fire. Dispatch it, or let a crate PR run it.
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: How many published bundles to replay, newest last
+        default: "100"
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-cas/**"
+      - "scripts/cmux-next/cas-replay-web.py"
+      - ".github/workflows/cmux-cas-replay.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cmux-cas-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  w1:
+    if: github.repository == 'manaflow-ai/cmux'
+    name: replay web OTA bundles through cas/1
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build cas-replay
+        working-directory: cmux-tui
+        run: cargo build --locked --release -p cmux-cas --bin cas-replay
+
+      - name: Replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ inputs.count || (github.event_name == 'pull_request' && '40') || '100' }}
+        run: python3 -I scripts/cmux-next/cas-replay-web.py "$PWD/cmux-tui/target/release/cas-replay" "$RUNNER_TEMP/cas-replay" "$COUNT"
+
+      - name: Keep the rows
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-cas-replay-w1
+          path: |
+            ${{ runner.temp }}/cas-replay/rows.jsonl
+            ${{ runner.temp }}/cas-replay/summary.json
+          if-no-files-found: ignore
