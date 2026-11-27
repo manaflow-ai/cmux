@@ -55,11 +55,8 @@ extension PaneCommitMotionTests {
         return min(max(value, 0), 1)
     }
 
-    /// The layer of the veil of `host`: the lowest layer of the pane's overlay.
-    static func veilLayer(of host: PaneHostView) -> CALayer? { host.chrome.layer?.sublayers?.first }
-
     /// The strength of the veil that `host` shows: 0 with its overlay hidden; else the opacity of the overlay's
-    /// layer times the opacity of the veil's layer (``opacity(of:was:after:way:)``).
+    /// layer times the opacity of the veil's layer (``opacity(of:was:after:way:)``; the layer: `veilLayer(of:)`).
     static func veil(of host: PaneHostView, was: [ObjectIdentifier: Float], after time: Double, way: CGFloat) -> CGFloat {
         guard !host.chrome.isHidden, host.chrome.alphaValue > 0, let chrome = host.chrome.layer, let veil = veilLayer(of: host) else { return 0 }
         return opacity(of: chrome, was: was[ObjectIdentifier(chrome)], after: time, way: way)
@@ -97,7 +94,7 @@ extension PaneCommitMotionTests {
         try #require(!others.isEmpty, "SETUP: the \(look.scene) shows no other pane")
         for host in amount > 0 ? others : [] {
             let veil = try #require(Self.veilLayer(of: host), "SETUP: the overlay of \(host.pane) has no layer for a veil")
-            try #require(veil.frame == host.chrome.dimFrame, "SETUP: the lowest layer of the overlay of \(host.pane) is not its veil")
+            try #require(veil.frame == host.chrome.dimFrame, "SETUP: the layer with a fill in the overlay of \(host.pane) has not its veil's frame")
         }
         try Self.eachTick(of: look, over) { _, way, time in
             let dim = Dim.dim(harness).map { Self.opacity(of: $0.layer, was: was[ObjectIdentifier($0.layer)], after: time, way: way) } ?? 0

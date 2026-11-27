@@ -124,7 +124,7 @@ extension PaneCommitMotionTests {
         let other = try #require(harness.root.context.hosts["p2"], "SETUP: p2 has no host")
         let before = (own: Self.veil(of: host, was: [:], after: 0, way: 1), other: Self.veil(of: other, was: [:], after: 0, way: 1))
         if look.veil > 0 {
-            try #require(Self.veilLayer(of: host)?.frame == host.chrome.dimFrame, "SETUP: the lowest layer of p4's overlay is not its veil")
+            try #require(Self.veilLayer(of: host)?.frame == host.chrome.dimFrame, "SETUP: the layer with a fill in p4's overlay has not its veil's frame")
             try #require(before.other > 0.2, "SETUP: a pane that has not the focus has a veil of \(before.other) before the zoom")
             let fits = look.focused ? before.own < 0.001 : before.own > 0.2
             try #require(fits, "SETUP: p4 has a veil of \(before.own) before its zoom")
