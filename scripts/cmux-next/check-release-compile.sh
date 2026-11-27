@@ -21,7 +21,8 @@
 #
 # Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks | --nightly] [derived-data-path]
 #   --nightly: compile what a cmux NEXT Nightly compiles: Release with lib/nightly-swift-defines.sh
-#   (-DCMUX_BLOCKING_CHECKS), the defines .github/workflows/nightly.yml adds for track nightly-next.
+#   (-DCMUX_BLOCKING_CHECKS), the defines .github/workflows/nightly.yml adds for track nightly-next,
+#   and its -Osize with hot targets at -O (lib/swift-size-opt.sh).
 #   --archs: the architecture to compile (default arm64). nightly-next ships an
 #   x86_64 app too, so `--archs x86_64` checks the Intel compile the same way.
 #   --bench-hooks: compile the bench configuration (`reload.sh --config bench`): Release with
@@ -63,6 +64,7 @@ if [[ "${1:-}" == --archs ]]; then
 fi
 swift_other_flags='$(inherited)'
 bench_label=''
+size_opt_settings=()
 if [[ "${1:-}" == --bench-hooks ]]; then
   # The same flags reload.sh --config bench passes (SWIFT_OTHER_FLAGS), from one shared file.
   # shellcheck source=lib/bench-swift-defines.sh
@@ -74,7 +76,12 @@ elif [[ "${1:-}" == --nightly ]]; then
   # shellcheck source=lib/nightly-swift-defines.sh
   source "$(dirname "${BASH_SOURCE[0]}")/lib/nightly-swift-defines.sh"
   swift_other_flags+=" $CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
-  bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES)"
+  # And the Nightly's optimization: -Osize, hot targets at -O (lib/swift-size-opt.sh, the settings
+  # scripts/ci/nightly-steps/app-build-release.sh passes for track nightly-next).
+  # shellcheck source=lib/swift-size-opt.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/lib/swift-size-opt.sh"
+  while IFS= read -r setting; do size_opt_settings+=("$setting"); done < <(swift_size_opt_xcodebuild_args)
+  bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES, -Osize with hot targets at -O)"
   shift
 fi
 if [[ "${1:-}" == --function-timings ]]; then
@@ -169,6 +176,7 @@ build() {
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
+    ${size_opt_settings[@]+"${size_opt_settings[@]}"} \
     ${extra_settings[@]+"${extra_settings[@]}"} \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"

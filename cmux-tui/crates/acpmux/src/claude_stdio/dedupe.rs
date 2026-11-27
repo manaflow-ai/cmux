@@ -77,7 +77,7 @@ thread_local! {
 }
 
 /// Whether the feature is on now (the setting is read at most every 5 s).
-pub(super) fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(KILL_ENV).ok();
     if env_off(env.as_deref()) {
         return false;
@@ -104,6 +104,20 @@ pub(super) fn enabled() -> bool {
     };
     *cache = Some((Instant::now(), on));
     on
+}
+
+/// Whether the feature is on for `doc` and the daemon's switch value `env`, uncached: the
+/// harness-magic stamp's reading (`hub/harness_magic.rs`), so the scorecard can split turns by it.
+pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+    if env_off(env) {
+        return false;
+    }
+    if env.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }) {
+        return true;
+    }
+    enabled_in(doc)
 }
 
 /// On unless the settings document turns it off.

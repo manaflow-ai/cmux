@@ -944,8 +944,9 @@ class PullRequestRead(unittest.TestCase):
     def test_workflow_reads_take_the_spare_and_target_caps_its_wait(self) -> None:
         text = WORKFLOW.read_text()
         self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
-        # plan's dispatch, web layer's dispatch, and the two pull request reads.
-        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 4)
+        # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
+        # one-more-look dispatch.
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 6)
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)
@@ -958,6 +959,18 @@ class PullRequestRead(unittest.TestCase):
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", web)
         # The budget wrapper is gh for the dispatch, so a rate limit moves to the spare and each pool.
         self.assertLess(web.index("gh_budget_wait.sh --install"), web.index("- name: Start the web layer"))
+
+    # 2026-11-26 15:00-19:00Z: post the look ran 584 s at the median and 2,290 s at p90 over 215 jobs, nearly all of
+    # it in the one-more-look dispatch and the gallery read sleeping out github.token's spent hour.
+    def test_publish_dispatch_and_gallery_read_go_out_on_the_pools_and_spare(self) -> None:
+        publish = WORKFLOW.read_text().split("name: post the look", 1)[1]
+        self.assertIn('CI_POOL_PERMISSIONS: \'{"contents":"read","actions":"write"}\'', publish)
+        self.assertIn("permission-actions: write", publish.split("- name: Mint the pull request read's spare token", 1)[1].split("- name:", 1)[0])
+        for step in ("- name: Dispatch one more look", "- name: Is the gallery advisory also on this head"):
+            env = publish.split(step, 1)[1].split("run: |", 1)[0]
+            self.assertIn("GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}", env)
+            self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", env)
+            self.assertIn("GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}", env)
 
     def test_rust_layer_reads_the_pull_request_only_when_it_will_dispatch(self) -> None:
         rust = WORKFLOW.read_text().split("\n  rust:", 1)[1].split("\n  request:", 1)[0]

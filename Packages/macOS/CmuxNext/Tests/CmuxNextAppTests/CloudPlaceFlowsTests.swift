@@ -14,6 +14,7 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
+            if operation == "cloud_computer_status_live" { return nil } // not a move event
             if operation == "cloud_move_place_view" {
                 let state = ["failed": "failed", "live": "live"][events.last ?? ""] ?? "moving"
                 return Data(#"{"state":"\#(state)","n":\#(events.count)}"#.utf8)
@@ -206,6 +207,23 @@ import Testing
         for _ in 0..<50 { await Task.yield() }
         #expect(place.state(of: "t") == "failed")
         #expect(move(place, "t") != nil)
+    }
+
+    /// `cloud.place.get` reads the move's view after its card settled (the header's `move` went), and nothing for a chat
+    /// that never moved: the probe reads a landed move's step times.
+    @Test func aSettledMoveKeepsItsViewForTheProbe() async {
+        let recorder = Recorder()
+        let place = flows(recorder, liveLinger: .zero)
+        #expect(place.moveView(of: "s") == nil)
+        place.begin(session: "s", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
+        place.step("s", "commit")
+        place.live("s")
+        place.finished("s")
+        for _ in 0..<1000 where move(place, "s") != nil { await Task.yield() }
+        #expect(move(place, "s") == nil)
+        let view = place.moveView(of: "s") as? [String: Any]
+        #expect(view?["state"] as? String == "live")
+        #expect(place.moveView(of: "other") == nil)
     }
 
     @Test func modesPersist() {

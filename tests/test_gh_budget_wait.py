@@ -610,6 +610,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
+            self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+            script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))
