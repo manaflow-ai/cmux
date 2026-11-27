@@ -98,8 +98,26 @@ def extract(archive, out_dir, what):
 
 def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen, clock=time.monotonic,
         sleep=time.sleep):
+    """`token` is the bearer, or a function that mints a fresh one. A job's OIDC token lives about five minutes
+    and a build runs longer: the status poll got HTTP 401 "token refused: expired" at 344 s (2026-11-27, run
+    45915442830), so on a 401 ask for a new token and send the call again, once."""
+    mint = token if callable(token) else None
+    bearer = [mint() if mint else token]
+
+    def ask(body):
+        status, ans, retry = call(bearer[0], body, opener)
+        if status == 401 and mint:
+            fresh = mint()
+            if fresh:
+                bearer[0] = fresh
+                status, ans, retry = call(fresh, body, opener)
+        return status, ans, retry
+
     start = clock()
-    status, ans, retry = call(token, {"op": "submit", "what": what}, opener)
+    if not bearer[0]:
+        log("no OIDC token (the job needs permissions: id-token: write)")
+        return 2
+    status, ans, retry = ask({"op": "submit", "what": what})
     if status != 200 or not ans.get("job"):
         log(f"submit: HTTP {status} {ans.get('error', '')}".rstrip())
         return 2
@@ -111,7 +129,7 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
         if now - start > queue_timeout + timeout:
             log(f"job {job}: no verdict in {int(now - start)} s")
             return 2
-        status, ans, retry = call(token, {"op": "status", "job": job}, opener)
+        status, ans, retry = ask({"op": "status", "job": job})
         state = ans.get("state", "") if status == 200 else ""
         if status == 200 and ans.get("verdict"):
             break
@@ -163,11 +181,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=1500)
     ap.add_argument("--queue-timeout", type=int, default=600)
     args = ap.parse_args(argv)
-    token = oidc_token()
-    if not token:
-        log("no OIDC token (the job needs permissions: id-token: write)")
-        return 2
-    return run(args.what, args.out, args.timeout, args.queue_timeout, token)
+    return run(args.what, args.out, args.timeout, args.queue_timeout, oidc_token)
 
 
 if __name__ == "__main__":
