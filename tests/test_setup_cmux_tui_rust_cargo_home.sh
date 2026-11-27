@@ -78,4 +78,23 @@ d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo/")"
 w="$(run_as "$shared" actions-runner-glaeda RUNNER_OS=Windows)"
 [ ! -s "$w/env" ] || fail "a Windows runner got a CARGO_HOME"
 
+# One runner instance per user over one HOME (the Hetzner slots: runner16, ...
+# over /home/runner): a registry another user owns is shared, so this user gets
+# a home of its own, named by its uid. A fake `id` stands in for the other user.
+slot="$TMP/slot"
+mkdir -p "$slot/runner/_work/_temp" "$slot/.cargo/registry/cache/index" "$TMP/fakebin"
+echo '{}' > "$slot/runner/.runner"
+printf '#!/bin/sh\nif [ "$1" = -u ]; then echo 4242; else exec /usr/bin/id "$@"; fi\n' > "$TMP/fakebin/id"
+chmod +x "$TMP/fakebin/id"
+f="$(mktemp -d "$TMP/out.XXXXXX")"; : > "$f/env"; : > "$f/path"
+env -u CARGO_HOME PATH="$TMP/fakebin:$PATH" HOME="$slot" RUNNER_OS=Linux RUNNER_TEMP="$slot/runner/_work/_temp" \
+  GITHUB_ENV="$f/env" GITHUB_PATH="$f/path" bash "$SCRIPT" > "$f/log"
+[ "$(cat "$f/env")" = "CARGO_HOME=$slot/runner/_work/.cargo-home-4242" ] \
+  || fail "a registry another user owns kept the shared CARGO_HOME: $(cat "$f/env"; cat "$f/log")"
+[ -d "$slot/runner/_work/.cargo-home-4242/bin" ] || fail "the per-user cargo home was not made"
+
+# The same slot whose registry this user owns keeps the default CARGO_HOME.
+o="$(run_as "$slot" runner)"
+[ ! -s "$o/env" ] || fail "an own registry on a single-runner host got a CARGO_HOME: $(cat "$o/env")"
+
 echo "PASS: setup-cmux-tui-rust gives each shared-HOME runner its own CARGO_HOME"
