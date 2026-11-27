@@ -16,7 +16,6 @@
 
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
-pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
 pub mod adopt;
@@ -24,13 +23,17 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
+pub mod agent_env;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
+pub mod agent_sandbox;
 pub mod agent_text;
 pub mod agent_tools;
 mod artifacts_fs;
@@ -39,6 +42,7 @@ pub mod attach;
 pub mod author;
 /// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
 pub mod auto_session;
+pub mod autocloud_enroll;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -54,6 +58,7 @@ pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
+pub mod ci_log_cache;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -72,6 +77,8 @@ pub mod cloud_model_plane;
 pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The pinned cmux-rd a joined Linux machine installs, and its `linux-host enable` (`cmux_rd.rs`).
+pub mod cmux_rd;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod cmux_tui_service;
@@ -89,6 +96,10 @@ pub mod complete;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
+/// Control and Screen switched from the owner's app on another machine, over the hub carrier
+/// (`consent_grant_service.rs`, `cli/consent_grant.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod consent_grant_service;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod customize_run;
@@ -110,6 +121,8 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
+pub mod fork_spec;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -122,10 +135,12 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_budget;
 #[cfg(unix)]
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_pool;
 pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
@@ -169,6 +184,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -182,6 +198,9 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+/// The process that holds the far end of each held pipe past a daemon restart (`hub_carrier_pipe_host.rs`).
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod hub_carrier_pipe_host;
 pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
@@ -192,9 +211,11 @@ pub mod terminal_autocompact;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod chat_secrets;
+pub mod exit_record;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
+pub mod lane_death_watch;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -245,6 +266,7 @@ pub mod mesh_relay_config;
 pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
+pub mod model_settings;
 pub mod name_match;
 #[cfg(target_os = "macos")]
 mod named_files_watch;
@@ -267,6 +289,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
+pub mod peer_link_quality;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
@@ -279,11 +303,15 @@ pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod fleet_elastic;
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -304,6 +332,7 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
 mod provider_cloud_auth;
+pub mod provider_settings;
 pub mod qos;
 pub mod question_answer;
 pub(crate) mod questions;
@@ -311,6 +340,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rearm;
 pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
@@ -384,6 +414,7 @@ pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
 pub mod scorecard;
+pub mod scorecard_replay;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -409,10 +440,10 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod supervisor;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
-pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -426,6 +457,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub mod todo_tools;
 pub(crate) mod tool_env;
 pub mod tool_mentions;
 pub mod tools_mcp;
@@ -440,6 +472,8 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
+pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

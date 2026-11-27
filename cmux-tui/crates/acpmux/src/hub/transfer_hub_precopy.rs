@@ -10,7 +10,8 @@
 //! 2. On the target the control hook admits it as it admits a `move`, and
 //!    [`Hub::transfer_pull_op`] runs [`Hub::transfer_pull_stage`] as a local actor: the stage
 //!    (`transfer_stage`), the prepare's pages read from the source through the same circuit as a
-//!    move's, `transfer_stage_finish`. Its answer is the `stageId`.
+//!    move's, `transfer_stage_finish`. Its answer is the `stageId`. The circuit stays open,
+//!    parked for the move's control (`transfer_park.rs`).
 //! 3. The client begins with `prepareId`/`afterSeq` and sends `move` with the `stageId`; the
 //!    target imports on top of the stage. A `transfer.unstaged` refusal is for the client to
 //!    redo in full.
@@ -27,7 +28,6 @@
 //! TODO: a chat coming back does not send only the delta (`transfer_base`) over the hub: a
 //! guarded stage rewrites every line, so the target's own copy cannot stand in for a base.
 
-use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
 use super::transfer_pull::{
@@ -112,7 +112,7 @@ impl Hub {
         body: &Value,
     ) -> Result<Value, RpcError> {
         if body.get("stage").is_some() {
-            return self.transfer_pull_stage(source, body).await;
+            return self.transfer_pull_stage(source, source_host, body).await;
         }
         self.transfer_pull(source, source_host, body).await
     }
@@ -122,6 +122,7 @@ impl Hub {
     async fn transfer_pull_stage(
         self: &Arc<Self>,
         source: &str,
+        source_host: Option<&str>,
         body: &Value,
     ) -> Result<Value, RpcError> {
         let stage = field(body, "stage");
@@ -134,7 +135,7 @@ impl Hub {
                 && super::transfer::is_plain_id(prepare_id)
                 && super::transfer::is_plain_id(session_id)
                 && session_id == body["sessionId"].as_str().unwrap_or("")
-                && !manifest.get("base").is_some_and(|b| !b.is_null())
+                && manifest.get("base").is_none_or(|b| b.is_null())
         };
         let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
         let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));
@@ -146,14 +147,7 @@ impl Hub {
         if !plain_daemon(source) {
             return Err(pull_error("source", "the message names no source daemon"));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
-        let guard = Guard::parse(&json!({"control": "peer", "roots": roots})).await?;
+        let guard = self.hub_move_guard().await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;
@@ -178,7 +172,19 @@ impl Hub {
         .await;
         if filled.is_err() {
             let _ = crate::home_fs::remove_dir_all(&dir);
+            return filled;
         }
+        // The circuit stays open, parked for the move's control (`transfer_park.rs`).
+        let session_id = body["sessionId"].as_str().unwrap_or_default().to_owned();
+        let park = Arc::clone(self).park_for_move(
+            pages,
+            source.to_owned(),
+            source_host.map(str::to_owned),
+            prepare_id.to_owned(),
+            stage_id,
+            session_id,
+        );
+        self.scope.spawn_until_cancelled("transfer-park", park);
         filled
     }
 }

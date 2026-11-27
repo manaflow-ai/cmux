@@ -178,6 +178,148 @@ pub(crate) fn plist_text(home: &Path) -> String {
     hosts::PLIST.replace("__HOME__", &home)
 }
 
+/// The acpmux `home`'s LaunchAgent runs when it is not an app's: `~/.local/bin/acpmux`, the
+/// binary the one-line join and `host setup`/`update` install.
+pub(crate) fn local_bin(home: &Path) -> PathBuf {
+    home.join(".local/bin/acpmux")
+}
+
+/// The `bin` folder of the cmux app whose bundled binary `exe` is (`X.app/Contents/Resources/bin/`),
+/// when that app may run this user's LaunchAgent: not a DEV app (it runs a home of its own), not
+/// one in a temporary or build folder (App Translocation, a test's copy), which goes away.
+pub(crate) fn app_bin_dir(exe: &Path) -> Option<&Path> {
+    let dir = exe.parent()?;
+    let resources = dir.parent()?;
+    let contents = resources.parent()?;
+    let app = contents.parent()?;
+    let named = |p: &Path, n: &str| p.file_name().is_some_and(|f| f == n);
+    let is_app = app.extension().is_some_and(|e| e == "app")
+        && named(contents, "Contents")
+        && named(resources, "Resources")
+        && named(dir, "bin");
+    let stem = app.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let dev = stem == "cmux DEV" || stem.starts_with("cmux DEV ");
+    let unstable = crate::daemon::exe_path::classify(exe, &std::env::temp_dir()).is_some()
+        || exe.components().any(|c| c.as_os_str() == "AppTranslocation");
+    (is_app && !dev && !unstable).then_some(dir)
+}
+
+/// The strings of a plist's `ProgramArguments` array, XML-unescaped.
+fn plist_arguments(text: &str) -> Option<Vec<String>> {
+    let (_, rest) = text.split_once("<key>ProgramArguments</key>")?;
+    let (_, rest) = rest.split_once("<array>")?;
+    let (array, _) = rest.split_once("</array>")?;
+    let unescape = |s: &str| s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+    Some(
+        array
+            .split("<string>")
+            .skip(1)
+            .filter_map(|s| s.split_once("</string>").map(|(v, _)| unescape(v)))
+            .collect(),
+    )
+}
+
+/// The acpmux a `com.acpmux.daemon` plist's text runs: its program, or, for the
+/// [`FALLBACK_SCRIPT`] form, the app's acpmux it tries first.
+pub(crate) fn plist_program(text: &str) -> Option<PathBuf> {
+    let args = plist_arguments(text)?;
+    let first = args.first()?;
+    if first == "/bin/sh" && args.get(2).map(String::as_str) == Some(FALLBACK_SCRIPT) {
+        return args.get(3).map(PathBuf::from);
+    }
+    Some(PathBuf::from(first))
+}
+
+/// What an app-held LaunchAgent runs under `/bin/sh -c`: the app's acpmux (`$0`) while it is
+/// there, else `~/.local/bin/acpmux` (`$1`), so a deleted app never leaves launchd retrying a
+/// missing binary. The paths are arguments, never part of the script. `exec` replaces the shell,
+/// so the daemon's own executable is still the app's (the app's `isStray` reads it).
+pub(crate) const FALLBACK_SCRIPT: &str =
+    r#"[ -x "$0" ] && exec "$0" daemon run; exec "$1" daemon run"#;
+
+/// The program launchd reports for the job that runs `program` (`launchctl print`'s
+/// `program`): the fallback shell for an app's acpmux.
+pub(crate) fn launchd_argv0(home: &Path, program: &Path) -> PathBuf {
+    if program == local_bin(home) { program.to_path_buf() } else { PathBuf::from("/bin/sh") }
+}
+
+/// Which acpmux this user's LaunchAgent runs, so launchd keeps it alive with no app running
+/// (cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z1). `exe` is the acpmux that
+/// installs it, `existing` the plist there now, `exists` whether a file is there.
+///
+/// - Installed from a cmux app's bundle (the app taking over a stray daemon, `cmux device
+///   setup`): that bundle's `bin/acpmux`. The app then finds its own binary on the socket and
+///   leaves it running.
+/// - Installed from anywhere else (`~/.local/bin/acpmux` in the join) while the plist runs an
+///   app's acpmux that is still there: that one stays. One daemon per machine runs the
+///   NIGHTLY's build (plans/cmux-next/acpmux-one-daemon.md), and a rewrite back to
+///   `~/.local/bin` would only make the app take it over again: the two installers agree.
+/// - Else `~/.local/bin/acpmux`, as `host setup` writes it.
+pub(crate) fn launchd_program(
+    home: &Path,
+    exe: &Path,
+    existing: Option<&str>,
+    exists: &dyn Fn(&Path) -> bool,
+) -> PathBuf {
+    if let Some(dir) = app_bin_dir(exe) {
+        return dir.join("acpmux");
+    }
+    existing
+        .and_then(plist_program)
+        .filter(|program| {
+            program.file_name().is_some_and(|n| n == "acpmux")
+                && app_bin_dir(program).is_some()
+                && exists(program)
+        })
+        .unwrap_or_else(|| local_bin(home))
+}
+
+/// The program of a loaded job, from `launchctl print gui/<uid>/<label>` (`program = PATH`).
+pub(crate) fn loaded_program(printed: &str) -> Option<PathBuf> {
+    printed.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("program")?.trim_start().strip_prefix('=')?;
+        Some(PathBuf::from(value.trim()))
+    })
+}
+
+/// The LaunchAgent for `home` that runs `program`. For `~/.local/bin/acpmux` it is
+/// [`plist_text`] byte for byte, what `host setup` writes. For an app's bundled acpmux it runs
+/// [`FALLBACK_SCRIPT`] (that acpmux, else `~/.local/bin/acpmux` once the app is gone), and the
+/// daemon also gets what the app gives the daemon it starts on this home
+/// (`AcpmuxEnvironment+Resolve.swift`): the local router, the secret tools and the bundled cmux
+/// CLI, so it serves the app the same way when the app finds it running.
+pub(crate) fn plist_for(home: &Path, program: &Path) -> String {
+    let text = plist_text(home);
+    if program == local_bin(home) {
+        return text;
+    }
+    let escape = |p: &Path| {
+        p.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    };
+    let home_text = escape(home);
+    let cli = program.with_file_name("cmux");
+    let extra = format!(
+        "<key>ACPMUX_LOCAL_ROUTER</key><string>1</string><key>ACPMUX_SECRET_TOOLS</key><string>1</string><key>CMUX_BUNDLED_CLI_PATH</key><string>{}</string>",
+        escape(&cli)
+    );
+    let script = FALLBACK_SCRIPT.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    text.replacen(
+        &format!(
+            "<array><string>{home_text}/.local/bin/acpmux</string><string>daemon</string><string>run</string></array>"
+        ),
+        &format!(
+            "<array><string>/bin/sh</string><string>-c</string><string>{script}</string><string>{}</string><string>{home_text}/.local/bin/acpmux</string></array>",
+            escape(program)
+        ),
+        1,
+    )
+    .replacen(
+        &format!("<key>HOME</key><string>{home_text}</string></dict>"),
+        &format!("<key>HOME</key><string>{home_text}</string>{extra}</dict>"),
+        1,
+    )
+}
+
 /// The logon task's XML record under `home` (the OS account home, as the plist's).
 pub(crate) fn task_path(home: &Path) -> PathBuf {
     crate::config::default_home_in(home).join("logon-task.xml")
@@ -509,7 +651,9 @@ fn status_task(m: &dyn Machine) -> Report {
 fn install_launchd(m: &dyn Machine, uid: u32) -> Result<Report> {
     let home = m.home();
     let path = plist_path(&home);
-    let changed = write_if_changed(&path, &plist_text(&home))?;
+    let existing = std::fs::read_to_string(&path).ok();
+    let program = launchd_program(&home, &m.exe(), existing.as_deref(), &|p| p.exists());
+    let changed = write_if_changed(&path, &plist_for(&home, &program))?;
     let report = |state, note| Report {
         manager: "launchd",
         path: path.clone(),
@@ -523,12 +667,20 @@ fn install_launchd(m: &dyn Machine, uid: u32) -> Result<Report> {
         return Ok(report(State::AtNextLogin, None));
     }
     let job = format!("{domain}/{LAUNCHD_LABEL}");
-    if !changed && ok(m.run("launchctl", &["print", &job], CALL_WAIT)) {
+    // Loaded from this very text: left running. A job launchd still runs from an earlier text
+    // (the file was rewritten, its reload failed) is reloaded, or the app's takeover would
+    // stop a daemon launchd starts again from the old program.
+    if !changed
+        && let Some((0, printed, _)) = m.run("launchctl", &["print", &job], CALL_WAIT)
+        && loaded_program(&printed).is_none_or(|loaded| loaded == launchd_argv0(&home, &program))
+    {
         return Ok(report(State::Running, None));
     }
     // `host setup`'s own reload: refuses (and leaves the daemon) when launchd would not take
     // the job, shuts a daemon that runs outside it down keeping its agents, then bootstraps.
-    let script = hosts::launchd_reload(false);
+    // The script asks and stops the daemon through the binary the job runs, which is the only
+    // acpmux there on a Mac that has just the app.
+    let script = hosts::launchd_reload_with(false, &program);
     match m.run("sh", &["-c", &script], RELOAD_WAIT) {
         Some((0, out, _)) if out.contains("ACPMUX_IN_PLACE=") => Err(anyhow!(
             "launchd did not take {LAUNCHD_LABEL}; the daemon runs in this session instead (launchctl bootstrap {domain} {} says why)",

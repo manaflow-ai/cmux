@@ -21,14 +21,40 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
     /// When ``commit`` was made, unix seconds.
     public var committedAt: Int
     public var publishedAt: Int
+    /// The same tree as `cas/1` objects (RFD 0166, cmuxterm-hq docs/rfd/0166-own-cdn.md), when CI
+    /// published them: an app holding an older update moves only the chunks it lacks. Nil on older
+    /// pointers, and when the field is malformed (the archive still serves).
+    public var cas: Cas?
+
+    /// `cas`: a manifest and a pack under `prefix` on the archive's host (`cmux-next-web/cas/`).
+    nonisolated public struct Cas: Sendable, Equatable, Codable {
+        public var prefix: String
+        public var manifest: String
+        public var pack: String
+
+        public init(prefix: String, manifest: String, pack: String) {
+            self.prefix = prefix
+            self.manifest = manifest
+            self.pack = pack
+        }
+
+        /// Two 64-hex ids and a relative folder of lowercase words (no `..`, no host).
+        var isValid: Bool {
+            guard WebUpdatePointer.isHex(manifest, 64), WebUpdatePointer.isHex(pack, 64), prefix.hasSuffix("/") else { return false }
+            let parts = prefix.dropLast().split(separator: "/", omittingEmptySubsequences: false)
+            return !parts.isEmpty && parts.allSatisfy { part in
+                !part.isEmpty && part.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
+            }
+        }
+    }
 
     nonisolated enum CodingKeys: String, CodingKey {
-        case channel, key, archive, sha256, size, outputs, abi, commit
+        case channel, key, archive, sha256, size, outputs, abi, commit, cas
         case committedAt = "committed_at", publishedAt = "published_at"
     }
 
     public init(channel: String, key: String, archive: String, sha256: String, size: Int, outputs: String, abi: Int,
-                commit: String, committedAt: Int, publishedAt: Int) {
+                commit: String, committedAt: Int, publishedAt: Int, cas: Cas? = nil) {
         self.channel = channel
         self.key = key
         self.archive = archive
@@ -39,6 +65,18 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
         self.commit = commit
         self.committedAt = committedAt
         self.publishedAt = publishedAt
+        self.cas = cas
+    }
+
+    nonisolated public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(channel: c.decode(String.self, forKey: .channel), key: c.decode(String.self, forKey: .key),
+                      archive: c.decode(String.self, forKey: .archive), sha256: c.decode(String.self, forKey: .sha256),
+                      size: c.decode(Int.self, forKey: .size), outputs: c.decode(String.self, forKey: .outputs),
+                      abi: c.decode(Int.self, forKey: .abi), commit: c.decode(String.self, forKey: .commit),
+                      committedAt: c.decode(Int.self, forKey: .committedAt), publishedAt: c.decode(Int.self, forKey: .publishedAt))
+        // A malformed `cas` never refuses the pointer: the archive is the floor.
+        cas = (try? c.decodeIfPresent(Cas.self, forKey: .cas)).flatMap { $0 }.flatMap { $0.isValid ? $0 : nil }
     }
 
     /// The largest archive the app downloads.
@@ -67,6 +105,18 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
     /// The archive's URL under `base` (`https://files.cmux.com/cmux-next-web/`).
     public func archiveURL(base: URL) -> URL {
         base.appending(path: key, directoryHint: .isDirectory).appending(path: archive, directoryHint: .notDirectory)
+    }
+
+    /// The folder of the `cas/1` objects on the archive's host (`base`'s scheme and host), nil
+    /// without a `cas` field.
+    public func casBase(base: URL) -> URL? {
+        guard let cas, let host = base.host(), let scheme = base.scheme else { return nil }
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = host
+        parts.port = base.port
+        parts.path = "/" + cas.prefix
+        return parts.url
     }
 
     func validate() throws(WebUpdateRefusal) {
