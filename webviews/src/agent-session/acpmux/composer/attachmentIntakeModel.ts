@@ -500,7 +500,21 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         scope: batch.scope,
       };
     });
+    /// Image `index`'s own picture on its tile while the tile still loads (instantPreview).
+    const showOwnPicture = (index: number) => {
+      const id = shown[index]!.id;
+      void instantPreview(files[index]!).then((preview) => {
+        if (!preview) return;
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
+            : chips,
+        );
+      });
+    };
     // Each tile's shape and picture fill in as they come; only the shape, and only within the frame.
+    // A path-first gesture's (`lookup`) goes by its path with no picture to make; one the host has
+    // no path for (a clipboard screenshot) reads its bytes and gets its picture then (needsBytes below).
     files.forEach((file, index) => {
       const { id, image, video, sizing } = shown[index]!;
       if (lookup || (!image && !video)) return;
@@ -527,14 +541,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           });
       }
       // An image's own picture, on its tile while it still loads.
-      void instantPreview(file).then((preview) => {
-        if (!preview) return;
-        setPending((chips) =>
-          chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
-            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
-            : chips,
-        );
-      });
+      showOwnPicture(index);
     });
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
     // read again (asked again) under the same id has a new one, and only the read that owns the id's
@@ -740,6 +747,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           needsBytes: (indices) => {
             const ids = new Set(indices.filter(owns).map((index) => shown[index]!.id));
             setPending((chips) => chips.map((chip) => (ids.has(chip.id) ? { ...chip, resolvingPath: false } : chip)));
+            // No path: the bytes become its preview, so its own picture shows meanwhile, as an
+            // upload's does (Leo, 2026-11-07: "can't we make this all "appear" a lot faster").
+            if (lookup)
+              for (const index of indices)
+                if (owns(index) && shown[index]!.image && !shown[index]!.video) showOwnPicture(index);
           },
           failed,
           uploading: (index) => {
