@@ -141,6 +141,17 @@ fn folder_beneath(root: &Path, rel: &str) -> Option<(std::os::fd::OwnedFd, std::
 #[cfg(unix)]
 const OWNER_ONLY: libc::c_uint = 0o600;
 
+/// The refusal of a read or replace of `rel` that found the file changing under it: nothing was
+/// written, so the caller reads and edits it again ([`is_changed_while`]), the person never.
+pub(crate) fn changed_while(rel: &str) -> String {
+    format!("{rel} kept changing while it was being edited (another program is writing it)")
+}
+
+/// Whether `error` is [`changed_while`]'s for `rel`.
+pub(crate) fn is_changed_while(error: &str, rel: &str) -> bool {
+    error == changed_while(rel)
+}
+
 /// What a file was when it was read: [`replace_beneath`] replaces it only while it still is.
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,7 +248,7 @@ pub(crate) fn read_whole_beneath(
     std::io::Read::read_to_end(&mut std::io::Read::take(&file, max.saturating_add(1)), &mut bytes)
         .map_err(|e| format!("{rel} could not be read: {e}"))?;
     if u64::try_from(bytes.len()).ok() != Some(size) {
-        return Err(format!("{rel} changed while it was read; try again"));
+        return Err(changed_while(rel));
     }
     let stamp = Stamp::of(&st, &bytes);
     Ok(Some((bytes, stamp)))
@@ -269,7 +280,7 @@ pub(crate) fn replace_beneath(
     } == 0;
     let now = found.then(|| Meta::of(&st));
     if now != read.map(|read| read.meta) {
-        return Err(format!("{rel} changed while it was being edited; try again"));
+        return Err(changed_while(rel));
     }
     let mode = if found {
         if st.st_mode & libc::S_IFMT != libc::S_IFREG {
@@ -324,7 +335,7 @@ pub(crate) fn replace_beneath(
     let ours = Meta::of(&st);
     #[cfg(test)]
     swap_hook(&name, "before");
-    let changed = || format!("{rel} changed while it was being edited; try again");
+    let changed = || changed_while(rel);
     // A version someone saved meanwhile, left under the temporary name rather than removed.
     let kept = || {
         format!(
