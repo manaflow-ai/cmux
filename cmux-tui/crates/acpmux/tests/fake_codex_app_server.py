@@ -23,6 +23,9 @@ Pro plan's 5-hour and weekly windows and credits; then the weekly window moved).
 terminate answers `terminated: false`. "bg-codex-interrupt" leaves `sleep 60`
 (3001) open when the turn is interrupted. FAKE_CODEX_END_FIRST=1 completes a
 terminated item before answering the terminate.
+FAKE_CODEX_LIST=1 answers `thread/backgroundTerminals/list` from what still runs (else it is
+unknown, as on an older Codex). "codex-drop-dev" forgets 1001 with no item end, as Codex
+dropping a terminal unseen; "codex-close-thread" sends `thread/closed` after its turn.
 FAKE_CODEX_HOLD_SUGGESTIONS=1 never answers a prompt suggestion's ask
 (`thread/prediction/request`, `thread/sample`, a prediction `thread/fork`): what the bridge asks
 after a turn completes stays in flight, as on a loaded machine whose answer lands
@@ -239,6 +242,8 @@ for line in sys.stdin:
         text = " ".join(i.get("text") or "" for i in params.get("input") or [] if isinstance(i, dict))
         if "codex-die" in text:
             sys.exit(1)
+        if "codex-drop-dev" in text:
+            running.pop("1001", None)
         reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
         if APPROVALS:
@@ -274,6 +279,16 @@ for line in sys.stdin:
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
         status = "interrupted" if "bg-codex-interrupt" in text else "completed"
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
+        if "codex-close-thread" in text:
+            for pid in [p for p, (t, _, _) in running.items() if t == thread]:
+                running.pop(pid)
+            reply({"method": "thread/closed", "params": {"threadId": thread}})
+    elif method == "thread/backgroundTerminals/list" and os.environ.get("FAKE_CODEX_LIST") == "1":
+        thread = message.get("params", {}).get("threadId")
+        data = [{"itemId": item["id"], "processId": pid, "command": item["command"], "cwd": item.get("cwd"),
+                 "osPid": None, "cpuPercent": None, "rssKb": None}
+                for pid, (t, _, item) in running.items() if t == thread]
+        reply({"id": rid, "result": {"data": data, "nextCursor": None}})
     elif method == "account/rateLimits/read":
         # At rest (`_acpmux/account/usage`); FAKE_CODEX_HOME_SEEN=<path> gets the CODEX_HOME it ran in.
         if os.environ.get("FAKE_CODEX_HOME_SEEN"):

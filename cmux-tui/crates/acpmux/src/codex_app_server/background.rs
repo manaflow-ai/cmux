@@ -14,8 +14,18 @@
 //! the kill's. `terminated: false` refuses the kill. The app-server's exit is the hub's
 //! (`processes_lost`).
 //!
-//! Not built: `thread/backgroundTerminals/list` at session load (the hub
-//! rebuilds its table from the session log) and output.
+//! Codex does not always send that later completion: a terminal it dropped (its thread unloaded or
+//! closed, or the process gone unseen) stayed `running` here, so the chat read `commandsRunning` and
+//! `indicator: working` for hours with no shell left under Codex (gcp-agent-lane-10, 2026-11-27:
+//! three ready Codex chats whose turns ended 07:02Z to 14:48Z, each with only `codex-code-mode-host`
+//! under it, kept a held VM from draining). So at each turn's start and end, and when the thread's
+//! status changes, a thread with terminals running asks `thread/backgroundTerminals/list`, and each
+//! one that was running when it asked and is not listed ends (`completed`, [`GONE`]); a closed or
+//! unloaded thread (`thread/closed`, status `notLoaded`) ends all of its own at once. An error
+//! answer (an older Codex) or a list with more pages changes nothing.
+//!
+//! Not built: the list at session load (the hub rebuilds its table from the session log) and
+//! output.
 
 use cmux_codex_acp::Out;
 use cmux_json::JsonGet as _;
@@ -31,6 +41,18 @@ const GONE: &str = "Codex no longer had this background terminal";
 /// The prefix of this bridge's own request ids to the app-server; the
 /// translator's are numbers.
 const ID_PREFIX: &str = "acpmux-terminate-";
+
+/// The app-server method that lists a thread's background terminals.
+const LIST: &str = "thread/backgroundTerminals/list";
+
+/// The prefix of this bridge's own list request ids.
+const LIST_PREFIX: &str = "acpmux-bg-list-";
+
+/// The most terminals one list asks for: more pages than one changes nothing.
+const LIST_LIMIT: u64 = 1000;
+
+/// Why a terminal ended when its thread closed.
+const CLOSED: &str = "Codex closed this thread and its background terminals";
 
 /// One exec item with a process.
 struct Exec {
@@ -48,7 +70,18 @@ pub(super) struct Background {
     running: Vec<Exec>,
     /// Terminate requests waiting for their answer.
     asked: Vec<Asked>,
+    /// List requests waiting for their answer.
+    listing: Vec<Listing>,
     next: u64,
+}
+
+/// A list sent and not answered yet.
+struct Listing {
+    id: String,
+    thread: String,
+    /// The processes running on `thread` when it was sent: only these may end by its answer (one
+    /// announced after it was sent may not be in it yet).
+    processes: Vec<String>,
 }
 
 /// A terminate sent and not answered yet.
@@ -111,7 +144,13 @@ impl Background {
         if raw.get("method").is_some() {
             return None;
         }
-        let id = raw.get("id").and_then(Value::as_str).filter(|id| id.starts_with(ID_PREFIX))?;
+        let id = raw.get("id").and_then(Value::as_str)?;
+        if id.starts_with(LIST_PREFIX) {
+            let at = self.listing.iter().position(|l| l.id == id)?;
+            let listing = self.listing.remove(at);
+            return Some(self.listed(listing, raw));
+        }
+        let id = Some(id).filter(|id| id.starts_with(ID_PREFIX))?;
         let at = self.asked.iter().position(|a| a.id == id)?;
         let Asked { client, thread, process, ended, .. } = self.asked.remove(at);
         if let Some(error) = raw.get("error") {
@@ -146,6 +185,14 @@ impl Background {
         let p = raw.get("params").unwrap_or(&Value::Null);
         let thread = p.get_nonempty_str("threadId").unwrap_or("");
         match raw.get("method").and_then(Value::as_str) {
+            Some("turn/started") => self.list(thread).into_iter().collect(),
+            Some("thread/closed") => self.end_thread(thread),
+            Some("thread/status/changed") => {
+                match p.pointer("/status/type").and_then(Value::as_str) {
+                    Some("notLoaded") => self.end_thread(thread),
+                    _ => self.list(thread).into_iter().collect(),
+                }
+            }
             Some("item/started") => {
                 if let Some(exec) = exec_of(thread, p.get("item")) {
                     self.open.push(exec);
@@ -160,10 +207,12 @@ impl Background {
                 self.open = open;
                 // An interrupted or failed turn left its commands open
                 // without handing them to the background.
-                if p.pointer("/turn/status").and_then(Value::as_str) != Some("completed") {
-                    return Vec::new();
+                let mut out = Vec::new();
+                if p.pointer("/turn/status").and_then(Value::as_str) == Some("completed") {
+                    out.extend(left.into_iter().map(|exec| self.announce(exec)));
                 }
-                left.into_iter().map(|exec| self.announce(exec)).collect()
+                out.extend(self.list(thread));
+                out
             }
             _ => Vec::new(),
         }
@@ -213,6 +262,62 @@ impl Background {
         let out = update(&exec, "running", json!({"origin": "background"}));
         self.running.push(exec);
         out
+    }
+
+    /// A `thread/backgroundTerminals/list` for `thread`, when it has terminals running and no list
+    /// of its own in flight.
+    fn list(&mut self, thread: &str) -> Option<Out> {
+        if thread.is_empty() || self.listing.iter().any(|l| l.thread == thread) {
+            return None;
+        }
+        let processes: Vec<String> =
+            self.running.iter().filter(|e| e.thread == thread).map(|e| e.process.clone()).collect();
+        if processes.is_empty() {
+            return None;
+        }
+        self.next += 1;
+        let id = format!("{LIST_PREFIX}{}", self.next);
+        self.listing.push(Listing { id: id.clone(), thread: thread.to_owned(), processes });
+        let params = json!({"threadId": thread, "limit": LIST_LIMIT});
+        Some(Out::Server(json!({"jsonrpc": "2.0", "id": id, "method": LIST, "params": params})))
+    }
+
+    /// A list's answer: each terminal running when it was asked, still running here, with no
+    /// terminate in flight, and not listed, ended unseen.
+    fn listed(&mut self, listing: Listing, raw: &Value) -> Vec<Out> {
+        let Some(result) = raw.get("result") else { return Vec::new() };
+        if result.get("nextCursor").is_some_and(|c| !c.is_null()) {
+            return Vec::new();
+        }
+        let Some(data) = result.get("data").and_then(Value::as_array) else { return Vec::new() };
+        let live: Vec<&str> = data.iter().filter_map(|t| t.get_nonempty_str("processId")).collect();
+        let thread = listing.thread;
+        let gone = |e: &Exec| {
+            e.thread == thread
+                && listing.processes.contains(&e.process)
+                && !live.contains(&e.process.as_str())
+        };
+        let asked = &self.asked;
+        let (ended, running) =
+            std::mem::take(&mut self.running).into_iter().partition::<Vec<_>, _>(|e| {
+                gone(e) && !asked.iter().any(|a| a.thread == e.thread && a.process == e.process)
+            });
+        self.running = running;
+        ended.iter().map(|e| update(e, "completed", json!({"reason": GONE}))).collect()
+    }
+
+    /// `thread` closed or unloaded: its terminals went with it.
+    fn end_thread(&mut self, thread: &str) -> Vec<Out> {
+        if thread.is_empty() {
+            return Vec::new();
+        }
+        let (ended, running) = std::mem::take(&mut self.running)
+            .into_iter()
+            .partition::<Vec<_>, _>(|e| e.thread == thread);
+        self.running = running;
+        self.open.retain(|e| e.thread != thread);
+        self.listing.retain(|l| l.thread != thread);
+        ended.iter().map(|e| update(e, "completed", json!({"reason": CLOSED}))).collect()
     }
 
     /// The app-server is gone, and its processes with it (the hub marks
