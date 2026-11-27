@@ -651,6 +651,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_payload_advisories.py"
 
 [[test]]
+path = "tests/test_perf_10x_idle_args.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_perf_10x_idle_args.py"
+
+[[test]]
 path = "tests/test_pinned_files_mirror.py"
 lane = "linux-guard"
 
@@ -1108,6 +1113,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 [[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_webviews_no_duplicate_import_names.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_webviews_no_duplicate_import_names.py"
 
 [[test]]
 path = "tests/test_webviews_test_history.py"
