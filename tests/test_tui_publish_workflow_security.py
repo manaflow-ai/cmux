@@ -259,8 +259,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert '"$API_URL/repos/$REPOSITORY/$1"' in owner_wait
-    assert 'api "actions/runs/$OWNER_RUN_ID"' in owner_wait
+    # Owner and builder lookups share the controller-feed/API fallback. Keep the
+    # API host bound to github.api_url while allowing the helper's run-id
+    # parameter to serve both lookups.
+    assert '"$API_URL/repos/$REPOSITORY/actions/runs/$1"' in owner_wait
+    assert 'owner_json="$(run_read "$OWNER_RUN_ID"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -1213,6 +1216,9 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     # test binary needs optimization, not whole-program LTO (cx-3gstu).
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
+    # The test binaries are cross-compiled on Linux and only executed by the
+    # Windows verification job. The optimization env must therefore be on the
+    # producer step, where cargo compiles them.
     steps = jobs["cross-build-windows"]["steps"]
     step = next(s for s in steps if s.get("name") == "Build the Windows long-path test binary")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
@@ -1356,6 +1362,7 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
             assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
             assert retry.get("continue-on-error", "false") == "false", job_name
             assert retry["uses"] == primary["uses"], job_name
+            assert retry["with"] == primary["with"], job_name
         else:
             assert primary.get("continue-on-error", "false") == "false", job_name
         for checkout in checkouts:
