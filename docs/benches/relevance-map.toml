@@ -273,6 +273,34 @@ run = ["python3 -I scripts/bench/cmux-bench for-paths --self-bench 2000 --scale 
 budget_s = 2.0
 
 [[area]]
+name = "Diff view"
+paths = ["webviews/src/diff-viewer", "webviews/src/find", "webviews/src/diff-stream.ts"]
+situations = ["main-thread", "visible-ui"]
+benches = ["diff-stream", "diff-find-scale"]
+tests = ["cd webviews && bun test test/diff-find-scale.test.ts"]
+budget = "find per keystroke at a 100k-line file and per streamed batch O(new lines); 10k-file stream flat per file at 10x"
+# RFD 0199 section 11: the 2,000-file stream (about 0.35 s here).
+run = ["cd webviews && bun bench/diff-stream.bench.ts"]
+budget_s = 20.0
+
+[[area]]
+name = "Model picker search"
+paths = [
+  "webviews/src/agent-session/acpmux/modelSearch.ts",
+  "webviews/src/agent-session/acpmux/modelQuery.ts",
+  "webviews/src/agent-session/acpmux/ModelPicker.tsx",
+  "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
+  "webviews/src/agent-session/acpmux/modelPicker*.ts",
+]
+situations = ["main-thread", "visible-ui"]
+benches = ["model-picker-search"]
+tests = ["cd webviews && bun test src/agent-session/acpmux/modelSearch.test.ts"]
+budget = "per keystroke ≤ 2 ms at 5,000 models"
+# RFD 0199 section 8: keystroke p50 at 5,000 models at most 4x the p50 at 500 (fails open on a loaded host).
+run = ["cd webviews && bun bench/model-picker-search.bench.ts"]
+budget_s = 20.0
+
+[[area]]
 name = "cmux-next scripts and their tests"
 paths = ["scripts/cmux-next"]
 tests = ["python3 -I scripts/cmux-next/tests/run-script-tests.py", "python3 tests/test_cmux_next_checks_workflow.py"]

@@ -566,6 +566,6 @@ packed=()
 for f in runs summary.json build-base.log build-head.log settings-open.json settings-open.log; do
   [ -e "$out/$f" ] && packed+=("$f")
 done
-tar -czf "$out.tgz" -C "$out" "${packed[@]}" && mv "$out.tgz" "$out/report.tgz" \
+tar -czf "$out.tgz" -C "$out" ${packed[@]+"${packed[@]}"} && mv "$out.tgz" "$out/report.tgz" \
   || echo "IDLE-AB report.tgz not written (tar of ${packed[*]} failed)" >&2
 exit $status
