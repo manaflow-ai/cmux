@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, effort, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
-             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, autoCloudStartKey, cloudTurnRewind
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, autoCloudStartKey, cloudTurnRewind, cloudFolderAdd
     }
 
     public var protocolVersion: Int
@@ -133,6 +133,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// before it (`chat.rewindTurn {rowId}`; `chat.turnCheckpoint {afterSeq}` saves one): present
     /// only for a signed-in Cloud chat with `cloud.turnCheckpoints` on. Pages that predate it ignore it.
     public var cloudTurnRewind: [String]?
+    /// True when Sources offers Add Folder for this Cloud chat (`cloud.folder.add`, setting
+    /// `cloud.addFolderLive`, on by default). Pages that predate it ignore it.
+    public var cloudFolderAdd: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
