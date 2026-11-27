@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45939027983",
+  "recorded_at": "2026-11-27T04:53:26Z",
+  "reason": "image inputs changed in d570489b91208104e76bddbcd39709d2ff16e87f..418140d64ef3b6c96c8e8341d314794464dd9baf; cmux-tui stays 348e8a8aff37 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "348e8a8aff37009a312146c16aa19198274a3a1a",
+  "fixes": [
+    {
+      "sha": "418140d64ef3b6c96c8e8341d314794464dd9baf",
+      "mergedAt": "2026-11-27T04:16:52Z",
+      "subject": "Cloud journey: judge the default size at the create, not after AutoSize grew it (#60228)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T04:53:26Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
