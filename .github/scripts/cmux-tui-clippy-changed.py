@@ -33,6 +33,10 @@ the base's drift, which the base lint would only excuse). cmux-next fast gates u
 request merged with a tip whose baseline went down since the pull request's own ratchet
 ran (cmux_next_fast_gates.py), so a base ratchet red never reads as the pull request's.
 
+The clippy step passes clippy the ratchet's flags too (they only warn, and their hits are left to the ratchet), so
+the ratchet's lint of the same packages reuses the step's units in the shared target instead of checking each
+workspace crate again under different clippy arguments (lint_args).
+
 A stale lockfile is named as such: when cargo refuses to update a Cargo.lock under --locked,
 no lint ran, so the lint and ratchet messages would send the reader to fix lints that do not
 exist (#42133 went red on 15 checks for a thiserror bump on the base, and its lane reran this
@@ -94,7 +98,6 @@ WHOLE_WORKSPACE = frozenset({
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 # Every lint is a warning, whatever level a crate or a Cargo [lints] table gives it; only compile errors fail.
 CAP_LINTS = ["--cap-lints", "warn"]
-LINT_ARGS = ["--all-targets", "--message-format=json", "--", *CAP_LINTS]
 # rustc's own error codes; a lint's code is its name (`clippy::needless_return`, `dead_code`).
 COMPILE_ERROR_CODE = re.compile(r"^E\d{4}$")
 # cargo's and rustc's closing lines after errors: they say how many, not what, so they never decide the verdict.
@@ -106,6 +109,31 @@ LIB_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macr
 # scripts/cmux-next/cargo-locks.py knows (cargo changed the sentence, and a missing lock is "create").
 STALE_LOCK = re.compile(r"(?:cannot (?:update|create) the lock file|the lock file) (?P<path>.+?) "
                         r"(?:because|needs to be updated but) --locked was passed")
+
+
+def ratchet_flags(repo: Path) -> list[str]:
+    """The panic ratchet's clippy flags (`-W clippy::unwrap_used ...`) from the checkout's ratchet, or none."""
+    ratchet = repo / RATCHET
+    if not ratchet.is_file():
+        return []
+    return subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.split()
+
+
+def lint_args(flags: list[str]) -> list[str]:
+    """The clippy step's arguments. They carry the ratchet's flags, in the ratchet's order, so the clippy-driver
+    arguments (cargo's CLIPPY_ARGS, part of each workspace unit's fingerprint) are the ratchet run's: the
+    ratchet's `--lib --bins` lint then finds those units fresh in the shared target and replays their messages
+    instead of checking every selected workspace crate again. Before, its arguments differed, so the ratchet
+    rechecked them all: on 2026-11-27 (07:00-10:10Z, 15 sampled fleet steps) it took 221 local crate checks and
+    209-536 s (5,037 s of 11,665 s) after the clippy step. The flags only warn here (--cap-lints warn), and the
+    step neither prints nor reports what they find (`quiet_codes`): the ratchet judges those."""
+    return ["--all-targets", "--message-format=json", "--", *flags, *CAP_LINTS]
+
+
+def quiet_codes(flags: list[str]) -> frozenset[str]:
+    """The lint codes the ratchet's flags turn on (`clippy::unwrap_used`): the ratchet's to judge, not this step's."""
+    return frozenset(flag for before, flag in zip(flags, flags[1:]) if before == "-W")
 
 
 def stale_lock(line: str, repo: Path) -> str | None:
@@ -183,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
               "fix the manifest it names")
         return 1
     base = args.base.strip()
+    flags = ratchet_flags(repo)
+    quiet = quiet_codes(flags)
+    lint = lint_args(flags)
     paths = fmt_changed.changed(repo, base)
     compare = base if args.compare_base and paths is not None else ""
     ratchet_inputs_changed = False
@@ -195,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *lint]
         scope = "the whole cmux-tui workspace"
     else:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
@@ -212,16 +243,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
                                  args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *lint]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
-    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text, quiet)
     report_lints(result.lints, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
-            repo, command, paths, workspace, args.autofixed_ok):
+            repo, command, paths, workspace, args.autofixed_ok, quiet):
         return 0
     if result.rc and result.lock:
         print(stale_lock_error("cmux-tui clippy", result.lock))
@@ -239,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             nonlocal red_files
             print(" ".join(argv), flush=True)
             out: list[str] = []
-            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
+            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out, quiet)
             report_lints(run.lints, scope)
             red_files = run.red_files
             lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
@@ -285,7 +316,8 @@ def is_autofix_head(repo: Path, head: str) -> bool:
         return True
 
 
-def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[str, str], head: str) -> bool:
+def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[str, str], head: str,
+              quiet: frozenset[str] = frozenset()) -> bool:
     """Apply the PR autofix's clippy repair to the pull request's own files and lint again (see --autofixed-ok)."""
     if not re.fullmatch(r"[0-9a-f]{40}", head) or is_autofix_head(repo, head):
         return False
@@ -315,7 +347,7 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     if outside := [path for path in edited if path not in paths]:
         fmt_changed.git(repo, "checkout", "--quiet", "--", *outside)  # the push leaves these (pr-autofix-apply.sh)
     fixed = [path for path in edited if path in paths]
-    rc = run_clippy(command, cwd, repo)[0] if fixed else 1
+    rc = run_clippy(command, cwd, repo, quiet=quiet)[0] if fixed else 1
     fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
     if rc:
         print("cmux-tui-clippy-changed: the PR autofix's repair leaves lints; they are this change's to fix")
@@ -334,10 +366,12 @@ class ClippyRun(NamedTuple):
     lint_errors: int  # error diagnostics that are lints (a level --cap-lints did not reach)
 
 
-def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None) -> ClippyRun:
+def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None,
+               quiet: frozenset[str] = frozenset()) -> ClippyRun:
     """Run clippy (`--message-format=json`) with each diagnostic's rendered text and cargo's own lines
     passed to stderr as they come, and sort what it said into lints and compile errors. TEXT, when given,
-    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it)."""
+    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it).
+    A warning whose code is in QUIET (the panic ratchet's lints) is neither printed nor reported."""
     files: list[str] = []
     lints: list[dict] = []
     seen: set[tuple] = set()
@@ -367,10 +401,12 @@ def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None
         if item.get("reason") != "compiler-message":
             continue
         message = item.get("message") or {}
-        if rendered := message.get("rendered"):
-            sys.stderr.write(rendered if rendered.endswith("\n") else rendered + "\n")
         level = message.get("level") or ""
         code = (message.get("code") or {}).get("code") or ""
+        if code in quiet and level == "warning":
+            continue
+        if rendered := message.get("rendered"):
+            sys.stderr.write(rendered if rendered.endswith("\n") else rendered + "\n")
         span = next((s for s in message.get("spans") or [] if s.get("is_primary")), None)
         is_lint = bool(code) and not COMPILE_ERROR_CODE.match(code)
         if level.startswith("error"):
@@ -480,8 +516,8 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
             return 0
     ratchet = repo / RATCHET
-    flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
-                           stdout=subprocess.PIPE, text=True).stdout.split()
+    # The clippy step ran with these flags too (lint_args), so the units this lint shares with it are fresh.
+    flags = ratchet_flags(repo)
     targets = ["--lib", "--bins"] if has_lib else ["--bins"]
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags, *CAP_LINTS]
     out.parent.mkdir(parents=True, exist_ok=True)
