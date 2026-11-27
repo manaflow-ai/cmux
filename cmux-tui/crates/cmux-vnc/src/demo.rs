@@ -370,7 +370,11 @@ pub fn zrle_tiles(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
             let w = 64.min(width - tile_x);
             scratch.clear();
             for row in tile_y..tile_y + h {
-                scratch.extend_from_slice(&pixels[row * width + tile_x..row * width + tile_x + w]);
+                let start = row * width + tile_x;
+                let Some(row_pixels) = pixels.get(start..start + w) else {
+                    return out;
+                };
+                scratch.extend_from_slice(row_pixels);
             }
             tile(&scratch, &mut out);
         }
@@ -392,7 +396,9 @@ pub fn cursor_rectangle() -> Vec<u8> {
             let colour = if inside && !edge { 255 } else { 0 };
             colours.extend([colour, colour, colour, 0]);
             if inside || edge {
-                mask_row[col / 8] |= 0x80 >> (col % 8);
+                if let Some(byte) = mask_row.get_mut(col / 8) {
+                    *byte |= 0x80 >> (col % 8);
+                }
             }
         }
         mask.extend(mask_row);
