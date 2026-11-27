@@ -643,6 +643,13 @@ pub enum Command {
         #[arg(required = true)]
         sessions: Vec<String>,
     },
+    /// Bring a chat the lifecycle pass (or anyone) archived back in one step: unarchived,
+    /// undeleted when deleted, and its log back on this disk, fetched from cloud history when it
+    /// was offloaded there.
+    Restore {
+        /// The chat's id or name.
+        session: String,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
     Attach {
@@ -1203,6 +1210,8 @@ pub enum Command {
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
     #[command(hide = true)]
+    Lifecycle(LifecycleArgs),
+    #[command(hide = true)]
     TranscriptOffload(TranscriptOffloadArgs),
     #[command(hide = true)]
     Status {
@@ -1533,6 +1542,10 @@ pub enum DaemonCmd {
     /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
     /// that fetches them back on open. --dry-run lists them.
     HistoryOffload(HistoryOffloadArgs),
+    /// Run one lifecycle pass now (`agents.chats.lifecycle`): done chats (closed, or idle past
+    /// `agents.chats.lifecycleIdleHours`) archived, cold, and offloaded when cloud history is set
+    /// up. --dry-run lists them; prints totals and skips by reason.
+    Lifecycle(LifecycleArgs),
     /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
     /// `agents.chats.transcriptOffload`, off by default).
     TranscriptOffload(TranscriptOffloadArgs),
@@ -1601,6 +1614,13 @@ pub struct HistoryDeleteArgs {
     /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
     #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
     pub restore: Option<String>,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct LifecycleArgs {
+    /// Only list the chats a pass would take, and why the rest stay.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -1818,6 +1838,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
             DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
+            DaemonCmd::Lifecycle(args) => Command::Lifecycle(args),
             DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
