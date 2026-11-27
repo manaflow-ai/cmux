@@ -25,6 +25,8 @@ function block(item: DocBlock): string {
   if ("ul" in item) return item.ul.map((line) => `- ${line}`).join("\n");
   if ("ol" in item) return item.ol.map((line, index) => `${index + 1}. ${line}`).join("\n");
   if ("code" in item) return fence(item.code, item.lang);
+  // The architecture diagram is drawn only on the web page; as text it is its caption (as next-docs-text.ts).
+  if ("diagram" in item) return item.caption;
   return item.files
     .map((file) => `- [${file.path}](https://github.com/manaflow-ai/cmux/${file.kind === "file" ? "blob" : "tree"}/feat-cmux-next/${file.path}): ${file.what}`)
     .join("\n");
