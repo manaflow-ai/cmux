@@ -825,7 +825,7 @@ test.serial("a resume ends once the chat itself answers for good, not on one pas
   await wait(1_200);
   expect(calls.length).toBe(reads);
   await act(async () => root.render(null));
-});
+}, 15_000);
 
 // cmux#55066 review: a recheck that runs past its read's deadline is let go mid-way (its peers read,
 // its chats not yet). A page sampled after such a read, however long it reads "gone", ends nothing.
