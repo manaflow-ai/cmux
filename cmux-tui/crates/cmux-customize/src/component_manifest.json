@@ -1608,6 +1608,18 @@
           "doc": ""
         },
         {
+          "name": "disablePointerDismissal",
+          "type": "boolean",
+          "optional": true,
+          "doc": "Keep the dialog open when the person presses the backdrop."
+        },
+        {
+          "name": "finalFocus",
+          "type": "RefObject<HTMLElement | null>",
+          "optional": true,
+          "doc": ""
+        },
+        {
           "name": "initialFocus",
           "type": "boolean | RefObject<HTMLElement | null>",
           "optional": true,
@@ -4230,6 +4242,12 @@
       "summary": "Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and submenus.",
       "extends": [],
       "props": [
+        {
+          "name": "aria-disabled",
+          "type": "boolean",
+          "optional": true,
+          "doc": ""
+        },
         {
           "name": "aria-haspopup",
           "type": "\"dialog\" | \"menu\" | \"listbox\"",
@@ -7249,6 +7267,41 @@
           "experimental": false,
           "variants": [
             {
+              "name": "cloud-disconnected-current",
+              "props": "{ ...cloudPicker, cloud: partiallySetUp, harness: \"codex\", model: \"gpt-6.1-sol\", label: \"GPT-6.1-Sol\", }",
+              "note": null
+            },
+            {
+              "name": "cloud-full-models",
+              "props": "{ ...cloudPicker, quick: undefined, cloud: partiallySetUp }",
+              "note": null
+            },
+            {
+              "name": "cloud-full-needs-connection",
+              "props": "{ ...cloudPicker, quick: undefined, cloud: partiallySetUp, harness: \"codex\", model: \"gpt-6.1-sol\", label: \"GPT-6.1-Sol\", }",
+              "note": null
+            },
+            {
+              "name": "cloud-needs-connection",
+              "props": "{ ...cloudPicker, cloud: cloudState({ claude: false, codex: false }) }",
+              "note": null
+            },
+            {
+              "name": "cloud-partially-set-up",
+              "props": "{ ...cloudPicker, cloud: partiallySetUp }",
+              "note": null
+            },
+            {
+              "name": "cloud-runs-soon",
+              "props": "{ ...cloudPicker, cloud: partiallySetUp, harness: \"gemini\", model: localModel.id }",
+              "note": null
+            },
+            {
+              "name": "cloud-setup-unknown",
+              "props": "{ ...cloudPicker, cloud: {} }",
+              "note": null
+            },
+            {
               "name": "curated",
               "props": null,
               "note": null
@@ -7371,6 +7424,11 @@
             {
               "name": "quick-menu-rail-overflow",
               "props": "{ ...quick, catalog: manyHarnesses }",
+              "note": null
+            },
+            {
+              "name": "quick-menu-reported-sign-in",
+              "props": null,
               "note": null
             },
             {
@@ -7552,6 +7610,11 @@
               "name": "strip-8-harnesses",
               "props": "{ ...base, catalog: manyHarnesses.slice(0, 8) }",
               "note": "Horizontal strip, 8 harness families: whole-item snapping with an edge fade."
+            },
+            {
+              "name": "this-mac-models",
+              "props": null,
+              "note": null
             },
             {
               "name": "update-offer",
