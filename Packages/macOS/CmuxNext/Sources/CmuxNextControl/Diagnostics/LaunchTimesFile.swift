@@ -412,6 +412,12 @@ public nonisolated final class LaunchBinderLaps: Sendable {
         }
     }
 
+    /// Starts the next lap now: the binders the App runs after its first frame lap from their own start.
+    public func restart() {
+        let now = ContinuousClock.now
+        state.withLock { $0.last = now }
+    }
+
     /// Each binder's milliseconds so far.
     public func times() -> [String: Double] { state.withLock { $0.times } }
 }
