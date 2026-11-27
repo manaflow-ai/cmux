@@ -11,6 +11,7 @@
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the resource
 #   scripts/cmux-next/build-agent-pane-web.sh --check  # build into a temp dir only (the sources build)
 #   scripts/cmux-next/build-agent-pane-web.sh --out DIR  # build into DIR
+#   CMUX_AGENT_PANE_COMPILE_HINTS=1 scripts/cmux-next/build-agent-pane-web.sh  # opt-in experiment
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
@@ -30,6 +31,15 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Keep eager compilation opt-in until the cold-launch and duress measurements justify it.
+# Reuse positional arguments after parsing so both report paths receive exactly the same flag.
+set --
+case "${CMUX_AGENT_PANE_COMPILE_HINTS:-0}" in
+  0) ;;
+  1) set -- --compile-hints ;;
+  *) echo "error: CMUX_AGENT_PANE_COMPILE_HINTS must be 0 or 1" >&2; exit 2 ;;
+esac
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the agent pane" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
@@ -58,9 +68,9 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # --frame-sites writes chunks/frame-sites.js, the source file behind each stretch of pane.js and its
 # chunks (agent-pane/frameSites.mjs): `cmux app chat perf` names a frame owner's file with it.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" "$@" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
 else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" "$@"
 fi
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
