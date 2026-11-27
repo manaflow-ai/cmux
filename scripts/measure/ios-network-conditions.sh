@@ -129,7 +129,8 @@ if [[ "$leg" == sim ]]; then
   mkdir -p "$work"
   if [[ -z "$evidence" ]]; then
     command -v xcrun >/dev/null || {
-      echo "ios-network-conditions.sh: leg=sim needs a Mac with Xcode (a simulator worker) or evidence=PATH;"         "from Linux run the fleet step in this script's header, then pass its evidence.zip" >&2; exit 2; }
+      echo "ios-network-conditions.sh: leg=sim needs a Mac with Xcode (a simulator worker) or evidence=PATH;" \
+        "from Linux run the fleet step in this script's header, then pass its evidence.zip" >&2; exit 2; }
     (( n >= 1 && n <= 30 )) || { echo "ios-network-conditions.sh: leg=sim takes n=1-30 cold runs" >&2; exit 2; }
     code=0
     "$root/scripts/ci/cmux-next-ios-sim.sh" test ui=ReadFirstUITests,ReadFirstColdUITests "coldruns=$n" || code=$?
@@ -141,7 +142,8 @@ if [[ "$leg" == sim ]]; then
   sed 's/^after /NETCOND /' "$work/lines-sim.txt"
   : >"$work/lines.txt"
   cat "$work/lines-sim.txt" >>"$work/lines.txt"
-  python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt"     --json "$work/report.json" --markdown "$work/report.md" --after "$(git rev-parse HEAD)"
+  python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt" \
+    --json "$work/report.json" --markdown "$work/report.md" --after "$(git rev-parse HEAD)"
   sed 's/^/NETCOND-TABLE /' "$work/report.md"
   exit "${code:-0}"
 fi

@@ -1,9 +1,0 @@
-diff a/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift b/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	(rejected hunks)
-@@ -354,6 +354,7 @@ public struct WorkspacesList: View {
-     /// (`AppStore.openingTab`). Clears its "Done".
-     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
-         LaunchMarks.shared.mark("workspace_row_tap")
-+        LaunchMarks.shared.rearm(tap: "workspace_row")
-         if status == .offline {
-             theme.haptics.warning()
-             unavailable = ws
