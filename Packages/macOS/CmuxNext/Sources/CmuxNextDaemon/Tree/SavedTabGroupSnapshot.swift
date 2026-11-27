@@ -1,54 +1,6 @@
 import Foundation
 
-/// A saved ("pinned") tab group (`saved-tab-groups-v1`): a session-wide
-/// record that outlives its placements. Reopening restores the tabs into a
-/// pane, reattaching terminals that still run and starting the rest in their
-/// saved directories.
-///
-/// Wire shape (`list-saved-tab-groups`): `{id, name, color, icon,
-/// updated_at_ms, members}`. The record does not name its live group; a live group links to
-/// it through `TabGroupSnapshot.savedID`. `DaemonTree.savedTabGroups` is
-/// filled from `list-saved-tab-groups`, not from `list-workspaces`.
-public struct SavedTabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
-    public var id: SavedTabGroupID
-    public var name: String
-    public var color: String?
-    /// The group's icon (`tab-group-icon-v1`); nil is none.
-    public var icon: String?
-    public var updatedAtMs: UInt64?
-    /// Members in order (wire `members`).
-    public var tabs: [SavedTab]
-    /// The live group linked to this record, if any. Not on the wire;
-    /// `DaemonConnection.snapshot()` derives it from `TabGroupSnapshot.savedID`.
-    public var openGroup: TabGroupID?
-
-    public init(id: SavedTabGroupID, name: String = "", color: String? = nil, updatedAtMs: UInt64? = nil, tabs: [SavedTab] = [],
-                openGroup: TabGroupID? = nil, icon: String? = nil) {
-        self.id = id
-        self.name = name
-        self.color = color
-        self.icon = icon
-        self.updatedAtMs = updatedAtMs
-        self.tabs = tabs
-        self.openGroup = openGroup
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, color, icon, members
-        case updatedAtMs = "updated_at_ms"
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(SavedTabGroupID.self, forKey: .id)
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        color = try c.decodeIfPresent(String.self, forKey: .color)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        updatedAtMs = try c.decodeIfPresent(UInt64.self, forKey: .updatedAtMs)
-        tabs = try c.decodeIfPresent([SavedTab].self, forKey: .members) ?? []
-        openGroup = nil
-    }
-}
+/// `SavedTabGroupSnapshot` is generated from the schema's `SavedTabGroupRecord` (swift_app/bindings.json, Tree family).
 
 /// One member of a saved group: `{kind:"terminal", terminal_id, cwd, title}`
 /// or `{kind:"browser", url, engine, profile_id, title}`.

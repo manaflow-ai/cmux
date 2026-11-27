@@ -1120,6 +1120,8 @@ export type SavedTabGroupMember = {
 export type SavedTabGroupRecord = {
   /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
+  /** tab-group-icon-v1: the saved group's icon string; absent for none. */
+  "icon"?: string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
   "name": string;

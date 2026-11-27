@@ -1890,6 +1890,9 @@ pub struct SavedTabGroupMember {
 pub struct SavedTabGroupRecord {
     /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
+    /// tab-group-icon-v1: the saved group's icon string; absent for none.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub id: String,
     pub members: Vec<SavedTabGroupMember>,
     pub name: String,

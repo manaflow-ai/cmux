@@ -3183,6 +3183,67 @@
             "session",
             "harness"
           ]
+        },
+        "SavedTabGroupSnapshot": {
+          "type": "SavedTabGroupRecord",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A saved (\"pinned\") tab group (`saved-tab-groups-v1`): a session-wide record that outlives its",
+            "placements. Reopening restores the tabs into a pane, reattaching terminals that still run and starting",
+            "the rest in their saved directories. The record does not name its live group; a live group links to it",
+            "through `TabGroupSnapshot.savedID`. `DaemonTree.savedTabGroups` is filled from `list-saved-tab-groups`,",
+            "not from `list-workspaces`."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "updated_at_ms",
+            "members",
+            "openGroup",
+            "icon"
+          ],
+          "omit": [
+            "room"
+          ],
+          "fields": {
+            "id": {
+              "type": "SavedTabGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "optional": true
+            },
+            "updated_at_ms": {
+              "type": "UInt64",
+              "optional": true
+            },
+            "members": {
+              "name": "tabs",
+              "type": "[SavedTab]",
+              "default": "[]",
+              "doc": [
+                "Members in order (wire `members`)."
+              ]
+            }
+          },
+          "extra": {
+            "openGroup": {
+              "type": "TabGroupID?",
+              "default": "nil",
+              "doc": [
+                "The live group linked to this record, if any. Not on the wire;",
+                "`DaemonConnection.snapshot()` derives it from `TabGroupSnapshot.savedID`."
+              ]
+            }
+          }
         }
       }
     }

@@ -302,6 +302,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RunResult, "terminal_resource_id");
     try expectExplicitNullRejected(protocol.RunResult, "workspace_id");
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
+    try expectExplicitNullRejected(protocol.SavedTabGroupRecord, "icon");
     try expectExplicitNullRejected(protocol.Screen, "columns");
     try expectExplicitNullRejected(protocol.Screen, "floating");
     try expectExplicitNullRejected(protocol.Screen, "hidden_dividers");

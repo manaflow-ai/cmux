@@ -1602,6 +1602,7 @@ class SavedTabGroupRecord:
     name: str
     room: str
     updated_at_ms: int
+    icon: Union[str, MissingType] = field(default=MISSING)
     extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 

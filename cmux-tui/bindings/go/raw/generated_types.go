@@ -10650,7 +10650,9 @@ func (value *SavedTabGroupMember) UnmarshalJSON(data []byte) error {
 
 type SavedTabGroupRecord struct {
 	// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-	Color   string                `json:"color"`
+	Color string `json:"color"`
+	// tab-group-icon-v1: the saved group's icon string; absent for none.
+	Icon    *string               `json:"icon,omitempty"`
 	ID      string                `json:"id"`
 	Members []SavedTabGroupMember `json:"members"`
 	Name    string                `json:"name"`
@@ -10672,7 +10674,7 @@ func (value SavedTabGroupRecord) MarshalJSON() ([]byte, error) {
 	}
 	for key, fieldValue := range value.Additional {
 		switch key {
-		case "color", "id", "members", "name", "room", "updated_at_ms":
+		case "color", "icon", "id", "members", "name", "room", "updated_at_ms":
 			continue
 		}
 		object[key] = append(json.RawMessage(nil), fieldValue...)
@@ -10685,12 +10687,13 @@ func (value *SavedTabGroupRecord) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode SavedTabGroupRecord: expected object")
 	}
 	var fields struct {
-		Color       *string                `json:"color"`
-		ID          *string                `json:"id"`
-		Members     *[]SavedTabGroupMember `json:"members"`
-		Name        *string                `json:"name"`
-		Room        *string                `json:"room"`
-		UpdatedAtMs *uint64                `json:"updated_at_ms"`
+		Color       *string                     `json:"color"`
+		Icon        optionalNonNullJSON[string] `json:"icon"`
+		ID          *string                     `json:"id"`
+		Members     *[]SavedTabGroupMember      `json:"members"`
+		Name        *string                     `json:"name"`
+		Room        *string                     `json:"room"`
+		UpdatedAtMs *uint64                     `json:"updated_at_ms"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode SavedTabGroupRecord: %w", err)
@@ -10701,6 +10704,12 @@ func (value *SavedTabGroupRecord) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode SavedTabGroupRecord: required field color is missing or null")
 	}
 	decoded.Color = *fields.Color
+	if fields.Icon.null {
+		return fmt.Errorf("decode SavedTabGroupRecord: non-nullable field icon is null")
+	}
+	if fields.Icon.set {
+		decoded.Icon = &fields.Icon.value
+	}
 	if fields.ID == nil {
 		return fmt.Errorf("decode SavedTabGroupRecord: required field id is missing or null")
 	}
@@ -10727,7 +10736,7 @@ func (value *SavedTabGroupRecord) UnmarshalJSON(data []byte) error {
 	}
 	for key, fieldValue := range object {
 		switch key {
-		case "color", "id", "members", "name", "room", "updated_at_ms":
+		case "color", "icon", "id", "members", "name", "room", "updated_at_ms":
 			continue
 		}
 		if decoded.Additional == nil {

@@ -9423,6 +9423,11 @@ Result<Json> Codec<SavedTabGroupRecord>::encode(const SavedTabGroupRecord& value
     auto encoded_color = encode_value(value.color);
     if (!encoded_color) return std::move(encoded_color).error();
     object.emplace("color", std::move(encoded_color).value());
+    if (value.icon) {
+        auto encoded = encode_value(*value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -9456,6 +9461,12 @@ Result<SavedTabGroupRecord> Codec<SavedTabGroupRecord>::decode(const Json& value
         auto decoded = decode_value<std::string>(*field_color);
         if (!decoded) return std::move(decoded).error();
         result.color = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        auto decoded = decode_value<std::string>(*field_icon);
+        if (!decoded) return std::move(decoded).error();
+        result.icon = std::move(decoded).value();
     }
     const Json* field_id = value.find("id");
     if (!field_id) {
@@ -9503,7 +9514,7 @@ Result<SavedTabGroupRecord> Codec<SavedTabGroupRecord>::decode(const Json& value
         result.updated_at_ms = std::move(decoded).value();
     }
     for (const auto& [key, item] : *source.value()) {
-        if (key != "color" && key != "id" && key != "members" && key != "name" && key != "room" && key != "updated_at_ms") result.additional_properties.emplace(key, item);
+        if (key != "color" && key != "icon" && key != "id" && key != "members" && key != "name" && key != "room" && key != "updated_at_ms") result.additional_properties.emplace(key, item);
     }
     return result;
 }
