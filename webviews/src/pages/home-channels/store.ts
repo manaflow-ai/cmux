@@ -1356,10 +1356,10 @@ export class HomeChannelsStore {
     return frame.author ? frame : { ...frame, author: this.runAuthor(frame.conversation, frame.run) };
   }
 
-  /** Best effort: the first running run with that id (an owner that stamps no author; two Cloud
-   * Chiefs with the same run id could be confused there). */
+  /** The author of the one running run with that id (an owner that stamps no author). Two
+   * Chiefs running the same run id answer nothing, so their text is never misattributed. */
   private runAuthor(conversation: string, run: string): string | undefined {
-    return this.runs.running(conversation).find((candidate) => candidate.id === run)?.author;
+    return this.runs.soleRunningAuthor(conversation, run);
   }
 
   /** The owner's `run.live` snapshot of a conversation (open, reconnect, gap). A Cloud owner
