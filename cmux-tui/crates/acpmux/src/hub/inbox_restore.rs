@@ -2,8 +2,8 @@
 //! of an inbox item, the answers the log holds, and the `_acpmux/inbox_threads` and
 //! `_acpmux/inbox_thread` reads.
 
-use super::*;
 use super::inbox_point;
+use super::*;
 
 impl Hub {
     /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).

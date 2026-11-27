@@ -1311,7 +1311,8 @@ impl Hub {
                     p.output_file = Some(file.to_owned());
                     p.logged = false;
                 }
-                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged)).map(|i| table.log(i))
+                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
+                    .map(|i| table.log(i))
             };
             i
         };
