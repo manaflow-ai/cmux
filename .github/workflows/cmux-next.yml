@@ -2232,7 +2232,9 @@ jobs:
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
             ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
-        run: bash scripts/ci/cmux_next_checks_verdict.sh
+        run: |
+          v="$(GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git cat-file blob "$GITHUB_SHA:scripts/ci/cmux_next_checks_verdict.sh")"
+          /bin/bash -c "$v"
 
   # Why: 2026-11-24-checks-53.md, note-32
   web-bundles:
@@ -3349,6 +3351,11 @@ jobs:
           clean: false
           fetch-depth: 2
 
+      # Why: note-202
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
+        run: scripts/ci/reset-stale-submodules.sh
+
       # Why: note-fast-tier-current-base
       - name: Build on the base's current tip
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && github.event_name == 'pull_request' && (vars.CI_FAST_TIER_CURRENT_BASE || '1') != '0' }}
@@ -3356,11 +3363,6 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: python3 -I scripts/ci/fast_tier_current_base.py --base-ref "$BASE_REF" --summary "$GITHUB_STEP_SUMMARY"
-
-      # Why: note-202
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        if: env.CMUX_FAST_TIER_FLEET != 'report'
-        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Remove stale untracked source (keep ignored build caches)
         if: env.CMUX_FAST_TIER_FLEET != 'report'

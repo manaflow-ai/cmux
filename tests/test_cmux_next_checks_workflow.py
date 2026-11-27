@@ -188,7 +188,7 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
         verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
-        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        self.assertIn('cat-file blob "$GITHUB_SHA:scripts/ci/cmux_next_checks_verdict.sh"', aggregate["run"])
         verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
         self.assertIn("GITHUB_STEP_SUMMARY", verdict)
         self.assertIn("exit 1", verdict)
@@ -198,7 +198,8 @@ class ChecksJobStructure(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as summary:
             return subprocess.run(
                 ["bash", "-c", aggregate["run"]],
-                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name},
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name, "GITHUB_SHA": "HEAD"},
+                cwd=ROOT,
                 capture_output=True,
                 text=True,
             )
@@ -377,6 +378,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
         shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        shutil.copy(ROOT / "scripts/ci/cmux_next_checks_verdict.sh", self.repo / "scripts/ci/cmux_next_checks_verdict.sh")
         crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
         (crate / "src").mkdir(parents=True)
         (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
@@ -484,7 +486,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
     def test_the_rollup_sources_no_file_from_the_checkout(self):
         # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
         # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
-        # workflow's BASH_ENV names, to end every shell green.
+        # workflow's BASH_ENV names, and the checkout's verdict script to end every shell green.
         document = load_yaml(WORKFLOW.read_text(encoding="utf-8"))
         rollup = steps()[-1]
         env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
@@ -493,9 +495,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         planted = self.repo / "scripts/ci/api_call_log/env.sh"
         planted.parent.mkdir(parents=True)
         planted.write_text("echo planted; exit 0\n")
+        (self.repo / "scripts/ci/cmux_next_checks_verdict.sh").write_text("echo planted; exit 0\n")
         summary = self.tmp / "summary"
         env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
-                   OUTCOMES="failure|Check the app FFI pin\n")
+                   GITHUB_SHA=self.merge, OUTCOMES="failure|Check the app FFI pin\n")
         result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
                                 text=True, timeout=60)
         output = result.stdout + result.stderr
@@ -548,6 +551,13 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         loop = re.search(r"for check in ([^;]+); do", warn_branch)
         self.assertIsNotNone(loop, "the warn branch loops over the style checks")
         looped = set(loop.group(1).split())
+        # Background checks count only when this branch waits after recording their PID.
+        background = set()
+        for launch in re.finditer(r"bun run ([^\s\"]+)[^\n]*&\s*\n\s*(\w+)=\$!", warn_branch):
+            check, pid = launch.groups()
+            self.assertRegex(warn_branch[launch.end():], r"\bwait\s+\"?\$" + re.escape(pid) + r"(?:\"|\s|$)",
+                             f"background check {check} must be waited on after launch")
+            background.add(check)
         # The warn branch runs fast_gate_webviews_checks.py, which runs each of its CHECKS (#24252).
         import fast_gate_webviews_checks
         gated = set()
@@ -576,7 +586,7 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
                         f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+            if not (name in looped or name in gated or name in background or f"bun run {name} || status=1" in warn_branch):
                 missing.append(
                     f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
                     f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
@@ -2070,6 +2080,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(len(reset), 1)
         self.assertEqual(reset[0]["run"].strip(), "scripts/ci/reset-stale-submodules.sh",
                          "the Swift entries need no submodule: drop them all")
+        rebuild = next(step for step in job["steps"] if "fast_tier_current_base.py" in step.get("run", ""))
+        self.assertLess(job["steps"].index(reset[0]), job["steps"].index(rebuild),
+                        "stale submodules must be cleared before the base rebuild checks for a clean tree")
 
 
 class MacFastTierFollowsTheRoute(unittest.TestCase):
