@@ -14,9 +14,10 @@ import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
-import { isCloudPick, isStartableProject } from "./newtab/startedProject";
+import { isStartableProject, isCloudPick } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
+import { replacedSince } from "./sessionIndex";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -232,7 +233,7 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 }
 
 export function recentSessions(
-  sessions: AcpmuxSnapshot["sessions"],
+  sessions: readonly AcpmuxSnapshot["sessions"][number][],
   count = RECENT_COUNT,
   fold = true,
 ): AcpmuxSessionEntry[] {
@@ -282,6 +283,100 @@ function best(all: readonly Ranked[], count: number, keep: (entry: AcpmuxSession
     }
   }
   return top.map((ranked) => ranked.entry);
+}
+
+/// A chat the recent rows may list: listed, and with something sent in it.
+const recentEligible = (entry: AcpmuxSessionEntry) => listed(entry) && !entry.unsent;
+/// The recent rows' order (``recentSessions``): a chat waiting on the person first, then the newest.
+const recentRank = (a: AcpmuxSessionEntry, b: AcpmuxSessionEntry) =>
+  (sessionMark(a, false) === "input" ? 0 : 1) - (sessionMark(b, false) === "input" ? 0 : 1) ||
+  (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
+  a.sessionId.localeCompare(b.sessionId);
+const normalized = (session: AcpmuxSnapshot["sessions"][number]) =>
+  normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>);
+
+/// ``recentSessions`` of a chat list, kept at the cost of the chats that changed: it holds the first
+/// `room` chats of the recent order, which the rows are read from, and a list made in place from the
+/// last one (sessionIndex.ts `noteReplaced`) only moves the changed chats in or within it. A working
+/// chat's event (its activity moving forward) is O(room), never a sort of every chat. A chat that
+/// leaves the held ones, falls back in the order, or a list of another length, sorts again; so does
+/// a held part too folded to fill the rows.
+export class RecentChats {
+  private last: readonly AcpmuxSnapshot["sessions"][number][] | undefined;
+  private top: AcpmuxSessionEntry[] = [];
+  /// The held chats are every chat the rows may list.
+  private complete = true;
+  private shown: AcpmuxSessionEntry[] = [];
+
+  constructor(
+    private readonly count = RECENT_COUNT,
+    private readonly room = 64,
+  ) {}
+
+  of(sessions: readonly AcpmuxSnapshot["sessions"][number][]): AcpmuxSessionEntry[] {
+    if (sessions === this.last) return this.shown;
+    const previous = this.last;
+    const replaced = previous && previous.length === sessions.length ? replacedSince(previous, sessions) : undefined;
+    this.last = sessions;
+    const patched = replaced ? this.patch(previous!, sessions, replaced) : false;
+    if (patched === "same") return this.shown;
+    if (!patched) {
+      const all = sessions.map(normalized).filter(recentEligible).sort(recentRank);
+      this.complete = all.length <= this.room;
+      this.top = all.slice(0, this.room);
+    }
+    const shown = recentSessions(this.top, this.count);
+    // The rows are the held chats' only while the parents they fold under (the first `count` that
+    // are no child) and the rows themselves are all held: else they read every chat.
+    const enough =
+      this.complete ||
+      (shown.length >= this.count && this.top.filter((entry) => !entry.spawnedBy).length >= this.count);
+    this.shown = enough ? shown : recentSessions(sessions, this.count);
+    return this.shown;
+  }
+
+  /// Applies the chats replaced at `positions` to the held ones: "same" when none of them is held or
+  /// comes in, false when one needs a whole sort.
+  private patch(
+    previous: readonly AcpmuxSnapshot["sessions"][number][],
+    sessions: readonly AcpmuxSnapshot["sessions"][number][],
+    positions: readonly number[],
+  ): boolean | "same" {
+    let changed = false;
+    for (const position of positions) {
+      const before = previous[position];
+      const after = sessions[position];
+      if (!before || !after) return false;
+      const was = normalized(before);
+      const now = normalized(after);
+      if (was.sessionId !== now.sessionId) return false;
+      const held = this.top.findIndex((entry) => entry.sessionId === now.sessionId);
+      if (held >= 0) {
+        if (!recentEligible(now)) {
+          if (!this.complete) return false;
+          this.top.splice(held, 1);
+        } else {
+          // Falling back past the held ones' last needs the chats after them.
+          if (!this.complete && recentRank(now, this.top[held]!) > 0) return false;
+          this.top[held] = now;
+          this.top.sort(recentRank);
+        }
+        changed = true;
+        continue;
+      }
+      if (!recentEligible(now)) continue;
+      const last = this.top.at(-1);
+      if (!this.complete && last && recentRank(now, last) > 0) continue;
+      this.top.push(now);
+      this.top.sort(recentRank);
+      if (this.top.length > this.room) {
+        this.top.pop();
+        this.complete = false;
+      }
+      changed = true;
+    }
+    return changed ? true : "same";
+  }
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.

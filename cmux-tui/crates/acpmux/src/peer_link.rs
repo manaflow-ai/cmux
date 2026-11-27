@@ -797,6 +797,8 @@ pub enum PeerState {
     Restarting,
     /// Never reached, and attempts failed. Attempts go on.
     Offline,
+    /// Not dialed on purpose (`peer_demand.rs`): reachable when last linked; use connects it.
+    Idle,
 }
 
 impl PeerState {
@@ -811,6 +813,7 @@ impl PeerState {
             Self::Reconnecting => W::Reconnecting,
             Self::Restarting => W::Restarting,
             Self::Offline => W::Offline,
+            Self::Idle => W::Idle,
         }
     }
 
@@ -822,6 +825,7 @@ impl PeerState {
             Self::Reconnecting => "reconnecting",
             Self::Restarting => "restarting",
             Self::Offline => "offline",
+            Self::Idle => "idle",
         }
     }
 }
@@ -833,6 +837,8 @@ pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
     restarting: bool,
+    /// Left undialed until something uses the peer (`peer_demand.rs`, `Link::idle`).
+    pub(crate) idle: bool,
     open: bool,
     ready: bool,
     overdue: bool,
@@ -858,6 +864,10 @@ impl Link {
     pub fn state(&self) -> PeerState {
         if self.restarting {
             return PeerState::Restarting;
+        }
+        if self.idle && !self.open {
+            // Down when it was last linked: offline, and it reconnects on use.
+            return if self.down_since.is_some() { PeerState::Offline } else { PeerState::Idle };
         }
         match (self.open, self.ready && !self.overdue) {
             (true, true) => PeerState::Connected,
@@ -918,11 +928,12 @@ impl Link {
         delay
     }
 
-    /// Down a day or more without a successful handshake: automatic retries are hourly
-    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    /// Down a day or more without a successful handshake, and not trying one now: automatic
+    /// retries are hourly (`parked` on the wire), and a list shows it as gone quiet rather than
+    /// failing. A link whose WebSocket is open is retrying this moment, so it is not parked
+    /// while that handshake runs.
     pub fn parked(&self, now: u64) -> bool {
-        !self.is_ready()
-            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+        !self.open && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
     }
 
     /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
@@ -942,6 +953,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.idle = false;
         self.retry_at = None;
         self.opened_at = Some(now);
         self.open = true;
@@ -982,6 +994,14 @@ impl Link {
         self.overdue = false;
         self.ready_at = None;
         self.down_since.get_or_insert(now);
+    }
+
+    /// Left undialed until something uses the peer, or closed because nothing did
+    /// (`peer_demand.rs`): no failed attempt counts, no outage starts, no attempt is scheduled.
+    pub fn idle(&mut self) {
+        (self.idle, self.restarting, self.open, self.ready, self.overdue) =
+            (true, false, false, false, false);
+        (self.ready_at, self.opened_at, self.retry_at) = (None, None, None);
     }
 
     /// How long the link has been ready, while it is.
@@ -1227,6 +1247,18 @@ mod tests {
         restarted.ready(now + 2);
         assert!(!restarted.parked(now + 3), "a handshake ends the parking");
         assert_eq!(Link::default().park_at_start(now), None, "never down: nothing parked");
+    }
+
+    #[test]
+    fn a_parked_peer_retrying_now_is_not_parked_while_its_handshake_runs() {
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        assert!(link.parked(day + 1));
+        link.opened(day + 2);
+        assert!(!link.parked(day + 3), "the hourly retry's handshake is running");
+        link.down(day + 4, Duration::from_secs(60));
+        assert!(link.parked(day + 5), "the retry failed: parked again");
     }
 
     #[test]

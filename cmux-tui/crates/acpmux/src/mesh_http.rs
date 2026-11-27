@@ -12,8 +12,8 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, Listen, Listens, MeshHub, OutMessage,
-    Receipt, TeamPage,
+    Ack, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Listen, Listens, MeshHub,
+    OutMessage, Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -340,17 +340,7 @@ impl HttpHub {
                 }
             }
 
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
-            {
-                if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
-                    return Err(HubError::unavailable("the hub's answer is too large").from_hub());
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes = body_of(&mut response).await?;
             if status == 401 && self.device {
                 // No other token to try: the device is cut off, and nothing more is sent.
                 let refusal = answer(status, &bytes);
@@ -368,6 +358,22 @@ impl HttpHub {
         }
         Err(HubError::unavailable("the hub refused two tokens").from_hub())
     }
+}
+
+/// An answer's body, at most [`MAX_ANSWER_BYTES`].
+async fn body_of(response: &mut reqwest::Response) -> Result<Vec<u8>, HubError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
+    {
+        if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
+            return Err(HubError::unavailable("the hub's answer is too large").from_hub());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// The refusal of a device credential the hub already refused: sent nowhere.
@@ -589,6 +595,27 @@ impl MeshHub for HttpHub {
             decode(self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?)
         })
     }
+
+    /// One try, never through `call`: a 401 here is the capacity route refusing (an older hub, a
+    /// registry that is off), not the join credential revoked, so it neither marks the record
+    /// revoked nor runs a token command again. The relay's heartbeat decides that.
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.registers()?;
+            let token = self.token(false).await?;
+            let mut response = self
+                .http
+                .post(format!("{}/v1/machines/joined/heartbeat", self.origin))
+                .bearer_auth(token.as_str())
+                .timeout(CALL_WAIT)
+                .json(report)
+                .send()
+                .await
+                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            let status = response.status().as_u16();
+            answer(status, &body_of(&mut response).await?).map(|_| ())
+        })
+    }
 }
 
 fn query_component(value: &str) -> String {
@@ -684,6 +711,121 @@ mod tests {
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
         assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    /// One request to a loopback hub that answers `status` with `body`: the request as read.
+    async fn one_request(
+        status: u16,
+        body: &'static str,
+    ) -> (HttpHub, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).await.unwrap();
+                seen.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&seen).to_string();
+                if let Some((head, rest)) = text.split_once("\r\n\r\n") {
+                    let length = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if rest.len() >= length || n == 0 {
+                        break;
+                    }
+                }
+            }
+            let answer = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(answer.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&seen).to_string()
+        });
+        let hub = HttpHub::new(&MeshRelayConfig {
+            url: format!("http://127.0.0.1:{port}"),
+            token_command: ["sh", "-c", "echo cmm_capacity_test_credential"]
+                .map(str::to_owned)
+                .to_vec(),
+            team_messaging: false,
+            control_from: Vec::new(),
+            credential: None,
+        })
+        .unwrap();
+        (hub, served)
+    }
+
+    fn report() -> Capacity {
+        Capacity {
+            host_id: "studio".into(),
+            region: "joined".into(),
+            capabilities: crate::mesh::CapacityLimits {
+                memory_pause: false,
+                fork: false,
+                gpu: false,
+                arch: "arm64".into(),
+                os: "macos".into(),
+                max_vcpu: 12.0,
+                max_mem_gib: 64.0,
+            },
+            free_vcpu: 9.5,
+            free_mem_gib: 40.0,
+            free_disk_gib: 300.0,
+            sessions_running: 2,
+            load: 2.5,
+            state: "ready".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_posts_the_joined_heartbeat_with_the_machine_credential_and_no_fleet_token() {
+        let (hub, served) =
+            one_request(200, r#"{"host_id":"mch_1","accepted":true,"reported_at":1}"#).await;
+        hub.capacity(&report()).await.unwrap();
+        let request = served.await.unwrap();
+        let (head, body) = request.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("POST /v1/machines/joined/heartbeat HTTP/1.1"), "{head}");
+        assert!(
+            head.lines()
+                .any(|l| l
+                    .eq_ignore_ascii_case("authorization: Bearer cmm_capacity_test_credential")),
+            "{head}"
+        );
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "host_id": "studio",
+                "region": "joined",
+                "capabilities": {
+                    "memoryPause": false, "fork": false, "gpu": false,
+                    "arch": "arm64", "os": "macos", "maxVcpu": 12.0, "maxMemGiB": 64.0
+                },
+                "free_vcpu": 9.5, "free_mem_gib": 40.0, "free_disk_gib": 300.0,
+                "sessions_running": 2, "load": 2.5, "state": "ready"
+            })
+        );
+        assert!(body.get("machine_token").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_refused_capacity_report_is_one_try_with_the_hubs_code() {
+        let (hub, served) =
+            one_request(401, r#"{"code":"machine.unauthorized","message":"no"}"#).await;
+        let error = hub.capacity(&report()).await.unwrap_err();
+        assert!(error.refused);
+        assert_eq!(error.status, Some(401));
+        assert_eq!(error.code.as_deref(), Some("machine.unauthorized"));
+        // One request: a 401 here asks no new token and sends nothing again.
+        served.await.unwrap();
     }
 
     #[tokio::test]
