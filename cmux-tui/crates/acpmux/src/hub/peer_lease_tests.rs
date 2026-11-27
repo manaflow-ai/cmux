@@ -311,3 +311,26 @@ async fn wedge_saved_peer_cache_scheduling_does_not_wait_for_a_lease_writer() {
     result.expect("cache scheduling waited on the lease writer");
     assert!(peer.cache_is_dirty());
 }
+
+#[tokio::test]
+async fn a_renewal_reports_only_its_own_cloud_registry() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg.clone(), store);
+    let (old, _) = hub
+        .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, Some("a".into()), &cfg)
+        .unwrap();
+    let original_peer = hub.peer_by_name("vm").unwrap();
+    assert!(hub.peer_has_cloud_registry(&original_peer, "a"));
+    let (new, _) = hub
+        .lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, Some("b".into()), &cfg)
+        .unwrap();
+    hub.end_peer_lease(&old);
+    let current_peer = hub.peer_by_name("vm").unwrap();
+    assert!(!hub.peer_has_cloud_registry(&current_peer, "a"));
+    assert!(!hub.peer_has_cloud_registry(&original_peer, "b"));
+    assert!(hub.peer_has_cloud_registry(&current_peer, "b"));
+    assert_eq!(hub.peers()[0]["cloudRegistryId"], "b");
+    hub.end_peer_lease(&new);
+}
