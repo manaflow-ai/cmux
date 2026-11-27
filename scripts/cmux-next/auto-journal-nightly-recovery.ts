@@ -17,7 +17,7 @@
  *     --cmux-tui /path/to/published/cmux-tui --provenance nightly.json --out DIR
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { http, resolveBackend, validLogin, type Api } from "./cloud-journey.ts";
@@ -42,6 +42,9 @@ export type RecoveryEvidence = {
   checks: Record<string, "pass" | "fail" | "blocked">;
 };
 
+const MAX_WAIT_MS = 25_000;
+const ownedChildren = new WeakSet<object>();
+
 const value = (name: string, argv = process.argv): string | undefined => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -52,7 +55,10 @@ export function validateProvenance(value: unknown): NightlyProvenance {
   if (!value || typeof value !== "object") throw new Error("provenance must be a JSON object");
   const p = value as Record<string, unknown>;
   if (!/^[0-9a-f]{40}$/.test(String(p.source_sha ?? ""))) throw new Error("provenance.source_sha must be a full 40-hex commit");
-  if (!(typeof p.workflow_run === "string" || (typeof p.workflow_run === "number" && Number.isSafeInteger(p.workflow_run)))) throw new Error("provenance.workflow_run is required");
+  if (!(
+    (typeof p.workflow_run === "string" && p.workflow_run.trim().length > 0)
+    || (typeof p.workflow_run === "number" && Number.isSafeInteger(p.workflow_run) && p.workflow_run > 0)
+  )) throw new Error("provenance.workflow_run is required");
   if (!/^[0-9a-f]{64}$/.test(String(p.artifact_sha256 ?? ""))) throw new Error("provenance.artifact_sha256 must be sha256");
   if (p.published !== true) throw new Error("provenance.published must be true for a shipped NIGHTLY");
   return {
@@ -74,15 +80,30 @@ export function claudeLoginFromEnv(env: Record<string, string | undefined> = pro
 
 /** The documented store wait; callers pass the last observed `version`. */
 export async function waitStore(api: Pick<Api, "origin" | "bearer">, id: string, after: number, timeoutMs = 25_000) {
-  const bounded = Math.max(0, Math.min(timeoutMs, 25_000));
+  if (!id.trim()) throw new Error("auto-session id is required");
+  if (!Number.isSafeInteger(after) || after < 0) throw new Error("wait version must be a non-negative integer");
+  if (!Number.isFinite(timeoutMs)) throw new Error("wait timeout must be finite");
+  const bounded = Math.max(0, Math.min(Math.trunc(timeoutMs), MAX_WAIT_MS));
   return http("GET", `${api.origin}/v1/auto-sessions/${encodeURIComponent(id)}/wait?after=${encodeURIComponent(String(after))}&timeoutMs=${bounded}`, undefined, { authorization: `Bearer ${api.bearer}` }, bounded + 5_000);
 }
 
-/** Freeze only a detached process group owned by this run; never accepts an arbitrary pid. */
+/** Start a detached child whose process group can safely be fenced by freezeOwned. */
+export function spawnOwned(command: string, args: readonly string[] = [], options: SpawnOptions = {}): ChildProcess {
+  const child = spawn(command, [...args], { ...options, detached: true });
+  ownedChildren.add(child);
+  return child;
+}
+
+/** Freeze only a detached process group created by spawnOwned; never accepts an arbitrary pid. */
 export function freezeOwned(child: Pick<ChildProcess, "pid" | "exitCode" | "spawnargs">): () => void {
   const pid = child.pid;
-  if (!pid || child.exitCode !== null || !child.spawnargs?.length) throw new Error("cannot freeze an unstarted or non-owned process");
-  process.kill(-pid, "SIGSTOP");
+  if (!ownedChildren.has(child) || !pid || child.exitCode !== null || !child.spawnargs?.length) throw new Error("cannot freeze an unstarted or non-owned process");
+  try {
+    process.kill(-pid, "SIGSTOP");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") throw new Error("owned process is no longer running");
+    throw error;
+  }
   let thawed = false;
   return () => {
     if (thawed) return;
