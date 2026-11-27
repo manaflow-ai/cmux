@@ -66,7 +66,7 @@ import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
@@ -1329,7 +1329,7 @@ export function paneSnapshotEffect({
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
           const thought =
             drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
-              ? thoughtOnly(received, next)
+              ? thoughtOnly(received, next, drawn.rows)
               : undefined;
           if (thought) {
             liveThought.set(thought.id, thought.before, thought.after);
@@ -1341,6 +1341,18 @@ export function paneSnapshotEffect({
             liveSummary.set(drawn.summary!, next.summary!);
             return;
           }
+          // Only the event's name moved (`connection`, direct.ts names each snapshot by the event it
+          // drew from): nothing draws it but the Inspector, so the pane keeps what it drew (Leo,
+          // 2026-11-26: "Why should non visible thing even affect the renderer thread anyways?").
+          if (
+            drawn &&
+            received &&
+            !streamingRowBlocked() &&
+            !pendingPaneDraw.pending &&
+            received.rows === next.rows &&
+            sameButRows(received, next)
+          )
+            return;
           streamingRow.clear();
           liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();

@@ -74,18 +74,54 @@ export const liveThought = {
 
 /// The thought item each live-turn row of the transcript drew last, by row id (`drewThoughts`).
 let drawn = new Map<string, AcpmuxActivity>();
-/// What the transcript drew of the running turn: each row's last item when it is a thought. Read
-/// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
+/// The running turn's work folded out of sight under its closed "Working for" (turns.ts
+/// `shapeLiveTurn`, liveTurnWork `folded`): the prompt that opened it and every row id the
+/// transcript drew after it. A row of that turn the transcript did not draw is hidden in the fold,
+/// and a thought growing in it stays hidden: only the person opening the fold shows it, and that
+/// draws the pane again.
+let folded: { readonly prompt: string; readonly shown: ReadonlySet<string> } | undefined;
+/// What the transcript drew of the running turn: each row's last item when it is a thought, and
+/// whether its work is folded away. Read from the end back to the turn's prompt, so O(the running
+/// turn's rows), not the chat's.
 export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
   const next = new Map<string, AcpmuxActivity>();
+  const shown = new Set<string>();
+  let closed = false;
+  let prompt: string | undefined;
   if (rows)
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
-      if (row.kind === "user") break;
+      if (row.kind === "user") {
+        prompt = row.id;
+        break;
+      }
+      shown.add(row.id);
+      if (row.kind === "worked" && row.turnPhase === "running" && row.foldOpen === false) closed = true;
       const last = row.kind === "activity" ? row.items?.at(-1) : undefined;
       if (last && isThought(last)) next.set(row.id, last);
     }
   drawn = next;
+  folded = closed && prompt !== undefined ? { prompt, shown } : undefined;
+}
+
+/// The thought the pane's drawn rows (`paneRows`) hold for row `id` at `index` when that row is
+/// hidden in the running turn's closed fold (`folded`), else undefined. The row must come after the
+/// fold's prompt with no turn summary between (an ended stretch's runs draw), and draw no row.
+function hiddenThought(
+  rows: readonly AcpmuxRow[],
+  index: number,
+  id: string,
+  paneRows: readonly AcpmuxRow[] | undefined,
+): AcpmuxActivity | undefined {
+  if (!folded || !paneRows || folded.shown.has(id)) return undefined;
+  const held = paneRows[index];
+  if (!held || held.id !== id) return undefined;
+  for (let at = index - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary") return undefined;
+    if (row.kind === "user") return row.id === folded.prompt ? held.items?.at(-1) : undefined;
+  }
+  return undefined;
 }
 
 const ROW_KEYS = new Set(["version", "items"]);
@@ -117,10 +153,14 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
 /// The row whose last thought alone grew from `previous` to `next`, with that thought before and
 /// now, else undefined. The client tells which row changed (rowChanges.ts), so this reads that row
 /// alone: O(its items). Only a thought the transcript draws as the client holds it (`drewThoughts`)
-/// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn).
+/// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn), or
+/// one the running turn's closed "Working for" hides, as the pane's drawn rows (`paneRows`) hold it.
+/// That one drew the whole pane for each chunk of a thought nobody sees (Leo, 2026-11-26: "Why
+/// should non visible thing even affect the renderer thread anyways?").
 export function thoughtOnly(
   previous: AcpmuxSnapshot,
   next: AcpmuxSnapshot,
+  paneRows?: readonly AcpmuxRow[],
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return undefined;
@@ -140,15 +180,16 @@ export function thoughtOnly(
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
-  const drawnNow = drawnThought(now.id);
+  // A thought the closed fold hides stays hidden as it grows: no row draws it, so it draws nothing.
+  const drawnNow = drawnThought(now.id, drawn.get(now.id) ?? hiddenThought(next.rows, index, now.id, paneRows));
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
 }
 
-/// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
-/// gave that row since (a chunk after a chunk).
-function drawnThought(id: string): AcpmuxActivity | undefined {
-  const shown = drawn.get(id);
+/// The thought the transcript drew for row `id` (`shown`: the one in its rows, or the one the pane
+/// holds for a row its fold hides), or the newer one this store gave that row since (a chunk after
+/// a chunk).
+function drawnThought(id: string, shown: AcpmuxActivity | undefined): AcpmuxActivity | undefined {
   const entry = entries.get(id);
   return entry && entry.epoch === epoch && sameThought(entry.from, shown) ? entry.to : shown;
 }

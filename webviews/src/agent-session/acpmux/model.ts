@@ -1293,6 +1293,28 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
+/// Whether `connection` is only the name of the event the client last drew from (direct.ts
+/// `emitInFrame(event.kind)`: "tool_call", "claude.system.task_progress"): the link is up and
+/// nothing failed. What reads it draws the same for any two of them; only the Inspector names it.
+function quietConnection(connection: string): boolean {
+  return (
+    linkUp(connection) &&
+    connection !== "debug" &&
+    connection !== "fork failed" &&
+    !connection.startsWith("failed") &&
+    !/^(error|failed)(:|$)/i.test(connection)
+  );
+}
+
+/// Whether two snapshots' `connection` draw the same: equal, or both only the name of an event
+/// (`quietConnection`). A snapshot that differs from the drawn one only there need not draw the
+/// pane (pane/paneSnapshot.ts; Leo, 2026-11-26: "Why should non visible thing even affect the
+/// renderer thread anyways?"). O(its length).
+export function sameConnection(before: unknown, after: unknown): boolean {
+  if (before === after) return true;
+  return typeof before === "string" && typeof after === "string" && quietConnection(before) && quietConnection(after);
+}
+
 /** Incremental journal attribution for the Session Info "Where the time went" chart. */
 export type AcpmuxTimeCategory = {
   id: string;
