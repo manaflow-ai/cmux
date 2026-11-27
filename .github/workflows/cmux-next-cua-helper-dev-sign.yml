@@ -86,7 +86,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -127,7 +127,7 @@ jobs:
       # Only main code runs in this job, which holds the R2 key: the
       # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
       - name: Checkout main's R2 helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -257,7 +257,7 @@ jobs:
       asset: ${{ steps.build.outputs.asset }}
     steps:
       - name: Checkout feat-cmux-next
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.sdk.outputs.sha }}
           fetch-depth: 1
@@ -332,7 +332,7 @@ jobs:
       # Every script this job runs comes from main: the keychain tool and the
       # signer.
       - name: Checkout main's signing tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -435,7 +435,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout main's R2 upload
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -506,7 +506,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -532,7 +532,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout feat-cmux-next
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           fetch-depth: 1

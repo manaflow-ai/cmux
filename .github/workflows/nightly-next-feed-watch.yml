@@ -40,10 +40,10 @@ env:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    # It mints the cmux bot App token (below), so no variable picks its machine: the nightly JIT VM, then the
-    # Blacksmith Linux sizes it names, as nightly-next-tick.yml's request and unstick jobs (#50923). CI_CONTROL_RUNNER
-    # may name a reused machine, and a job holding a secret never follows it (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # It mints the cmux bot App token (below), so no variable picks its machine: the nightly JIT VM, then
+    # Blacksmith Linux, both literals (#50923). CI_CONTROL_RUNNER may name a reused machine, and a job
+    # holding a secret never follows it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # read runs and dispatch continuation/starvation builds
@@ -51,7 +51,7 @@ jobs:
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -99,7 +99,7 @@ jobs:
       - name: Resume a failed nightly-next signing from its saved unsigned app
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPOSITORY: ${{ github.repository }}
           MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
         run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"

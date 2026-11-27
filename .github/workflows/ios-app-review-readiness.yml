@@ -28,10 +28,15 @@ name: iOS App Review readiness
 # job ranks their JSON with the gate's report (app_review_gate.py report),
 # which blocks on every finding and on a check that left no result.
 #
-# No paths filter. One waiter at a time: a newer main push cancels the older
-# push run still waiting, and the newer run carries the verdict for the newest
-# feat-cmux-next (the gate judges feat-cmux-next's head, not the main commit,
-# so an older main push's wait answers the same question later). Until
+# No paths filter. One waiter at a time: the push run holding the group runs to
+# its verdict, and a newer main push waits pending behind it (no runner held);
+# a still newer push replaces that pending run, which ends cancelled, and the
+# pending run carries the verdict for the newest feat-cmux-next (the gate
+# judges feat-cmux-next's head, not the main commit). Until 2026-11-27 a newer
+# push cancelled the running waiter instead: main moves every few minutes and
+# a gate takes up to 2 h, so 34 of the 40 push runs to 11-27 00:11Z ended
+# cancelled, none passed, and the ios-app-store-live probe's readiness part
+# (no red on the last 10 main pushes) could never pass. Until
 # 2026-11-21 every main push held its own runner for up to 6 h polling the same
 # gate run: 28 waiters on 11-20 held 168 runner-hours and all timed out with no
 # verdict (CI 10x, T1; Leo, 2026-11-21 03:45Z: "clearly we need to be hitting a
@@ -51,7 +56,8 @@ on:
 
 concurrency:
   group: ${{ github.event_name == 'push' && 'ios-app-review-readiness-push' || format('ios-app-review-readiness-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # Never cancel the running waiter: only the pending one is replaced (see the header).
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -70,7 +76,7 @@ jobs:
     environment: release
     steps:
       - name: Checkout the script and the declarations
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -235,7 +241,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       version: ${{ steps.plan.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           persist-credentials: false
@@ -272,7 +278,7 @@ jobs:
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
       ASC_VERSION: ${{ needs.plan.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
@@ -362,7 +368,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false

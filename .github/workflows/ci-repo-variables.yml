@@ -59,7 +59,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Two commits so a push's github.event.before is in the clone (the pool declaration check below).
           fetch-depth: 2
@@ -70,7 +70,7 @@ jobs:
       - name: Check out feat-cmux-next's workflows
         continue-on-error: true
         timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           path: .signing-workflows/feat-cmux-next
@@ -91,6 +91,7 @@ jobs:
           CI_PIN_DAEMON_POOL: ${{ vars.CI_PIN_DAEMON_POOL }}
           CMUX_CI_RUNNER_VARIABLES: |
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_REACT_SHARD_RUNNER=${{ vars.CI_REACT_SHARD_RUNNER }}
@@ -110,6 +111,7 @@ jobs:
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            CMUX_IOS_SIM_LINUX_BUILD_RUNNER=${{ vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
@@ -196,7 +198,6 @@ jobs:
             CI_NIGHTLY_MINI_SIGNER=${{ vars.CI_NIGHTLY_MINI_SIGNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
-            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}

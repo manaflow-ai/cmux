@@ -569,6 +569,10 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
     ".github/workflows/test-feed-reply-providers.yml",
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool
+    # (feat-cmux-next twin: cmux#58158).
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
@@ -649,6 +653,43 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
+    ".github/workflows/cmux-next-head-compile.yml":
+        "feat-cmux-next only; its compile job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a push-time compile data point; the next feat-cmux-next push compiles "
+        "again",
+    ".github/workflows/cmux-next-ios-energy-nightly.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; an energy bench that must run on an owned device host; the next push "
+        "measures again",
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a keyboard motion bench that must run on an owned device host; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-iphone-clips.yml":
+        "feat-cmux-next only; its record job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; records iPhone clips on an owned device host; the next push records again",
+    ".github/workflows/cmux-next-perf-bench.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-stress-bench.yml":
+        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-tab-switch.yml":
+        "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "
+        "measures again",
+    ".github/workflows/fleet-compile-check.yml":
+        "feat-cmux-next only; its compile-check job names the literal glaeda-gateway-xcode-26.6 label on every "
+        "attempt, so a re-run would not move it; a dispatched fleet compile check; its cmux-ci caller "
+        "re-dispatches it",
+    ".github/workflows/ios-base-bisect.yml":
+        "feat-cmux-next only; its bisect job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a bisect that nothing required waits on; the next base red starts another",
+    ".github/workflows/screen-stream-eval.yml":
+        "feat-cmux-next only; its eval job names the literal glaeda-gateway-xcode-26.6 label on every attempt, so "
+        "a re-run would not move it; a dispatched screen stream eval; a person re-runs it",
 }
 # Every workflow this rescue acts on (target_from_event()); owned_pool_sources.py
 # must find no owned workflow outside it and UNRESCUED_WORKFLOW_PATHS.

@@ -59,7 +59,7 @@ jobs:
       LABEL: ${{ vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
       STALE_SECONDS: "1800"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/janitor_watchdog_roster.py
@@ -72,7 +72,7 @@ jobs:
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud. It follows the
       # workspace checkout above, whose clean would remove it.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}

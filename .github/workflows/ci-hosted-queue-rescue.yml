@@ -75,7 +75,7 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: .app-token-spread
@@ -93,6 +93,7 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -115,7 +116,7 @@ jobs:
       - name: Rerun only a no-runner hosted queue timeout
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
