@@ -496,6 +496,9 @@ export const SentImage = memo(function SentImage({
   const opened = openImage ? (
     <button
       type="button"
+      // Its own class, not its band's: an image sent as its file's link draws in the file band
+      // (`cv-user__files`), where no band rule reaches it (conversation.css).
+      className="cv-user__image-open"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}

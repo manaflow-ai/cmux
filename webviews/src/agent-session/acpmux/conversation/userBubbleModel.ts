@@ -29,7 +29,8 @@ export function linkedImagePath(file: {
   uri?: string;
   path?: string;
 }): string | undefined {
-  if (file.kind !== undefined && file.kind !== "file") return undefined;
+  // `link`: the pane's own row before acpmux's echo keeps the composer's link chip as it was sent.
+  if (file.kind !== undefined && file.kind !== "file" && file.kind !== "link") return undefined;
   if (file.companionOf !== undefined || file.text) return undefined;
   if (file.mimeType && file.mimeType !== "application/octet-stream" && !file.mimeType.startsWith("image/"))
     return undefined;
