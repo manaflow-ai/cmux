@@ -4,8 +4,10 @@ import json
 import shlex
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +103,46 @@ class CloudFirstByteHarnessTest(unittest.TestCase):
                                         py_command("import time; time.sleep(.3)"))
         self.assertEqual(code, 0)
         self.assertEqual(result["completed"], 3)
+
+    def test_offline_duress_streams_under_parallel_git_work(self) -> None:
+        code, result = self.run_harness(
+            py_command("import sys; sys.stdout.write('x' * 2000000 + 'ok'); sys.stdout.flush()"),
+            py_command("import time; time.sleep(.5)"), "--samples", "64", "--parallel", "8", "--timeout", "5")
+        self.assertEqual(code, 0)
+        self.assertEqual(result["completed"], 64)
+        self.assertEqual(result["errors"], 0)
+        self.assertTrue(all(row["chat_bytes"] == 2000002 for row in result["rows"]))
+        print("OFFLINE-DURESS " + json.dumps({key: result[key] for key in
+              ("samples", "parallel", "completed", "errors", "timeouts", "median_ms", "p95_ms")}))
+
+
+class CloudFirstByteBenchTest(unittest.TestCase):
+    def test_timestamped_log_and_failed_rows_do_not_become_valid_metrics(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "bench"))
+        from benches.cloud_first_byte import BENCH, report
+        from benchlib.bench import BenchError, Context
+        result = {"schema": "cloud-first-byte/v2", "measurement": "command_stdout_first_byte",
+                  "samples": 2, "completed": 1, "flow_completed": False, "errors": 1, "timeouts": 0,
+                  "rows": [{"first_byte_ms": 10, "flow_completed": True},
+                           {"first_byte_ms": 9000, "flow_completed": False}]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.log"
+            path.write_text("2026-11-27T00:00:00Z CLOUD-FIRST-BYTE " + json.dumps(result))
+            self.assertEqual(report(path), result)
+            ctx = Context(bench=BENCH, build={"channel": "sha", "sha": "a" * 40}, host_role="fleet")
+            with self.assertRaises(BenchError):
+                BENCH.ingest(ctx, path)
+            self.assertEqual(ctx.rows[0]["value"], 10)
+
+    def test_fleet_requires_ref_instead_of_selecting_base_tip(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "bench"))
+        from benches.cloud_first_byte import BENCH
+        from benchlib.bench import BenchError
+        ctx = mock.Mock()
+        ctx.arg.return_value = None
+        with self.assertRaisesRegex(BenchError, "ref"):
+            BENCH.run(ctx)
+        ctx.fleet_step.assert_not_called()
 
 
 if __name__ == "__main__":
