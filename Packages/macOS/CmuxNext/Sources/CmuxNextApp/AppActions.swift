@@ -222,7 +222,7 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         ActionTargetTitles.setPaletteState("toggleFullScreen", in: registry) { services.windows.active?.window?.styleMask.contains(.fullScreen) == true }
-        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
+        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle(timing: services.frameTiming) }
         ActionTargetTitles.setPaletteState("toggleSidebar", in: registry) { services.windows.active?.sidebar.model.isHidden == false }
         // The workspace list takes the keyboard; a hidden sidebar shows first.
         // Keyboard focus there survives the workspace switches its arrows make.

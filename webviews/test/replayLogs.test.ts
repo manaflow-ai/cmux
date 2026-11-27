@@ -1,7 +1,7 @@
 // The replay bench's logs line up with acpmux's: seq 1, 2, 3... per session, and its pure judging.
 import { describe, expect, test } from "bun:test";
 import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, toRecord } from "../bench/replayLogs";
-import { judge, movedPx } from "../bench/transcript-replay.bench";
+import { judge, movedPx, rendersPerRecord } from "../bench/transcript-replay.bench";
 
 describe("replay logs", () => {
   test("every log is keyed by seq from 1, one session, time never going back", () => {
@@ -113,5 +113,38 @@ describe("judging a replay", () => {
     expect(misses[0]).toContain("O(rows) work per update");
     // 3 ms at 2,000 rows against 1 ms at none: past the growth check's factor.
     expect(misses[1]).toContain("BUDGET MISS token growth = 3x (budget 1.5x)");
+  });
+});
+
+describe("renders per record", () => {
+  test("per-row names fold into their kind, other components stay whole, events and RowFrame commits stay out of the total", () => {
+    const counts = {
+      pane: 4,
+      header: 4,
+      "row:a": 1,
+      "row:b": 3,
+      "content:a": 2,
+      "frame:a": 2,
+      "notice:x": 2,
+      transcript: 4,
+      "transcript:anchor-skipped": 4,
+    };
+    expect(rendersPerRecord(counts, 4)).toEqual({
+      total: 5,
+      byComponent: {
+        pane: 1,
+        header: 1,
+        row: 1,
+        transcript: 1,
+        "transcript:anchor-skipped": 1,
+        content: 0.5,
+        frame: 0.5,
+        notice: 0.5,
+      },
+    });
+  });
+
+  test("a burst with no counted renders reads zero", () => {
+    expect(rendersPerRecord({}, 3)).toEqual({ total: 0, byComponent: {} });
   });
 });

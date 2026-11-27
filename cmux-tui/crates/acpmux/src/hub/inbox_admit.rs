@@ -541,6 +541,11 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
+                            // Every waking message may wait for company (`WARM_HOLD_MS`).
+                            let holds = new
+                                .iter()
+                                .filter(|i| wakes(&meta, i))
+                                .all(|i| holds_wake(&meta, i));
                             // No flush sooner than a message's deadline (module docs, "Deadlines")
                             // in an idle chat off the coordinator list. Each flush was a
                             // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
@@ -574,6 +579,17 @@ impl Hub {
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
+                            // Every waking message may wait for company (`WARM_HOLD_MS`): the
+                            // burst window grows from 2 s to 5 minutes, ending no later than the
+                            // prompt cache does (a hold never turns a warm wake into a cold one).
+                            let hold_end = |at: u64| {
+                                let end = at.saturating_add(WARM_HOLD_MS);
+                                let burst = at.saturating_add(WAKE_DEBOUNCE_MS);
+                                match super::super::cold_wake::cache_expires_at(&meta) {
+                                    Some(expires) => end.min(expires.max(burst)),
+                                    None => end,
+                                }
+                            };
                             let cold = if blocker || waking.is_none() {
                                 None
                             } else {
@@ -583,7 +599,12 @@ impl Hub {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
-                                    cold.unwrap_or(at.saturating_add(WAKE_DEBOUNCE_MS)).min(flush)
+                                    let burst = if holds {
+                                        hold_end(at)
+                                    } else {
+                                        at.saturating_add(WAKE_DEBOUNCE_MS)
+                                    };
+                                    cold.unwrap_or(burst).min(flush)
                                 })
                             };
                             let retry = match inbox.refused_at {

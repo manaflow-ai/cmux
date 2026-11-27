@@ -152,6 +152,19 @@ save() {
     say "no build in cmux-tui/target; nothing saved"
     return 0
   fi
+  # The bucket keeps one save a window (r2-cache.sh skips a key it has): build nothing for a save that won't happen.
+  local platform="${CI_CACHE_R2_NAMESPACE:-${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}}"
+  if curl -sfI --max-time 20 "${CI_CACHE_R2_PUBLIC_URL%/}/v1/$platform/objects/$key.tar.zst" >/dev/null 2>&1; then
+    say "the bucket already has $key; nothing saved"
+    return 0
+  fi
+  # ci/steps.toml's agent-pane-real-acpmux restores this target and builds `-p acpmux --bin acpmux` alone. Cargo
+  # resolves features over the packages one command names (dev-dependencies too, for `cargo test`), so the daemon
+  # tests' build gives 159 third-party crates other features than acpmux's own build, other hashes, and every
+  # agent-pane run rebuilt about 200 crates after a "hit" (5.8 to 9.1 min, no faster than a miss: 16 jobs,
+  # 2026-11-26). Building acpmux here too puts its own feature set in the saved target.
+  (cd "$repo/cmux-tui" && CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux) \
+    || say "cargo build -p acpmux ended with status $?; saving the test build as it is"
   find "$target" -mindepth 1 -maxdepth 3 -type d -name incremental -prune -exec rm -rf -- {} +
   rm -f -- "$manifest"
   local size_gib
