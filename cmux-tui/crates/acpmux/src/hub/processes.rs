@@ -1051,6 +1051,10 @@ impl Folded {
 }
 
 /// The fields of a `background_task_update`'s params `ProcessTable::fold` reads.
+/// Records per window of `Hub::fold_processes`: about eight 8 MiB segments of a long chat's
+/// log, so a window rereads at most one segment's copy that the one before it read.
+const FOLD_WINDOW: u64 = 65_536;
+
 fn task_params(params: Option<&mut Value>) -> Value {
     const UPDATE: [&str; 10] = [
         "toolCallId",
@@ -1198,7 +1202,39 @@ impl Hub {
     /// chat's, `god_daemon` `chat_size_sweep`).
     /// False when a record may change a row `table` dropped ([`ProcessTable::shrink`]): it is
     /// left part folded, for the caller to fold the whole log instead (never from a whole one).
+    /// Folded in windows of [`FOLD_WINDOW`] seqs, oldest first: read whole, a 1 GB chat's
+    /// cut records were all held at once before the first was folded, 24 MB of its 69 MB heap
+    /// peak, which the allocator kept as idle memory (`god_daemon` `chat_size_sweep`).
     fn fold_processes(
+        &self,
+        session: &Session,
+        table: &mut ProcessTable,
+        after: u64,
+        before: u64,
+    ) -> bool {
+        // The log's last record before `before`: the windows below step to it, and the last
+        // one runs on to `before`, so a record logged meanwhile is still folded.
+        let mut last = after;
+        let _ = self.store.scan_back(&session.id, after, before, &|_, _| false, &mut |e| {
+            last = e.seq;
+            false
+        });
+        let mut lo = after;
+        loop {
+            let hi = if last.saturating_sub(lo) > FOLD_WINDOW { lo + FOLD_WINDOW } else { before };
+            if !self.fold_processes_window(session, table, lo, hi) {
+                return false;
+            }
+            if hi >= before {
+                return true;
+            }
+            lo = hi - 1;
+        }
+    }
+
+    /// `fold_processes` for the records with `after < seq < before`: read back newest first,
+    /// held cut ([`Folded`]), then folded in order.
+    fn fold_processes_window(
         &self,
         session: &Session,
         table: &mut ProcessTable,
