@@ -7,8 +7,10 @@ name: Cloud Chief start (machine.chief_start on staging)
 # and that cmux-chief.service runs. The test machine is cmux-test-<run>-chief-start, deleted in the finally path;
 # leftovers older than 3 h are swept by the next run.
 #
-# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml). Same-repo pull
-# requests only; without the pair the job fails, never skips.
+# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml) and a Claude
+# credential for the Chief's turns (ANTHROPIC_API_KEY, else the journey Claude Code token, as
+# cloud-chief-turn-proof.yml). Same-repo pull requests only; without them the job fails, never skips. A Chief reply
+# that names the credential's own limit judges nothing: the run ends NOT JUDGED with a warning, exit 0.
 
 on:
   workflow_dispatch:
@@ -21,6 +23,7 @@ on:
       - Native/OptChat/optchat-chief/src/cloud/**
       - scripts/cmux-next/cloud-chief-start-check.ts
       - scripts/cmux-next/cloud-chief-start-check.test.ts
+      - scripts/cmux-next/cloud-chief-turn-proof.ts
       - .github/workflows/cloud-chief-start.yml
 
 permissions:
@@ -105,8 +108,11 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
-          # Exercise the same default SR2/CodeRouter route as cloud-claude-matrix.yml; no direct Claude quota.
-          CHIEF_START_AUTH: sr2
+          # Owner mode, as the Mac app sends the owner's Claude login (stdin tail, never argv): staging installs no
+          # SR2 model route, so CHIEF_START_AUTH=sr2 answers "Not logged in" there. The same secrets as
+          # cloud-chief-turn-proof.yml; a reply naming the credential's limit ends NOT JUDGED (exit 0), not red.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           bun scripts/cmux-next/cloud-chief-start-check.ts --target staging \
             --call "${{ steps.build.outputs.call }}" --binary "${{ steps.build.outputs.chief }}" \

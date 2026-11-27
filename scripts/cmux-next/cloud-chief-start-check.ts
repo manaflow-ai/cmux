@@ -19,14 +19,22 @@
  *      with `chiefId`, cmux-platform#1637) does too where this Worker serves that route to a bearer;
  *   8. finally: archive the Chief, revoke the install, delete the machine.
  *
+ * A reply (or a failed turn) that names the Claude credential's own limit ("You've hit your weekly limit", the
+ * shared CI token's) judged nothing about the code: that reply step and the ones after it end skipped as NOT JUDGED,
+ * the run exits 0 with a warning annotation and a NOT JUDGED head on its summary, never a PASS (the same rule as
+ * cloud-chief-turn-proof.ts's CREDENTIAL_LIMIT). Every other failure still fails.
+ *
  * Usage: bun scripts/cmux-next/cloud-chief-start-check.ts --call PATH --binary PATH [--target staging] [--out DIR] [--run ID]
  * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional), and either
- * CHIEF_START_AUTH=sr2 for the default team CodeRouter route or (the default) the Claude login the start sends as
- * its stdin tail (ANTHROPIC_API_KEY, else CLAUDE_CODE_OAUTH_TOKEN), as the Mac app sends the owner's.
+ * CHIEF_START_AUTH=sr2 for the default team CodeRouter route or (the default, and what the workflow runs: staging has
+ * no SR2 model route) the Claude login the start sends as its stdin tail (ANTHROPIC_API_KEY, else
+ * CLAUDE_CODE_OAUTH_TOKEN), as the Mac app sends the owner's.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { CREDENTIAL_LIMIT } from "./cloud-chief-turn-proof";
 import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, scrub, STACK, type Exec } from "./cloud-journey";
 
 const NAME_PREFIX = "cmux-test-";
@@ -135,6 +143,14 @@ export function chiefStartAuth(env: Record<string, string | undefined>): ChiefSt
   };
 }
 
+/** The Chief's model never ran because the Claude credential is at its limit: the run judged nothing, not a fail. */
+export class CredentialLimitError extends Error {
+  constructor(text: string) {
+    super(`the credential is at its limit: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
+    this.name = "CredentialLimitError";
+  }
+}
+
 /** Wait for a fresh, exact echo or the Chief's turn failure (which can follow a partial reply). */
 export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number, secrets: string[] = []): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
@@ -147,9 +163,16 @@ export async function chiefReply(api: Pick<Api, "read">, conversation: string, c
       if (who !== chief || !id || seen.has(id)) continue;
       const text = rowText(m);
       const failure = /^\(turn failed(?: on [^:\n]+)?:/m.exec(text);
-      if (failure) throw new Error(scrub(text.slice(failure.index), secrets).slice(0, 600));
+      if (failure) {
+        const why = scrub(text.slice(failure.index), secrets).slice(0, 600);
+        if (CREDENTIAL_LIMIT.test(why)) throw new CredentialLimitError(why);
+        throw new Error(why);
+      }
       if (/not signed in|not logged in/i.test(text)) throw new Error("the Chief answered without a model: not signed in");
-      if (text.trim() !== expected) continue;
+      if (text.trim() !== expected) {
+        if (CREDENTIAL_LIMIT.test(text)) throw new CredentialLimitError(scrub(text, secrets));
+        continue;
+      }
       seen.add(id);
       return { text };
     }
@@ -175,6 +198,42 @@ async function seedChiefRows(api: Api, conversation: string, chief: string, seen
   }
 }
 
+/**
+ * A reply step: pass or fail as a Journey step, except that a CredentialLimitError ends it skipped as NOT JUDGED and
+ * answers why; once one has, every later reply step is skipped with the same reason.
+ */
+export async function replyStep(J: Pick<Journey, "record" | "skip">, state: { notJudged: string | null }, name: string, fn: () => Promise<{ detail: string }>): Promise<void> {
+  if (state.notJudged) return J.skip(name, `NOT JUDGED: ${state.notJudged}`);
+  const t0 = Date.now();
+  try {
+    const { detail } = await fn();
+    J.record({ step: name, status: "pass", ms: Date.now() - t0, detail });
+  } catch (e) {
+    const why = String((e as Error)?.message ?? e);
+    if (e instanceof CredentialLimitError) {
+      state.notJudged = why;
+      J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `NOT JUDGED: ${why}` });
+      return;
+    }
+    J.record({ step: name, status: "fail", ms: Date.now() - t0, detail: why.slice(0, 1000) });
+    throw e;
+  }
+}
+
+/** Says NOT JUDGED where a reader looks (the log, a warning annotation, summary.md's head, the step summary). */
+function reportNotJudged(J: Journey, outDir: string | null, why: string): void {
+  const verdict = `NOT JUDGED (judged nothing): ${scrub(why, J.secrets)}`;
+  console.log(verdict);
+  console.log(`::warning title=Chief start not judged::${verdict.replace(/[\r\n%]/g, " ")}`);
+  const summary = outDir ? path.join(outDir, "summary.md") : null;
+  if (summary && existsSync(summary)) {
+    const lines = readFileSync(summary, "utf8").split("\n");
+    lines[0] = `${verdict} (steps: ${lines[0].replace(/^PASS: /, "")})`;
+    writeFileSync(summary, lines.join("\n"));
+  }
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## ${verdict}\n\nNot a pass: the Chief's model never ran, so this run says nothing about the code.\n`);
+}
+
 async function main(): Promise<number> {
   const callPath = arg("--call");
   const binaryPath = arg("--binary");
@@ -198,6 +257,7 @@ async function main(): Promise<number> {
   let machine = "";
   let install = "";
   let chief = "";
+  const judged: { notJudged: string | null } = { notJudged: null };
   const start = (until?: string) =>
     call(callPath, {
       call: "machine.chief_start", api: backend.api, auth: "owner", credential: api.bearer, ...(team ? { team } : {}),
@@ -302,7 +362,7 @@ async function main(): Promise<number> {
     });
     const conversation = String(done.conversation ?? "");
     const seen = new Set<string>();
-    await J.step("a message from the app gets the Chief's reply (message.send, as the Mac and iPhone send)", async () => {
+    await replyStep(J, judged, "a message from the app gets the Chief's reply (message.send, as the Mac and iPhone send)", async () => {
       if (!conversation) throw new Error(`chief_start answered no conversation: ${JSON.stringify(done)}`);
       const word = `pong-${run}`;
       await seedChiefRows(api, conversation, chief, seen);
@@ -310,19 +370,19 @@ async function main(): Promise<number> {
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
       const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS, J.secrets);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await replyEvidence(exec)}`);
-      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
+      return { detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
-    await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
+    await replyStep(J, judged, "a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
       await seedChiefRows(api, conversation, chief, seen);
       const sentAt = Date.now();
       const r = await api.raw("POST", "/v1/chief/messages", { chiefId: chief, text: "Reply with only the word again", clientMessageId: `chief-start-${run}-web` }, 30_000);
       // The platform's /c/ surface (cmux-platform#1637) signs in with its page cookie; where this Worker does not
       // serve it to a bearer, the step says so and the reply check above stands.
-      if (r.status === 404 || r.status === 401 || r.status === 403) return { value: null, detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
+      if (r.status === 404 || r.status === 401 || r.status === 403) return { detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
       if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
       const reply = await chiefReply(api, conversation, chief, seen, "again", REPLY_DEADLINE_MS, J.secrets);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
-      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
+      return { detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
@@ -350,6 +410,7 @@ async function main(): Promise<number> {
       for (const id of ids) await api.deleteMachine(id, `chief-start-${run}-delete-${id}`);
       return { value: null, detail: ids.join(", ") || "none made" };
     }).catch(() => undefined);
+    if (judged.notJudged) reportNotJudged(J, outDir, judged.notJudged);
   }
 }
 
