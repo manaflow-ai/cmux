@@ -28,7 +28,7 @@ extension MainThreadWatchdog {
         lastHangUptime.store(now, ordering: .releasing)
         // Our code or the Mac: main-thread CPU against wall time so far, and the host load (StallVerdict).
         let cpu = mainThreadCPU(sinceBeat: beat).map { Duration.nanoseconds(Int64(clamping: $0)) }
-        let host = HostLoad.current()
+        let host = stallHost(beat: beat)
         let verdict = StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host)
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting, \(verdict.rawValue, privacy: .public): main thread cpu \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores")
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
@@ -88,15 +88,29 @@ extension MainThreadWatchdog {
         return (end.nanos, end.cpuNanos)
     }
 
-    /// The hang of `beat`'s load so far: the main thread's CPU (`cpuNanos`) and the process's
-    /// page-ins and the host's memory since the watchdog first sampled the stall. Watchdog thread only.
+    /// The host load the stall of `beat` is judged by: the highest read since the watchdog first
+    /// sampled it (each checkpoint and its end read again), so a hang that began in a load storm
+    /// stays `starved` when the storm is over by its end; the load now for any other beat.
+    func stallHost(beat: UInt64) -> HostLoad? {
+        let now = HostLoad.current()
+        return stallEvents.withLock { base in
+            guard base?.beat == beat else { return now }
+            base?.host = HostLoad.peak(base?.host, now)
+            return base?.host
+        }
+    }
+
+    /// The hang of `beat`'s load so far: the main thread's CPU (`cpuNanos`), the process's
+    /// page-ins and the host's memory since the watchdog first sampled the stall, and the most
+    /// host load seen meanwhile. Watchdog thread only.
     func load(beat: UInt64, cpuNanos: UInt64?) -> HangLoad {
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
+        let host = stallHost(beat: beat)
         guard let base = stallEvents.withLock({ $0 }), base.beat == beat, let counts = base.counts else {
-            return HangLoad(mainThreadCPU: cpu, host: HostLoad.current())
+            return HangLoad(mainThreadCPU: cpu, host: host)
         }
         var load = counts.load(to: TaskEventCounts.current(), cpu: cpu)
-        load.host = HostLoad.current()
+        load.host = host
         if let start = base.memory, let now = HostMemory.current() { load.memory = HostMemoryDelta(from: start, to: now) }
         return load
     }

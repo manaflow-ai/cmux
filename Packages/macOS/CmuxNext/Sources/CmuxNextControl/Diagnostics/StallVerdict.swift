@@ -65,6 +65,16 @@ public struct HostLoad: Sendable, Equatable {
         return HostLoad(one: loads.0, five: loads.1, fifteen: loads.2, cores: ProcessInfo.processInfo.activeProcessorCount)
     }
 
+    /// The busier of two reads (the higher one-minute load per core); either alone when the other is nil.
+    /// A stall is judged by the most load seen while it ran, not the load when it ended: a 25-minute
+    /// hang that began at load 501 on 10 cores ended at 6.9 and read as our code (cmuxterm-hq#8670,
+    /// Air-Blue 2026-11-27T01:25Z).
+    public static func peak(_ a: HostLoad?, _ b: HostLoad?) -> HostLoad? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return b.one / Double(max(b.cores, 1)) > a.one / Double(max(a.cores, 1)) ? b : a
+    }
+
     /// `host load: 205.1 / 172.0 / 144.3 on 10 cores (overloaded)`.
     var line: String {
         String(format: "host load: %.1f / %.1f / %.1f on %d cores", one, five, fifteen, cores) + (isOverloaded ? " (overloaded)" : "")
