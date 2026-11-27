@@ -397,7 +397,8 @@
 /* One line across the whole row until the row is opened (.ui-reveal-text, ui/motion/motion.css): the actions lie over its end only while they show, and its end fades as they come in, in the same motion (Leo, 2026-11-24). The cut sits on the button's text, as WebKit lays a button out as its own box. Opened, its lines wrap clear of the actions. */
 /* A queued prompt's actions and the text's cover arrive on the scale's micro step and leave on the quick one (Leo, 2026-11-27, ask-0b971a8f69: "this animation for this coming out is a bit slow"; the dwell ramp's 400 ms in made Steer, trash and the menu crawl in). Gallery ui.motion-hover-dwell, arms queued-90/120/150. */
 .acpmux-queued{--acpmux-queued-reveal-in:var(--cmux-motion-micro,120ms);--acpmux-queued-reveal-out:var(--cmux-motion-quick,80ms);--acpmux-queued-reveal-ease:var(--cmux-ease-out,cubic-bezier(0,0,0.58,1))}
-.acpmux-queued-clamp{--ui-reveal-ms:var(--acpmux-queued-reveal-out);--ui-reveal-ease:var(--acpmux-queued-reveal-ease)}
+/* Scoped under the row so it outranks .ui-reveal-text (motion.css loads later at one class): unscoped, the text's cover kept the shared 180 ms leave while the actions left in 80 ms (router-review F1 on #62344). */
+.acpmux-queued .acpmux-queued-clamp{--ui-reveal-ms:var(--acpmux-queued-reveal-out);--ui-reveal-ease:var(--acpmux-queued-reveal-ease)}
 :root:is([data-agent-motion="off"],[data-agent-motion="reduced"],[data-cmux-motion="off"],[data-cmux-motion="reduced"]) .acpmux-queued{--acpmux-queued-reveal-in:0s;--acpmux-queued-reveal-out:0s}
 @media (prefers-reduced-motion:reduce){.acpmux-queued{--acpmux-queued-reveal-in:0s;--acpmux-queued-reveal-out:0s}}
 .acpmux-queued-clamp{display:block}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere;-webkit-mask-image:none;mask-image:none;padding-inline-end:var(--ui-reveal-controls-w,0px)}
