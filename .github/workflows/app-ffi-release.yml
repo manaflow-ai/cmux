@@ -75,6 +75,7 @@ on:
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-update-prewarm-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-launch-image/**"
       - "cmux-tui/crates/cmux-pane-pictures/**"
@@ -102,6 +103,7 @@ on:
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
+      - "cmux-tui/crates/cmux-sign-clone-sweep/**"
       - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
@@ -227,7 +229,7 @@ jobs:
       # The attempt that placed: a re-run of the build alone keeps attempt 1's outputs, read then.
       placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -289,7 +291,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -388,7 +390,7 @@ jobs:
             rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -488,8 +490,8 @@ jobs:
           smoke="$RUNNER_TEMP/smoke"
           mkdir -p "$smoke"
           {
-            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
-            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
+            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxScreenKitFFI/cmux_screen_kit.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-rd-core/include/cmux_screen_kit.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
               printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
             done
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
@@ -556,7 +558,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # app_ffi_rescue.py imports deadline_http.py from its own folder.
@@ -592,7 +594,7 @@ jobs:
       XC_TARGETS: ${{ inputs.universal && 'aarch64-apple-darwin x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
       FFI_SLICE: ${{ inputs.universal && 'macos-arm64_x86_64' || 'macos-arm64' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -658,7 +660,7 @@ jobs:
         run: ./scripts/ci/macos-cross.sh cctools
 
       - name: Download the Mac-built xcframework
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/macos-cross/mac
@@ -744,7 +746,7 @@ jobs:
         && scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
         && scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/assets
@@ -983,7 +985,7 @@ jobs:
             rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}

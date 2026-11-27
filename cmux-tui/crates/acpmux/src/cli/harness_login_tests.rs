@@ -195,6 +195,20 @@ fn codex_bridge_expands_paths_before_reading_references() {
 #[test]
 fn codex_globals_stop_at_app_server() {
     let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        codex_config_args(&args(&[
+            "-p",
+            "work",
+            "app-server",
+            "--listen",
+            "stdio://",
+            "-c",
+            "model_provider='team'",
+            "--enable=x",
+            "--startup-sign-out"
+        ])),
+        args(&["-p", "work", "-c", "model_provider='team'", "--enable=x"])
+    );
     assert!(codex_globals(&args(&["app-server"])).is_empty());
     assert_eq!(
         codex_globals(&args(&["-c", "a=b", "--enable=x", "-p", "w", "app-server", "--x"])),
