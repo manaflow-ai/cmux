@@ -2505,6 +2505,32 @@ async fn exec_posts_the_command_and_prints_the_guest_output() {
     assert_eq!(json_stdout(&out)["stdout"], "tenant ok\n");
 }
 
+/// Several words keep their argv: each is shell-quoted, so the guest's shell does not split
+/// `cat > f` again (`sh -c cat > f` before).
+#[tokio::test]
+async fn exec_quotes_each_word_so_argv_survives() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(authorized())
+        .and(body_json(
+            json!({ "command": "sh -c 'cat > f' 'it'\\''s' ''" }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "", "stderr": "" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["exec", VM_ID, "--", "sh", "-c", "cat > f", "it's", ""],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+}
+
 #[tokio::test]
 async fn exec_env_sends_named_variables_from_the_environment_never_argv() {
     let server = MockServer::start().await;
