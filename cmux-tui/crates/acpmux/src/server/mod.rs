@@ -152,6 +152,8 @@ mod mcp_connect;
 mod media_forward;
 mod memory_inbox;
 mod mesh_control_send;
+/// A send carried to its machine directly while the team hub is down (`mesh_direct.rs`, RFD 0086).
+pub(crate) mod mesh_direct;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 #[cfg(test)]
