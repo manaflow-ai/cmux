@@ -112,14 +112,49 @@ export type SidebarSection = { id: string; title: LocalizedText | null; collapse
 /** The sidebar's sections, as the Swift layout exports them. */
 export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
 
-/** The sections this build shows, each with its shown categories; a section left empty is dropped. */
-export function shownSidebarSections(devBuild: boolean): Array<{ section: SidebarSection; categories: Category[] }> {
+/** The lead run `window.settingsLeadPages` draws above the layout's sections (untitled, like General's). */
+export const LEAD_SECTION_ID = "lead";
+
+/** The sections this build shows, each with its shown categories; a section left empty is dropped.
+ * `lead` (`window.settingsLeadPages`, a profile's page order) moves those categories, in its order, into
+ * one untitled run above the rest; an id this build does not show, or a repeat, is skipped. */
+export function shownSidebarSections(
+  devBuild: boolean,
+  lead: readonly string[] = [],
+): Array<{ section: SidebarSection; categories: Category[] }> {
   const shown = new Map(shownCategories(devBuild).map((category) => [category.id, category]));
-  return sidebarSections.flatMap((section) => {
+  const leading: Category[] = [];
+  for (const id of lead) {
+    const category = shown.get(id);
+    if (!category) continue;
+    leading.push(category);
+    shown.delete(id);
+  }
+  const rest = sidebarSections.flatMap((section) => {
     const members = section.categories.flatMap((id) => shown.get(id) ?? []);
     return members.length === 0 ? [] : [{ section, categories: members }];
   });
+  if (leading.length === 0) return rest;
+  return [
+    { section: { id: LEAD_SECTION_ID, title: null, categories: leading.map((c) => c.id) }, categories: leading },
+    ...rest,
+  ];
 }
+
+/** `window.settingsLanding`: the category a bare Settings open (no section in the route) lands on; an
+ * empty value, or one this build does not show, is the layout's default category. */
+export function landingCategory(value: unknown, devBuild: boolean): string {
+  if (typeof value !== "string" || !isCategory(value)) return defaultCategory;
+  return shownSection(value, devBuild);
+}
+
+/** `window.settingsLeadPages` as a list of ids (anything else is no lead run). */
+export function leadPages(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+}
+
+export const LANDING_KEY = "window.settingsLanding";
+export const LEAD_PAGES_KEY = "window.settingsLeadPages";
 
 /** The categories this build shows: DEV-only ones (Development) only when `devBuild`. */
 export function shownCategories(devBuild: boolean): readonly Category[] {

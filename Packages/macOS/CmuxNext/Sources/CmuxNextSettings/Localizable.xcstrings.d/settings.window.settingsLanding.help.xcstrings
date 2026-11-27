@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.window.settingsLanding.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Settings page that opens first, by id (general, models, appearance). Empty opens General."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "صفحة الإعدادات التي تُفتح أولًا، بالمعرّف (general وmodels وappearance). الفارغ يفتح العامة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stranica postavki koja se prva otvara, po id-u (general, models, appearance). Prazno otvara Opće."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den indstillingsside, der åbner først, efter id (general, models, appearance). Tom åbner Generelt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Einstellungsseite, die zuerst öffnet, nach ID (general, models, appearance). Leer öffnet Allgemein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La página de Ajustes que se abre primero, por id (general, models, appearance). Vacío abre General."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La page des réglages ouverte en premier, par identifiant (general, models, appearance). Vide ouvre Général."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La pagina delle impostazioni che si apre per prima, per id (general, models, appearance). Vuoto apre Generali."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最初に開く設定ページの ID（general、models、appearance）。空欄なら「一般」を開きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំព័រការកំណត់ដែលបើកមុនគេ តាម id (general, models, appearance)។ ទទេ បើកទំព័រទូទៅ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "처음 열리는 설정 페이지의 ID(general, models, appearance). 비워 두면 일반이 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innstillingssiden som åpnes først, etter id (general, models, appearance). Tom åpner Generelt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Strona ustawień otwierana jako pierwsza, według id (general, models, appearance). Puste otwiera Ogólne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A página de Ajustes que abre primeiro, por id (general, models, appearance). Vazio abre Geral."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Страница настроек, которая открывается первой, по id (general, models, appearance). Пусто — «Основные»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หน้าการตั้งค่าที่เปิดก่อน ตาม id (general, models, appearance) ว่างไว้จะเปิดหน้าทั่วไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İlk açılan Ayarlar sayfası, kimliğe göre (general, models, appearance). Boş bırakılırsa Genel açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сторінка налаштувань, що відкривається першою, за id (general, models, appearance). Порожньо — «Загальні»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trang Cài đặt mở đầu tiên, theo id (general, models, appearance). Để trống sẽ mở Chung."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最先打开的设置页面 ID（general、models、appearance）。留空则打开“通用”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最先開啟的設定頁面 ID（general、models、appearance）。留空則開啟「一般」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

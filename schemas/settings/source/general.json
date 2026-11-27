@@ -655,6 +655,50 @@
             "type": "CmuxConfigSnapshot",
             "prefixed": true
           }
+        },
+        {
+          "key": "window.settingsLanding",
+          "note": "The Settings category a bare open lands on (Cmd-comma, the sidebar's Settings row, the account menu's Settings), by category id from page-layout.json; empty or an id this build does not show keeps the layout's default_category (General). A route that names a section or key still opens there (SectionRoute.tsx, settingsLanding.ts). A profile sets its reference app's first page: Codex opens on its providers (models), the Claude app on its general settings.",
+          "title": {
+            "key": "settings.window.settingsLanding",
+            "text": "Settings Opens On"
+          },
+          "help": {
+            "key": "settings.window.settingsLanding.help",
+            "text": "The Settings page that opens first, by id (general, models, appearance). Empty opens General."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "settings",
+            "landing",
+            "first page",
+            "open",
+            "start page",
+            "profile"
+          ]
+        },
+        {
+          "key": "window.settingsLeadPages",
+          "note": "Settings categories drawn first in the Settings sidebar, in this order, as one untitled run above the layout's sections (categories.ts orderedSidebarSections); they leave their own section. Ids this build does not show are skipped; empty keeps page-layout.json's order. A profile puts its reference app's pages first.",
+          "title": {
+            "key": "settings.window.settingsLeadPages",
+            "text": "Settings Pages First"
+          },
+          "help": {
+            "key": "settings.window.settingsLeadPages.help",
+            "text": "Settings pages to list first in the sidebar, in this order, by id. Empty keeps cmux's order."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "settings",
+            "order",
+            "sidebar",
+            "pages",
+            "first",
+            "profile"
+          ]
         }
       ]
     },

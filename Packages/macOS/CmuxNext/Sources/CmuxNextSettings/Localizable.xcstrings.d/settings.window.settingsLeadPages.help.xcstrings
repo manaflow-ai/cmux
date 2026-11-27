@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.window.settingsLeadPages.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings pages to list first in the sidebar, in this order, by id. Empty keeps cmux's order."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "صفحات الإعدادات التي تُدرج أولًا في الشريط الجانبي، بهذا الترتيب، بالمعرّف. الفارغ يُبقي ترتيب cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stranice postavki koje se prve navode na bočnoj traci, ovim redom, po id-u. Prazno zadržava redoslijed cmux-a."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indstillingssider, der vises først i sidepanelet, i denne rækkefølge, efter id. Tom beholder cmux’ rækkefølge."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Einstellungsseiten, die zuerst in der Seitenleiste stehen, in dieser Reihenfolge, nach ID. Leer behält die Reihenfolge von cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Páginas de Ajustes que aparecen primero en la barra lateral, en este orden, por id. Vacío mantiene el orden de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pages des réglages listées en premier dans la barre latérale, dans cet ordre, par identifiant. Vide garde l’ordre de cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pagine delle impostazioni elencate per prime nella barra laterale, in quest’ordine, per id. Vuoto mantiene l’ordine di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サイドバーの先頭にこの順で並べる設定ページの ID。空欄なら cmux の順序のままです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំព័រការកំណត់ដែលបង្ហាញមុនគេក្នុងរបារចំហៀង តាមលំដាប់នេះ តាម id។ ទទេ រក្សាលំដាប់របស់ cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바 맨 위에 이 순서로 표시할 설정 페이지 ID. 비워 두면 cmux 순서를 유지합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innstillingssider som listes først i sidepanelet, i denne rekkefølgen, etter id. Tom beholder cmux’ rekkefølge."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Strony ustawień wyświetlane jako pierwsze na pasku bocznym, w tej kolejności, według id. Puste zachowuje kolejność cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Páginas de Ajustes listadas primeiro na barra lateral, nesta ordem, por id. Vazio mantém a ordem do cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Страницы настроек, которые идут первыми на боковой панели, в этом порядке, по id. Пусто — порядок cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หน้าการตั้งค่าที่แสดงก่อนในแถบด้านข้าง ตามลำดับนี้ ตาม id ว่างไว้จะใช้ลำดับของ cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kenar çubuğunda ilk sıralanan Ayarlar sayfaları, bu sırayla, kimliğe göre. Boş bırakılırsa cmux sırası korunur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сторінки налаштувань, що йдуть першими на бічній панелі, у цьому порядку, за id. Порожньо — порядок cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các trang Cài đặt hiện đầu tiên trong thanh bên, theo thứ tự này, theo id. Để trống giữ thứ tự của cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按此顺序在边栏最前列出的设置页面 ID。留空则保持 cmux 的顺序。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "依此順序在側邊欄最前列出的設定頁面 ID。留空則保留 cmux 的順序。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
