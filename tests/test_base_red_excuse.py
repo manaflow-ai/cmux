@@ -10611,12 +10611,137 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                 self.assertTrue(scopes)
                 self.assertEqual(set(scopes), {REPO})
 
+    def test_a_broker_refused_nodes_read_through_the_real_reader_falls_back_by_commit(self):
+        # cmux#59202 and cmux#60109 on gcp-agent-lane-1 (2026-11-27): the lane-gh broker refuses root `nodes`, and on
+        # a lane VM that refusal is a `gh` exiting 1 (main_fix_evidence.Unread, then judge()'s UnreadRead), never the
+        # Refused the fixture above raises. SuiteChecks caught Refused alone, so the refusal escaped its fallback and
+        # land-judge stopped every land on it as a tool_error. Through the real transport it reads by commit, once.
+        for conclusion in ("failure", "success"):
+            with self.subTest(conclusion=conclusion):
+                fixture = TreeReuseGitHub(nodes=True, base_conclusion=conclusion)
+                answer, fixture.run = fixture.run, excuse.GitHub().run
+                sent = []
+
+                def gh(argv, *, stdout, stderr, env=None):
+                    self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+                    query = next(arg for arg in argv if arg.startswith("query="))
+                    sent.append(query)
+                    if "nodes(ids:" in query:
+                        stderr.write(b"gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes "
+                                     b"is refused (the broker reads the call's repo with a few fields only: "
+                                     b"GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)\n")
+                        return unittest.mock.Mock(returncode=1)
+                    stdout.write(answer(argv[1:]).encode())
+                    return unittest.mock.Mock(returncode=0)
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.dict(os.environ, {"TAP_TESTS_STATE": "off"}), \
+                        unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                        unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+                self.assertNotIn("nodes is refused", stderr.getvalue())
+                if conclusion == "failure":
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertIn("run 20", stdout.getvalue())
+                else:
+                    self.assertEqual(code, 1, stderr.getvalue())
+                    self.assertIn("not red on feat-cmux-next run 20", stderr.getvalue())
+                self.assertEqual(sum("nodes(ids:" in query for query in sent), 1, sent)  # refused once, then by commit
+                self.assertTrue(any("repository(owner:" in query for query in sent), sent)
+
+    def test_a_read_that_never_happened_for_another_reason_still_propagates(self):
+        gh = TreeReuseGitHub(nodes=True)
+        gh.run = unittest.mock.Mock(side_effect=excuse.UnreadRead("GitHub evidence request exceeded 90 seconds"))
+        suites = excuse.SuiteChecks(gh, REPO)
+        with self.assertRaises(excuse.UnreadRead):
+            suites.read({"CS_1": "0" * 40}, "x")
+        self.assertFalse(suites.rooted)
+
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
+
+
+def lane_gh_broker_code():
+    """The lane-gh broker's code (cmuxterm-hq tools/lane-gh-broker/lane-gh-broker) as a module, from
+    $LANE_GH_BROKER_CODE or this host's installed hq copy; None where neither is (a CI runner with no hq code)."""
+    import importlib.machinery
+    named = os.environ.get("LANE_GH_BROKER_CODE")
+    home = Path(os.environ.get("CMUX_HQ_TOOLS_HOME") or Path.home() / ".local/share/cmux/hq-tools")
+    path = Path(named) if named else home / "current" / "tools" / "lane-gh-broker" / "lane-gh-broker"
+    if named and not path.is_file():
+        raise FileNotFoundError(f"LANE_GH_BROKER_CODE names no file: {named}")  # named, so never a quiet skip
+    if not path.is_file():
+        return None
+    loader = importlib.machinery.SourceFileLoader("lane_gh_broker_for_base_red_excuse", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class BrokerServesEveryClassifierQuery(unittest.TestCase):
+    """Every GraphQL query the classifier sends (each module-level query of base_red_excuse.py and the readers it
+    loads, rendered as sent) passes the lane-gh broker's guard, or is listed here with the fallback that answers it on
+    a lane VM. land-judge runs this script on every land, so a refused query with no working fallback stops every
+    lane VM's land as a tool_error (cmux#59202, cmux#60109, 2026-11-27; cmuxterm-hq
+    docs/handbook/fallback-refused-by-allowlist.md). The allowlist is security and is never widened for one."""
+
+    # Refused on purpose: each names its refusal and the test that proves its fallback through the real reader.
+    REFUSED_WITH_FALLBACK = {
+        "SUITE_CHECKS_QUERY": ("root field nodes is refused", "BaseRunsThatNeverBuildTheJob."
+                               "test_a_broker_refused_nodes_read_through_the_real_reader_falls_back_by_commit"),
+    }
+    SHA = "0" * 40
+
+    def rendered(self) -> dict[str, str]:
+        found = {}
+        modules = {"": excuse, "main_fix_evidence.": excuse._evidence}
+        for prefix, module in modules.items():
+            for key, value in vars(module).items():
+                if isinstance(value, str) and re.match(r"query\b", value) and "{" in value:
+                    found[prefix + key] = value
+        commit = excuse.SUITE_COMMIT.format(n=0, sha=json.dumps(self.SHA))
+        found["SUITE_CHECKS_QUERY"] = excuse.SUITE_CHECKS_QUERY.format(ids=json.dumps("CS_1"))
+        found["SUITE_COMMITS_QUERY"] = excuse.SUITE_COMMITS_QUERY.format(commits=commit)
+        for key, value in found.items():
+            if "{{" in value:
+                raise KeyError(f"{key} is a template this test does not render: render it as sent, above")
+        return found
+
+    def variables(self, query: str) -> dict:
+        names = {"owner": "manaflow-ai", "name": "cmux"}
+        return {name: None if name == "after" else names.get(name, self.SHA if kind == "GitObjectID" else "x")
+                for name, kind in re.findall(r"\$(\w+)\s*:\s*\[?(\w+)", query.split("{", 1)[0])}
+
+    def test_every_query_the_classifier_sends_passes_the_brokers_guard(self):
+        lgb = lane_gh_broker_code()
+        if lgb is None:
+            self.skipTest("no lane-gh broker code here (LANE_GH_BROKER_CODE, or an installed hq copy)")
+        queries = self.rendered()
+        self.assertIn("SUITE_COMMITS_QUERY", queries)
+        refused = {}
+        for key, query in sorted(queries.items()):
+            try:
+                lgb.graphql_check(query, self.variables(query), "manaflow-ai/cmux")
+            except lgb.Refused as error:
+                refused[key] = str(error)
+        unexpected = {key: why for key, why in refused.items()
+                      if key not in self.REFUSED_WITH_FALLBACK or self.REFUSED_WITH_FALLBACK[key][0] not in why}
+        self.assertEqual(unexpected, {}, "a classifier query the lane-gh broker refuses: every lane VM's land stops on "
+                         "it. Read it under repository/search/rateLimit with the broker's fields, or over REST; never "
+                         "widen the allowlist")
+        self.assertEqual(sorted(set(self.REFUSED_WITH_FALLBACK) - set(refused)), [],
+                         "listed as refused but now served: drop it from REFUSED_WITH_FALLBACK")
+
+    def test_each_refused_query_names_a_fallback_test_that_exists(self):
+        for key, (_why, test) in self.REFUSED_WITH_FALLBACK.items():
+            cls, _, method = test.partition(".")
+            self.assertTrue(hasattr(globals()[cls], method), f"{key}: no fallback test {test}")
 
 
 class SweepLimit(unittest.TestCase):
