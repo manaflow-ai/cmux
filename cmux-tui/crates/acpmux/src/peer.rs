@@ -1189,7 +1189,7 @@ pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let Some(at) = out.iter().position(|b| *b == 0) else { return (out, None) };
     let (config, rest) = out.split_at_checked(at).unwrap_or((out, &[]));
     let rest = rest.get(1..).unwrap_or_default();
-    let token = rest.iter().position(|b| *b == 0).map_or(rest, |end| &rest[..end]);
+    let token = rest.split(|b| *b == 0).next().unwrap_or(rest);
     (config, peer_token_text(token))
 }
 
