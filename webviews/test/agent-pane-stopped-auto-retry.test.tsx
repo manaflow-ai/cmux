@@ -162,4 +162,5 @@ for (const host of [
       await act(async () => root.unmount());
       document_.getElementById("root")!.replaceChildren();
     }
-  });
+    // Above the 20 s wall cap of `until`: on a loaded machine the first render alone passes bun's 5 s default.
+  }, 30_000);
