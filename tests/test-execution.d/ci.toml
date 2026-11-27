@@ -227,15 +227,6 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
 
 [[test]]
-path = "tests/test_ci_gh_http.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_workflow_start_lint.py"
-lane = "manual"
-reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
-
-[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -322,6 +313,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_gh_attestation_has_gh.py yourself after changing the workflow or script it reads."
 
 [[test]]
+path = "tests/test_ci_gh_http.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ghosttykit_digest_routing.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
@@ -380,6 +375,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_homebrew_untrusted_input.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_dispatch_wait_capped.py"
 lane = "linux-guard"
 
 [[test]]
@@ -741,6 +740,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_proof_record.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1106,6 +1109,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
+path = "tests/test_ci_transcript_replay_report.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/transcript_replay_report.py, the per-kind summary transcript-replay-perf-report.yml writes. Run python3 tests/test_ci_transcript_replay_report.py after changing the script (seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -1115,6 +1123,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1150,6 +1162,10 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts
 path = "tests/test_ci_why.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
+
+[[test]]
+path = "tests/test_ci_workflow_apt_mirror_sync.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_concurrency.py"
@@ -1191,6 +1207,15 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_git_fetch_bounds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_start_lint.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
 
 [[test]]
 path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"

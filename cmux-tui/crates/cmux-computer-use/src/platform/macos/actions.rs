@@ -1818,6 +1818,23 @@ pub(super) fn show_web_content(t: &Target, win: &Ax) {
     super::menus::wait_for(WEB_TREE_WAIT, || has_web_content(win));
 }
 
+/// Whether `t`'s app draws its pages with Chromium, which paints (and
+/// builds the page tree of) no window hidden under its other windows.
+pub(super) fn chromium(t: &Target) -> bool {
+    roles::web_accessibility_attribute(app_bundle(t).as_deref()).is_some()
+}
+
+/// Waits (at most [`UNCOVER_WAIT`]) for a window just uncovered to paint
+/// its page and show it to accessibility, then one more frame for the paint.
+pub(super) fn wait_web_content(win: &Ax) {
+    if super::menus::wait_for(UNCOVER_WAIT, || has_web_content(win)) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// How long an uncovered Chromium window gets to paint (about 1.5 s live).
+const UNCOVER_WAIT: std::time::Duration = std::time::Duration::from_millis(3000);
+
 /// Whether `win` holds a web area with content (bounded walk).
 fn has_web_content(win: &Ax) -> bool {
     let mut queue = std::collections::VecDeque::from([win.clone()]);
@@ -2572,6 +2589,17 @@ fn press_keys_inner(
     // Not covered: a plain key with no modifier (only an app that registers
     // bare keys gives it a menu item) and items an app builds only when its
     // menu opens or hides from AX.
+    // Background keys for a window that is not its app's key window (one of
+    // the app's other windows is over it): the window is raised inside its
+    // app, the app not activated, so it takes the app's keys; the window
+    // order comes back after the keys ([`super::uncover`]).
+    let _raised = if delivery == Delivery::Background {
+        d.ax_window(&t)
+            .ok()
+            .and_then(|(_, w)| super::uncover::uncover(&t, &w, super::uncover::Why::Keys))
+    } else {
+        None
+    };
     let route = d.key_route(&t, delivery)?;
     use crate::keys::{Key, Modifier};
     let mut disabled_item: Option<String> = None;
