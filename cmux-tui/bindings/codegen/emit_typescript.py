@@ -122,7 +122,7 @@ def _field_lines(expr: Mapping[str, Any], ref_prefix: str = "") -> list[str]:
 def _header(ir: Any) -> str:
     return (
         "/* This file is generated. Do not edit by hand. */\n"
-        f"/* cmux-tui mux protocol {ir.mux_protocol}, IR {ir.ir_sha256}. */\n\n"
+        f"/* cmux-tui mux protocol {ir.mux_protocol}; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */\n\n"
     )
 
 
