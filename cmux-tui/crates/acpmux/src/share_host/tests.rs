@@ -1456,6 +1456,18 @@ async fn a_status_from_before_a_join_says_the_host_starts_and_wakes_the_check() 
 }
 
 #[test]
+fn a_ping_without_a_pong_ends_the_link() {
+    let s = Duration::from_secs;
+    // No ping yet, or one just sent: the socket is fine.
+    assert!(!link::pong_overdue(None, true));
+    assert!(!link::pong_overdue(Some(s(3)), false));
+    // Answered: fine however long ago the ping went out.
+    assert!(!link::pong_overdue(Some(s(25)), true));
+    // Unanswered past the bound: the socket is gone, reconnect.
+    assert!(link::pong_overdue(Some(s(11)), false));
+}
+
+#[test]
 fn a_watching_app_hears_each_time_the_daemon_comes_online_signed_in() {
     let home = tempfile::tempdir().unwrap();
     let hub = Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
