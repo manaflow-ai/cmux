@@ -52,6 +52,16 @@ const snapshotOf = (agents: readonly Subagent[], withCommand: boolean) =>
 
 const THREE = snapshotOf(AGENTS.slice(0, 3), false);
 const EIGHT = snapshotOf(AGENTS, true);
+/// Ten subagents, as in Leo's 2026-11-27 screenshot: eight marks and "+2 more" after the sentence.
+const TEN = snapshotOf(
+  [
+    ...AGENTS,
+    running("Trace the reconnect after relaunch", 2, "Read reconnect.rs", "claude"),
+    running("Measure the sidebar's first paint", 1, "Run bench:sidebar", "codex"),
+    running("Check every locale has the new strings", 1, "Grep xcstrings"),
+  ],
+  false,
+);
 
 /// Each variant pins the one line and its arm, so a later default never changes what it shows.
 const pins = (arm: HatLineArm) => ({ "subagent-tray-fold-head": "line", "composer-hat-line-deck": arm });
@@ -67,6 +77,28 @@ const thumbedTo = (n: number) => async (ctx: PlayContext) => {
   await ctx.hover({ selector: MARK(1) });
   await ctx.hover({ selector: MARK(n) });
   await ctx.waitFor(() => ctx.document.querySelector(`${MARK(n)}[data-peeked]`));
+};
+
+/// Words win over marks (Leo, 2026-11-27: "compact these and drop them away in favour of text when
+/// things shrink"): the sentence is whole while any mark shows, and every mark shown is whole (a mark
+/// that no longer fits wraps out of the strip's one clipped row, never cut in half).
+const wordsWin = async (ctx: PlayContext) => {
+  await folded(ctx);
+  const TITLE = ".acpmux-running-tray[data-line] .acpmux-running-tray__title";
+  await ctx.waitFor(() => ctx.document.querySelector(TITLE) && ctx.document.querySelector(".acpmux-hat-deck"));
+  const title = ctx.find({ selector: TITLE }) as HTMLElement;
+  const deck = ctx.find({ selector: ".acpmux-hat-deck" }) as HTMLElement;
+  const box = deck.getBoundingClientRect();
+  const shown = [...deck.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark:not([data-blank])")].filter((mark) => {
+    const r = mark.getBoundingClientRect();
+    return r.top < box.bottom - 1 && r.left < box.right - 1;
+  });
+  for (const mark of shown) {
+    const r = mark.getBoundingClientRect();
+    if (r.right > box.right + 0.5) throw new Error("a mark is cut in half at the strip's end");
+  }
+  if (shown.length > 0 && title.scrollWidth > title.clientWidth + 1)
+    throw new Error(`the words truncate while ${shown.length} mark(s) still show`);
 };
 
 const arms: [HatLineArm, string][] = [
@@ -120,6 +152,18 @@ export default agentPaneEntry({
         ],
       ]),
     ),
+    "trail-ten": {
+      note: "Ten subagents, the pick: the sentence whole, then as many whole marks as fit. In the narrow pane the marks give way before a word does (Leo, 2026-11-27: \"drop them away in favour of text when things shrink\").",
+      play: wordsWin,
+      snapshot: TEN,
+      experiments: pins("trail"),
+    },
+    "lead-ten": {
+      note: "Ten subagents, marks leading: the marks give way before the sentence does.",
+      play: wordsWin,
+      snapshot: TEN,
+      experiments: pins("lead"),
+    },
     "trail-thumb-eight": {
       note: "The pick, thumbed to the fifth mark: it pops, the line reads that subagent's name and latest step; a click opens it.",
       play: thumbedTo(5),
