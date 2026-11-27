@@ -25,9 +25,9 @@ test("a start shows the message and the folder by its name", () => {
     cwd: "/Users/me/src/paint",
   });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
-  expect(cloudStartBegun("k", "t", undefined, undefined, undefined, undefined, undefined, undefined, "env_1").environment).toBe(
-    "env_1",
-  );
+  expect(
+    cloudStartBegun("k", "t", undefined, undefined, undefined, undefined, undefined, undefined, "env_1").environment,
+  ).toBe("env_1");
 });
 
 test("a start waiting on its browser sign-in is marked until it signs in or ends", () => {
