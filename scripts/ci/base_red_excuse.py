@@ -4841,6 +4841,7 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # agent host's GitHub broker refuses a `nodes` root field, so there every suite read failed and every run was read over REST:
 # when `nodes` is refused, the suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY) instead.
 SUITES_PER_QUERY = 25
+NODES_REFUSED = "root field nodes is refused"  # the lane-gh broker's words (cmuxterm-hq tools/lane-gh-broker)
 SUITE_CHECKS_QUERY = ("query($name: String!) {{ nodes(ids: [{ids}]) {{ ... on CheckSuite {{ id checkRuns(first: 100, "
                       "filterBy: {{checkType: ALL, checkName: $name}}) {{ nodes {{ conclusion }} pageInfo "
                       "{{ hasNextPage }} }} }} }} }}")
@@ -4889,10 +4890,17 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
+            except (Refused, UnreadRead) as why:
+                # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
+                # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
+                # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
+                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead.
+                if NODES_REFUSED in str(why):
+                    self.rooted = True
+                elif isinstance(why, UnreadRead):
+                    raise  # a timeout or another failed read: not judged, a retry (exit 3), as before
+                else:
                     return  # read over REST instead, as before
-                self.rooted = True
             except ValueError:
                 return
             else:
