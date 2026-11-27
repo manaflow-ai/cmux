@@ -96,37 +96,34 @@ import Testing
     }
 
     /// Every press on a link says where it went (goal agent-shortcut-found: run 45968907489's press on
-    /// "turn it on" logged nothing, so the walk could not tell what took it).
+    /// "turn it on" logged nothing, so the walk could not tell what took it). No macro inside another:
+    /// the compiler rejects a recursive expansion.
     @Test func aPressSaysWhereTheLinkWent() throws {
         let (window, controller) = controller()
-        let first = try #require(controller.accessibilityElements(parent: controller.host).first)
-        let link = try #require(links(first).first)
-        var took = false
-        let unhandled = notes(controller) { took = link.accessibilityPerformPress() }
-        #expect(took)
-        #expect(unhandled == ["app link press on settings/start-agent-from-any-app taken by no app link handler: opened nothing"])
+        let message = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(message).first)
+        let ref = PartRef(messageId: "msg_1", partIndex: 0)
+        var pressed = false
+        var lines = notes(controller) { pressed = link.accessibilityPerformPress() }
+        #expect(pressed)
+        #expect(lines == ["app link press on settings/start-agent-from-any-app taken by no app link handler: opened nothing"])
         var app: [String] = []
         controller.onAppLink = { app.append($0.absoluteString) }
-        took = false
-        let handed = notes(controller) { took = link.accessibilityPerformPress() }
-        #expect(took)
-        #expect(handed == ["app link press on settings/start-agent-from-any-app handed to the app"])
+        lines = notes(controller) { pressed = link.accessibilityPerformPress() }
+        #expect(pressed)
+        #expect(lines == ["app link press on settings/start-agent-from-any-app handed to the app"])
         #expect(app == [Self.anyApp])
         // A web link goes to the system as before, and says nothing: it is no app link.
         controller.onOpenLink = { _, _ in }
-        let ref = PartRef(messageId: "msg_1", partIndex: 0)
-        took = false
-        let web = notes(controller) { took = controller.openLink(.text(URL(string: Self.pr)), ref: ref) }
-        #expect(took)
-        #expect(web.isEmpty)
-        took = false
-        let refused = notes(controller) { took = controller.openLink(.text(nil), ref: ref) }
-        #expect(took)
-        #expect(refused == ["app link press refused by the link policy: opened nothing"])
-        took = false
-        let system = notes(controller) { took = controller.openLink(.text(URL(string: "cmux://nowhere/x")), ref: ref) }
-        #expect(took)
-        #expect(system == ["app link press on nowhere/x is no app link: handed to the system"])
+        lines = notes(controller) { pressed = controller.openLink(.text(URL(string: Self.pr)), ref: ref) }
+        #expect(pressed)
+        #expect(lines.isEmpty)
+        lines = notes(controller) { pressed = controller.openLink(.text(nil), ref: ref) }
+        #expect(pressed)
+        #expect(lines == ["app link press refused by the link policy: opened nothing"])
+        lines = notes(controller) { pressed = controller.openLink(.text(URL(string: "cmux://nowhere/x")), ref: ref) }
+        #expect(pressed)
+        #expect(lines == ["app link press on nowhere/x is no app link: handed to the system"])
         withExtendedLifetime(window) {}
     }
 
@@ -143,17 +140,19 @@ import Testing
         let (window, controller) = controller()
         var app: [String] = []
         controller.onAppLink = { app.append($0.absoluteString) }
-        let first = try #require(controller.accessibilityElements(parent: controller.host).first)
-        let link = try #require(links(first).first)
+        let message = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(message).first)
         let frame = controller.host.convert(window.convertFromScreen(link.accessibilityFrame()), from: nil)
         let p = CGPoint(x: frame.midX, y: frame.midY)
-        #expect(notes(controller) { controller.clicked(p) } == ["app link press on settings/start-agent-from-any-app handed to the app"])
+        var lines = notes(controller) { controller.clicked(p) }
+        #expect(lines == ["app link press on settings/start-agent-from-any-app handed to the app"])
         #expect(app == [Self.anyApp])
-        #expect(notes(controller) { controller.noteDroppedLinkClick(at: p, "the thread") }
-            == ["app link click on settings/start-agent-from-any-app taken by the thread: opened nothing"])
+        lines = notes(controller) { controller.noteDroppedLinkClick(at: p, "the thread") }
+        #expect(lines == ["app link click on settings/start-agent-from-any-app taken by the thread: opened nothing"])
         // Off any link a taker logs nothing (only a link's click is the walk's question).
         #expect(controller.clickTaker(CGPoint(x: 1, y: 1)) != nil)
-        #expect(notes(controller) { controller.clicked(CGPoint(x: 1, y: 1)) }.isEmpty)
+        lines = notes(controller) { controller.clicked(CGPoint(x: 1, y: 1)) }
+        #expect(lines.isEmpty)
         #expect(app == [Self.anyApp])
         withExtendedLifetime(window) {}
     }
