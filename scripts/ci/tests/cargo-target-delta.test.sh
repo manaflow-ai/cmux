@@ -41,7 +41,7 @@ leg() {
   find "$repo/ws" -exec touch {} +
   if [[ -d "$saved/delta" ]]; then cp -a "$saved/delta" "$TMP/restored"; fi
   delta apply "$target" "$TMP/restored" "$stamp" > "$TMP/apply.log"
-  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
+  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --target-dir "$target" --offline -v 2>&1) > "$TMP/build.log"
   compiled=$(grep -cE '^ +Compiling ' "$TMP/build.log" || true)
   fresh=$(grep -cE '^ +Fresh ' "$TMP/build.log" || true)
   delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
