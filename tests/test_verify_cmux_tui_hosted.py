@@ -207,6 +207,13 @@ class Sandbox:
     def head(self) -> str:
         return (self.dir / "head").read_text(encoding="utf-8").strip()
 
+    def set_remote_urls(self, fetch_url: str, push_url: str) -> None:
+        git = [resolve_real_git(), "-C", str(self.repo)]
+        run_bounded(git + ["remote", "set-url", "origin", fetch_url], check=True,
+                    env=self.env, timeout=60)
+        run_bounded(git + ["config", "remote.origin.pushurl", push_url], check=True,
+                    env=self.env, timeout=60)
+
     def dispatched_request_id(self, args: list[str]) -> str:
         """Run the script once and return the request_id it dispatched, then forget the calls."""
         self.run(args, FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
@@ -278,6 +285,30 @@ def dispatch_client_error_is_not_retried(failures: list[str], name: str, box: Sa
     code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
                         FAKE_DISPATCH_CODE="422", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
     check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "HTTP 422" in out, box, out)
+
+
+def broker_fetch_with_canonical_push_is_accepted(failures: list[str], name: str, box: Sandbox) -> None:
+    box.set_remote_urls(
+        "http://127.0.0.1:47380/github.com/manaflow-ai/cmux.git",
+        "git@github.com:manaflow-ai/cmux.git",
+    )
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    # The stub intentionally stops at artifact download (exit 9); dispatch and
+    # URL validation are the assertions for this preflight scenario.
+    check(failures, name, box.count("gh api -X POST") == 1
+          and box.count("gh run download") >= 1 and "does not target github.com" not in out, box, out)
+
+
+def wrong_canonical_push_is_rejected_before_dispatch(failures: list[str], name: str, box: Sandbox) -> None:
+    box.set_remote_urls(
+        "http://127.0.0.1:47380/github.com/manaflow-ai/cmux.git",
+        "git@github.com:someone-else/not-cmux.git",
+    )
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 0
+          and box.count("gh run list") == 0 and "does not target github.com/manaflow-ai/cmux" in out, box, out)
 
 
 def deadline_does_not_cancel(failures: list[str], name: str, box: Sandbox) -> None:
@@ -485,6 +516,10 @@ def main() -> int:
          dispatch_error_with_a_created_run_adopts_it),
         ("a failed run lookup after a 5xx does not dispatch again", dispatch_lookup_failure_does_not_dispatch_again),
         ("a 4xx dispatch is not tried again", dispatch_client_error_is_not_retried),
+        ("a broker fetch URL with canonical GitHub push URL is accepted",
+         broker_fetch_with_canonical_push_is_accepted),
+        ("a mismatched canonical push URL is rejected before dispatch",
+         wrong_canonical_push_is_rejected_before_dispatch),
         ("at the deadline the run is not cancelled and the script exits 3", deadline_does_not_cancel),
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
         ("a run cancelled by the CI rescue and re-run is followed", rescue_rerun_is_followed),
