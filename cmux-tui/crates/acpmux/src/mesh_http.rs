@@ -318,10 +318,16 @@ impl HttpHub {
             if let Some(body) = body {
                 request = request.json(body);
             }
-            let mut response = request
-                .send()
-                .await
-                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            let mut response = request.send().await.map_err(|e| {
+                // No connection made: the request never left, so the hub holds none of it.
+                let connect = e.is_connect();
+                let message = format!("the hub: {}", e.without_url());
+                if connect {
+                    HubError::unconnected(message)
+                } else {
+                    HubError::unavailable(message)
+                }
+            })?;
             let status = response.status().as_u16();
             if self.credential.as_deref() == Some("join") {
                 if status == 401 {
@@ -674,6 +680,7 @@ mod tests {
             token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
             team_messaging: false,
             control_from: Vec::new(),
+            direct_send: false,
             credential: None,
         };
         let hub = "https://cmux-platform-development.debussy.workers.dev/";
@@ -706,6 +713,7 @@ mod tests {
             token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
             team_messaging: false,
             control_from: Vec::new(),
+            direct_send: false,
             credential: None,
         };
         let hub = HttpHub::new(&config).unwrap();
@@ -757,6 +765,7 @@ mod tests {
                 .to_vec(),
             team_messaging: false,
             control_from: Vec::new(),
+            direct_send: false,
             credential: None,
         })
         .unwrap();
@@ -834,6 +843,7 @@ mod tests {
             url: "http://127.0.0.1:9".into(),
             token_command: vec!["/nonexistent/mesh-token-command".into()],
             control_from: vec![],
+            direct_send: false,
             credential: None,
             team_messaging: false,
         })
