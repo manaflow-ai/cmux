@@ -28,6 +28,12 @@ import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo }
 import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
 import { SCREEN_SHARING_LABELS, screenSharingKind, useScreenSharing } from "./screenSharing";
 import { WithFacts } from "../chips/FactsHoverCard";
+import {
+  SessionInfoCloudRows,
+  type SessionInfoCloudControl,
+  type SessionInfoCloudLook,
+} from "../hybrid/SessionInfoCloud";
+import type { HybridLook } from "../hybrid/hybridModel";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -102,6 +108,9 @@ export function EnvironmentSection({
   repository,
   cloudRepositoryAvailable = false,
   remoteControl,
+  cloud,
+  cloudLook = "where",
+  cloudToggleLook = "rainbow",
   onSave,
   onOpenFolder,
   edits,
@@ -121,6 +130,12 @@ export function EnvironmentSection({
   cloudRepositoryAvailable?: boolean;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// The chat's cloud controls (RFD 0078): Keep Running and where it may run. Where the App offers
+  /// them they stand in Remote Control's place, and that row is not drawn: Remote Control is one
+  /// app-wide switch in Settings, not a chat's.
+  cloud?: SessionInfoCloudControl;
+  cloudLook?: SessionInfoCloudLook;
+  cloudToggleLook?: HybridLook;
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
@@ -336,7 +351,8 @@ export function EnvironmentSection({
         </Row>
       )}
       {screenSharingLook === "grouped" && screenSharingRows}
-      {remoteControl && (
+      {cloud && <SessionInfoCloudRows control={cloud} look={cloudLook} toggleLook={cloudToggleLook} />}
+      {!cloud && remoteControl && (
         <li className="acpmux-session-info-row">
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <WithFacts facts={[{ value: t("sessionInfo.environment.remoteControl.help") }]}>

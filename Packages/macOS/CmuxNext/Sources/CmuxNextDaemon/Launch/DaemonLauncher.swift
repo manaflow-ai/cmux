@@ -239,7 +239,7 @@ public struct DaemonLauncher: Sendable {
     /// (``ChiefHome``) makes the owner this build's alone, so no other build or space shares it.
     public static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey]
+                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey, egressModeKey]
         var environment = base.filter { kept.contains($0.key) }
         // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
         let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -258,6 +258,8 @@ public struct DaemonLauncher: Sendable {
 
     /// The variable that carries a build's cloud data space to its Rust children (cmux-tui `cmux-build-space`).
     public static let buildSpaceKey = "CMUX_BUILD_SPACE"
+    /// The build's egress mode (`LaunchIdentity.egressModeKey`), kept for every Rust child so it enforces as the app does.
+    public static let egressModeKey = "CMUX_EGRESS"
 
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:

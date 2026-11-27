@@ -8,13 +8,16 @@ export function KeyboardScope({
   children,
   handleKeyDown,
   className,
+  popupSettle,
 }: {
   children: ReactNode;
   handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   className?: string;
+  /** For a scope that is a popup box (`.ui-popup`): which popup rule it follows (ui/popupSettle.ts). */
+  popupSettle?: "results" | "own";
 }) {
   return (
-    <div className={className} onKeyDownCapture={handleKeyDown}>
+    <div className={className} data-popup-settle={popupSettle} onKeyDownCapture={handleKeyDown}>
       {children}
     </div>
   );

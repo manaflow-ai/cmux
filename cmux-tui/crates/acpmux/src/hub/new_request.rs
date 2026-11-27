@@ -4,8 +4,14 @@
 use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
-pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+pub(super) fn unique_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    agent: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
     for n in 0.. {
         let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
         if !taken.contains(&candidate) {
@@ -20,8 +26,14 @@ pub const SUFFIX_TAKEN_NAME: &str = "suffix";
 
 /// `name` when no session in `sessions` has it, else `name-N` for the first N from 2 not taken:
 /// the requested name kept, never the agent's.
-pub(super) fn suffixed_name_among(sessions: &HashMap<String, Arc<Session>>, name: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+pub(super) fn suffixed_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    name: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
     suffixed_name(&taken, name)
 }
 
@@ -165,6 +177,8 @@ pub struct NewRequest {
     /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
     /// create sent again with it, after a restart cut its reply, gets the session it made.
     pub create_key: Option<String>,
+    /// `_meta.acpmux.placedBy` (`SessionMeta::placed_by`): only `autoCloud` is kept.
+    pub placed_by: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

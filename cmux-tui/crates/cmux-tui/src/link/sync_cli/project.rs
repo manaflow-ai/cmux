@@ -28,6 +28,8 @@
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//!     cmux link project pin | unpin --socket S --at REMOTE FOLDER PATH   (available offline)
+//!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -35,17 +37,19 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
-use cmux_projection::link::{Source, answer_asks};
+use cmux_projection::link::{Source, answer_asks, answer_asks_packed};
 use cmux_projection::manifest::{Item, Kind, Manifest};
 use cmux_projection::wire::{self, Part};
 use serde_json::{Value, json};
 
 use super::local::Source as Origin;
 use super::local::{self, LocalFile, Rules};
+use crate::link::seed::carry;
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -55,6 +59,8 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often the server redials over a quiet socket: a refused quiet dial costs no platform call.
 const QUIET_RETRY: Duration = Duration::from_millis(500);
+/// The folder this process serves (`serve`), named on each of its dials as `from`.
+static SERVED_FOLDER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
@@ -77,8 +83,32 @@ struct Listed {
     links: BTreeMap<String, super::Linked>,
 }
 
+/// The depth-1 pack and its base that a projected machine may carry into its own git object
+/// store. These files are generated outside the folder, then exposed as read-only manifest
+/// entries so the projection can fetch them without asking the configured remote.
+struct CarryFiles {
+    base_path: PathBuf,
+    pack_path: PathBuf,
+    folder: PathBuf,
+}
+
+impl Drop for CarryFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
 fn ok(answer: &Value) -> bool {
     answer.get("ok").and_then(Value::as_bool) == Some(true)
+}
+
+/// Whether the machine's answer says it reads binary lines and packed answers (`"wire": 2`,
+/// `cmux_tui_core::projection`'s module docs): this Mac then writes both on the dial.
+fn packs(answer: &Value) -> bool {
+    answer
+        .pointer("/data/wire")
+        .and_then(Value::as_u64)
+        .is_some_and(|wire| wire >= u64::from(cmux_tui_core::projection::WIRE))
 }
 
 fn code(answer: &Value) -> Option<&str> {
@@ -94,7 +124,9 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | enable | disable | status | moves on|off";
+                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
+                     moves on|off";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -116,6 +148,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some(cmd @ ("pin" | "unpin" | "pins")) => {
+            super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
+        }
         _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
@@ -474,12 +509,12 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled()
-        && let Some(on) = projected_at(remote)
-        && on.local == local
-        && machine_id(socket).unwrap_or_default() == on.machine
-    {
-        stop_server(remote)?;
+    if enabled() {
+        if let Some(on) = projected_at(remote) {
+            if on.local == local && machine_id(socket).unwrap_or_default() == on.machine {
+                stop_server(remote)?;
+            }
+        }
     }
     start(socket, local, remote, chat)
 }
@@ -518,8 +553,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
             other => folder = Some(PathBuf::from(other)),
         }
     }
-    if store_handed && let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
-        eprintln!("cmux link project: no store for the listing: {error:#}");
+    if store_handed {
+        if let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
+            eprintln!("cmux link project: no store for the listing: {error:#}");
+        }
     }
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
@@ -527,12 +564,16 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let name = name.unwrap_or_else(|| name_of(&at));
     let folder = std::fs::canonicalize(&folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
+    // Every dial of this server names the folder, so the machine's mount says which it mirrors.
+    let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
-    let listed = list(&folder)?;
+    let carry = projection_carry(&folder);
+    let listed = list_with_carry(&folder, carry.as_ref())?;
     let listed_ms = elapsed_ms(started);
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
+    let encoded_ms = elapsed_ms(started);
     // Bring Back's base, made here while the machine mounts the folder, unless one is kept.
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
@@ -543,6 +584,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if !ok(&answer) {
         return Ok(answer);
     }
+    let packed = packs(&answer);
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
     let kept = match made {
@@ -553,10 +595,23 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if let Err(error) = kept {
         eprintln!("cmux link project: no base for Bring Back: {error:#}");
     }
-    if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
-        data.insert("listed_ms".into(), json!(listed_ms));
-        data.insert("manifest_bytes".into(), json!(encoded.len()));
-        data.insert("ready_ms".into(), json!(elapsed_ms(started)));
+    let timing = ready_timing(
+        listed.manifest.len(),
+        listed_ms,
+        encoded_ms,
+        encoded.len(),
+        elapsed_ms(started),
+        answer.pointer("/data/mount_ms").and_then(Value::as_u64),
+    );
+    // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
+    // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
+    // (cmuxterm-hq goals/cloud-no-network-wait.md, "Ceiling": is the O(files) cost the listing or the send).
+    eprintln!("cmux link project: ready {timing}");
+    if let (Some(data), Value::Object(timing)) =
+        (answer.get_mut("data").and_then(Value::as_object_mut), timing)
+    {
+        data.extend(timing);
+        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
@@ -589,7 +644,17 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 }
             });
         }
-        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+        // The files the agent reads first (project_hot.rs), warmed beside the serving loop that
+        // answers their fetches: after the chat's start, never in front of it (git's dirty set
+        // takes a second or more on a big checkout).
+        if super::project_hot::enabled() {
+            scope.spawn(|| {
+                let dirty = super::project_hot::dirty(&folder);
+                let hot = super::project_hot::pick(&listed.manifest, &dirty);
+                super::project_hot::warm(&socket, &name, &hot);
+            });
+        }
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
     });
     Ok(Value::Null)
 }
@@ -627,6 +692,27 @@ fn pair_of(name: &str) -> String {
     format!("listing.{clean}").chars().take(128).collect()
 }
 
+/// What the start waited for, by step: the listing, the manifest's encoding and the machine's
+/// answer (`ready_ms`, the whole gate), each from the server's start, and the machine's own
+/// decode and mount (`mount_ms`, its answer's); `ready_ms - encoded_ms - mount_ms` is the send.
+fn ready_timing(
+    entries: usize,
+    listed_ms: u64,
+    encoded_ms: u64,
+    manifest_bytes: usize,
+    ready_ms: u64,
+    mount_ms: Option<u64>,
+) -> Value {
+    json!({
+        "entries": entries,
+        "listed_ms": listed_ms,
+        "encoded_ms": encoded_ms,
+        "manifest_bytes": manifest_bytes,
+        "ready_ms": ready_ms,
+        "mount_ms": mount_ms,
+    })
+}
+
 fn elapsed_ms(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
@@ -642,10 +728,14 @@ fn serve_until_gone(
     at: &str,
     encoded: &[u8],
     listed: &Listed,
-    first: BufReader<UnixStream>,
+    first: (BufReader<UnixStream>, bool),
     revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
+    // What this server sent, for its log: a start's bytes moved, read back by
+    // scripts/cmux-next/cloud-chat-matrix.py (every folder kind on prod, RFD 0007).
+    let sent = Sent::default();
+    let counted = Counted { source: listed, sent: &sent };
     let mut unreachable_since: Option<Instant> = None;
     let mut backoff = Duration::from_millis(200);
     let mut via_quiet = quiet_socket(socket).is_some();
@@ -653,18 +743,26 @@ fn serve_until_gone(
     // each refusal is the same line.
     let mut last_error: Option<String> = None;
     loop {
-        if let Some(reader) = stream.take() {
+        if let Some((reader, packed)) = stream.take() {
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             last_error = None;
             if let Ok(writer) = reader.get_ref().try_clone() {
-                // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
-                let _ = answer_asks(
-                    cmux_tui_core::projection::LineReader::new(reader),
-                    cmux_tui_core::projection::LineWriter::new(writer),
-                    listed,
-                );
+                // Lines both ways: the Cloud carrier moves whole lines only (`dial`). A machine
+                // that said `"wire": 2` gets binary lines and packed answers.
+                let reader = cmux_tui_core::projection::LineReader::new(reader);
+                let _ = if packed {
+                    let writer = cmux_tui_core::projection::LineWriter::binary(writer);
+                    answer_asks_packed(reader, writer, &counted)
+                } else {
+                    answer_asks(
+                        reader,
+                        cmux_tui_core::projection::LineWriter::new(writer),
+                        &counted,
+                    )
+                };
             }
+            eprintln!("cmux link project: sent {}", sent.line());
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
         if since.elapsed() > GIVE_UP_AFTER {
@@ -678,7 +776,7 @@ fn serve_until_gone(
         let (dialed, quiet) = redial(socket, name, at, &[], None);
         via_quiet = quiet;
         match dialed {
-            Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+            Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
                 // The machine forgot the folder: it fetches the listing from the store when it
                 // can, and only then is the whole manifest sent over this Mac's uplink.
@@ -708,7 +806,7 @@ fn serve_until_gone(
                     }
                 };
                 match again {
-                    Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+                    Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
                     Ok((_, answer)) => {
                         eprintln!(
                             "cmux link project: the machine refused the folder again: {answer}"
@@ -767,10 +865,10 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket)
-        && let Ok(stream) = UnixStream::connect(&quiet)
-    {
-        return (ask(stream, name, at, encoded, revision), true);
+    if let Some(quiet) = quiet_socket(socket) {
+        if let Ok(stream) = UnixStream::connect(&quiet) {
+            return (ask(stream, name, at, encoded, revision), true);
+        }
     }
     (dial(socket, name, at, encoded, revision), false)
 }
@@ -822,7 +920,14 @@ fn ask(
         // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
+        // This Mac reads binary lines and packed answers; it writes them once the answer says
+        // the machine does too (an older machine ignores this and keeps base64 lines).
+        "wire": cmux_tui_core::projection::WIRE,
     });
+    if let (Some(from), Some(object)) = (SERVED_FOLDER.get(), line.as_object_mut()) {
+        // The folder on this Mac: the machine names it in its mount table, for the agent.
+        object.insert("from".into(), json!(from));
+    }
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
         object.insert("revision".into(), revision.clone());
@@ -851,11 +956,43 @@ fn ask(
 }
 
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest.
+/// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
+/// its stat alone ([`super::project_kept`]), whose bytes are never served.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
+    list_with_carry(folder, None)
+}
+
+fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
+    let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
-    let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
+    let mut files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
+    if set.git {
+        if let Some(carry) = carry {
+            // The names are reserved for this projection. If an old checkout already has either
+            // file, do not replace its bytes or create duplicate manifest entries.
+            if !files.iter().any(|(path, _)| path == ".git/cmux-carry.base")
+                && !files.iter().any(|(path, _)| path == ".git/cmux-carry.pack")
+            {
+                files.push((
+                    ".git/cmux-carry.base".into(),
+                    LocalFile {
+                        source: Origin::File(carry.base_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+                files.push((
+                    ".git/cmux-carry.pack".into(),
+                    LocalFile {
+                        source: Origin::File(carry.pack_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+            }
+        }
+    }
     let stats = stat_all(&files);
     let mut items = Vec::with_capacity(files.len() + set.links.len());
     let mut kept = Vec::with_capacity(files.len());
@@ -885,7 +1022,28 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             link: Some(linked.target.clone()),
         });
     }
-    let manifest = Manifest::build(root_mtime, items)?;
+    let manifest = if home.is_empty() {
+        Manifest::build(root_mtime, items)?
+    } else {
+        let without = items.clone();
+        items.extend(home.iter().map(|kept| kept.item.clone()));
+        match Manifest::build(root_mtime, items) {
+            Ok(mut manifest) => {
+                for kept in &home {
+                    if let Some(index) = manifest.resolve(&kept.item.path) {
+                        manifest.keep_home(index, kept.why.text())?;
+                    }
+                }
+                manifest
+            }
+            // A kept file that no longer fits the listing (its folder became a file since): the
+            // folder goes without them, as before.
+            Err(error) => {
+                eprintln!("cmux link project: tracked files kept here are not listed: {error:#}");
+                Manifest::build(root_mtime, without)?
+            }
+        }
+    };
     let mut served: Vec<Option<Served>> = Vec::new();
     served.resize_with(manifest.len(), || None);
     for (relative, file) in kept {
@@ -896,6 +1054,61 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
         }
     }
     Ok(Listed { manifest, served, links: set.links })
+}
+
+/// Builds the carry files for the default-on projection swap. The live git probes make carry
+/// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
+/// keeps its projected `.git` and continues normally.
+fn projection_carry(folder: &Path) -> Option<CarryFiles> {
+    if !cmux_projection::git_swap::enabled() {
+        return None;
+    }
+    // Keep carry eligibility identical to the projection listing. In particular, a bare
+    // repository can resolve `HEAD`, but it has no working-tree `.git` directory for the
+    // receiver's swap and is therefore listed as a plain folder.
+    local::GitDirs::of(folder).ok().flatten()?;
+    let output = |args: &[&str]| {
+        cmux_process::Command::new("git")
+            .current_dir(folder)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+    };
+    // The listing accepts repository roots (including worktrees and submodules),
+    // but refuses a subfolder. Do not pack the parent's history before that refusal.
+    if output(&["rev-parse", "--show-prefix"])?.stdout != b"\n" {
+        return None;
+    }
+    if output(&["config", "--get", "extensions.partialClone"]).is_some() {
+        return None;
+    }
+    let base = String::from_utf8(output(&["rev-parse", "--verify", "HEAD^{commit}"])?.stdout)
+        .ok()?
+        .trim()
+        .to_owned();
+    if !(base.len() == 40 || base.len() == 64) || !base.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let unique = format!("cmux-projection-carry-{}", std::process::id());
+    let folder_out = std::env::temp_dir().join(unique);
+    if std::fs::create_dir(&folder_out).is_err() {
+        return None;
+    }
+    let pack_path = folder_out.join("carry.pack");
+    if carry::pack_projection(folder, &base, &pack_path).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    let base_path = folder_out.join("carry.base");
+    if std::fs::write(&base_path, format!("{base}\n")).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    Some(CarryFiles { base_path, pack_path, folder: folder_out })
 }
 
 /// What a projected file's bytes are named by in Bring Back's base until a pull reads them: its
@@ -942,9 +1155,13 @@ fn base_of_listing(folder: &Path, listed: &Listed) -> anyhow::Result<super::Mani
         let Some(entry) = manifest.entry(index).filter(|entry| entry.kind == Kind::File) else {
             continue;
         };
+        let path = manifest.path_of(index);
+        if matches!(path.as_str(), ".git/cmux-carry.base" | ".git/cmux-carry.pack") {
+            continue;
+        }
         let mtime_ms = u64::try_from(entry.mtime_ns / 1_000_000).ok();
         files.insert(
-            manifest.path_of(index),
+            path,
             super::Pushed {
                 sha256: stand_in(entry.size, entry.mtime_ns),
                 permissions: entry.mode,
@@ -1054,6 +1271,66 @@ impl Source for Listed {
             Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
             _ => Part::status(wire::FAILED),
         }
+    }
+}
+
+/// File bytes this server answered the machine with, over every connection of one projection.
+/// The log gets a `sent` line at most once a second while reads come, and after each connection.
+#[derive(Default)]
+struct Sent {
+    reads: AtomicU64,
+    bytes: AtomicU64,
+    logged: Mutex<Option<Instant>>,
+}
+
+impl Sent {
+    /// The log's `sent` line: reads answered and their file bytes (the wire's framing not counted).
+    fn line(&self) -> Value {
+        json!({
+            "reads": self.reads.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Writes the `sent` line when the last was a second ago or more.
+    fn log_now_and_then(&self) {
+        let Ok(mut logged) = self.logged.lock() else { return };
+        if logged.is_some_and(|at| at.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        *logged = Some(Instant::now());
+        eprintln!("cmux link project: sent {}", self.line());
+    }
+}
+
+/// A [`Source`] that counts what it answers in [`Sent`].
+struct Counted<'a> {
+    source: &'a (dyn Source + Sync),
+    sent: &'a Sent,
+}
+
+impl Counted<'_> {
+    fn note(&self, part: Part) -> Part {
+        if part.status == wire::OK || part.status == wire::OK_ZSTD {
+            self.sent.reads.fetch_add(1, Ordering::Relaxed);
+            self.sent.bytes.fetch_add(part.bytes.len() as u64, Ordering::Relaxed);
+            self.sent.log_now_and_then();
+        }
+        part
+    }
+}
+
+impl Source for Counted<'_> {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+        self.note(self.source.read(entry, offset, len))
+    }
+
+    fn whole(&self, entry: u32) -> Part {
+        self.note(self.source.whole(entry))
+    }
+
+    fn stored(&self, since: u32) -> Vec<Part> {
+        self.source.stored(since)
     }
 }
 

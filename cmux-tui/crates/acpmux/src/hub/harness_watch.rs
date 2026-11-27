@@ -48,6 +48,22 @@ pub(super) const QUIET: Duration = Duration::from_millis(200);
 /// ...or after this long.
 pub(super) const MAX_BURST: Duration = Duration::from_secs(2);
 
+/// A watch task's wake-up (this one's, `git_watch.rs`'s, `settings_watch.rs`'s): a coalescing
+/// slot of one, never a queue (RFD 0124 R4). The task reads everything again on each wake, so a
+/// wake already waiting stands for any number more; an unbounded channel kept one entry per
+/// signal while the task was busy, and a folder that churns under load (a build, a checkout)
+/// grew it with no bound.
+pub(super) type WakeTx = tokio::sync::mpsc::Sender<()>;
+
+pub(super) fn wake_slot() -> (WakeTx, tokio::sync::mpsc::Receiver<()>) {
+    tokio::sync::mpsc::channel(1)
+}
+
+/// Signals a watch task: a full slot already holds this wake. False once the task is gone.
+pub(super) fn wake(signal: &WakeTx) -> bool {
+    !matches!(signal.try_send(()), Err(tokio::sync::mpsc::error::TrySendError::Closed(())))
+}
+
 /// The hub's profile hot-reload state: the live watcher and the change feed
 /// that `_acpmux/watch` connections forward.
 pub(crate) struct HarnessWatchState {
@@ -164,7 +180,7 @@ impl Hub {
         // signals that come during a reload make one more. It ends when the
         // thread ends (the channel closes), the hub is gone, or the runtime
         // stops; the hub's watch state aborts it when the hub drops.
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = wake_slot();
         let hub = Arc::downgrade(self);
         let reloader = handle.spawn(async move {
             while wake.recv().await.is_some() {
@@ -481,7 +497,7 @@ fn run(
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
     mut loaded: Vec<(PathBuf, Option<Stamp>)>,
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
+    signal: &WakeTx,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
     let real = real_sources(sources);
@@ -528,7 +544,7 @@ fn run(
             if now != loaded {
                 loaded = now;
                 // Only a signal: the reload runs on the runtime, never here.
-                if signal.send(()).is_err() {
+                if !wake(signal) {
                     return;
                 }
             }
@@ -536,5 +552,23 @@ fn run(
         if closed {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod wake_slot_tests {
+    /// A task that is busy while its folder churns holds one wake however many signals come, and
+    /// its next wait ends once; a gone task is told (RFD 0124 R4).
+    #[test]
+    fn signals_to_a_busy_watch_task_hold_one_wake() {
+        let (signal, mut wakes) = super::wake_slot();
+        for _ in 0..10_000 {
+            assert!(super::wake(&signal), "the task is there");
+        }
+        assert_eq!(signal.capacity(), 0, "one wake waits");
+        assert!(wakes.try_recv().is_ok());
+        assert!(wakes.try_recv().is_err(), "and only one");
+        drop(wakes);
+        assert!(!super::wake(&signal), "a gone task is told");
     }
 }

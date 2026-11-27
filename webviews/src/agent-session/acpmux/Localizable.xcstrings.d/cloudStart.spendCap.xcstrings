@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudStart.spendCap" : {
+      "comment" : "Agent pane: a Cloud start refused because the team reached its spending cap",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بلغ فريقك حد الإنفاق، لذا لا يمكن تشغيل أي جهاز سحابي. يمكن لمسؤول الفريق رفعه، أو شغّل هذه الدردشة على هذا الـ Mac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaš tim je dosegao ograničenje potrošnje, pa se nijedna Cloud mašina ne može pokrenuti. Administrator tima ga može povisiti, ili pokrenite ovaj chat na ovom Macu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dit team har nået sit forbrugsloft, så ingen Cloud-maskine kan starte. En teamadministrator kan hæve det, eller kør denne chat på denne Mac."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dein Team hat seine Ausgabengrenze erreicht, daher kann keine Cloud-Maschine starten. Ein Team-Admin kann sie erhöhen, oder führe diesen Chat auf diesem Mac aus."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your team reached its spending cap, so no Cloud machine can start. A team admin can raise it, or run this chat on this Mac."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu equipo alcanzó su límite de gasto, así que no se puede iniciar ninguna máquina en Cloud. Un administrador del equipo puede subirlo, o ejecuta este chat en este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre équipe a atteint son plafond de dépenses : aucune machine Cloud ne peut démarrer. Un administrateur de l'équipe peut le relever, ou exécutez ce chat sur ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il tuo team ha raggiunto il limite di spesa, quindi nessuna macchina Cloud può avviarsi. Un amministratore del team può alzarlo, oppure esegui questa chat su questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チームが支出上限に達したため、Cloud マシンを起動できません。チームの管理者が引き上げるか、このチャットをこの Mac で実行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក្រុមរបស់អ្នកបានដល់ដែនកំណត់ចំណាយ ដូច្នេះគ្មានម៉ាស៊ីន Cloud ណាអាចចាប់ផ្ដើមបានទេ។ អ្នកគ្រប់គ្រងក្រុមអាចដំឡើងវាបាន ឬដំណើរការការជជែកនេះនៅលើ Mac នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "팀이 지출 한도에 도달해 Cloud 머신을 시작할 수 없습니다. 팀 관리자가 한도를 올리거나, 이 채팅을 이 Mac에서 실행하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teamet ditt har nådd forbruksgrensen, så ingen Cloud-maskin kan starte. En teamadministrator kan heve den, eller kjør denne chatten på denne Macen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twój zespół osiągnął limit wydatków, więc żadna maszyna Cloud nie może się uruchomić. Administrator zespołu może go podnieść albo uruchom ten czat na tym Macu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sua equipe atingiu o limite de gastos, então nenhuma máquina na Cloud pode iniciar. Um administrador da equipe pode aumentá-lo, ou execute este chat neste Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Команда достигла лимита расходов, поэтому машина Cloud не запустится. Администратор команды может поднять его, или запустите этот чат на этом Mac."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทีมของคุณถึงขีดจำกัดการใช้จ่ายแล้ว จึงเริ่มเครื่อง Cloud ไม่ได้ ผู้ดูแลทีมเพิ่มขีดจำกัดได้ หรือเรียกใช้แชตนี้บน Mac เครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekibiniz harcama sınırına ulaştı, bu yüzden hiçbir Cloud makinesi başlatılamıyor. Bir ekip yöneticisi sınırı yükseltebilir ya da bu sohbeti bu Mac'te çalıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Команда досягла ліміту витрат, тому машина Cloud не запуститься. Адміністратор команди може підвищити його, або запустіть цей чат на цьому Mac."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhóm của bạn đã đạt hạn mức chi tiêu nên không thể khởi động máy Cloud nào. Quản trị viên nhóm có thể nâng hạn mức, hoặc chạy cuộc trò chuyện này trên máy Mac này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的团队已达到支出上限，无法启动 Cloud 机器。团队管理员可以提高上限，或在这台 Mac 上运行此聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的團隊已達到支出上限，無法啟動 Cloud 機器。團隊管理員可以提高上限，或在這台 Mac 上執行此聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
