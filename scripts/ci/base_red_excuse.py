@@ -6247,6 +6247,9 @@ GUARD_WORKFLOWS = {
         "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -6425,7 +6428,10 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
                   # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
                   "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
-                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
+                  # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
+                  # (#56920)
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
