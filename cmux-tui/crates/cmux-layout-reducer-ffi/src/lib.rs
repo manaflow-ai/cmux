@@ -122,8 +122,6 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
-mod layout_model;
-mod pane_close;
 pub mod pane_drop_zones;
 pub mod scroll;
 pub mod shown_resize;
@@ -726,7 +724,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 Some(answer) => answer?,
                 None => return Err(ERR_INVALID),
             },
-            _ => return Err(ERR_INVALID),
         };
         Ok(response)
     }));
