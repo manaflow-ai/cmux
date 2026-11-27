@@ -314,6 +314,7 @@ import {
   mergeEventRecords,
   prependOlderEventRecords,
   sessionUpdate,
+  heldBySeq,
 } from "./direct/records";
 import {
   OLDER_PAGE_RECORDS,
@@ -9128,9 +9129,9 @@ export class AcpmuxDirectClient {
         events = thinned;
       }
     } else {
-      if (this.replayThrough === undefined)
-        this.events = thinStreamedOutputs([...this.events].sort((a, b) => a.seq - b.seq));
-      events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+      // In `seq` order, a copy: the held log already is, so neither is a sort (`heldBySeq`).
+      if (this.replayThrough === undefined) this.events = thinStreamedOutputs(heldBySeq(this.events));
+      events = heldBySeq(this.events, through);
     }
     // The rows of the records before the cut, which stay as drawn.
     const frozenBefore = cut > 0 ? events[0]!.seq : undefined;

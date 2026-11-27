@@ -13,6 +13,8 @@
 //! one-repo token is asked as before, and when neither can, the note names both, so the chat
 //! says which login to fix instead of GitHub's bare "Repository not found".
 
+#![cfg(unix)]
+
 use std::ffi::OsString;
 use std::io::Read as _;
 use std::path::Path;

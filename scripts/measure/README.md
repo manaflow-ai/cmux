@@ -166,6 +166,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-motion-films.py` | Python driver for pane-motion-films.sh. | - | 2026-11-15 | active |
 | `window-resize-feel.sh` | Films of a window corner drag (and a pane divider drag) over chat transcripts, one fresh launch per CEF resize-sync arm (`--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...`), with frame intervals and CEF fence/commit deltas; for a person or a frame analysis (judges nothing). | Leo 2026-11-22, #50940 | 2026-11-22 | active |
 | `window-resize-feel.py` | Python driver for window-resize-feel.sh. | Leo 2026-11-22, #50940 | 2026-11-22 | active |
+| `itp-recorder.sh` | Builds itp-recorder.app (a tool, not a measurement; it gives no number): films one screen rect at the display's rate (ScreenCaptureKit, minimum frame interval 1/120, no cursor) with host-time frames and a self-check that fails a run under 55 fps or one whose crop does not hold the bench window at a drag's start, for drag checks the 30 fps Computer Use recorder cannot judge. Checks the self-check on made-up frames, signs ad hoc or with `sign=IDENTITY`. | in-tree pages | 2026-11-27 | active |
+| `itp-recorder.swift` | The recorder itp-recorder.sh builds (bundle id dev.cmux.itp-recorder, background only); `--analyze DIR` runs its self-check alone. | in-tree pages | 2026-11-27 | active |
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
@@ -399,3 +401,4 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `hotkey-history.sh`: runs an action-catalog regression test, not a measurement; belongs with the tests.
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
+- `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
