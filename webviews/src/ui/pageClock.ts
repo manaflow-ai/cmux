@@ -163,17 +163,13 @@ export const subscribePageMinute = sharedClock("relative-time", 60_000, true);
 export function useDeadlineNow(next: (now: number) => number, fixed?: number): number {
   const active = useLiveUpdates();
   const [time, setTime] = useState(() => fixed ?? Date.now());
-  const paused = useRef(false);
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    if (active && fixed === undefined) setTime(Date.now());
+  }
   useEffect(() => {
-    if (!active) {
-      paused.current = true;
-      return;
-    }
-    if (fixed !== undefined) return;
-    if (paused.current) {
-      paused.current = false;
-      setTime(Date.now());
-    }
+    if (!active || fixed !== undefined) return;
     return subscribePageDeadline(
       () => setTime(Date.now()),
       () => next(Date.now()),
@@ -189,6 +185,13 @@ export function usePageNow(running: boolean, now: () => number = Date.now): numb
   // On the wall clock, a running label starts at the shared clock's sample, as its next ticks are.
   const wall = now === Date.now;
   const [time, setTime] = useState(() => (running && wall ? (subscribePageSecond.sample() ?? now()) : now()));
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    // Refresh during render so the reveal's first layout sees the current label. Existing wall
+    // clock listeners still share one sample; injected clocks retain their own time source.
+    if (active && running) setTime(wall ? (subscribePageSecond.sample() ?? now()) : now());
+  }
   // The sample it shows, so subscribing (which hands over the current sample at once) sets nothing when
   // the label already shows it: React can't always drop an equal set unasked, and then it renders and commits.
   const shown = useRef(time);

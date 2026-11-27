@@ -16,6 +16,10 @@ import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel
 import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
 import { LiveUpdatesContext } from "../src/ui/liveUpdates";
+import { AgentNamesContext, AgentOpenContext } from "../src/agent-session/acpmux/conversation/agentNames";
+import { AgentTonesContext } from "../src/agent-session/acpmux/subagents/agentTones";
+import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
+import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMessages";
 import { RowFrame } from "../src/agent-session/acpmux/transcript/RowFrame";
 import { pageClocks, usePageNow } from "../src/ui/pageClock";
 
@@ -34,7 +38,10 @@ const keys = [
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
+  dom = new JSDOM("<!doctype html><main id=root></main>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -111,11 +118,48 @@ test("offscreen row bodies retain state without reconciling status changes and r
   }
 });
 
-test("the row frame pauses unseen and shelved clocks and keeps disclosure state on reveal", async () => {
+test("the row frame pauses unseen, scrolled-out and shelved clocks and keeps disclosure state on reveal", async () => {
   const root = createRoot(document.getElementById("root")!);
   let now = 1_000;
   const clock = () => now;
   let bodies = 0;
+  let intersection: IntersectionObserverCallback;
+  const targets = new Set<Element>();
+  Object.defineProperty(dom.window, "IntersectionObserver", {
+    configurable: true,
+    value: class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersection = callback;
+      }
+      observe(node: Element) {
+        targets.add(node);
+      }
+      unobserve(node: Element) {
+        targets.delete(node);
+      }
+      disconnect() {
+        targets.clear();
+      }
+    },
+  });
+  const visible = (shown: boolean) => {
+    const target = document.querySelector("article")!;
+    const bounds = target.getBoundingClientRect();
+    intersection(
+      [
+        {
+          target,
+          isIntersecting: shown,
+          intersectionRatio: shown ? 1 : 0,
+          boundingClientRect: bounds,
+          intersectionRect: bounds,
+          rootBounds: null,
+          time: 0,
+        },
+      ],
+      {} as IntersectionObserver,
+    );
+  };
   function Clock() {
     return <time>{usePageNow(true, clock)}</time>;
   }
@@ -150,7 +194,7 @@ test("the row frame pauses unseen and shelved clocks and keeps disclosure state 
     rowWidth: 800,
     expanded: false,
     observer: undefined,
-    queueDrawn: noop,
+    queueDrawn: () => noop,
     sendThinking: false,
     enter: false,
     onEntered: noop,
@@ -187,11 +231,20 @@ test("the row frame pauses unseen and shelved clocks and keeps disclosure state 
       const event = new dom.window.Event("contentvisibilityautostatechange");
       Object.defineProperty(event, "skipped", { value: false });
       document.querySelector("article")!.dispatchEvent(event);
+      visible(true);
     });
     expect(pageClocks().subscribers).toBe(1);
     expect(document.querySelector("[data-recipient]")?.textContent).toBe("before-reveal");
     expect(document.querySelector("time")?.textContent).toBe("2000");
     await act(async () => document.querySelector("button")!.click());
+    await act(async () => visible(false));
+    expect(pageClocks().subscribers).toBe(0);
+    const offscreenBodies = bodies;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(`offscreen-${tick}`));
+    expect(bodies).toBe(offscreenBodies);
+    await act(async () => visible(true));
+    expect(document.querySelector("[data-recipient]")?.textContent).toBe("offscreen-19");
+    expect(pageClocks().subscribers).toBe(1);
     await act(async () => render("shelved", 60));
     expect(pageClocks().subscribers).toBe(0);
     const before = bodies;
@@ -207,6 +260,8 @@ test("the row frame pauses unseen and shelved clocks and keeps disclosure state 
     await act(async () => root.unmount());
   }
   expect(pageClocks().subscribers).toBe(0);
+  expect(targets.size).toBe(0);
+  delete (dom.window as unknown as Record<string, unknown>).IntersectionObserver;
 });
 
 test("a recreated reply passes both memo boundaries even when its row id and version repeat", async () => {
@@ -231,6 +286,62 @@ test("a recreated reply passes both memo boundaries even when its row id and ver
     expect(document.querySelectorAll(".cv-fresh")).toHaveLength(0);
     // A cloned, unchanged snapshot still reuses its row frame.
     expect(sameRowFrame({ row: next }, { row: { ...next } })).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("retained message cards ignore structural agent contexts and reveal the latest name and click target", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  const opened: string[] = [];
+  let messageReads = 0;
+  const tool = {
+    id: "idle-message",
+    title: "SendMessage",
+    kind: "other",
+    status: "completed",
+    inputSummary: JSON.stringify({ to: "a39e817af38ddf5e7", message: "Result ready" }),
+    output: JSON.stringify({ queued: true }),
+  } as const;
+  const message = agentMessage(tool)!;
+  const recipient = message.to;
+  Object.defineProperty(message, "to", {
+    get: () => {
+      messageReads++;
+      return recipient;
+    },
+  });
+  function Card() {
+    return <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={message} />;
+  }
+  const row = line("message");
+  const noop = () => {};
+  const render = (active: boolean, name: string) =>
+    root.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <AgentNamesContext.Provider value={new Map([["a39e817af38ddf5e7", name]])}>
+          <AgentOpenContext.Provider
+            value={{ views: new Map([["a39e817af38ddf5e7", name]]), open: (id) => opened.push(id) }}
+          >
+            <AgentTonesContext.Provider value={new Map([["a39e817af38ddf5e7", name.length]])}>
+              <RowContent Component={Card} row={row} expanded={false} onToggleActivity={noop} />
+            </AgentTonesContext.Provider>
+          </AgentOpenContext.Provider>
+        </AgentNamesContext.Provider>
+      </LiveUpdatesContext.Provider>,
+    );
+  try {
+    await act(async () => render(true, "Original"));
+    await act(async () => render(false, "Hidden"));
+    const before = messageReads;
+    expect(before).toBeGreaterThan(0);
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(false, `Update ${tick}`));
+    expect(messageReads).toBe(before);
+    expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Original");
+    await act(async () => render(true, "Current"));
+    expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Current");
+    await act(async () => document.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
+    expect(opened).toEqual(["Current"]);
   } finally {
     await act(async () => root.unmount());
   }

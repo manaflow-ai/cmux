@@ -1,5 +1,6 @@
 import { useContext, useMemo, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { SubsessionContext } from "../subagents/subsessions";
+import { useLiveSubscription } from "../../../ui/liveUpdates";
 import { useTranscriptReadOnly } from "./readOnly";
 import { openSessionAttributes } from "./menuParts";
 import {
@@ -19,9 +20,9 @@ const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
 export function useSessionRef(query: string | undefined, byName: boolean): SessionRefTarget | null | undefined {
   const store = useContext(SubsessionContext)?.store;
   const readListed = () => (byName && query ? store?.find(query) : undefined);
-  const listed = useSyncExternalStore(store?.subscribeNames ?? noStore, readListed, readListed);
+  const listed = useSyncExternalStore(useLiveSubscription(store?.subscribeNames ?? noStore), readListed, readListed);
   const readKnown = () => (query ? knownSessionRef(query) : null);
-  const known = useSyncExternalStore(subscribeSessionRefs, readKnown, readKnown);
+  const known = useSyncExternalStore(useLiveSubscription(subscribeSessionRefs), readKnown, readKnown);
   return listed ? { sessionId: listed } : known;
 }
 

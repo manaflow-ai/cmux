@@ -10,14 +10,19 @@ import { AgentCallCard } from "./AgentCallCard";
 import { agentCall } from "./agentCalls";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { subscribePageSecond } from "../../../ui/pageClock";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
+const realNow = Date.now;
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   for (const key of [
     "window",
     "document",
@@ -54,6 +59,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  Date.now = realNow;
 });
 
 async function render(node: ReactNode): Promise<HTMLElement> {
@@ -118,4 +124,39 @@ test("a failed call says Failed", async () => {
   const status = container.querySelector(".cv-agentcall__status")!;
   expect(status.getAttribute("data-state")).toBe("failed");
   expect(status.textContent).toBe("Failed");
+});
+
+test("an open running call advances its time without reading the prompt body again", async () => {
+  let now = 11_000;
+  Date.now = () => now;
+  const item = tool({ status: "in_progress", output: undefined, startedAt: 1_000 });
+  const call = agentCall(item)!;
+  const prompt = call.prompt;
+  let bodyReads = 0;
+  Object.defineProperty(call, "prompt", {
+    get: () => {
+      bodyReads++;
+      return prompt;
+    },
+  });
+  const container = await render(<AgentCallCard call={call} tool={item} />);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
+  expect(container.querySelector(".cv-disclosure__panel")?.textContent).toContain("Find where the parser drops");
+  expect(container.querySelector(".cv-agentcall__status")?.textContent).toBe("10s");
+  const before = bodyReads;
+  expect(before).toBeGreaterThan(0);
+  now = 72_000;
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      let calls = 0;
+      const stop = subscribePageSecond(() => {
+        if (++calls < 2) return;
+        queueMicrotask(stop);
+        resolve();
+      });
+    });
+  });
+  expect(container.querySelector(".cv-agentcall__status")?.textContent).toBe("1m 11s");
+  expect(bodyReads).toBe(before);
+  expect(container.querySelector(".cv-disclosure__toggle")?.getAttribute("aria-expanded")).toBe("true");
 });

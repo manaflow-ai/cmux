@@ -22,6 +22,7 @@
 // whole command behind Raw: no work is hidden.
 import { Children, type ReactNode, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { useLiveSubscription } from "../../../ui/liveUpdates";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
@@ -159,7 +160,7 @@ export function SentMessageLine({
   const chats = useContext(SubsessionContext);
   const store = chats?.store ?? NO_STORE;
   const readChat = () => targetChat(store, target, targetSession);
-  const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
+  const chat = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readChat, readChat);
   const place = recipientPlace(target, chat ? store.host(chat) : undefined);
   const preview = text ? messagePreview(text) : "";
   // The open row shows the whole message under it: its first line on the row would say it twice.

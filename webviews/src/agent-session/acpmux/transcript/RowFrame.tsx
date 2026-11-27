@@ -4,11 +4,12 @@ import React, {
   useState,
   useEffectEvent,
   useCallback,
+  useContext,
   Component as ReactComponent,
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
-import { LiveUpdatesContext, useLiveUpdates } from "../../../ui/liveUpdates";
+import { LiveUpdatesContext, observeLiveVisibility, useLiveUpdates } from "../../../ui/liveUpdates";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -30,6 +31,8 @@ import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
+import { AgentNamesContext, AgentOpenContext } from "../conversation/agentNames";
+import { AgentTonesContext } from "../subagents/agentTones";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -53,11 +56,16 @@ type RowContentProps = {
 export const RowContent = React.memo(
   function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     const active = useLiveUpdates();
+    const names = useContext(AgentNamesContext);
+    const open = useContext(AgentOpenContext);
+    const tones = useContext(AgentTonesContext);
     const live = active && liveTools;
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
-    return <RowBody {...props} Component={Component} active={active} row={row} />;
+    return (
+      <RowBody {...props} Component={Component} active={active} row={row} names={names} open={open} tones={tones} />
+    );
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -69,16 +77,27 @@ export const RowContent = React.memo(
 // Retain the rendered body (and its local disclosure state) while offscreen. Structural agent
 // updates still reach the small subscription owner above, but cannot reconcile a hidden body.
 // On reveal the latest props pass through, before the frame measures its restored contents.
-type RowBodyProps = Omit<RowContentProps, "liveTools"> & { active: boolean };
+type RowBodyProps = Omit<RowContentProps, "liveTools"> & {
+  active: boolean;
+  names: React.ContextType<typeof AgentNamesContext>;
+  open: React.ContextType<typeof AgentOpenContext>;
+  tones: React.ContextType<typeof AgentTonesContext>;
+};
 const RowBody = React.memo(
-  function RowBody({ Component, active: _active, ...props }: RowBodyProps) {
+  function RowBody({ Component, active: _active, names, open, tones, ...props }: RowBodyProps) {
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
     return (
-      <RowBoundary row={props.row}>
-        <Component {...props} />
-      </RowBoundary>
+      <AgentNamesContext.Provider value={names}>
+        <AgentOpenContext.Provider value={open}>
+          <AgentTonesContext.Provider value={tones}>
+            <RowBoundary row={props.row}>
+              <Component {...props} />
+            </RowBoundary>
+          </AgentTonesContext.Provider>
+        </AgentOpenContext.Provider>
+      </AgentNamesContext.Provider>
     );
   },
   (previous, next) => {
@@ -96,7 +115,11 @@ const RowBody = React.memo(
 /// version (or another row in its frame) tries its renderer again.
 type RowBoundaryState = { id: string; version: number; failed: boolean };
 export class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
-  state: RowBoundaryState = { id: this.props.row.id, version: this.props.row.version, failed: false };
+  state: RowBoundaryState = {
+    id: this.props.row.id,
+    version: this.props.row.version,
+    failed: false,
+  };
 
   static getDerivedStateFromProps(
     props: { row: AcpmuxRow },
@@ -286,7 +309,11 @@ export const RowFrame = React.memo(function RowFrame({
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
   const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
-  const [rendered, setRendered] = useState(!offscreen);
+  const [visible, setVisible] = useState(!offscreen);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) return observeLiveVisibility(node, setVisible);
+  }, []);
   const observerRef = useRef(observer);
   useLayoutEffect(() => {
     observerRef.current = observer;
@@ -306,7 +333,8 @@ export const RowFrame = React.memo(function RowFrame({
     node.classList.add(OFFSCREEN_ROW_CLASS);
     node.style.containIntrinsicHeight = skipHeight;
     return onceRendered(node, () => {
-      setRendered(true);
+      // Engines without IntersectionObserver keep the first-paint fallback.
+      if (!node.ownerDocument.defaultView?.IntersectionObserver) setVisible(true);
       node.classList.remove(OFFSCREEN_ROW_CLASS);
       node.style.containIntrinsicHeight = "";
       const rows = observerRef.current;
@@ -334,7 +362,7 @@ export const RowFrame = React.memo(function RowFrame({
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
   // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
   const content = (
-    <LiveUpdatesContext.Provider value={rendered && !shelved}>
+    <LiveUpdatesContext.Provider value={visible && !shelved}>
       <DisclosureRow.Provider value={row.id}>
         <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
       </DisclosureRow.Provider>
@@ -490,7 +518,12 @@ export const RowFrame = React.memo(function RowFrame({
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
           : shelved > 0
-            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            ? {
+                top: integralTop,
+                marginTop: placedTop - integralTop,
+                height: shelved,
+                contentVisibility: "hidden",
+              }
             : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}

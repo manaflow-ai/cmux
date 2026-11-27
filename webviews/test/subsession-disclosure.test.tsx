@@ -25,6 +25,15 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 let dom: JSDOM | undefined;
 let root: Root | undefined;
+const frames = new Map<number, FrameRequestCallback>();
+let frameId = 0;
+async function flushFrame() {
+  await act(async () => {
+    const ready = [...frames.values()];
+    frames.clear();
+    for (const callback of ready) callback(0);
+  });
+}
 
 const start = (name: string, sessionId = `${name}-id`): Extract<SubsessionCall, { tool: "start" }> => ({
   tool: "start",
@@ -59,6 +68,11 @@ function installDom() {
       }
     },
     IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    },
+    cancelAnimationFrame: (id: number) => frames.delete(id),
   })) {
     saved.set(key, scope[key]);
     scope[key] = value;
@@ -75,6 +89,7 @@ afterEach(async () => {
   dom = undefined;
   for (const [key, value] of saved) scope[key] = value;
   saved.clear();
+  frames.clear();
 });
 
 test("a collapsed sub-session is one disclosure row and expansion renders the full Markdown prompt", async () => {
@@ -143,17 +158,22 @@ test("collapsed groups follow child sessions after their start calls finish", as
   // No spinner beside the status: its words say it works (Leo, no spinners on tool calls, #32196).
   expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "input" }));
+  await flushFrame();
   expect(status().textContent).toContain("1 waiting");
   expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "failed" }));
+  await flushFrame();
   expect(status().textContent).toContain("1 failed");
   await act(async () => setChild({ lane: "failed", retry: { attempt: 1, of: 4 } }));
+  await flushFrame();
   expect(status().textContent).toContain("Working");
   expect(status().textContent).not.toContain("failed");
   expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "working", waitsForSlot: true }));
+  await flushFrame();
   expect(status().textContent).toContain("1 waiting");
   await act(async () => setChild({ lane: "idle" }));
+  await flushFrame();
   expect(status().textContent).toBe("Done");
   expect(status().querySelector("svg")).toBeNull();
 });
@@ -161,7 +181,10 @@ test("collapsed groups follow child sessions after their start calls finish", as
 test("single and grouped disclosures keep independent choices across virtualized remounts", async () => {
   const container = installDom();
   root = createRoot(container);
-  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({ call: start(name), tool: tool(name) }));
+  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({
+    call: start(name),
+    tool: tool(name),
+  }));
   const render = async (sessionId = "parent") =>
     act(async () =>
       root!.render(
@@ -204,8 +227,14 @@ test("single and grouped disclosures keep independent choices across virtualized
 
 test("a result's Show more choice survives closing its card and virtualized remounts", async () => {
   const container = installDom();
-  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 200 });
-  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 60 });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => 200,
+  });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => 60,
+  });
   const call: SubsessionCall = {
     tool: "wait",
     running: false,
@@ -278,8 +307,14 @@ test("an agent run is one transcript line, its model and machine beside its name
 
 test("standalone agent-run Show more is scoped to its parent chat across switches and remounts", async () => {
   const container = installDom();
-  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 200 });
-  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 60 });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => 200,
+  });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => 60,
+  });
   // Tool-call IDs can recur in independent chats. The chat must be part of the persistence key.
   const agent: Subagent = {
     id: "run:call-1",
@@ -336,7 +371,10 @@ test("a started sub-session's row is its name, with no narration in front of it,
 test("Find opens both a group and its matching child's prompt, leaving siblings closed", async () => {
   const container = installDom();
   root = createRoot(container);
-  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({ call: start(name), tool: tool(name) }));
+  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({
+    call: start(name),
+    tool: tool(name),
+  }));
   const render = async (needle?: string) =>
     act(async () =>
       root!.render(
@@ -359,7 +397,11 @@ test("Find's two prompt occurrences select the first and second child, never the
   const container = installDom();
   root = createRoot(container);
   const entries = ["first", "second"].map((name) => ({ call: start(name), tool: tool(name) }));
-  const items: AcpmuxActivity[] = entries.map(({ tool }) => ({ kind: "tool", text: "start", tool }));
+  const items: AcpmuxActivity[] = entries.map(({ tool }) => ({
+    kind: "tool",
+    text: "start",
+    tool,
+  }));
   const row: AcpmuxRow = { id: "row", kind: "activity", version: 1, at: 1, items };
   const matches = findMatchesIncremental([row], "review").matches;
   expect(matches).toHaveLength(2);

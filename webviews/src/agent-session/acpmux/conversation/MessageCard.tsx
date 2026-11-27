@@ -11,6 +11,7 @@
 // nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
 // the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
 import { useContext, useMemo, useSyncExternalStore } from "react";
+import { useLiveSubscription } from "../../../ui/liveUpdates";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
@@ -89,7 +90,7 @@ function useOpenRecipient(to: string | undefined): (() => void) | undefined {
   const store = chats?.store ?? NO_STORE;
   const recipient = to?.trim() ?? "";
   const readChat = () => (recipient ? targetChat(store, recipient) : undefined);
-  const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
+  const chat = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readChat, readChat);
   const view = recipient ? agents?.views.get(recipient) : undefined;
   if (view && agents) return () => agents.open(view);
   if (chat && chats) return () => (chats.openSender ?? chats.open)(chat);
