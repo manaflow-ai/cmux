@@ -187,13 +187,15 @@ pub(super) enum Row {
 /// The bytes every connection's queue may hold together. Each connection alone may hold
 /// [`OUTBOUND_BYTE_BOUND`], so a host with a few hundred readers (agents' CLIs, the app, peers)
 /// could hold tens of GB before any one bound tripped: huge-blue's daemon reached 16.5 GB and
-/// stopped answering (2026-11-20). Past this, a line for a connection that holds more than
-/// [`FAIR_SHARE`] ends that connection, as its own bound would; one that holds less is still
-/// served, so a cheap read's answer always goes out.
+/// stopped answering (2026-11-20). A connection over [`FAIR_SHARE`] whose reader took nothing for
+/// [`READER_STALL`] ends at its next line, whatever the total, as its own bound would; one under
+/// it is still served, so a cheap read's answer always goes out. Waiting for the total to pass
+/// this first let a hundred readers that never read hold it all, past a 768 MiB memory ceiling
+/// (duress bigchat leg, 2026-11-26): the total is now what the gauge reports against.
 pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
-/// What a connection may hold when the daemon is past [`TOTAL_BYTE_BOUND`].
+/// What a connection whose reader is stalled ([`READER_STALL`]) may hold.
 pub(super) const FAIR_SHARE: usize = 4 << 20;
-/// How long a reader over [`FAIR_SHARE`] may take nothing before the daemon-wide bound ends it.
+/// How long a reader over [`FAIR_SHARE`] may take nothing before it is ended.
 /// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
 /// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
 /// the whole chat (99 s for the largest), and the re-attach queued the same bytes again
@@ -299,6 +301,9 @@ struct State {
     sheds: bool,
     /// Who reads it, for the log: origin, client name, connection id.
     who: String,
+    /// The bulk lane's bytes the transport's channel may hold: [`BULK_WINDOW`], or a peer
+    /// link's own ([`Outbound::set_window`]).
+    window: usize,
 }
 
 impl Drop for State {
@@ -462,10 +467,14 @@ impl Shared {
         if state.held == 0 {
             state.progress_at = Instant::now();
         }
+        // A reader over its fair share that took nothing for the stall bound ends whatever the
+        // total: a hundred readers that never read each held up to their own bound until every
+        // queue together reached the daemon-wide one, a GiB swapped out under a 768 MiB memory
+        // ceiling, and every answer waited on it (duress bigchat leg, 2026-11-26). So what never-read
+        // readers hold is their fair share each for at most the stall bound; one that is taking
+        // lines keeps its own bound.
         let over_total = |state: &State| {
-            state.held + size > self.fair_share
-                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
-                && state.progress_at.elapsed() >= self.reader_stall
+            state.held + size > self.fair_share && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
             state.settle();
@@ -477,31 +486,7 @@ impl Shared {
         let own = own || over_rows;
         if own || over_total(state) {
             let limit = if over_rows { self.row_bound } else { self.bound };
-            let overrun = Overrun { held: state.held, limit };
-            tracing::warn!(
-                who = %state.who,
-                held = state.held,
-                line = size,
-                bound = limit,
-                total = state.pool.load(Ordering::Relaxed),
-                total_bound = self.total_bound,
-                "{}",
-                if own {
-                    "a connection's reader fell past its byte bound: it is disconnected"
-                } else {
-                    "every connection's queues together are past their bound: this one, over its fair share, is disconnected"
-                }
-            );
-            OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            if !own {
-                TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            }
-            state.overrun = Some(overrun);
-            let in_channel = state.sent_bytes;
-            state.set_held(in_channel);
-            state.clear();
-            self.closed.send_replace(true);
-            self.wake.notify_one();
+            self.end_overrun(state, own, size, limit);
             return false;
         }
         let held = state.held + size;
@@ -509,6 +494,53 @@ impl Shared {
         Self::queue_line(state, line, lane);
         self.wake.notify_one();
         true
+    }
+
+    /// Ends the connection as overrun: `own` past its own bound (`limit`), else a stalled reader
+    /// over its fair share. `size` is the line that would not fit (0 for the pump's own check).
+    fn end_overrun(&self, state: &mut State, own: bool, size: usize, limit: usize) {
+        let overrun = Overrun { held: state.held, limit };
+        tracing::warn!(
+            who = %state.who,
+            held = state.held,
+            line = size,
+            bound = limit,
+            total = state.pool.load(Ordering::Relaxed),
+            total_bound = self.total_bound,
+            "{}",
+            if own {
+                "a connection's reader fell past its byte bound: it is disconnected"
+            } else {
+                "a connection's reader over its fair share took nothing for the stall bound: it is disconnected"
+            }
+        );
+        OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        if !own {
+            TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        }
+        state.overrun = Some(overrun);
+        let in_channel = state.sent_bytes;
+        state.set_held(in_channel);
+        state.clear();
+        self.closed.send_replace(true);
+        self.wake.notify_one();
+    }
+
+    /// The pump's check while it waits on a reader that takes nothing: one over its fair share
+    /// that took nothing for the stall bound ends now, not at a next line that may never come
+    /// (a hundred attached readers of quiet chats each kept a whole replay's pages). True when
+    /// it ended.
+    fn end_if_stalled(&self) -> bool {
+        let mut state = self.lock();
+        if state.overrun.is_some() || state.ended {
+            return true;
+        }
+        state.settle();
+        if state.held > self.fair_share && state.progress_at.elapsed() >= self.reader_stall {
+            self.end_overrun(&mut state, false, 0, self.fair_share);
+            return true;
+        }
+        false
     }
 
     fn queue_line(state: &mut State, mut line: Line, lane: Lane) {
@@ -658,6 +690,16 @@ impl Outbound {
         state.sheds = sheds;
     }
 
+    /// Bounds the bulk lane's bytes in the transport's channel at `bytes` (at least one line)
+    /// instead of [`BULK_WINDOW`]: a peer link's send window (`ACPMUX_PEER_SEND_WINDOW_KB`, off
+    /// by default, `requests/initialize.rs`). Lines past it wait here, where a read's answer goes
+    /// ahead of them and a newer row of a watched chat replaces its queued one ([`Row`]),
+    /// instead of in the transport's buffers on a lossy link, where nothing passes them.
+    pub(super) fn set_window(&self, bytes: usize) {
+        self.shared.lock().window = bytes.max(1);
+        self.shared.wake.notify_one();
+    }
+
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -737,11 +779,13 @@ impl Drop for Pump {
 }
 
 impl Pump {
-    /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
-    /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
-    /// to send (every handle is gone and both lanes are empty, or it overran).
+    /// Takes the read lane's lines, then the bulk lane's that fit its window ([`BULK_WINDOW`]
+    /// unless [`Outbound::set_window`] set one, [module docs](self)), into `batch`, waiting until
+    /// there is one; false once there is nothing more to send (every handle is gone and both
+    /// lanes are empty, or it overran).
     pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
-        self.take_within(batch, BULK_WINDOW).await
+        let window = self.shared.lock().window;
+        self.take_within(batch, window).await
     }
 
     pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
@@ -770,6 +814,11 @@ impl Pump {
                                 return false;
                             }
                         }
+                        () = tokio::time::sleep(self.shared.reader_stall) => {
+                            if self.shared.end_if_stalled() {
+                                return false;
+                            }
+                        }
                     }
                 }
             }
@@ -781,10 +830,18 @@ impl Pump {
     pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
-        let room = tokio::select! {
-            biased;
-            _ = closed.wait_for(|c| *c) => return false,
-            room = self.transport.reserve_many(keep) => room,
+        // A reader that takes nothing is checked each stall bound ([`Shared::end_if_stalled`]).
+        let room = loop {
+            tokio::select! {
+                biased;
+                _ = closed.wait_for(|c| *c) => return false,
+                room = self.transport.reserve_many(keep) => break room,
+                () = tokio::time::sleep(self.shared.reader_stall) => {
+                    if self.shared.end_if_stalled() {
+                        return false;
+                    }
+                }
+            }
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
@@ -935,6 +992,7 @@ fn start_with(
             ended: false,
             sheds: false,
             who: String::new(),
+            window: BULK_WINDOW,
         }),
         wake: Notify::new(),
         closed,

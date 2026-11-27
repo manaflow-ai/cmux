@@ -167,7 +167,8 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
                 return C.tap(row, "finished row")
             },
-            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"]),
+            // keep: past AutoRetry's 10 s quiet bound, the quiet line is the state shown.
+            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"], ready: .clock(12)),
             Scene(group: g, id: "new-events-pill", args: Self.feed,
                   env: ["CMUX_MOBILE_FEED_STRESS": "300", "CMUX_MOBILE_FEED_STRESS_LIVE": "3"]) { app in
                 C.steps([{ C.tap(app.buttons["All"].firstMatch, "All chip") }, { C.scrollDown(app, times: 3) }, { C.wait(app.buttons["feed.newPill"], "new events pill", timeout: 15) }])
