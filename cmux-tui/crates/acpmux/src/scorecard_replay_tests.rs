@@ -363,7 +363,8 @@ fn rereading_most_of_a_compaction_fails_invariant_4() {
 fn a_compactions_two_records_are_one_removal() {
     let mut log = reread_log(compact_boundary(), &[0, 1, 2, 3]);
     let at = log.iter().position(|r| r.kind == "claude.system.compact_boundary").unwrap();
-    let done_update = json!({"params": {"update": {"sessionUpdate": "compaction", "state": "done"}}});
+    let done_update =
+        json!({"params": {"update": {"sessionUpdate": "compaction", "state": "done"}}});
     log.insert(at, rec(log[at].seq, "in", "compaction", done_update));
     let r = run(&log);
     assert_eq!(r.sessions[0].removals, 1);
@@ -373,7 +374,12 @@ fn a_compactions_two_records_are_one_removal() {
 #[test]
 fn a_surgery_removes_only_what_is_past_its_keep_window() {
     // Keeping the last two turns: f2 and f3 stay, so reading them again is no refetch.
-    let surgery = rec(0, "mux", "harness_surgery", json!({"applied": true, "keepTurns": 2, "minChars": 2048}));
+    let surgery = rec(
+        0,
+        "mux",
+        "harness_surgery",
+        json!({"applied": true, "keepTurns": 2, "minChars": 2048}),
+    );
     let r = run(&reread_log(surgery.clone(), &[2, 3]));
     assert_eq!(r.violations, 0, "{:#?}", r.sessions[0].violations);
     assert_eq!(r.sessions[0].refetched, 0);
@@ -391,7 +397,13 @@ fn rereads_after_the_watch_ends_are_not_counted() {
     }
     for i in 0..4 {
         seq += 1;
-        log.push(tool(seq, &format!("late{i}"), "read", "Read", json!({"file_path": format!("/f{i}")})));
+        log.push(tool(
+            seq,
+            &format!("late{i}"),
+            "read",
+            "Read",
+            json!({"file_path": format!("/f{i}")}),
+        ));
     }
     let r = run(&log);
     assert_eq!(r.violations, 0, "{:#?}", r.sessions[0].violations);
@@ -414,7 +426,12 @@ fn cmux_next_scorecard_replay_fixtures_hold_every_invariant() {
     let names: Vec<&str> = r.sessions.iter().map(|s| s.session.as_str()).collect();
     assert_eq!(r.sessions.len(), 3, "{names:?} missing {:?}", r.missing);
     assert!(r.missing.is_empty(), "{:?}", r.missing);
-    assert_eq!(r.violations, 0, "{:#?}", r.sessions.iter().flat_map(|s| &s.violations).collect::<Vec<_>>());
+    assert_eq!(
+        r.violations,
+        0,
+        "{:#?}",
+        r.sessions.iter().flat_map(|s| &s.violations).collect::<Vec<_>>()
+    );
     assert!(r.not_yet.is_empty());
     // Each invariant had something to judge: calls (1, 5), inits (2), results (3) and a
     // compaction's watch (4).

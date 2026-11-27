@@ -324,7 +324,8 @@ impl Fold {
             && boundary.is_none()
             && !(last.model.is_some() && last.model != self.call_model)
         {
-            let slack = ((last.context as f64 * SHRINK_SLACK_SHARE) as u64).max(SHRINK_SLACK_TOKENS);
+            let slack =
+                ((last.context as f64 * SHRINK_SLACK_SHARE) as u64).max(SHRINK_SLACK_TOKENS);
             if prompt.saturating_add(slack) < last.context {
                 let detail = format!(
                     "the call's prompt of {prompt} tokens is {} short of the {} the call before left, with no compaction, surgery, config or model change",
@@ -393,7 +394,8 @@ impl Fold {
                 || u.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("Bash");
             let cap = if shell { SHELL_CAP_CHARS } else { TOKEN_CAP * CHARS_PER_TOKEN };
             if chars > cap {
-                let tool = u.pointer("/_meta/claude/tool").and_then(Value::as_str).unwrap_or("tool");
+                let tool =
+                    u.pointer("/_meta/claude/tool").and_then(Value::as_str).unwrap_or("tool");
                 over = Some(format!(
                     "a {tool} result of {chars} characters entered context, over the {cap} cap (RFD 0147)"
                 ));
