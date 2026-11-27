@@ -63,6 +63,23 @@ fn the_model_is_taken_from_model_or_agent_and_checked() {
 }
 
 #[test]
+fn a_selected_connection_is_parsed_and_forwarded_to_start_session() {
+    let asked = request(&["--connection", "personal-1", "--prompt", "go", "--name", "dev"]);
+    assert_eq!(asked.connection.as_deref(), Some("personal-1"));
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert!(
+        fake.ran[1].windows(2).any(|pair| pair == ["--connection", "personal-1"]),
+        "{:?}",
+        fake.ran[1]
+    );
+}
+
+#[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
     assert_eq!(
@@ -77,6 +94,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             from_folder: None,
             environment: None,
             account: None,
+            connection: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
@@ -3162,6 +3180,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         from_folder: None,
         environment: None,
         account: None,
+        connection: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
@@ -3204,6 +3223,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         from_folder: None,
         environment: None,
         account: None,
+        connection: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),

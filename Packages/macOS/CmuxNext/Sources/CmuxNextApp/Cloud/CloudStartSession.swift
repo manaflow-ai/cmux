@@ -40,11 +40,11 @@ struct CloudStartSession {
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of, never with ``cwd``; and `--model`, the agent's model there (nil: its harness default).
-        var fromFolder: String?, model: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
+        var fromFolder: String?, model: String?, connection: String? // `connection`: the local Cloud model connection selected for this launch, independent of the account scope; nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
-            CloudStartCore().launchCommand(.init(machineId: machineID, name: name, agent: agent, cwd: cwd, fromFolder: fromFolder, model: model))
+            CloudStartCore().launchCommand(.init(machineId: machineID, name: name, agent: agent, cwd: cwd, fromFolder: fromFolder, model: model, connection: connection))
         }
 
         func asked(machine: String) -> CloudStartSessionStrings.Asked {
@@ -188,11 +188,11 @@ struct CloudStartSession {
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
         let checked = CloudStartCore().launchRun(agent: invocation["agent"]?.stringValue, cwd: invocation["cwd"]?.stringValue, name: invocation["name"]?.stringValue,
-                                                 model: invocation["model"]?.stringValue, machineId: invocation.target.flatMap { $0.kind == .machine ? $0.id : nil })
+                                                 model: invocation["model"]?.stringValue, machineId: invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }, connection: invocation["connection"]?.stringValue)
         switch checked {
-        case .failure(let invalid): throw ActionFailure(message: invalid == .cwd ? CloudStartSessionStrings.cwdInvalid : CloudStartSessionStrings.agentInvalid)
+        case .failure(let invalid): throw ActionFailure(message: invalid == .cwd ? CloudStartSessionStrings.cwdInvalid : invalid == .connection ? "connection_invalid" : CloudStartSessionStrings.agentInvalid)
         case .success(let run): // the machine checks the model
-            return Request(machineID: run.machineId, name: run.name, agent: run.agent, cwd: run.cwd, fromFolder: try Self.fromFolder(invocation, cwd: run.cwd), model: run.model)
+            return Request(machineID: run.machineId, name: run.name, agent: run.agent, cwd: run.cwd, fromFolder: try Self.fromFolder(invocation, cwd: run.cwd), model: run.model, connection: run.connection)
         }
     }
 
@@ -214,7 +214,7 @@ struct CloudStartSession {
     private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command, gatewayTeam: refused.gateway?.team, gatewayCode: refused.gateway.map { $0.errorCode ?? "not_serving" })) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
+        try still(request.name ?? request.machineID ?? ""); if request.connection == nil, let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command, gatewayTeam: refused.gateway?.team, gatewayCode: refused.gateway.map { $0.errorCode ?? "not_serving" })) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
@@ -237,7 +237,7 @@ struct CloudStartSession {
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
         // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected. On a claimed spare already connecting they start beside the connect (Leo: "<30 seconds from starting a thing to having a response on cloud"), keeping no busy answer: a false one is asked again after the connect.
-        let chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon, credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID // one key per run, so a relink finds the chat again
+        let chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon, credential = request.connection != nil ? request.connection : await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID // one key per run, so a relink finds the chat again
         // The chat's workspace and tab live in the machine's cmux-tui, which the keyed restart leaves running (it restarts acpmux alone), and an unbound agent tab is no
         // live agent to its rule (`keyed_restart_reason`): so the tab opens beside the restart, not after it (ask-e543f8f962, Leo: "we can assist in the startup locally too").
         // A daemon this start updates first (one that would drop the owner's model credential) opens it after the update, as before.
@@ -259,7 +259,7 @@ struct CloudStartSession {
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
             let tabs = services.agentTabs
-            await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
+            services.cloud.agentCredentials.use(connection: request.connection, chat: tabKey, machine: id); await Self.trust(copy, surface: opened.surface.rawValue, on: session) // the launch's chosen connection first, which the prewarm below reads; the trust before the start, as the composer's: it refuses an untrusted folder
             let credentials = tabs.cloudCredentials, logger = services.cloud.logger, model = request.model // the start's agent warms now (its own `~/chats/<id>` with no folder), beside the tab's listing and the start's connect, after the approvals' keyed restart that would end it; the start's own values (AgentTabs.runRemoteStart), so it takes it (cmux#45953)
             CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil, supports: { daemon.supports($0) }, surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
                                     permissionMode: tabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: id, harness: agent, model: model))?.env }) { logger.info("cloud start-session prewarm: \($0, privacy: .public)") }

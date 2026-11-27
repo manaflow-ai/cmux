@@ -75,7 +75,7 @@ struct CloudDaemonRunTests {
             }
         }
         let api = api(daemon)
-        let created = try JSONSerialization.jsonObject(with: try await api.createSandboxRun(task: "hi", agent: "claude", timeoutMs: 30_000,
+        let created = try JSONSerialization.jsonObject(with: try await api.createSandboxRun(task: "hi", agent: "claude", connection: "personal-1", timeoutMs: 30_000,
                                                                                             idempotencyKey: "key-1")) as? [String: Any]
         #expect(created?["id"] as? String == "run-9")
         let waited = try JSONSerialization.jsonObject(with: try await api.waitRun("run-9", timeoutMs: 60_000)) as? [String: Any]
@@ -94,6 +94,9 @@ struct CloudDaemonRunTests {
         let create = try #require(daemon.args("runs.create").first)
         #expect(create["task"] as? String == "hi")
         #expect(create["agent"] as? String == "claude")
+        #expect(create["connection"] as? String == "personal-1")
+        #expect((create["expectedAccount"] as? [String: Any])?["user_id"] as? String == "u1")
+        #expect((create["expectedAccount"] as? [String: Any])?["team_id"] as? String == "t1")
         #expect(create["timeoutMs"] as? Int == 30_000)
         #expect(create["idempotencyKey"] as? String == "key-1")
         #expect(create["image"] == nil && create["environment"] == nil)

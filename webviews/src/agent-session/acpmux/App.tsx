@@ -4796,8 +4796,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
-  const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
-    sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  const startSandbox = (
+    text: string,
+    attachmentCount: number,
+    harness: string | undefined,
+    connection?: string,
+  ): string | boolean =>
+    sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness), connection);
   /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
   /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).

@@ -113,8 +113,16 @@ fn create_in(engine: &Arc<Engine>, key: &str, team: &str) -> Value {
 }
 
 fn body(key: &str, team: &str) -> Value {
-    json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": key,
-            "expectedAccount": { "user_id": "u1", "team_id": team } })
+    body_with_connection(key, team, None)
+}
+
+fn body_with_connection(key: &str, team: &str, connection: Option<&str>) -> Value {
+    let mut body = json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": key,
+            "expectedAccount": { "user_id": "u1", "team_id": team } });
+    if let Some(connection) = connection {
+        body["connection"] = json!(connection);
+    }
+    body
 }
 
 /// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`.
@@ -163,6 +171,29 @@ fn a_run_answers_the_reply_and_deletes_its_machine() {
     assert_eq!(
         fake.removed.lock().unwrap()[0],
         (format!("{MACHINE_PREFIX}{id}"), Some("m-7".into()))
+    );
+}
+
+#[test]
+fn a_run_keeps_the_connection_separate_from_its_account_scope() {
+    let fake = Fake::new(Some(Outcome::Replied { reply: "ok".into(), machine: None }), vec![]);
+    let engine = Engine::open(None, fake.clone(), quick());
+    let created = engine
+        .perform(
+            "runs.create",
+            &args(body_with_connection("connection", "team_1", Some("personal-1"))),
+        )
+        .unwrap();
+    settled(&engine, created["id"].as_str().unwrap(), "destroyed");
+    let ran = fake.ran.lock().unwrap().clone();
+    assert_eq!(ran[0].account, "user:u1|team:team_1");
+    assert_eq!(ran[0].connection.as_deref(), Some("personal-1"));
+
+    let conflict = engine
+        .perform("runs.create", &args(body_with_connection("connection", "team_1", Some("team-1"))))
+        .unwrap_err();
+    assert!(
+        matches!(conflict, Failure::Http { status: 409, code: Some(code), .. } if code == "run_idempotency_conflict")
     );
 }
 
@@ -249,6 +280,11 @@ fn a_restart_ends_a_run_that_was_going_and_resumes_its_cleanup() {
     let saved = std::fs::read_to_string(&store).unwrap();
     assert!(saved.contains(&id) && saved.contains("\"running\""), "{saved}");
     assert!(!saved.contains("say hi"), "the task text is never written");
+    let mut old: Value = serde_json::from_str(&saved).unwrap();
+    for run in old["runs"].as_array_mut().unwrap() {
+        run.as_object_mut().unwrap().remove("connection");
+    }
+    std::fs::write(&store, serde_json::to_vec(&old).unwrap()).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;

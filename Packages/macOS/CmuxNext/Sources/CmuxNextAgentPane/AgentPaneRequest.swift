@@ -193,10 +193,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
     case environment(AgentPaneEnvironmentRequest)
-    /// `sandbox.run {task, agent?, key}`: a new chat's Sandboxed send (hq#3367): one task on a
+    /// `sandbox.run {task, agent?, key, connection?}`: a new chat's Sandboxed send (hq#3367): one task on a
     /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
     /// the page's send, so its retry after an unclear failure finds the same Run.
-    case sandboxRun(task: String, agent: String?, key: String)
+    case sandboxRun(task: String, agent: String?, key: String, connection: String?)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
     /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
