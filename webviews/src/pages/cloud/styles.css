@@ -1460,7 +1460,7 @@ select {
 
 .cloud-pool-used {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1472,7 +1472,7 @@ select {
   padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid var(--cloud-warn);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .cloud-pool-alert strong {
