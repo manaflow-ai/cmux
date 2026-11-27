@@ -86,9 +86,14 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         read = found["cmux-next-fast-tier-batch.yml#swift-results"]
         self.assertEqual(read["runs-on"], LINUX)
         self.assertNotIn("./.github/actions/fleet-client", yaml.safe_dump(read["steps"]))
-        self.assertIn("--registry scripts/cmux-next/fast-tier.json", yaml.safe_dump(read["steps"]))
+        self.assertIn("--registry scripts/cmux-next/fast-tier.json", read["steps"][-1]["run"])
         report = found["cmux-next-fast-tier-batch.yml#swift-fleet"]
         self.assertEqual(report["needs"], "swift-results")
+        self.assertIn("!cancelled()", report["if"])
+        self.assertIn("needs.swift-results.result != 'skipped'", report["if"])
+        fallback = report["steps"][-2]["with"]["sparse-checkout"].splitlines()
+        self.assertIn("Packages/**/Tests/**/*.swift", fallback)
+        self.assertIn("scripts/ci/display-suites.txt", fallback)
         self.assertEqual(report["runs-on"], "${{ needs.swift-results.outputs.verdict == 'unavailable' "
                          "&& 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}")
         self.assertEqual(report["steps"][-1]["if"], "needs.swift-results.outputs.verdict == 'unavailable'")

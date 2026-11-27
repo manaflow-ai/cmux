@@ -109,6 +109,7 @@ jobs:
   swift-fleet:
     name: fast tier (Swift entries, build fleet)
     needs: swift-results
+    if: ${{ !cancelled() && (inputs.only == '' || inputs.only == 'swift') && needs.swift-results.result != 'skipped' }}
     # Only a registry or commit the public route cannot serve needs the private gateway.
     runs-on: ${{ needs.swift-results.outputs.verdict == 'unavailable' && 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}
     permissions:
@@ -129,7 +130,7 @@ jobs:
             *) echo "::error::Unexpected fleet verdict '$VERDICT'"; exit 1 ;;
           esac
 
-      - name: Checkout the registry
+      - name: Checkout the registry and suite sources for fleet display routing
         if: needs.swift-results.outputs.verdict == 'unavailable'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
@@ -140,6 +141,8 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/cmux-next/fast-tier.json
+            scripts/ci/display-suites.txt
+            Packages/**/Tests/**/*.swift
             .gitmodules
           sparse-checkout-cone-mode: false
 
@@ -167,10 +170,8 @@ jobs:
                   suites.setdefault(e["package"], []).append(e["filter"])
           for package, names in suites.items():
               print(package + " " + ",".join(names))' scripts/cmux-next/fast-tier.json > "$packages_file" || exit 1
-          packages=()
-          while IFS= read -r item; do packages+=("$item"); done < "$packages_file"
           index=0
-          for item in "${packages[@]}"; do
+          while IFS= read -r item; do
             index=$((index + 1))
             ( status=0
               "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
@@ -178,14 +179,14 @@ jobs:
                 --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
                 --timeout 1500 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-batch-$index.log" 2>&1 || status=$?
               echo "$status" > "$RUNNER_TEMP/fast-tier-batch-$index.exit" ) &
-          done
+          done < "$packages_file"
           wait
           step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
           state_re='"state": *"([a-z_]*)"'
           code_re='"exit_code": *(-?[0-9]+)'
           failed=0
           index=0
-          for item in "${packages[@]}"; do
+          while IFS= read -r item; do
             index=$((index + 1))
             package="${item%% *}"
             id="" state="" code="" status=""
@@ -208,5 +209,5 @@ jobs:
             else
               echo "::warning title=Fast tier batch (Swift): no verdict::$package: no verdict (client exit ${status:-unknown}, step ${id:-none} ${state:-unknown})"
             fi
-          done
+          done < "$packages_file"
           exit "$failed"
