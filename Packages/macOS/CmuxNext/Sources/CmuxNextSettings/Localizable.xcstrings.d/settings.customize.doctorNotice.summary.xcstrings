@@ -32,25 +32,25 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert"
+            "value" : "Melden, wenn eine Datei oder Ebene mein Setup ändert"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avisarme cuando un archivo o una capa cambie mi configuración"
+            "value" : "Avisarme si un archivo o capa cambia mi configuración"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Me prévenir quand un fichier ou une couche modifie ma configuration"
+            "value" : "Prévenir quand un fichier ou une couche change ma config"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avvisami quando un file o un livello modifica la mia configurazione"
+            "value" : "Avvisami se un file o un livello cambia la mia config"
           }
         },
         "ja" : {
@@ -104,7 +104,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver"
+            "value" : "Bir dosya veya katman düzenimi değiştirince haber ver"
           }
         },
         "uk" : {

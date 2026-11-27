@@ -263,11 +263,11 @@ nonisolated final class MacScreenStreamChildHost: MacScreenStreamServing {
         // SECURITY: the capture leaves out the app's windows only the person at this Mac may see: the
         // list the app sends (`exclude_windows`) before the session and on every change.
         host = ScreenStreamHost(name: setup.name, viewOnly: setup.viewOnly, backend: {
-            let backend = ScreenCaptureBackend(log: log)
+            let backend = ScreenCaptureBackend(log: log, rules: MacScreenRules.rules)
             backend.excludedWindowIDs = { exclusions.ids }
             exclusions.onChange { [weak backend] in backend?.exclusionsChanged() }
             return backend
-        }, log: log)
+        }, rules: MacScreenRules.rules, log: log)
         host.onEvent = { event in
             switch event {
             case .viewerConnected: events(.viewerConnected, nil)
