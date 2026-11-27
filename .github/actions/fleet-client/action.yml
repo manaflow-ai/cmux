@@ -57,8 +57,19 @@ runs:
           echo "::error title=fleet client::installed client is not executable: $client"
           exit 1
         fi
-        "$client" --help >/dev/null 2>&1 || {
-          echo "::error title=fleet client::installed client could not start: $client"
-          exit 1
-        }
+        # Why a client did not start goes to the log (run 46078464708 on a gateway Mac failed here after 106 s
+        # with nothing to read). URLs are cut from it: the controller's address is not for a public log.
+        if ! "$client" --help >"$client_dir/help.out" 2>&1; then
+          echo "fetched client did not start (python3: $(command -v python3), $(python3 -V 2>&1)); its last lines:"
+          tail -n 20 "$client_dir/help.out" | sed -E 's#[a-z]+://[^[:space:]"]+#<url>#g; s#[0-9]+(\.[0-9]+){3}(:[0-9]+)?#<addr>#g; s#[A-Za-z0-9.-]+\.ts\.net(:[0-9]+)?#<addr>#g'
+          # A gateway Mac carries its own installed client; use it when the fetched one cannot start there.
+          installed="$HOME/.local/bin/cmux-ci"
+          if [[ -x "$installed" ]] && "$installed" --help >/dev/null 2>&1; then
+            echo "::warning title=fleet client::fetched client could not start; using this runner's installed client"
+            printf '%s=%s\n' "$env_name" "$installed" >> "$GITHUB_ENV"
+          else
+            echo "::error title=fleet client::installed client could not start: $client"
+            exit 1
+          fi
+        fi
         printf '%s=%s\n' "CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"
