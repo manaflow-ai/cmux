@@ -86,9 +86,7 @@ import Testing
         let store = AgentChatStore(source: source)
         #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
-        #expect(store.loadingText == "Starting Claude…", "nothing about the link inside the quiet bound")
-        let shown = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .zero))
-        #expect(shown.loadingText == "Connecting to Mac…", "past the bound it says what it waits for")
+        #expect(store.loadingText == "Loading chat…", "never \"Connecting to Mac…\" (Leo 2026-11-22)")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {

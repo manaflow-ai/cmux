@@ -625,7 +625,10 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             let above = shownOrder.prefix { $0 != anchor.id }.count { fresh.contains($0) && !FeedStacks.isFold($0) }
             if above > 0 { control.newAbove += above }
         } else {
-            _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
+            let fresh = FeedListPlan.fresh(plan.inserted, seen: &everShown)
+            if FeedArrival.springs(fresh: fresh, order: shownOrder, hadRows: !previousOrder.isEmpty, atTop: !jumpingToTop) {
+                springIn(fresh)
+            }
         }
         if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp(plan.inserted + plan.reconfigure) }
         // Rows that left the list: only when some did (an insert or a move removes none).
@@ -839,6 +842,60 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             self.continueJumpToTop()
         }
         if animate { resize() } else { UIView.performWithoutAnimation(resize) }
+    }
+
+    /// When the last arrival's soft tap played (``FeedArrival/taps(now:last:)``).
+    private var lastArrivalTap: TimeInterval?
+
+    /// Live events just inserted at the top while the reader is there (``FeedArrival``): each new row drops
+    /// in from a little above and fades up, and every row already on screen starts where it was and slides
+    /// down by the new rows' height, so nothing jumps (all of them move together, on one spring). One soft
+    /// tap, at most every ``FeedArrival/hapticGap`` seconds, and only while the Feed is on screen in the
+    /// foreground. Reduce Motion: the new rows fade in and nothing moves. The model values are set at once
+    /// (UIView animations), so a row reused mid-spring is never left offset.
+    private func springIn(_ fresh: Set<String>) {
+        guard let collectionView, let dataSource, collectionView.window != nil else { return }
+        collectionView.layoutIfNeeded()
+        let visible = (collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.sorted()
+        var newRows: [UITableViewCell] = []
+        var oldRows: [UITableViewCell] = []
+        var drop: CGFloat = 0
+        for indexPath in visible {
+            guard let id = dataSource.itemIdentifier(for: indexPath), let row = collectionView.cellForRow(at: indexPath) else { continue }
+            if fresh.contains(id) {
+                newRows.append(row)
+                drop += row.bounds.height
+            } else {
+                oldRows.append(row)
+            }
+        }
+        guard !newRows.isEmpty else { return }
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        for row in newRows {
+            row.alpha = 0
+            if !reduceMotion { row.transform = CGAffineTransform(translationX: 0, y: -min(row.bounds.height * 0.4, 28)) }
+        }
+        if !reduceMotion {
+            for row in oldRows { row.transform = CGAffineTransform(translationX: 0, y: -drop) }
+        }
+        let settle = {
+            for row in newRows + oldRows {
+                row.alpha = 1
+                row.transform = .identity
+            }
+        }
+        if reduceMotion {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: settle)
+        } else {
+            UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState], animations: settle)
+        }
+        let now = CACurrentMediaTime()
+        if collectionView.window?.windowScene?.activationState == .foregroundActive,
+           FeedArrival.taps(now: now, last: lastArrivalTap) {
+            lastArrivalTap = now
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
+        }
     }
 
     private func cell(_ id: String) -> FeedRowCell? {
