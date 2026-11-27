@@ -21,6 +21,21 @@ class GalleryTriggerTests(unittest.TestCase):
         self.assertIn("environment: pr-media", text)
         self.assertIn("(main, feat-cmux-next, nightly-next)", text)
 
+    def test_one_broken_gallery_file_costs_only_its_own_pictures(self):
+        # 2026-11-27: one duplicate `const` in ClaudeConnectRow.gallery.tsx failed 10 runs (05:14Z to 08:18Z), so four
+        # Improved highlights shipped in nightly 4598742452601 with no picture. Every step that loads the gallery
+        # files skips one that fails to load (entries.ts loadEntrySources), and each build compiles only the entries
+        # it renders (CMUX_GALLERY_ENTRIES), never the whole gallery.
+        render = open(WORKFLOW).read().split("- name: Render the gallery states", 1)[1].split("\n      - name:", 1)[0]
+        loads = re.findall(r"bun scripts/gallery/(?:manifest|notes)\.ts[^\n]*", render)
+        self.assertEqual(len(loads), 3, loads)
+        for line in loads:
+            self.assertIn("--skip-broken", line)
+        builds = re.findall(r"(?:^|\n)([^\n]*\n)?([^\n]*bun run gallery:build[^\n]*)", render)
+        self.assertEqual(len(builds), 2, builds)
+        for before, line in builds:
+            self.assertIn("CMUX_GALLERY_ENTRIES=", (before or "") + line)
+
 
 if __name__ == "__main__":
     unittest.main()
