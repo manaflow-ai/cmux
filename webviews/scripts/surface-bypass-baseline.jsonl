@@ -34,7 +34,7 @@
 {"file":"agent-session/acpmux/chips/ToolBadge.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/chips/VideoPlayback.tsx","kind":"raw-button","count":8}
 {"file":"agent-session/acpmux/chips/VideoPlayback.tsx","kind":"title-attribute","count":4}
-{"file":"agent-session/acpmux/ClaudeConnectRow.tsx","kind":"raw-button","count":1}
+{"file":"agent-session/acpmux/ClaudeConnectRow.tsx","kind":"raw-button","count":0}
 {"file":"agent-session/acpmux/CloudChatHint.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/CloudRunDesigns.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/CloudStartAsk.tsx","kind":"raw-button","count":2}
@@ -66,7 +66,7 @@
 {"file":"agent-session/acpmux/ComposerStatusDot.tsx","kind":"title-attribute","count":3}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"own-shell","count":1}
 {"file":"agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx","kind":"raw-button","count":4}
-{"file":"agent-session/acpmux/ConnectCard.tsx","kind":"raw-button","count":4}
+{"file":"agent-session/acpmux/ConnectCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/context/context.css","kind":"own-shell","count":2}
 {"file":"agent-session/acpmux/context/ContextScreen.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/ContextCard.tsx","kind":"raw-button","count":2}
@@ -661,7 +661,7 @@
 {"file":"pages/onboarding/MakeItYoursStep.tsx","kind":"title-attribute","count":1}
 {"file":"pages/onboarding/styles.css","kind":"own-shell","count":2}
 {"file":"pages/onboarding/walkArms.css","kind":"own-shell","count":1}
-{"file":"pages/onboarding/walkArms.tsx","kind":"raw-button","count":2}
+{"file":"pages/onboarding/walkArms.tsx","kind":"raw-button","count":0}
 {"file":"pages/passwords/PasswordsPage.tsx","kind":"raw-button","count":5}
 {"file":"pages/passwords/PasswordsPage.tsx","kind":"title-attribute","count":2}
 {"file":"pages/server-cards/server/ServerViews.tsx","kind":"raw-button","count":4}
