@@ -15,12 +15,14 @@ One sweep (.github/workflows/ci-shed-superseded-runs.yml, every 10 minutes on an
 
 A run is cancelled only when every rule holds (verdict()):
   status queued, or in_progress with nothing running (unstarted(): every job of the latest attempt finished or
-  queued with no runner and no step, read again right before the cancel; at most SHED_MAX_JOB_READS, default 300,
+  queued with no runner and no step, read again right before every cancel, a queued run's too; at most SHED_MAX_JOB_READS, default 300,
   such runs read per sweep), so a cancel only ever stops jobs that never started; run_attempt 1, head in this repository, workflow
   name and path not nightly/dev/promote/release/testflight/app store/deploy/publish/sign, and then:
   - a lane branch (not master/release*/nightly*/gh-pages), event push, pull_request or workflow_run:
       superseded:  the branch tip is another commit,
       branch-gone: the branch no longer exists;
+      retired-route: a pull_request run at the tip of a workflow in RETIRED_PR_ROUTES, created before its PR Mac
+        jobs moved to another workflow (the queue it waits in serves no current run);
   - main or feat-cmux-next, event push only, not a workflow that publishes per commit (BASE_KEEP_PATHS) or
     answers every push since its last success (BASE_RANGE_PATHS):
       superseded-base: the branch tip is another commit. The tip's own run is never touched, so the newest head is
@@ -83,7 +85,14 @@ BASE_RANGE_PATHS = frozenset({".github/workflows/cmux-next-base-autofix.yml"})
 # Lane events a newer push to the same branch replaces. workflow_run runs carry the triggering run's branch and
 # head, so a follow-up of a replaced head (attribution, PR media) reads a commit nobody looks at any more.
 LANE_EVENTS = ("push", "pull_request", "workflow_run")
-SHED_VERDICTS = ("superseded", "superseded-base", "branch-gone")
+# Pull request runs of a workflow whose PR Mac jobs moved elsewhere, created before the move: the run, even at its
+# branch tip, asks for a Mac route no current run asks for. cmux#53487 (merged 2026-11-25T00:59:59Z) moved the PR
+# fast tier and Swift gates to pr-pipeline.yml's mac job; at 01:20Z 191 jobs still waited on
+# glaeda-side-std-xcode-26.6 for those old runs (median 39 min, oldest 143 min), 184 of 187 queued cmux-next runs
+# predating the move, ahead of every newer job on that label. Shedding one stops only jobs that never started; the
+# PR's next head (a push or land's base update) runs the new route. Leo, 2026-11-25: "do not catch-22 yourselves".
+RETIRED_PR_ROUTES = {".github/workflows/cmux-next.yml": "2026-11-25T00:59:59Z"}
+SHED_VERDICTS = ("superseded", "superseded-base", "branch-gone", "retired-route")
 
 
 def unstarted(jobs: list[dict[str, Any]]) -> bool:
@@ -137,6 +146,9 @@ def verdict(run: dict[str, Any], repo: str, tips: dict[str, str],
         return "keep:base-unread" if base else "branch-gone"
     if tip != run.get("head_sha"):
         return "superseded-base" if base else "superseded"
+    retired = RETIRED_PR_ROUTES.get(run.get("path") or "")
+    if not base and event == "pull_request" and retired and (run.get("created_at") or "9") < retired:
+        return "retired-route"
     return f"keep:current-{event}"
 
 
@@ -334,8 +346,12 @@ def main(argv: list[str] | None = None) -> int:
     done = errors = 0
     for run, why in picks:
         result = "dry run"
-        if not args.dry_run and run.get("status") == "in_progress":
-            # Read again right before the cancel: a runner may have taken a job since the first read.
+        if not args.dry_run:
+            # Read again right before the cancel: a runner may have taken a job since the first read. A run listed
+            # `queued` is read too: its listed status is no proof nothing of it runs. cmux run 45904512885
+            # (cloud-move-kill.yml, PR #51760) listed queued at 22:58Z on 2026-11-26 while its cut and pause-src
+            # drills ran mid-move on runners, and this sweep cancelled it as superseded (as hq stale-runs did run
+            # 45896711769 at 22:28Z): the drills uploaded nothing.
             fresh = gh.run_jobs(run["id"])
             if fresh is None or not unstarted(fresh):
                 summary_line(f"| {run['id']} | | | | | | {why} | kept: a job started since the first read |")

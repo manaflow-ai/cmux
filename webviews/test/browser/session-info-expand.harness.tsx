@@ -11,7 +11,7 @@ import { OutputsSection } from "../../src/agent-session/acpmux/session-info/Outp
 import { SourcesSection } from "../../src/agent-session/acpmux/session-info/SourcesSection";
 import { ChangesSection } from "../../src/agent-session/acpmux/session-info/ChangesSection";
 import { UsageSection } from "../../src/agent-session/acpmux/session-info/UsageSection";
-import { AlsoHereSection } from "../../src/agent-session/acpmux/session-info/AlsoHereSection";
+import { ChildSessionRows } from "../../src/agent-session/acpmux/session-info/ChildSessionRows";
 import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
@@ -31,7 +31,7 @@ const EXPANDERS: Record<string, { press: string; list: string }> = {
   sources: { press: ".acpmux-session-info-sources-fold", list: "ul[data-section=sources]" },
   changes: { press: ".acpmux-session-info-pr-fold", list: "ul[data-section=changes]" },
   usage: { press: ".acpmux-session-info-usage-fold", list: "ul[data-sort]" },
-  alsoHere: { press: "#open", list: "ul[data-also-here]" },
+  started: { press: "#open", list: "ul[data-started]" },
 };
 
 function Sources() {
@@ -49,7 +49,7 @@ function Sources() {
   );
 }
 
-/// A section that opens as a whole (Also working here): a press mounts it, as its fold does.
+/// A list that opens as a whole (the summary card's started chats): a press mounts it.
 function Opens({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
@@ -134,13 +134,16 @@ function Section() {
     default:
       return (
         <Opens>
-          <AlsoHereSection
-            onOpen={() => {}}
-            rows={range.map((index) => ({
-              entry: { sessionId: `here-${index}`, title: `Also here ${index}`, status: "idle" },
-              why: "folder" as const,
-            }))}
-          />
+          <ul className="acpmux-summary-list" data-started="">
+            <ChildSessionRows
+              onOpen={() => {}}
+              sessions={range.map((index) => ({
+                sessionId: `chat-${index}`,
+                title: `Chat ${index}`,
+                state: "idle" as const,
+              }))}
+            />
+          </ul>
         </Opens>
       );
   }

@@ -26,6 +26,7 @@ enum WorkspaceMetadataHandlers {
             }
             try setColor(color, invocation, context)
         })
+        ActionTargetTitles.setChoiceState("palette.workspaceColor", in: registry) { GroupColor(stored: (try? context.workspace(ActionInvocation(target: $0)))?.model.color)?.rawValue }
         // One pin path (PinCommands): a layout tile once the store serves the
         // layout, else the legacy flag, which then needs `workspace-pin-v1`.
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapability.workspacePin.rawValue, daemon: {

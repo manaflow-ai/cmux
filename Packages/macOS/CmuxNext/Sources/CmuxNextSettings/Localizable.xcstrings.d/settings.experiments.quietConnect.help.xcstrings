@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.quietConnect.help" : {
+      "comment" : "Settings > Experimental > Quiet Connections help: short connection waits show no status words.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إخفاء \"جارٍ الاستئناف…\" وانتظار الاتصال الذي ينتهي خلال 10 ثوانٍ."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sakrij \"Nastavljanje…\" i čekanja na vezu koja završe za 10 sekundi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjul \"Genoptager…\" og ventetid på forbindelse, der slutter inden for 10 sekunder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Wird fortgesetzt…“ und Verbindungswartezeiten ausblenden, die innerhalb von 10 Sekunden enden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Resuming… and connection waits that end within 10 seconds."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocultar \"Reanudando…\" y las esperas de conexión que terminan en 10 segundos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masquer « Reprise… » et les attentes de connexion qui se terminent en moins de 10 secondes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nascondi \"Ripresa…\" e le attese di connessione che finiscono entro 10 secondi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 秒以内に終わる「再開中…」と接続待ちを表示しません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លាក់ \"កំពុងបន្ត…\" និងការរង់ចាំការតភ្ជាប់ដែលបញ្ចប់ក្នុងរយៈពេល 10 វិនាទី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10초 안에 끝나는 \"재개 중…\"과 연결 대기를 숨깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjul «Gjenopptar…» og tilkoblingsventing som slutter innen 10 sekunder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukryj „Wznawianie…” i oczekiwanie na połączenie, które kończy się w ciągu 10 sekund."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocultar \"Retomando…\" e esperas de conexão que terminam em até 10 segundos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрывать «Возобновление…» и ожидание подключения, которое заканчивается за 10 секунд."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ซ่อน \"กำลังดำเนินการต่อ…\" และการรอเชื่อมต่อที่จบภายใน 10 วินาที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"Sürdürülüyor…\" ve 10 saniye içinde biten bağlantı beklemelerini gizle."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приховувати «Відновлення…» та очікування підключення, що завершується за 10 секунд."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ẩn \"Đang tiếp tục…\" và các lần chờ kết nối kết thúc trong vòng 10 giây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏 10 秒内结束的“正在恢复…”和连接等待。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隱藏 10 秒內結束的「正在繼續…」和連線等待。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

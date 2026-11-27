@@ -1,7 +1,7 @@
 /* cmux-wallpaper's C ABI (cmux-tui/crates/cmux-app-ffi/src/wallpaper.rs): live
  * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
  * its Metal translated at build time (no shader compiler), the manifest check, the
- * draw scheduler, the Frame uniform packer (CMUX_WALLPAPER_FRAME_FLOATS floats), the pointer's, its trail's and
+ * draw scheduler, the Frame uniform packer (CMUX_WALLPAPER_FRAME_FLOATS floats), and the pointer's, its trail's and
  * agent activity's smoothing, and motion scenes' player (an opaque handle that packs the
  * 2048-byte Scene block; plans/cmux-next/motion-scenes.md). No globals; results that own
  * strings and handles have their own free function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */

@@ -738,12 +738,19 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Durable)
+        self.inner.save_meta(meta, ShowAfter::Durable).map(drop)
     }
     /// A `Stream` `meta` record: written in the journal's next batch, synced after
     /// ([`super::durability`]).
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Written)
+        self.inner.save_meta(meta, ShowAfter::Written).map(drop)
+    }
+    /// The digest of the image's fields, from the hashes the save makes for its patch anyway.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        self.inner.save_meta(meta, keep).map(Some)
+    }
+    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
+        self.inner.meta_digest(meta).ok()
     }
     /// The line to the log first, then its record ([module docs](self)). Under the chat's
     /// stripe lock, not a store-wide one: the journal's room is reserved first (so the record
@@ -1223,6 +1230,12 @@ impl Store for JournalStore {
     }
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Store::register_cloud_root(&self.inner.local)
+    }
+    fn cloud_configured(&self) -> bool {
+        Store::cloud_configured(&self.inner.local)
+    }
+    fn offloaded(&self, id: &str) -> bool {
+        Store::offloaded(&self.inner.local, id)
     }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)

@@ -154,15 +154,15 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  # #33340, then nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the job
-  # ends in the owned nightly-only pool, not a Linux runner pool or a Blacksmith label.
-  in_prepare && /runs-on: .*vars\.CI_NIGHTLY_ONLY_RUNNER \|\| .glaeda-nightly-only-m4pro./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
+  # #33340, then #49544: the preparation is Linux work on the owned cmux-linux label, never a
+  # Blacksmith label or a runner-pool variable.
+  in_prepare && /runs-on: .*.cmux-linux./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
   END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_linux_pool && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must run on the owned nightly-only Mac pool, keep its fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on the owned cmux-linux label, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -482,9 +482,9 @@ if ! awk '
   exit 1
 fi
 
-# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
-if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
+# NIGHTLY and nightly-next ship arm64 only (tests/test_nightly_next_arm64_only.py); only RC keeps all three.
+if ! grep -Fq "const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: only the RC channel builds the Intel and universal variants; NIGHTLY and nightly-next are arm64 only (Leo, 2026-11-25)"
   exit 1
 fi
 
@@ -802,6 +802,21 @@ if ! awk '
   END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Move channel release tag to built commit/ || /^      - name: Move the nightly-next tag to the published build/ {
+    in_move=1
+    moves++
+    next
+  }
+  in_move && /^      - name:/ { in_move=0 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token++ }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared++ }
+  END { exit !(moves == 2 && saw_app_token == 2 && saw_github_token_cleared == 2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: both nightly tag moves must keep the scoped app token and intentionally clear GITHUB_TOKEN"
   exit 1
 fi
 

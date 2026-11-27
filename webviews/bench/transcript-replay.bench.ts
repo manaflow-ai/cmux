@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -88,6 +89,9 @@ const CPU_CLOCK = process.env.CLOCK === "cpu";
 const PAIRED = process.env.PAIRED === "1";
 /// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
 const INVALIDATIONS = process.env.INVALIDATIONS === "1";
+/// `SPLIT=1` prints, per burst, the ms per record of each main-thread phase (script, style, layout, forced
+/// layout, paint, layerize, GC, other) and the components React drew per record (`split`).
+const SPLIT = process.env.SPLIT === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -363,6 +367,96 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
   return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
 }
 
+/// SPLIT=1: where a burst's main-thread time went, from a DevTools timeline trace: per record, the ms of
+/// each renderer main-thread phase (script, style, layout, pre-paint, paint, layerize, GC), and the rest of
+/// its tasks' time as `other`. Phases nest in tasks, so each is summed only outside another phase.
+async function split(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  type Ev = { name: string; ph: string; ts: number; dur?: number; tid: number; pid: number };
+  const events: Ev[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as Ev[]));
+  cdp.on("Tracing.dataCollected", onData);
+  await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "v8", "disabled-by-default-devtools.timeline"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const phase: Record<string, string> = {
+    FunctionCall: "script",
+    EvaluateScript: "script",
+    TimerFire: "script",
+    FireAnimationFrame: "script",
+    EventDispatch: "script",
+    "V8.Execute": "script",
+    RunMicrotasks: "script",
+    v8__run_microtasks: "script",
+    UpdateLayoutTree: "style",
+    Layout: "layout",
+    PrePaint: "prepaint",
+    Paint: "paint",
+    Layerize: "layerize",
+    Commit: "commit",
+    MinorGC: "gc",
+    MajorGC: "gc",
+    ScavengeTask: "gc",
+  };
+  // The main thread: the one with the most RunTask time in the renderer that ran CrRendererMain.
+  const tasks = events.filter((e) => e.ph === "X" && e.name === "RunTask");
+  const byThread = new Map<string, number>();
+  for (const t of tasks) byThread.set(`${t.pid}:${t.tid}`, (byThread.get(`${t.pid}:${t.tid}`) ?? 0) + (t.dur ?? 0));
+  const main = [...byThread.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const on = events
+    .filter((e) => e.ph === "X" && `${e.pid}:${e.tid}` === main)
+    .sort((a, b) => a.ts - b.ts || (b.dur ?? 0) - (a.dur ?? 0));
+  const sums = new Map<string, number>();
+  let taskUs = 0;
+  // Outermost-phase accounting: a phase event inside another phase's span counts to the outer one, except
+  // style/layout forced from script, which count to themselves and come off script.
+  const stack: { end: number; kind: string }[] = [];
+  for (const e of on) {
+    const end = e.ts + (e.dur ?? 0);
+    while (stack.length && stack.at(-1)!.end <= e.ts) stack.pop();
+    if (e.name === "RunTask" && stack.length === 0) taskUs += e.dur ?? 0;
+    const kind = phase[e.name];
+    if (!kind) continue;
+    const outer = stack.find((s) => s.kind !== "task")?.kind;
+    if (outer === undefined) sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+    else if (outer === "script" && (kind === "style" || kind === "layout" || kind === "gc")) {
+      sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+      sums.set("script", (sums.get("script") ?? 0) - (e.dur ?? 0));
+      sums.set(`${kind}(forced)`, (sums.get(`${kind}(forced)`) ?? 0) + (e.dur ?? 0));
+    }
+    stack.push({ end, kind });
+  }
+  const known = [...sums.entries()].filter(([k]) => !k.includes("(")).reduce((a, [, v]) => a + v, 0);
+  sums.set("other", taskUs - known);
+  const per = (us: number) => (us / 1000 / records).toFixed(3);
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const drawn = Object.entries(renders)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 16)
+    .map(([name, count]) => `${name.slice(0, 40)}=${(count / records).toFixed(2)}`)
+    .join(" ");
+  return (
+    `renders/rec ${drawn}\n    task ${per(taskUs)} ms/rec: ` +
+    [...sums.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${per(v)}`)
+      .join(", ")
+  );
+}
+
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
@@ -485,6 +579,8 @@ type BurstResult = {
     contentRenders: number;
     layoutObjects: number;
     styled: number;
+    /// The trace's main-thread ms per record by phase: where the time no script profile names goes.
+    phases: { script: number; style: number; layout: number; paint: number };
   };
 };
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
@@ -716,7 +812,15 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           contentRenders: per(sum("content:")),
           layoutObjects: cost.layoutObjectsMax ?? 0,
           styled: cost.styleElementsMax ?? 0,
+          phases: {
+            script: per(cost.scriptMs ?? 0),
+            style: per(cost.styleMs ?? 0),
+            layout: per(cost.layoutMs ?? 0),
+            paint: per(cost.paintMs ?? 0),
+          },
         };
+      } else if (SPLIT) {
+        console.log(`  ${burst.kind} at ${burst.rows} rows: ${await split(cdp, playBurst, page, records)}`);
       } else if (INVALIDATIONS) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
@@ -1071,21 +1175,31 @@ if (import.meta.main) {
       releases.push(() => server.stop(true));
       return daemon;
     });
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    // PROFILE_BUILD keeps the build it made, so it makes its own.
+    const variant = Boolean(PROFILE || process.env.PROFILE_BUILD);
+    const shared = sharedPaneDir({ variant });
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
     // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
-    releases.push(() =>
-      process.env.PROFILE_BUILD
-        ? fs.renameSync(out, process.env.PROFILE_BUILD)
-        : fs.rmSync(out, { recursive: true, force: true }),
-    );
+    if (!shared)
+      releases.push(() =>
+        process.env.PROFILE_BUILD
+          ? fs.renameSync(out, process.env.PROFILE_BUILD)
+          : fs.rmSync(out, { recursive: true, force: true }),
+      );
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
-    console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `transcript-replay: the suite's pane build (${shared})`
+        : `transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -1165,7 +1279,9 @@ if (import.meta.main) {
               (burst.probe
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
                   `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
-                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}; ms script ` +
+                  `${burst.probe.phases.script} style ${burst.probe.phases.style} layout ${burst.probe.phases.layout} ` +
+                  `paint ${burst.probe.phases.paint}`
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.

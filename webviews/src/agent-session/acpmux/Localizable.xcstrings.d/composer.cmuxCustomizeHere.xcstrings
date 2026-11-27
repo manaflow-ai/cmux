@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cmuxCustomizeHere" : {
+      "comment" : "Agent pane: inline refusal for /customize when the chat runs, or would start, somewhere other than this computer (Cloud, a sandbox, another machine): its agent would change that machine's cmux (customizeCommand.ts)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize يغيّر cmux على هذا الكمبيوتر. استخدمه في محادثة تعمل هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize mijenja cmux na ovom računaru. Koristite ga u razgovoru koji radi ovdje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize ændrer cmux på denne computer. Brug det i en chat, der kører her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize ändert cmux auf diesem Computer. Verwende es in einem Chat, der hier läuft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize changes cmux on this computer. Use it in a chat that runs here."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize cambia cmux en este ordenador. Úsalo en un chat que se ejecute aquí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize modifie cmux sur cet ordinateur. Utilisez-le dans une conversation qui s'exécute ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize modifica cmux su questo computer. Usalo in una chat in esecuzione qui."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize はこのコンピュータの cmux を変更します。ここで動くチャットで使ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize ផ្លាស់ប្ដូរ cmux នៅលើកុំព្យូទ័រនេះ។ សូមប្រើវាក្នុងការជជែកដែលដំណើរការនៅទីនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize는 이 컴퓨터의 cmux를 변경합니다. 여기에서 실행되는 채팅에서 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize endrer cmux på denne datamaskinen. Bruk det i en chat som kjører her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize zmienia cmux na tym komputerze. Użyj go w czacie, który działa tutaj."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize altera o cmux neste computador. Use-o em um chat que roda aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize меняет cmux на этом компьютере. Используйте его в чате, который работает здесь."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize เปลี่ยน cmux บนคอมพิวเตอร์เครื่องนี้ ใช้ในแชทที่ทำงานบนเครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize bu bilgisayardaki cmux'u değiştirir. Burada çalışan bir sohbette kullan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize змінює cmux на цьому комп'ютері. Використовуйте його в чаті, який працює тут."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize thay đổi cmux trên máy tính này. Hãy dùng trong cuộc trò chuyện chạy tại đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize 会更改这台电脑上的 cmux。请在这台电脑上运行的聊天中使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/customize 會更改這台電腦上的 cmux。請在這台電腦上執行的聊天中使用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

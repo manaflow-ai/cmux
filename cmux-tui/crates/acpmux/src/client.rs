@@ -42,6 +42,9 @@ pub struct Client {
     /// The socket this client connected to: a list caller opens its v2 list on it
     /// (`cli/list_read.rs`).
     socket: std::path::PathBuf,
+    /// The wire ABI the daemon named at initialize (`_meta.acpmux.abi`); 0 for a daemon from
+    /// before the field ([`crate::protocol::peer_abi`]).
+    daemon_abi: std::sync::atomic::AtomicU32,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -57,6 +60,10 @@ pub struct Client {
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Print `_acpmux/admission_waiting` to stderr as it arrives
+    /// ([`Client::print_admission_waiting`]), rather than queue it behind a create that may
+    /// wait minutes for a new machine.
+    print_admission_waiting: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Client {
@@ -117,11 +124,13 @@ impl Client {
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let print_admission_waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let pending = Arc::new(PendingReplies::default());
         {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
+            let print_admission_waiting = print_admission_waiting.clone();
             tokio::spawn(async move {
                 tokio::pin!(lines);
                 while let Some(line) = lines.next().await {
@@ -134,6 +143,14 @@ impl Client {
                                     Some(e) => Err(e),
                                     None => Ok(result.unwrap_or(Value::Null)),
                                 });
+                            }
+                        }
+                        Message::Notification { method: ref name, ref params }
+                            if name == method::MUX_ADMISSION_WAITING
+                                && print_admission_waiting.load(Ordering::Relaxed) =>
+                        {
+                            if let Some(text) = admission_waiting_text(params.as_ref()) {
+                                eprintln!("{text}");
                             }
                         }
                         other => {
@@ -163,6 +180,7 @@ impl Client {
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             socket: path.to_path_buf(),
+            daemon_abi: std::sync::atomic::AtomicU32::new(0),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -172,7 +190,14 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
+            print_admission_waiting,
         })
+    }
+
+    /// Say on stderr, when it begins, that an Auto create waits for a machine being added
+    /// (`_acpmux/admission_waiting`, `hub/admission.rs`): `acpmux new --host auto`.
+    pub fn print_admission_waiting(&self) {
+        self.print_admission_waiting.store(true, Ordering::Relaxed);
     }
 
     async fn initialize(self: Arc<Self>, include_caller: bool) -> Result<Arc<Self>> {
@@ -217,6 +242,8 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
+        self.daemon_abi
+            .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -258,6 +285,12 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The daemon's wire ABI, as named at initialize; 0 for a daemon from before the field.
+    /// A newer surface is asked for by [`Client::daemon_lists`], not by comparing this.
+    pub fn daemon_abi(&self) -> u32 {
+        self.daemon_abi.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The CLI path reported by the daemon's app launcher, if any.
@@ -667,6 +700,12 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     .into()
 }
 
+/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
+fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
+    let warning = params?.get("warning")?.as_str()?;
+    Some(format!("acpmux: {warning}"))
+}
+
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
@@ -676,46 +715,5 @@ mod closed_tests;
 mod cancel_tests;
 
 #[cfg(test)]
-mod lineage_tests {
-    use super::*;
-
-    #[test]
-    fn a_session_new_names_the_env_tool_call_once() {
-        let p = json!({"cwd": "/tmp", "_meta": {"acpmux": {"name": "kid"}}});
-        let sent = with_spawn_tool_call(p.clone(), Some("toolu_7".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "toolu_7");
-        assert_eq!(sent["_meta"]["acpmux"]["name"], "kid");
-        assert_eq!(with_spawn_tool_call(p.clone(), None), p);
-        assert_eq!(with_spawn_tool_call(p.clone(), Some(String::new())), p);
-        let named = json!({"_meta": {"acpmux": {"spawnToolCallId": "mine"}}});
-        let sent = with_spawn_tool_call(named, Some("env".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "mine");
-        let bare = with_spawn_tool_call(json!({"cwd": "/tmp"}), Some("t".into()));
-        assert_eq!(bare["_meta"]["acpmux"]["spawnToolCallId"], "t");
-    }
-
-    #[test]
-    fn a_parentless_session_new_asks_for_no_parent() {
-        let sent = parentless(json!({"cwd": "/tmp", "_meta": {"acpmux": {"ephemeral": true}}}));
-        assert_eq!(sent["_meta"]["acpmux"]["parent"], Value::Null);
-        assert!(sent["_meta"]["acpmux"].as_object().unwrap().contains_key("parent"));
-        assert_eq!(sent["_meta"]["acpmux"]["ephemeral"], true);
-    }
-
-    /// The tag request goes only to a daemon that records no lineage: the CLI path of a
-    /// proven caller makes none, and a root the daemon made (an unproven caller) is never
-    /// tagged under the env's session.
-    #[test]
-    fn only_a_daemon_without_lineage_gets_the_spawned_by_tag() {
-        let recorded = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": "p"}}});
-        assert!(!reply_lacks_lineage(&recorded));
-        let root = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": null}}});
-        assert!(!reply_lacks_lineage(&root), "a new daemon's root is final");
-        let older_daemon = json!({"sessionId": "c", "_meta": {"acpmux": {"name": "c"}}});
-        assert!(reply_lacks_lineage(&older_daemon));
-        assert!(reply_lacks_lineage(&json!({"sessionId": "c"})));
-        let on_a_peer =
-            json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
-        assert!(reply_lacks_lineage(&on_a_peer));
-    }
-}
+#[path = "client_lineage_tests.rs"]
+mod lineage_tests;

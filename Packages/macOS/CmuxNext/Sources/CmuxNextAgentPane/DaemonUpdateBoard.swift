@@ -131,6 +131,7 @@ public final class DaemonUpdateBoard {
     /// Why an Update click did not run: the machine is gone from this run, or updates of other
     /// machines are off.
     public nonisolated static var updateRefused: String {
+        // retry-prompt-ok: an update replaces the machine's binaries
         String(localized: "agentPane.daemonUpdate.machines.updateRefused",
                defaultValue: "This machine can't be updated now. Try again once it's connected.", bundle: .localizedModule)
     }
@@ -169,6 +170,7 @@ public final class DaemonUpdateBoard {
         case .updating:
             String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's version…", bundle: .localizedModule)
         case .retrying:
+            // retry-prompt-ok: says the update retries by itself; no prompt
             String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .localizedModule)
         case .offline:
             String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .localizedModule)

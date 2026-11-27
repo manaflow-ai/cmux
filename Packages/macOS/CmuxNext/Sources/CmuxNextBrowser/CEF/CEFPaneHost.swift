@@ -40,6 +40,10 @@ final class CEFPaneHost {
     /// The placeholder's page is frozen as soon as its browser exists (the spare window, `CEFSpareWindow`):
     /// it is never shown, so Chromium never learns it is hidden and would run its frames and timers.
     var freezesPlaceholder = false
+    /// The placeholder's browser is made with no URL (no navigation, so no history entry) and the first
+    /// page that joins this window takes it as its own browser (`adoptPlaceholder`), with no `tab_add`:
+    /// the cmux pages' spare window (`CEFRuntime.pageSpareWindow`).
+    var adoptablePlaceholder = false
     /// An extension's popup window (chrome.windows.create type popup, fork
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
@@ -63,6 +67,8 @@ final class CEFPaneHost {
             guard let self else { return false }
             return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
         }
+        // A first-frame hold that a window change began ends with the grant of the tab shown then (as `holdFirstFrameIfAppeared`).
+        hostView.layerHosting.heldGrant = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -272,7 +278,7 @@ final class CEFPaneHost {
             #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
-            let initialURL = tab.takeInitialURLString()
+            let initialURL = adoptablePlaceholder && placeholder === tab ? "" : tab.takeInitialURLString()
             let create = {
                 CEFStartSteps.shared.createWindow {
                     shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
@@ -311,7 +317,7 @@ final class CEFPaneHost {
         }
         tab.isCreationPending = true
         let activates = visibleTab === tab
-        let spare = takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil
+        let spare = adoptPlaceholder(tab) ?? (takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil)
         let browser = spare ?? tabAdd(tab, anchor: anchor, activates: activates)
         if browser == 0 {
             tab.creationFailed()

@@ -1,5 +1,27 @@
 use super::*;
 
+/// A creation lease another holder keeps (a stuck producer) holds a probe only until the
+/// caller's deadline, for all ancestors together, and the error says it decided nothing.
+/// Before, each ancestor's wait took a fixed 30 s past any deadline.
+#[test]
+fn a_held_creation_lease_ends_the_probe_at_the_callers_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().canonicalize().unwrap().join("repo");
+    // A description of its own, as another process has: flock excludes the probe's.
+    let held = open(&creation_lock_path(&repo), true).unwrap();
+    let _held = try_take(held, Kind::Exclusive).unwrap().expect("the lease is free");
+    let started = Instant::now();
+    let result = probe_within(&repo, started + Duration::from_millis(200));
+    let took = started.elapsed();
+    let Err(error) = result else { panic!("the held lease ends the probe") };
+    assert!(lock_wait_elapsed(&error), "a wait that ran out, not a verdict: {error}");
+    assert!(took < Duration::from_secs(2), "the probe took {took:?} past its 200 ms");
+    let started = Instant::now();
+    let error = wait_ready(&repo, Duration::from_millis(200)).unwrap_err();
+    assert!(lock_wait_elapsed(&error));
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
 /// The window review F1 (cmux#38084, 8843ee22f76) found: the reader saw the marker locked,
 /// then the producer failed and dropped both locks. The head lock is free now, but the
 /// producer never marked its head, so the folder is not past its head.
@@ -130,5 +152,36 @@ fn a_reader_runs_on_what_the_ledger_holds_and_asks_for_the_rest() {
     let waited = wait_filled(&repo.join("a/x.rs"), short).unwrap_err();
     assert_eq!(waited.kind(), io::ErrorKind::TimedOut, "a new sync starts an empty ledger");
     drop(again);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Leo, 2026-11-25 (#17): "what if the user deletes the folders that were on their source of
+/// truth machines? ... say genshin. it can go partial and resume whenever." A copy whose source
+/// went away past its head ends ready with a note of why, so tools run on what landed; one
+/// short of its head may not; the sync that completes it later takes the note away.
+#[test]
+fn a_partial_sync_reads_ready_with_its_note_until_a_whole_sync_completes_it() {
+    let dir = std::env::temp_dir().join(format!("cmux-sync-partial-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let repo = dir.canonicalize().unwrap().join("repo");
+    // Short of its head: refused, and dropping it leaves the folder failed as before.
+    let early = Sync::begin(&repo).unwrap();
+    assert!(early.complete_partial("source_missing").is_err());
+    assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+    assert_eq!(partial(&repo), None);
+
+    let mut sync = Sync::begin(&repo).unwrap();
+    sync.head_ready();
+    sync.complete_partial("source_missing").unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    wait_ready(&repo, Duration::from_secs(1)).unwrap();
+    assert_eq!(partial(&repo).as_deref(), Some("source_missing"));
+
+    // The resume: a whole sync of the same folder.
+    let mut again = Sync::begin(&repo).unwrap();
+    again.head_ready();
+    again.complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    assert_eq!(partial(&repo), None);
     let _ = std::fs::remove_dir_all(&dir);
 }

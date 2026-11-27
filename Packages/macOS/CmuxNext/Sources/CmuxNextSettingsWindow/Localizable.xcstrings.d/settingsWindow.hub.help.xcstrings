@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.hub.help" : {
+      "comment" : "Settings > Integrations: card help under the title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link accounts once. Your rules decide what agents may do."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اربط حساباتك مرة واحدة. قواعدك تحدد ما يمكن للوكلاء فعله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Povežite račune jednom. Vaša pravila vode vaše agente."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forbind konti én gang. Dine regler styrer, hvad agenter må."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Konten einmal verknüpfen. Deine Regeln steuern die Agenten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vincula cuentas una vez. Tus reglas guían a tus agentes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liez vos comptes une fois. Vos règles guident vos agents."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Collega gli account una volta. Gli agenti seguono le regole."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アカウントは一度連携するだけ。エージェントにできることはルールで決まります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្ជាប់គណនីតែម្តង។ ច្បាប់របស់អ្នកសម្រេចថាភ្នាក់ងារអាចធ្វើអ្វីបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "계정은 한 번만 연결하세요. 에이전트가 할 수 있는 일은 규칙이 정합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koble til kontoer én gang. Reglene dine styrer agentene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Połącz konta raz. Twoje reguły określają, co robią agenci."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vincule contas uma vez. Suas regras guiam seus agentes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Подключите аккаунты один раз. Агентами правят ваши правила."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เชื่อมบัญชีครั้งเดียว กฎของคุณกำหนดว่าเอเจนต์ทำอะไรได้บ้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hesapları bir kez bağlayın. Ajanları kurallarınız yönetir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Під’єднайте акаунти один раз. Агентами керують ваші правила."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết tài khoản một lần. Quy tắc của bạn dẫn dắt tác tử."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "账户只需关联一次。代理能做什么由你的规则决定。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "帳號只需連結一次。代理能做什麼由你的規則決定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

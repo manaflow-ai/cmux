@@ -5,13 +5,12 @@
 // sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { memo, useContext, useId } from "react";
-import { formatDuration } from "../conversation/turns";
+import { memo, useId, useContext } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, SubagentHarnessContext, useNow } from "./subagentGroupModel";
+import { running, subagentTime, useNow, SubagentHarnessContext } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -68,7 +67,16 @@ export const AgentsPill = memo(function AgentsPill({
         <span>{t("subagents.pill", { n: live.length })}</span>
       </button>
       {open && (
-        <dialog ref={popover} id={listId} open className="ui-popup ui-glass acpmux-agents-list" aria-label={title}>
+        // "results": the list is a live status (agents start and end, elapsed times tick) with no
+        // input from the person, so its box follows its rows, never a settled one (ui/popupSettle.ts).
+        <dialog
+          ref={popover}
+          id={listId}
+          open
+          className="ui-popup ui-glass acpmux-agents-list"
+          data-popup-settle="results"
+          aria-label={title}
+        >
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
@@ -76,8 +84,9 @@ export const AgentsPill = memo(function AgentsPill({
                 {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
                   const state =
-                    (status === "running" && namedAction(t, agent.action, agent.actionShell)) ||
-                    t(subagentStatusLabel(agent, waiting));
+                    status === "running"
+                      ? (namedAction(t, agent.action, agent.actionShell) ?? "")
+                      : t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button
@@ -106,7 +115,7 @@ export const AgentsPill = memo(function AgentsPill({
                           <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
-                        <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>
+                        <span className="acpmux-agents-list__time">{subagentTime(agent, now)}</span>
                         <Icon name="disclosure.collapsed" size={12} />
                       </button>
                     </li>

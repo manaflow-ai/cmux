@@ -29,7 +29,7 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
 
     /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
     /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
-    public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
+    public static func read(cloudMachine machine: String, api: CloudDaemon) async -> RemoteAgentDaemonStatus? {
         guard let result = try? await api.exec(machine, command: cloudStatusCommand, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
         return RemoteAgentDaemonStatus(json: result.stdout)
     }
@@ -191,15 +191,15 @@ public actor RemoteApprovalPreparations {
 
     /// A new chat's keyed restart. `daemonSaidSafe` (the daemon answered that it may restart): at once. Else (an older
     /// daemon, or a start turning approvals on ahead of its chat): done when a run already holds the key (`held`), and
-    /// only an `idle` daemon restarts, a busy answer kept for a minute. False: the chat starts unkeyed, and its Allow
-    /// shows the normal restart notice.
+    /// only an `idle` daemon restarts, a busy answer kept for a minute (unless `cacheBusy` is false: a start's early read
+    /// beside its connect, asked again after it). False: the chat starts unkeyed, and its Allow shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, joinBudget: Duration? = nil, idle: @escaping @Sendable () async -> Bool,
-                        restart: @escaping @Sendable () async -> Bool) async -> Bool {
+                        restart: @escaping @Sendable () async -> Bool, cacheBusy: Bool = true) async -> Bool {
         let keyed = Self.timed("approvals.key") { [self] in guard await mayRestart(machine) else { return false }; return await restart() }
         let idleNow = Self.timed("approvals.status", idle)
         if daemonSaidSafe { return await run(machine: machine, keepBusy: false, joinBudget: joinBudget, keyed) }
         if held { return true }
-        return await run(machine: machine, keepBusy: true, joinBudget: joinBudget) {
+        return await run(machine: machine, keepBusy: cacheBusy, joinBudget: joinBudget) {
             guard await idleNow() else { return false }
             return await keyed()
         }
@@ -255,6 +255,19 @@ public actor RemoteApprovalPreparations {
             _ = await task.value
             throw error
         }
+    }
+
+    /// A start's preparation in two parts, owned as ``owned(_:_:)``: with `early`, `prepare(true)` runs beside `connect`
+    /// (which, when it throws, cancels and awaits it first); then `body` runs beside that answer or, when it was false (or
+    /// there was no early one), `prepare(false)`.
+    @MainActor public static func owned<T>(early: Bool, connect: @MainActor () async throws -> Void,
+                                           prepare: @escaping @MainActor @Sendable (_ early: Bool) async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let ahead: Task<Bool, Never>? = early ? Task { await prepare(true) } : nil // task-owner: awaited (or cancelled, then awaited) on every exit
+        do { try await connect() } catch { ahead?.cancel(); _ = await ahead?.value; throw error }
+        return try await owned({
+            if let ahead, await withTaskCancellationHandler(operation: { await ahead.value }, onCancel: { ahead.cancel() }) { return true }
+            return await prepare(false)
+        }, body)
     }
 }
 

@@ -23,6 +23,8 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main><main id=expected></main></body></html>", {
     url: "http://localhost/",
   });
+  // Each change shown at once: the line's dwell (LINE_DWELL_MS) has its own tests in Thinking.test.tsx.
+  dom.window.document.documentElement.dataset.liveDwell = "off";
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -53,7 +55,7 @@ afterEach(async () => {
 });
 
 /** The decorative branch of Thinking.tsx before the slot, verbatim: what the default must still draw. */
-function PreSlotDecorative({ label, verbs, elapsed }: { label: string; verbs: string[]; elapsed?: string }) {
+function PreSlotDecorative({ label, verbs }: { label: string; verbs: string[] }) {
   const verbSizes = verbs.map((word, index) => (
     <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
   ));
@@ -68,12 +70,11 @@ function PreSlotDecorative({ label, verbs, elapsed }: { label: string; verbs: st
         </span>
       }
       lit={
-        <>
-          <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-            {decorative && verbSizes}
-          </span>
-          {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
-        </>
+        // No lit copy of the time: the band stays in the words' box (Leo, 2026-11-25: "and the overlap
+        // when the glimmer goes to the end").
+        <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+          {decorative && verbSizes}
+        </span>
       }
     />
   );
@@ -86,7 +87,7 @@ test("the default variant draws the pre-slot live line's markup exactly", () => 
   expect(elapsed).toBeTruthy();
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking"]} elapsed={elapsed} />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking"]} />));
   expect(output.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });
@@ -120,7 +121,7 @@ test("the default variant's own component draws the pre-slot markup too", () => 
   );
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} />));
   expect(container.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });

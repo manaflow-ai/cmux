@@ -331,7 +331,7 @@ final class ComputerUseSetup {
         let resolveHelper = resolveHelper
         // task-owner: one bundle lookup per host identity; a newer one wins (resolvedFor).
         Task { [weak self] in
-            let url = await resolveHelper(running)
+            let url = await awaitConcurrently({ await resolveHelper(running) })
             guard let self, resolvedFor == .some(running) else { return }
             helperAppURL = url
         }

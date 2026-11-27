@@ -71,6 +71,8 @@ mod link;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
+#[path = "session_move_files.rs"]
+mod files;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -162,7 +164,10 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
 /// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
-/// the commit while the link is up; the bound is for a link that is down.
+/// the commit while the link is up; the bound is for a link on its way back (connecting,
+/// reconnecting, degraded). A link that is offline (never reached and its attempts failed,
+/// removed, or its token refused) ends the wait at once (`link_gone`): no row comes from it
+/// within the bound, and waiting it out cost every such move the whole 5 s.
 const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -201,6 +206,25 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     Err(why)
 }
 
+/// Why the peer `name` in a `_acpmux/peers` answer will not list a moved chat within the
+/// arrival bound: its link is offline (never reached and its attempts failed, or removed), or
+/// a person must act (its token refused, the peer too old). None while it is up or on its way.
+fn link_gone(peers: &Value, name: &str) -> Option<String> {
+    let peer = peers
+        .get("peers")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let link = peer.get("link").or_else(|| peer.get("state")).and_then(Value::as_str)?;
+    if !matches!(link, "offline" | "authFailed" | "updateRequired") {
+        return None;
+    }
+    Some(match peer.get("error").and_then(Value::as_str) {
+        Some(error) => format!("peer {link}: {error}"),
+        None => format!("peer {link}"),
+    })
+}
+
 /// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
 /// `observer` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
 /// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
@@ -214,6 +238,8 @@ async fn await_arrival(
 ) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
     let mut left = entries.to_vec();
+    // Chats already named late because their peer link is offline.
+    let mut done: Vec<(String, String)> = Vec::new();
     loop {
         let keys: Vec<&str> = left.iter().map(|(key, _)| key.as_str()).collect();
         let reply = observer
@@ -231,7 +257,30 @@ async fn await_arrival(
             }
         }
         if late.is_empty() || tokio::time::Instant::now() + poll > deadline {
-            return late.into_iter().map(|(_, id, why)| (id, why)).collect();
+            return done
+                .into_iter()
+                .chain(late.into_iter().map(|(_, id, why)| (id, why)))
+                .collect();
+        }
+        // A chat whose peer link is offline is not coming within the bound: name it now.
+        let mut gone = Vec::new();
+        if late.iter().any(|(key, _, _)| key.contains('/'))
+            && let Ok(peers) = observer.request("_acpmux/peers", json!({})).await
+        {
+            late.retain(|(key, id, _)| {
+                let peer = key.split_once('/').map(|(peer, _)| peer);
+                match peer.and_then(|peer| link_gone(&peers, peer)) {
+                    Some(why) => {
+                        gone.push((id.clone(), why));
+                        false
+                    }
+                    None => true,
+                }
+            });
+        }
+        done.extend(gone);
+        if late.is_empty() {
+            return done;
         }
         left = late.into_iter().map(|(key, id, _)| (key, id)).collect();
         tokio::time::sleep(poll).await;
@@ -263,11 +312,10 @@ async fn settle_arrivals(observer: &Client, outcomes: &mut [Outcome]) {
         o.reachable = Some(why.is_none());
         if let Some((_, why)) = why {
             eprintln!(
-                "move: {}: moved to {}, but this machine does not list it reachable there after \
-                 {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                "move: {}: moved to {}, but this machine does not list it reachable there \
+                 ({why}); it runs there, and `acpmux ls` shows it once the link is up",
                 o.name,
                 o.host.as_deref().unwrap_or("?"),
-                ARRIVAL_WAIT.as_secs()
             );
         }
     }
@@ -302,6 +350,8 @@ pub(crate) struct MoveArgs {
     /// `--from-snapshot`: the chats start on the target from this machine's copy of them
     /// (`session_move_snapshot.rs`), for a machine that does not answer.
     pub from_snapshot: bool,
+    /// `--as HARNESS`: the chats land on the target's harness HARNESS, one for the same agent.
+    pub as_harness: Option<String>,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -457,9 +507,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         if args.carry_changes {
             bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        Some(hub::resolve(&src, &args.host).await.with_context(|| {
-            format!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+        // The hub's own reason goes in the message: "not listed" and "not read yet" need
+        // different next steps, and `{}` of a context shows only the outer line.
+        Some(hub::resolve(&src, &args.host).await.map_err(|e| {
+            anyhow!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists ({e:#})",
                 args.host
             )
         })?)
@@ -598,6 +650,7 @@ fn carried_text(o: &Outcome) -> String {
 pub(super) async fn end_stale(
     sessions: &[String],
     from: Option<&str>,
+    take_back: bool,
     json_out: bool,
 ) -> Result<()> {
     if sessions.is_empty() {
@@ -624,7 +677,14 @@ pub(super) async fn end_stale(
     let mut failed = 0;
     for key in sessions {
         let ended = match resolve_id(&src, key).await {
-            Ok(id) => src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await,
+            Ok(id) => {
+                let ask = if take_back {
+                    json!({"sessionId": id, "takeBack": true})
+                } else {
+                    json!({"sessionId": id})
+                };
+                src.request("_acpmux/transfer_end_stale", ask).await
+            }
             Err(e) => Err(e),
         };
         match ended {
@@ -691,6 +751,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        as_harness: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -881,9 +942,8 @@ async fn move_steps(
     // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
     let opened =
         waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
-    let asked =
-        waiting(&o.name, "asking the target to take it", target_ask::ask(&opened.dst, &id, &info))
-            .await;
+    let ask = target_ask::ask(&opened.dst, &id, &info, args.as_harness.as_deref());
+    let asked = waiting(&o.name, "asking the target to take it", ask).await;
     let answer = match asked {
         Ok(answer) => answer,
         Err(e) => {
@@ -957,7 +1017,8 @@ async fn move_steps(
     if staged.is_none() {
         super::transfer::whole_freeze_refusal(&mut src_end, &id).await?;
     }
-    let begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    let mut begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    begun.as_harness = args.as_harness.clone();
     let prepared = waiting(
         &name,
         "making its folder on the target",
@@ -1048,6 +1109,7 @@ async fn prepare(
     let mut carry = None;
     let mut at = None;
     let mut bundle = None;
+    let mut packed: Option<Vec<u8>> = None;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1063,6 +1125,29 @@ async fn prepare(
         record.set("bundled", json!(true));
         base = Some((read.0.clone(), *dirty, c.top.clone()));
         bundle = Some(read);
+    }
+    if let (Folder::Plain { .. }, None, None) = (&folder, &checkout, &args.cwd) {
+        // Not in a git checkout, and the folder is not named on the target: its files go too
+        // (never the home folder itself).
+        if cwd != home {
+            let read = tokio::task::spawn_blocking({
+                let (dir, ssh) = (cwd.to_path_buf(), source.ssh().map(str::to_owned));
+                move || files::pack_folder(ssh.as_deref(), &dir)
+            })
+            .await??;
+            match read {
+                files::Packed::Files(bytes) => {
+                    record.set("filesCopied", json!(bytes.len()));
+                    packed = Some(bytes);
+                }
+                files::Packed::TooBig(n) => bail!(
+                    "{} is {n} bytes packed, over the {} a move carries: pass --cwd to run the chat in a folder that is already there, or send the folder with `cmux link seed`",
+                    cwd.display(),
+                    files::MAX_BYTES
+                ),
+                files::Packed::Missing => {}
+            }
+        }
     }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
@@ -1122,6 +1207,9 @@ async fn prepare(
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
         move || match (&folder, bundle) {
+            (Folder::Plain { cwd }, None) if packed.is_some() => {
+                files::unpack_folder(&host, cwd, packed.as_deref().unwrap_or_default())
+            }
             (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
                 unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
             }
@@ -1174,11 +1262,13 @@ async fn checkout_unless_named(
 /// The fixed script that reads the checkout a folder is in on a source machine (`--from`): the
 /// folder on stdin; `none`, or tab-separated `top`, `branch`, `origin` and `default` (origin's
 /// HEAD, `origin/main`) lines and a `dirty`
-/// line when it has uncommitted changes. Exit 3: git status failed.
+/// line when it has uncommitted changes. Exit 3: git status failed. A repository with no origin
+/// and no commit answers `none`, as [`checkout_of`] reads it.
 const CHECKOUT_SCRIPT: &str = r#"read -r d || exit 2
 top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) || { echo none; exit 0; }
 [ -n "$top" ] || { echo none; exit 0; }
 top=$(cd -- "$top" && pwd -P) || exit 2
+if ! git -C "$top" remote get-url origin >/dev/null 2>&1 && ! git -C "$top" rev-parse --verify -q HEAD >/dev/null; then echo none; exit 0; fi
 printf 'top\t%s\n' "$top"
 printf 'branch\t%s\n' "$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)"
 printf 'origin\t%s\n' "$(git -C "$top" remote get-url origin 2>/dev/null)"
@@ -1463,6 +1553,12 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let top = top.canonicalize().unwrap_or(top);
     let branch = git(&top, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
     let origin = git(&top, &["remote", "get-url", "origin"]).filter(|u| !u.is_empty());
+    // No origin and no commit (a home folder `git init`ed and never committed, as every lane VM's
+    // is): nothing to push or bundle, so it moves as the plain folder it is. Bundling it refused
+    // "it has no commit to carry", which kept a held VM's home-folder chats from ever draining.
+    if origin.is_none() && git(&top, &["rev-parse", "--verify", "-q", "HEAD"]).is_none() {
+        return Ok(None);
+    }
     let status = git(&top, &["status", "--porcelain", "--untracked-files=normal"])
         .ok_or_else(|| anyhow!("git status failed in {}", top.display()))?;
     let default_branch = git(&top, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])

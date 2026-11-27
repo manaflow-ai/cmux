@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DNS_SMOKE_COMMAND, dnsCheckProblems, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
+import { DNS_SCOPE_PATH, DNS_SMOKE_COMMAND, dnsCheckProblems, dnsScopeUnits, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
 import { runChild } from "./helpers/run-child";
 
 // cmux-dns-check runs against stubs of systemctl, journalctl, getent and tailscale on PATH and a
@@ -12,6 +12,29 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
+
+// The system tools the script may call, minus the machine's own tailscale: on a host that has it
+// (a fleet runner, a lane VM, both on the tailnet) /usr/bin/tailscale answered for a machine
+// stubbed without it, and "tailscale is not installed" never printed.
+let systemBin: string | undefined;
+function systemPath(): string {
+  if (systemBin) return systemBin;
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-dns-check-sys-"));
+  dirs.push(dir);
+  // Names already linked, not existsSync: that follows the link, so a dangling one in /usr/bin (a
+  // CI runner's rust-lld) reads as absent and the /bin pass then fails with EEXIST.
+  const linked = new Set<string>();
+  for (const from of ["/usr/bin", "/bin"]) {
+    if (!existsSync(from)) continue;
+    for (const name of readdirSync(from)) {
+      if (name === "tailscale" || name === "tailscaled" || linked.has(name)) continue;
+      linked.add(name);
+      symlinkSync(path.join(from, name), path.join(dir, name));
+    }
+  }
+  systemBin = dir;
+  return dir;
+}
 
 type Machine = {
   link?: boolean;
@@ -62,7 +85,7 @@ async function check(machine: Machine, args: string[] = []) {
     stub(dir, "tailscale", ts.status === "fail" ? "exit 1" : `[ "$1 $2" = "status --json" ] && cat ${path.join(dir, "status.json")}`);
   }
   const result = await runChild("bash", [SCRIPT, "--timeout", "0", ...args], {
-    env: { PATH: `${path.join(dir, "bin")}:/usr/bin:/bin`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
+    env: { PATH: `${path.join(dir, "bin")}:${systemPath()}`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
     timeout: 30_000,
   });
   let calls: string[] = [];
@@ -201,5 +224,131 @@ describe("cmux-dns-check", () => {
   test("bad usage exits 2", async () => {
     expect((await runChild("bash", [SCRIPT, "--bogus"])).status).toBe(2);
     expect((await runChild("bash", [SCRIPT, "--timeout", "x"])).status).toBe(2);
+  });
+});
+
+// cmux-dns-scope against a temp resolved.conf.d, run dir and resolv.conf, with systemctl, resolvectl and ip
+// stubbed (resolvectl keeps its link state in a file, as resolved does until it restarts).
+const SCOPE = path.join(MACHINE_HEALTH_DIR, "cmux-dns-scope");
+const EDGE_DROPIN = "[Resolve]\nDNS=\nDNS=10.32.0.28\nDomains=~.\n";
+const PUBLIC_DROPIN = "[Resolve]\nDNS=2606:4700:4700::1111 2001:4860:4860::8888 8.8.8.8 8.8.4.4\n";
+const FOREIGN_RESOLV = "options timeout:1 attempts:2\nnameserver 10.32.0.28\n";
+
+type Guest = { dir: string; conf: string; run: string; resolv: string; stub: string; log: string };
+
+function scopeGuest(opts: { edge?: boolean; resolv?: string } = {}): Guest {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-dns-scope-"));
+  dirs.push(dir);
+  const g = { dir, conf: path.join(dir, "conf.d"), run: path.join(dir, "run.d"), resolv: path.join(dir, "resolv.conf"), stub: path.join(dir, "stub-resolv.conf"), log: path.join(dir, "calls") };
+  mkdirSync(g.conf);
+  mkdirSync(path.join(dir, "bin"));
+  writeFileSync(path.join(g.conf, "60-freestyle-vms.conf"), PUBLIC_DROPIN);
+  if (opts.edge ?? true) writeFileSync(path.join(g.conf, "61-freestyle-tls.conf"), EDGE_DROPIN);
+  writeFileSync(g.stub, "nameserver 127.0.0.53\noptions edns0 trust-ad\n");
+  if (opts.resolv === undefined) writeFileSync(g.resolv, FOREIGN_RESOLV);
+  else if (opts.resolv === "link") symlinkSync(g.stub, g.resolv);
+  else writeFileSync(g.resolv, opts.resolv);
+  stub(dir, "systemctl", `echo "systemctl $*" >> ${g.log}; rm -f ${dir}/link-dns ${dir}/link-domain`);
+  stub(dir, "ip", `[ "$2" = -4 ] && echo "default via 169.254.77.1 dev eth0 "`);
+  stub(dir, "resolvectl", [
+    `echo "resolvectl $*" >> ${g.log}`,
+    'f=""; case "$1" in dns) f=link-dns ;; domain) f=link-domain ;; default-route) exit 0 ;; esac',
+    `if [ $# -gt 2 ]; then shift 2; echo "$*" > ${dir}/$f; else echo "Link 3 ($2): $(cat ${dir}/$f 2>/dev/null)"; fi`,
+  ].join("\n"));
+  return g;
+}
+
+async function scope(g: Guest) {
+  writeFileSync(g.log, "");
+  const r = await runChild("bash", [SCOPE], {
+    env: { PATH: `${path.join(g.dir, "bin")}:${systemPath()}`, CMUX_DNS_CONF_DIR: g.conf, CMUX_DNS_RUN_DIR: g.run, CMUX_DNS_RESOLV_CONF: g.resolv, CMUX_DNS_STUB: g.stub },
+    timeout: 30_000,
+  });
+  return { code: r.status, stdout: r.stdout, calls: readFileSync(g.log, "utf8").trim().split("\n").filter(Boolean) };
+}
+
+describe("cmux-dns-scope", () => {
+  test("parses; the units run it from the provider's drop-in, resolv.conf and the stub", async () => {
+    expect((await runChild("bash", ["-n", SCOPE])).status).toBe(0);
+    const units = dnsScopeUnits();
+    expect(units["/etc/systemd/system/cmux-dns-scope.service"]).toContain(`ExecStart=${DNS_SCOPE_PATH}`);
+    const pathUnit = units["/etc/systemd/system/cmux-dns-scope.path"];
+    for (const watched of ["/etc/systemd/resolved.conf.d/61-freestyle-tls.conf", "/etc/resolv.conf", "/run/systemd/resolve/stub-resolv.conf"]) {
+      expect(pathUnit).toContain(`PathChanged=${watched}`);
+    }
+    expect(resolverBakeCommand()).toContain("systemctl enable --now cmux-dns-scope.path");
+  });
+
+  test("the image roll's edge-rule clone (runs 45779971043, 45774103440): public resolvers behind the edge one", async () => {
+    const g = scopeGuest();
+    const r = await scope(g);
+    expect(r.code).toBe(0);
+    // The edge resolver stays first for every name; the public ones answer when it does not.
+    const ours = readFileSync(path.join(g.run, "62-cmux-dns-scope.conf"), "utf8");
+    expect(ours).toContain("[Resolve]\nDNS=\nDNS=10.32.0.28 2606:4700:4700::1111 2001:4860:4860::8888 8.8.8.8 8.8.4.4\nDomains=~.\n");
+    expect(r.calls).toContain("systemctl restart systemd-resolved.service");
+    // *.cmux.internal only ever goes to the edge resolver, on the default-route link.
+    expect(r.calls).toContain("resolvectl dns eth0 10.32.0.28");
+    expect(r.calls).toContain("resolvectl domain eth0 ~cmux.internal");
+    expect(r.calls).toContain("resolvectl default-route eth0 false");
+    // The provider's plain resolv.conf goes back to the stub, so every program asks resolved.
+    expect(readlinkSync(g.resolv)).toBe(g.stub);
+  });
+
+  test("a second pass with everything in place changes nothing; a resolved restart gets the link back", async () => {
+    const g = scopeGuest();
+    await scope(g);
+    const quiet = await scope(g);
+    expect(quiet.calls).toEqual(["resolvectl dns eth0", "resolvectl domain eth0"]);
+    expect(quiet.stdout).toBe("");
+    // A restart of resolved (cmux-dns-check --restart, machine-health's heal) forgets runtime link settings;
+    // it rewrites the stub, the path unit runs the script, and the link comes back without another restart.
+    rmSync(path.join(g.dir, "link-dns"));
+    rmSync(path.join(g.dir, "link-domain"));
+    const again = await scope(g);
+    expect(again.calls).toEqual(["resolvectl dns eth0", "resolvectl domain eth0", "resolvectl dns eth0 10.32.0.28", "resolvectl domain eth0 ~cmux.internal", "resolvectl default-route eth0 false"]);
+  });
+
+  test("a machine without the provider's TLS drop-in is left alone, and loses a stale drop-in of ours", async () => {
+    const g = scopeGuest({ edge: false, resolv: "link" });
+    const r = await scope(g);
+    expect(r.code).toBe(0);
+    expect(r.calls).toEqual([]);
+    expect(existsSync(path.join(g.run, "62-cmux-dns-scope.conf"))).toBe(false);
+    mkdirSync(g.run);
+    writeFileSync(path.join(g.run, "62-cmux-dns-scope.conf"), "stale\n");
+    const stale = await scope(g);
+    expect(existsSync(path.join(g.run, "62-cmux-dns-scope.conf"))).toBe(false);
+    expect(stale.calls).toEqual(["systemctl try-reload-or-restart systemd-resolved.service"]);
+  });
+
+  test("a stub resolved is still rewriting after the restart is waited for, then linked (roll 45939027983)", async () => {
+    const g = scopeGuest();
+    rmSync(g.stub);
+    // The restart rewrites the stub a moment later, as resolved does.
+    stub(g.dir, "systemctl", `echo "systemctl $*" >> ${g.log}; rm -f ${g.dir}/link-dns ${g.dir}/link-domain; ( sleep 1; printf 'nameserver 127.0.0.53\\n' > ${g.stub} ) >/dev/null 2>&1 &`);
+    const r = await scope(g);
+    expect(r.calls).toContain("systemctl restart systemd-resolved.service");
+    expect(lstatSync(g.resolv).isSymbolicLink()).toBe(true);
+    expect(r.stdout).toContain(`linked ${g.resolv} to ${g.stub}`);
+  });
+
+  test("a stub that never names a nameserver leaves the plain file, within the bound", async () => {
+    const g = scopeGuest();
+    writeFileSync(g.stub, "");
+    const started = Date.now();
+    const r = await runChild("bash", [SCOPE], {
+      env: { PATH: `${path.join(g.dir, "bin")}:${systemPath()}`, CMUX_DNS_CONF_DIR: g.conf, CMUX_DNS_RUN_DIR: g.run, CMUX_DNS_RESOLV_CONF: g.resolv, CMUX_DNS_STUB: g.stub, CMUX_DNS_STUB_WAIT_S: "2" },
+      timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(readFileSync(g.resolv, "utf8")).toBe(FOREIGN_RESOLV);
+  });
+
+  test("a resolv.conf that names any other server is not replaced", async () => {
+    const g = scopeGuest({ resolv: "nameserver 10.32.0.28\nnameserver 192.0.2.53\n" });
+    await scope(g);
+    expect(readFileSync(g.resolv, "utf8")).toBe("nameserver 10.32.0.28\nnameserver 192.0.2.53\n");
   });
 });
