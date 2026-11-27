@@ -18,6 +18,7 @@ import {
 } from "./computerUse/computerUsePreview";
 import { applyHostEvent, HOST_EVENTS, startHostEvents, VIEW_EVENT_KINDS, type HostEvent } from "./pageHost";
 import { settleReact } from "../../../test/support/domTeardown";
+import { bridgeFor, bridgeViews, registerViewBridge, type AcpmuxBridge } from "./pane/viewBridges";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -154,4 +155,38 @@ test("each view subscribes to host events once, with its view filter", async () 
   subs[1]!.onEvent({ kind: "paneNotices", value: [{ id: "n", title: "Only a" }] });
   expect(paneNotices("a").map((notice) => notice.title)).toEqual(["Only a"]);
   expect(paneNotices()).toEqual([]);
+});
+
+test("a chat's command reaches its view's bridge, never another chat's", () => {
+  installDom();
+  const ran: string[] = [];
+  const bridge = (label: string) =>
+    ({
+      receive: () => {},
+      toggleInspector: () => false,
+      applyTheme: () => {},
+      applyCustomization: () => {},
+      command: (name: string, session?: string) => ran.push(`${label}:${name}:${session ?? ""}`),
+      revealTurn: (turn: string) => ran.push(`${label}:reveal:${turn}`),
+    }) as AcpmuxBridge;
+  window.cmuxAcpmuxBridge = bridge("page");
+  const dropA = registerViewBridge("a", bridge("a"));
+  const dropB = registerViewBridge("b", bridge("b"));
+  applyHostEvent({ kind: "command", value: "continueIn" }, "a");
+  applyHostEvent({ kind: "stopTurn", value: "s2" }, "b");
+  applyHostEvent({ kind: "revealTurn", value: "t1" }, "b");
+  applyHostEvent({ kind: "command", value: "continueIn" });
+  // A view nothing registered (closed, or not mounted yet) gets nothing, not the document's bridge.
+  applyHostEvent({ kind: "command", value: "continueIn" }, "c");
+  expect(ran).toEqual(["a:continueIn:", "b:stopTurn:s2", "b:reveal:t1", "page:continueIn:"]);
+  expect(VIEW_EVENT_KINDS.has("command")).toBe(true);
+  // A stale unregister (a remount replaced the view's bridge) leaves the new one.
+  const replacement = bridge("a2");
+  const dropA2 = registerViewBridge("a", replacement);
+  dropA();
+  expect(bridgeFor("a")).toBe(replacement);
+  dropA2();
+  dropB();
+  expect(bridgeViews()).toEqual([]);
+  delete window.cmuxAcpmuxBridge;
 });

@@ -1,5 +1,6 @@
 public import CmuxHomeCore
 public import Foundation
+import CmuxNextHomeModel
 
 /// The owner behind New Message's blank page: one empty conversation that
 /// only exists on this Mac, so the page shows Home's own message box (the
@@ -47,16 +48,18 @@ public struct HomeNewMessageComposerSource: HomeSource {
     public func inbox() async throws -> InboxSnapshot { InboxSnapshot(me: me, conversations: [summary], rev: 1) }
 
     public func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
-        guard conversation == Self.conversation else { throw HomeRejection.invalid("new_message.unknown_conversation") }
+        try Self.gate("composerSource.snapshot", Gate.Request(op: nil, conversation: conversation.rawValue))
         return ConversationPage(conversation: summary, messages: [])
     }
 
     public func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] { [] }
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
-        guard case .sendMessage(let conversation, let parts, _, _) = intent.op, conversation == Self.conversation else {
+        guard case .sendMessage(let conversation, let parts, _, _) = intent.op else {
+            try Self.gate("composerSource.submit", Gate.Request(op: "other", conversation: nil))
             throw HomeRejection.invalid("new_message.unsupported")
         }
+        try Self.gate("composerSource.submit", Gate.Request(op: "sendMessage", conversation: conversation.rawValue))
         return try await send(parts)
     }
 
@@ -64,5 +67,22 @@ public struct HomeNewMessageComposerSource: HomeSource {
 
     public func resolve(_ contact: ContactAddress) async throws -> ContactResolution {
         throw HomeRejection.invalid("new_message.unsupported")
+    }
+
+    /// Runs one of the source's gates (`compose.composerSource.*`); its refusal throws as the owner's.
+    private static func gate(_ op: String, _ request: Gate.Request) throws {
+        let gate: Gate = HomeComposeRules().call(op, request, fallback: Gate(ok: false, invalid: "new_message.unsupported"))
+        if !gate.ok { throw HomeRejection.invalid(gate.invalid ?? "new_message.unsupported") }
+    }
+
+    /// A gate's answer: through, or the `HomeRejection.invalid` reason.
+    private struct Gate: Decodable {
+        struct Request: Encodable {
+            var op: String?
+            var conversation: String?
+        }
+
+        var ok: Bool
+        var invalid: String?
     }
 }

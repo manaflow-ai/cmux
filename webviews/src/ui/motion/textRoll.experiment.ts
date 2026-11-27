@@ -1,11 +1,13 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
 
-/// How deep the text roll's edges fade and how long it takes (TextRoll.tsx, motion.css "Text roll").
-/// Leo, 2026-11-25, on a subagent activity row and the thinking line: "the animation when it changes
-/// text at least in teh former is still quite jarring bc it doesn't fade at the top/bottom when
-/// switching". Every arm rolls the old words out and the new in through faded edges; they differ in
-/// the fade's depth and the roll's pace. Compare them in the gallery's `agent-pane.live-line-text-swap`.
+/** How deep the text roll's edges fade and how long it takes (TextRoll.tsx, motion.css "Text roll").
+ * Leo, 2026-11-25, on a subagent activity row and the thinking line: "the animation when it changes
+ * text at least in teh former is still quite jarring bc it doesn't fade at the top/bottom when
+ * switching". Every arm rolls the old words out and the new in through faded edges; they differ in
+ * the fade's depth and the roll's pace. Compare them in the gallery's `agent-pane.live-line-text-swap`.
+ * @status experimental
+ */
 export const textRollLook = defineExperiment({
   id: "text-roll-look",
   title: "Text roll: edge fade and pace",

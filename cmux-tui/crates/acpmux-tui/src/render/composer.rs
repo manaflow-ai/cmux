@@ -236,11 +236,10 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
     };
     let (policy_text, policy_style) = policy_visual(&policy, c);
     put(buf, &mut x, &policy_text, policy_style, Some(ButtonAction::PickPolicy), &mut chips);
-    // Harness modes that are the plain default carry no information.
-    if !on_draft
-        && !mode.is_empty()
-        && !matches!(mode.as_str(), "default" | "normal" | "agent" | "build")
-    {
+    // A harness's plain default mode carries no information, and modes that only copy another
+    // option (Pi's thinking levels) are no mode (`modes.rs`).
+    let detail = app.selected_id().and_then(|id| app.details.get(&id));
+    if !on_draft && crate::modes::shows_mode_chip(&mode, detail) {
         put(buf, &mut x, "   ", Style::default(), None, &mut chips);
         put(buf, &mut x, &mode_label(&mode), c.muted(), Some(ButtonAction::PickMode), &mut chips);
     }

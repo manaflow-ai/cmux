@@ -1393,6 +1393,19 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## A delivered session in simulator builds (`CMUX_MOBILE_STACK_REFRESH_TOKEN`)
+
+A fleet step's own session (hq build-fleet `sign_in`, `scripts/lib/fleet-signin-session.sh`) reaches
+the app as `CMUX_MOBILE_STACK_REFRESH_TOKEN` in one `simctl launch` environment.
+`CmuxMobileAuthModel.launchTokenStore` adopts it, while the app's own store holds no session, in DEBUG
+builds and in a simulator build of any configuration, so a probe can sign in a Production simulator
+build. The gate is compile time (`#if DEBUG || targetEnvironment(simulator)`): no device binary
+(TestFlight, App Store, a signed development install) contains the read. The build's Stack project
+is unchanged, so a Production build takes only a production session. The token goes only to the
+app's keychain store, is never logged and never in argv, and becomes the app's own session, which
+a sign-out revokes. Whoever can set a simulator app's launch environment already owns its container
+and keychain, so this gives them nothing new.
+
 ## Dev auto-approve (DEBUG tagged dev builds)
 
 A tagged dev Mac pairs its own tag's iPhone app without the person-only "Allow “<phone>” to
@@ -1576,3 +1589,20 @@ link request.
   until approved.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.
+
+## Not from a phone: API tokens (Settings > Developer, RFD 0183)
+
+The Mac's Settings > Developer page makes, lists and revokes personal and team API tokens (`cmux_pat_`) and team
+GitHub Actions rules (cmux#56806). Its page ops, `cmux.settings.tokens.state` and `cmux.settings.tokens.run`, are
+served only by the Mac's settings page bridge (`CmuxNextAgentIntegrations/SettingsDeveloperTokens.swift`), which runs
+the bundled `cmux token ... --json`. No link service carries them: they are on neither the daemon allowlist
+(`policy.rs`, `DaemonLanePolicy.swift`) nor any other service's, so a phone request for them is refused as any
+unlisted op is.
+
+Why it is kept off the phone: a token lasts up to a year (or never expires), holds account scopes beyond any
+one Mac and is shown once. A paired phone is trusted to act on its owner's Mac, not to issue account credentials. Offering
+minting from the phone would let a stolen or borrowed phone make lasting credentials that outlive revoking the phone's pairing.
+That is a new trust class, so it needs its own section here before any phone surface. Revocation alone is the likely first
+candidate (it only removes access), and it would talk to Cloud with the account's sign-in, not through the Mac.
+
+Parity row: `verify/parity-mac/2026-11-25-developer-api-tokens.md` (not from a phone).
