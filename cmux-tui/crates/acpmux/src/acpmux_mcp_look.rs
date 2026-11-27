@@ -30,12 +30,13 @@ pub(super) fn answer(reply: &Value) -> Value {
     };
     let moved = reply.get("movedBits").and_then(Value::as_u64).unwrap_or(0);
     let tab = reply.get("tab").and_then(Value::as_str).unwrap_or("?");
+    let location = reply.get("url").and_then(Value::as_str).unwrap_or(tab);
     let kept = match reply.get("kept").and_then(Value::as_u64) {
         Some(i) => format!("kept as frame {i} in the chat's strip"),
         None => "same picture as the last frame".to_owned(),
     };
     let line = format!(
-        "tab {tab}, {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
+        "tab {tab} ({location}), {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
         reply["width"], reply["height"]
     );
     json!({

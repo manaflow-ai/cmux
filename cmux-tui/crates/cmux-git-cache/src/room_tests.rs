@@ -20,6 +20,17 @@ fn floor_is_capped_on_big_disks() {
 }
 
 #[test]
+fn a_write_must_end_above_the_floor() {
+    let gib = 1u64 << 30;
+    // fs-agent-lane-24: 63 GiB disk (floor 15.75 GiB), 31 GiB free, a 15.5 GiB cmux mirror.
+    assert!(above_floor(31 * gib, 63 * gib), "the old check let the fill start");
+    assert!(!room_after(31 * gib, 63 * gib, 31 * gib / 2), "it would end under the floor");
+    assert!(room_after(40 * gib, 63 * gib, 15 * gib));
+    assert!(!room_after(gib, 63 * gib, 2 * gib), "more than is free never wraps around");
+    assert!(room_after(0, 0, u64::MAX), "an unmeasured filesystem is never refused");
+}
+
+#[test]
 fn space_reads_the_nearest_existing_ancestor() {
     let dir = tempfile::tempdir().unwrap();
     let missing = dir.path().join("team/github.com/o/r.git");
