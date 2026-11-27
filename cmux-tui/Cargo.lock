@@ -93,7 +93,9 @@ dependencies = [
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
+ "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
@@ -2142,6 +2144,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-error-journal"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
@@ -2349,6 +2362,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -3078,6 +3092,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
+ "cmux-tui-util",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -3857,6 +3872,7 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3874,6 +3890,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-url-input"

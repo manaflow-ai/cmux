@@ -74,7 +74,10 @@ impl Reject {
     pub fn message(&self) -> String {
         match self {
             Reject::Closed(_) => "the request already closed".to_owned(),
-            Reject::Moving => "the item is moving to the cloud owner; try again".to_owned(),
+            Reject::Moving => {
+                "the item is moving to the cloud owner, so this answer was not applied yet"
+                    .to_owned()
+            }
             Reject::Invalid(message) | Reject::Other(message) => message.clone(),
             Reject::Disconnected => "the feed owner is unreachable".to_owned(),
         }

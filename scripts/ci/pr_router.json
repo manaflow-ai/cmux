@@ -209,8 +209,23 @@
     "ready_for_review",
     "labeled"
    ],
+   "affects": [
+    "webviews/**",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+    "schemas/**",
+    "release-notes/next/**",
+    "Resources/**",
+    "Packages/macOS/**",
+    "scripts/cmux-next/**",
+    "scripts/*webviews*",
+    "examples/**",
+    "clients/ts/**",
+    "config/vite-plus/**",
+    "web/data/**"
+   ],
+   "affects_why": "The preflight reads web-bundle-key.py --routed: all webviews, its checked-in protocol IR, design and type schemas, release highlights, Resources and macOS catalogs, the web bundle builders and Bun pin, plus the external files imported by shipped webviews (examples, cloud generated types, vite-plus checks and the model catalog). These directory supersets fail open for newly added imports, while docs, Rust sources outside the protocol IR and unrelated tooling do not start the Linux runner. Unknown changed files still start it because pr_router.py routes more when it cannot read the diff.",
    "draft": true,
-   "affects_why": "No path filter, and its caller job in pr-router.yml has no `start` gate: the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build."
+   "draft_why": "A web-affecting draft still gets the fast build safety check; an unaffected draft has no compile-preflight caller job."
   },
   "cmux-next-fast-gates.yml": {
    "types": [
