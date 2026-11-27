@@ -756,8 +756,8 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
 
 /// `inbox_read` of one thread. The daemon answers a thread id it does not hold with no messages
 /// and no error, so a mistyped id read as an empty thread: on 2026-11-27 seven lanes woken with
-/// Leo's asks called it with ids of the right shape and every letter changed
-/// (`uegh:pewclu-yfka/jcoyso-uf6-xrjkw` for `from:cosmic-gray/claude-sr2-coord`), read nothing,
+/// the person's asks called it with ids of the right shape and every letter changed
+/// (`uegh:pew-yfka/jcoy-uf6-xrjkw` for `from:mac-gray/lead-sr2-coord`), read nothing,
 /// and ended their turns. An id this inbox does not list is read as its one listed thread of the
 /// same shape (`thread_like`), and said; with none, the answer is an error naming the threads.
 async fn read_thread(daemon: &Arc<Client>, session: &str, thread: &str, args: &Value) -> Value {
