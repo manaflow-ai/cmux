@@ -59,6 +59,8 @@ jobs:
       - name: split-scale (quick) on the bench Mac
         env:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
+          # The measure script's own build config (split-spring.sh --config=...): a bench build for the fleet step, never a shipped one.
+          MEASURE_CONFIG: bench
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -77,7 +79,7 @@ jobs:
             --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout 3600 \
             --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/split-spring/report.json \
-            --arg=--suite=split-scale --arg=--config=bench --arg=--quick --arg=--vdisplay=120 \
+            --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
             2>&1 | tee "$log" || echo "::warning title=Split table::the fleet step did not finish (report-only: nothing fails)"
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
           if [[ -n "$step" ]]; then
