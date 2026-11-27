@@ -208,7 +208,10 @@ public final class LiveCoordinator {
     @ObservationIgnored private var pinnedTeamID: String?
     /// What this account last saw (restored at launch, saved as it changes).
     @ObservationIgnored private let snapshots: LiveSnapshotStore
-    @ObservationIgnored private var snapshot: LiveSnapshot?
+    @ObservationIgnored private var snapshot: LiveSnapshot? { didSet { snapshotGeneration &+= 1 } }
+    /// Moves whenever `snapshot` is set (restore, save): part of ``SnapshotSaveGate``'s key.
+    @ObservationIgnored private var snapshotGeneration = 0
+    @ObservationIgnored private var snapshotSaveGate = SnapshotSaveGate()
     @ObservationIgnored private var snapshotSavePending = false
     /// Reads the cached rows past each Mac's first screen, after launch (`restoreRest`).
     @ObservationIgnored private var restTask: Task<Void, Never>?
@@ -640,25 +643,43 @@ public final class LiveCoordinator {
 
     private func saveSnapshot() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
-        var saved = snapshot?.teamID == team.id ? snapshot?.workspaces ?? [:] : [:]
+        let live = team.macs.map(\.id).filter { store.macData[$0]?.source == .live }
+        let key = SnapshotSaveGate.Key(team: team, workspacesRevision: store.workspacesRevision,
+                                       pending: store.pendingWorkspaceIDs, liveMacIDs: live,
+                                       linkedMacID: focusedMacID ?? snapshot?.linkedMacID, snapshotGeneration: snapshotGeneration)
+        let now = Date()
+        // Every one-row workspace event lands here: with nothing it reads changed, it would build
+        // the same snapshot again at O(workspaces) on the main actor (a filter per Mac and a
+        // compare of every row), so it stops in O(Macs).
+        if snapshotSaveGate.unchanged(key, snapshot: snapshot, now: now, stampInterval: Self.snapshotStampInterval) { return }
+        defer { snapshotSaveGate.saved(key, generation: snapshotGeneration) }
+        let next = Self.snapshotToSave(team: team, workspaces: store.workspaces, isPending: store.isPending,
+                                       liveMacIDs: live, linkedMacID: key.linkedMacID, previous: snapshot,
+                                       now: now, stampInterval: Self.snapshotStampInterval)
+        guard next != snapshot else { return }
+        snapshot = next
+        snapshots.save(next, accountID: userID)
+    }
+
+    /// The snapshot ``saveSnapshot()`` saves for these inputs (the whole-list build the gate skips).
+    static func snapshotToSave(team: Team, workspaces: [Workspace], isPending: (String) -> Bool, liveMacIDs: [String],
+                               linkedMacID: String?, previous: LiveSnapshot?, now: Date,
+                               stampInterval: TimeInterval) -> LiveSnapshot {
+        var saved = previous?.teamID == team.id ? previous?.workspaces ?? [:] : [:]
         let macIDs = Set(team.macs.map(\.id))
         saved = saved.filter { macIDs.contains($0.key) }
-        for mac in team.macs where store.macData[mac.id]?.source == .live {
-            let workspaces = store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }
+        for macID in liveMacIDs {
+            let workspaces = workspaces.filter { $0.macID == macID && !isPending($0.id) }
             // The same workspaces keep their stamp for up to a minute: a fresh `savedAt` on every
             // save made each one differ from the last, so the guard below never held and every
             // change anywhere rewrote the file. The stamp still says when they were last live,
             // to the minute.
-            let now = Date()
-            if let held = saved[mac.id], held.workspaces == workspaces,
-               now.timeIntervalSince(held.savedAt) < Self.snapshotStampInterval { continue }
-            saved[mac.id] = .init(workspaces: workspaces, savedAt: now)
+            if let held = saved[macID], held.workspaces == workspaces,
+               now.timeIntervalSince(held.savedAt) < stampInterval { continue }
+            saved[macID] = .init(workspaces: workspaces, savedAt: now)
         }
-        let next = LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
-                                linkedMacID: focusedMacID ?? snapshot?.linkedMacID, workspaces: saved)
-        guard next != snapshot else { return }
-        snapshot = next
-        snapshots.save(next, accountID: userID)
+        return LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
+                            linkedMacID: linkedMacID, workspaces: saved)
     }
 
     // MARK: Teams
