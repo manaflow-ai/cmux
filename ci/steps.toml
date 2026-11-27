@@ -314,6 +314,47 @@ python3 tests/test_nightly_guard_steps.py
 python3 scripts/ci/nightly_guard_steps.py
 '''
 
+# ci-guards.yml's ci group, which a feat-cmux-next pull request reached only through cmux-next-guards.yml's
+# ci-guard-group: a Tier B pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #57964
+# added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
+# test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
+# by #59707). Any Python or JSON change now runs it before the merge.
+[step.cdn-user-agent]
+job = "linux"
+timeout = 300
+title = "CDN readers name their client"
+about = "every read of a cmux CDN host (files-next.cmux.com and the rest) sends a User-Agent, since the CDN refuses Python-urllib's default with 403 error code 1010"
+inputs = ["**/*.py", "**/*.json"]
+run = '''
+python3 tests/test_ci_cdn_user_agent.py
+'''
+
+# The other cheap (under 2 s each) pure-Python guards of ci-guards.yml's ci group that a feat-cmux-next pull
+# request skipped for the same reason (cdn-user-agent, above), on the scripts and workflows they read.
+[step.ci-group-guards]
+job = "linux"
+timeout = 300
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict and that routed jobs check the results of what they need"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/ci_timing_readout.py",
+  "scripts/ci/check_repo_variables.py",
+  "scripts/ci/ios_fast_verdict.*",
+  "tests/test_ci_timing_readout.py",
+  "tests/test_ci_check_repo_variables.py",
+  "tests/test_ci_ios_fast_verdict.py",
+  "tests/test_ci_routed_jobs_check_needs.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_timing_readout.py || status=1
+python3 tests/test_ci_check_repo_variables.py || status=1
+python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 tests/test_ci_routed_jobs_check_needs.py || status=1
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300
@@ -381,6 +422,44 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
+# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
+# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
+# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
+# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
+# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
+# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
+# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+[step.page-strings]
+job = "linux"
+timeout = 300
+alone = true
+# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+pr_scope = false
+title = "Page strings generate with no missing translation"
+about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
+needs = ["node"]
+inputs = [
+  "**/*.xcstrings",
+  "schemas/settings/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/**",
+  "scripts/cmux-next/linux-exports/**",
+  "scripts/cmux-next/export-settings-linux.sh",
+  "scripts/cmux-next/settings-exports.txt",
+  "scripts/cmux-next/string_catalogs.py",
+  "webviews/scripts/pages/**",
+]
+run = '''
+rc=0
+bash scripts/cmux-next/export-settings-linux.sh || rc=$?
+if [ "$rc" = 2 ]; then
+  echo "::notice::the Linux settings export cannot decide; checking the committed export (the Mac export decides)"
+elif [ "$rc" != 0 ]; then
+  exit "$rc"
+fi
+CMUX_STRINGS_BEST_EFFORT="" node webviews/scripts/pages/gen-strings.mjs
+'''
+
 [step.labels-manifest]
 job = "linux"
 timeout = 120
