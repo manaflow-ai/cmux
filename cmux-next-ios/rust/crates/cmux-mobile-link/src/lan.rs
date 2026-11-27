@@ -906,6 +906,52 @@ mod tests {
         assert!(dial(&phone, &mac, vec![target], &timeline).await.is_err());
     }
 
+    /// A dual-homed Mac (two addresses on one subnet) answers from whichever
+    /// address the kernel picks, not always the one the phone dialed. Here the
+    /// phone dials 127.0.0.2 and the Mac, bound to 0.0.0.0, answers from
+    /// 127.0.0.1. The link must come up and keep carrying traffic.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_reply_from_another_mac_address_keeps_the_link() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let seconds: u64 =
+            std::env::var("CMUX_LAN_DUALHOME_SECONDS").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+        let host = LanHost::start(LanIdentity::generate(), 0, None, true).await.unwrap();
+        let phone = LanIdentity::generate();
+        let reply =
+            host.enroll("phone-1", &LanEnrollRequest { phone_key: phone.public_b64() }).await.unwrap();
+        let mac = LanMac::from_reply(&reply).unwrap();
+        let target: SocketAddr = (Ipv4Addr::new(127, 0, 0, 2), host.port()).into();
+        let timeline = crate::Timeline::default();
+        let dialed = tokio::time::timeout(Duration::from_secs(10), dial(&phone, &mac, vec![target], &timeline))
+            .await
+            .expect("dial timed out")
+            .expect("dial failed");
+        let mut accepted =
+            tokio::time::timeout(Duration::from_secs(5), host.accept()).await.unwrap().unwrap();
+        let mut phone_stream = dialed.dialed.stream;
+        let start = std::time::Instant::now();
+        let mut round_trips = 0u64;
+        let mut worst = Duration::ZERO;
+        while start.elapsed() < Duration::from_secs(seconds) {
+            let sent = std::time::Instant::now();
+            let mut buf = [0u8; 8];
+            tokio::time::timeout(Duration::from_secs(3), async {
+                phone_stream.write_all(&round_trips.to_be_bytes()).await.unwrap();
+                accepted.dialed.stream.read_exact(&mut buf).await.unwrap();
+                accepted.dialed.stream.write_all(&buf).await.unwrap();
+                phone_stream.read_exact(&mut buf).await.unwrap();
+            })
+            .await
+            .unwrap_or_else(|_| panic!("round trip {round_trips} stalled after {:?}", start.elapsed()));
+            assert_eq!(u64::from_be_bytes(buf), round_trips);
+            worst = worst.max(sent.elapsed());
+            round_trips += 1;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        eprintln!("dual-home: {round_trips} round trips in {seconds} s, worst {worst:?}");
+        assert!(worst < Duration::from_secs(1), "worst round trip {worst:?}");
+    }
+
     /// Someone on the LAN who recorded an enrolled phone's packets (its
     /// handshake and data) and sends them again gets nothing: the Mac answers
     /// no replayed datagram and opens no link for it.
