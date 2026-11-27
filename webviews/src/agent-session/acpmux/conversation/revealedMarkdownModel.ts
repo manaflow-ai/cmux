@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import { lineEdge, type StreamingStyle } from "./streamingStyle";
 
 /// The display frames the reveal runs on, and its clock (tests drive their own).
 export const revealFrames = {
@@ -52,17 +53,25 @@ let fadeMs = FADE_MS;
 
 /// The next `Shown` for `text`: all of it that has arrived, ending at a whole word while the stream
 /// runs (wordEdge; `release` lets the last word show too), and the newly shown characters as one
-/// fading step. Away (a hidden page) and Reduce Motion show everything with no fade.
+/// fading step. Away (a hidden page), Reduce Motion and the `instant` streaming style show everything
+/// with no fade; `lines` ends at a whole line instead of a whole word (streamingStyle.ts).
 function nextShown(
   before: Shown,
   text: string,
   done: boolean,
   now: number,
-  { reduce, away, release, id }: { reduce: boolean; away: boolean; release: boolean; id: () => number },
+  {
+    reduce,
+    away,
+    release,
+    id,
+    style = "words",
+  }: { reduce: boolean; away: boolean; release: boolean; id: () => number; style?: StreamingStyle },
 ): Shown {
   const kept = Math.min(before.length, text.length);
-  const length = reduce || away ? text.length : wordEdge(text, text.length, done || release, kept);
-  if (reduce || away) return { text, done, length, fresh: [], now };
+  if (reduce || away || style === "instant") return { text, done, length: text.length, fresh: [], now };
+  const edge = style === "lines" ? lineEdge : wordEdge;
+  const length = edge(text, text.length, done || release, kept);
   const fresh = before.fresh.filter((step) => now - step.born < fadeMs);
   if (length > kept) fresh.push({ id: id(), count: length - kept, born: now });
   return { text, done, length, fresh, now: length > kept ? now : before.now };
@@ -75,7 +84,12 @@ function nextShown(
 /// through over the frames after it arrived (StreamReveal): each step grew the row again, and the row's
 /// growth fed the follow chase (cmuxterm-hq docs/design/agent-transcript-clean-slate.md, step 3).
 /// A frame loop runs only to show a held last word once text stops arriving and to drop finished fades.
-export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
+/// `style` is `agentPane.display.streaming` (streamingStyle.ts); `words`, the default, is the reveal above.
+export function useStreamReveal(
+  text: string,
+  streaming: boolean,
+  style: StreamingStyle = "words",
+): { visible: string; fresh: Reveal[]; now: number } {
   const reduce = useRef<boolean | null>(null);
   reduce.current ??= reducedMotion();
   // Assistant text is append-only. A reconnect can briefly deliver a shorter prefix; keep the
@@ -106,11 +120,14 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
             away: pageAway(),
             release: false,
             id,
+            style,
           });
     // Set during render: React draws this component again before its children, so the reply's
     // Markdown renders once per chunk.
     setShown(current);
   }
+  const latestStyle = useRef(style);
+  latestStyle.current = style;
   const latest = useRef(current);
   latest.current = current;
   const loop = useRef({ handle: 0 });
@@ -133,6 +150,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
           away: pageAway(),
           release: true,
           id,
+          style: latestStyle.current,
         });
       // A finished fade's span goes in a commit that draws text anyway, or once every fade is done.
       else if (before.fresh.length && before.fresh.every((step) => now - step.born >= fadeMs))
