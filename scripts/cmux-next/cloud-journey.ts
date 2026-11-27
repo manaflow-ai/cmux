@@ -5125,8 +5125,13 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
  * Whether every new red is the platform turning the journey away for capacity (no machine to give, or a rate limit),
  * not the deploy breaking a step: such a red never rolls a deploy back (`--compare` exits 4). A machine that was
  * given and then failed (vm_unavailable on its first exec, a crash) is not capacity: a bad build does that.
+ *
+ * `cloud.quota.headroom` (capacityPreflight: the team's machines are all in use by other journeys) and
+ * `cloud.quota.exceeded` (createWithRoom: a create refused at the cap) are the same: cmux-vm.yml run 46001354720's
+ * after-deploy journey went red on "quota_headroom:account-team used 5/5, need 2" while cmux-platform's own deploy
+ * journeyed on that team, and NOW's cloud_deploy_gate read the deploy as broken.
  */
-export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity/i;
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b/i;
 export function capacityOnly(reds: Step[]): boolean {
   return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
 }
@@ -5158,6 +5163,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 4;
     }
     return reds.length ? 3 : 0;
+  }
+  // --capacity-only JOURNEY.json: exit 0 when the run's failed steps are all capacity (capacityOnly), 1 otherwise, so
+  // cloud-journey-ci.sh writes verdict not-run for a journey the platform turned away instead of red.
+  const capOnly = argv.indexOf("--capacity-only");
+  if (capOnly >= 0) {
+    let steps: Step[] = [];
+    try { steps = (JSON.parse(readFileSync(argv[capOnly + 1], "utf8")).steps as Step[]) ?? []; } catch { return 1; }
+    return capacityOnly(steps.filter((s) => s.status === "fail")) ? 0 : 1;
   }
   const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
   const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
