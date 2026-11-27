@@ -220,6 +220,7 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
         selections(parent.config_options.as_deref())
     );
     assert!(!child.session_env.contains_key("FORK_PARENT_ONLY"));
+    // A fork opens under its parent's title with the fork mark (#52615), not untitled.
     assert_eq!(child.title.as_deref(), Some("parent title (fork)"));
     assert_eq!(child.title_source.as_deref(), Some("inherited"));
     assert!(child.previous_agent_session_ids.is_empty());
