@@ -2724,7 +2724,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // section 8). CmuxNextBrowser depends on it and re-exports it.
         .target(
             name: "CmuxNextBrowserCore",
+            // CCmuxAppFFI: the typed address-bar policy and Chromium page routes (cmux-url-input).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
