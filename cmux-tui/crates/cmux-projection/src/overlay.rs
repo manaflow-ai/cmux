@@ -345,6 +345,15 @@ fn load_restated(file: &Path) -> HashMap<u32, (Restat, u64)> {
         .collect()
 }
 
+/// The names in `inos` that start with `prefix` (a folder's `<path>/`), in order: they sort
+/// together, so the walk starts at the prefix and stops at the first name past it.
+fn names_below(inos: &BTreeMap<String, u64>, prefix: &str) -> Vec<(String, u64)> {
+    inos.range::<str, _>((std::ops::Bound::Included(prefix), std::ops::Bound::Unbounded))
+        .take_while(|(path, _)| path.starts_with(prefix))
+        .map(|(path, ino)| (path.clone(), *ino))
+        .collect()
+}
+
 /// Where a path lives now.
 enum Node {
     Upper(Stat),
@@ -357,7 +366,9 @@ struct Inner {
     /// Numbers whose path is not the manifest's own: upper-only paths, lower paths moved by a
     /// rename, and a hard-linked file's surviving name.
     paths: HashMap<u64, String>,
-    inos: HashMap<String, u64>,
+    /// Ordered, so a rename finds the names below the moved path by one range walk
+    /// ([`names_below`]), not a walk of every upper-only name (a build tree holds 100k).
+    inos: BTreeMap<String, u64>,
     /// The number of each upper file (by device and inode), so every name of a hard-linked file
     /// and a lower file copied up keep one number.
     by_upper: HashMap<(u64, u64), u64>,
@@ -2453,12 +2464,7 @@ impl Overlay {
     fn move_names(&self, from: &str, to: &str, moved: u64) {
         let mut inner = self.lock();
         let prefix = format!("{from}/");
-        let below: Vec<(String, u64)> = inner
-            .inos
-            .iter()
-            .filter(|(path, _)| path.starts_with(&prefix))
-            .map(|(path, ino)| (path.clone(), *ino))
-            .collect();
+        let below = names_below(&inner.inos, &prefix);
         inner.inos.remove(from);
         inner.paths.insert(moved, to.to_owned());
         inner.inos.insert(to.to_owned(), moved);
@@ -2643,6 +2649,10 @@ pub use extend::Extended;
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "overlay_names_tests.rs"]
+mod names_tests;
 
 #[cfg(test)]
 #[path = "remanifest_tests.rs"]
