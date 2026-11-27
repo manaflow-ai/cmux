@@ -224,6 +224,8 @@ impl Client {
         // Whether it runs in an acpmux session's environment, said positively: only a terminal
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id.
+        crate::abi_hello::stamp(&mut meta);
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
