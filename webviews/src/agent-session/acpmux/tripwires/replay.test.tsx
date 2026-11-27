@@ -19,8 +19,10 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 afterAll(() => {
-  scope.window = saved.window;
-  scope.document = saved.document;
+  if (saved.window === undefined) delete scope.window;
+  else scope.window = saved.window;
+  if (saved.document === undefined) delete scope.document;
+  else scope.document = saved.document;
   dom.window.close();
 });
 
