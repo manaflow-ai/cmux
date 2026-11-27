@@ -2,7 +2,7 @@
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
-import type { CreateAdmissionClient } from "../limits/create-admission.ts";
+import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -107,8 +107,8 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
   );
 };
 
-/** How long a create's provider call may run, its background polls included: under the 300 s a caller's create waits. */
-const CREATE_BUDGET_MS = 240_000;
+/** How long a create's provider call may run, its background polls included; its queue slot's lease derives from it. */
+const CREATE_BUDGET_MS = PROVIDER_CREATE_BUDGET_MS;
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);

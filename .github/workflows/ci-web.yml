@@ -264,7 +264,12 @@ jobs:
         id: react-shards
         if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         env:
-          REACT_APPS_SHARDS: "8"
+          # 12 again on 2026-11-27: run 45778691646's shard 1 (435 files, 65 failing first tries, on an 8 of 16 vCPU
+          # runner: 4 files at a time, 2 dev server files) hit the 90 min job limit three times on a gallery-only pull
+          # request while still progressing. 12 shards cut each shard's closure by a third (690 s of tests a shard at
+          # 12 against about 1000 s at 8, runs 43338660731 to 43342364793); the split is timing-based, so the count is
+          # the only knob. scripts/ci/react-apps-check-fleet.sh --count and tests/test_web_validation.py move with it.
+          REACT_APPS_SHARDS: "12"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
           # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
