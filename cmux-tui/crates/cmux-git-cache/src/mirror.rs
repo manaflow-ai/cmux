@@ -328,7 +328,7 @@ fn this_host() -> Option<String> {
             return None;
         }
         let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        std::str::from_utf8(&buf[..end]).ok().map(str::to_owned)
+        std::str::from_utf8(buf.get(..end)?).ok().map(str::to_owned)
     }
     #[cfg(not(unix))]
     None
