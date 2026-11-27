@@ -107,10 +107,41 @@ fn a_frame_index_round_trips() {
         moved: 0.5,
         hash: u64::MAX,
         url: None,
+        source: Some("window".into()),
     };
     let bytes = serde_json::to_vec(&vec![frame.clone()]).unwrap();
     let back: Vec<Frame> = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(back, vec![frame]);
+}
+
+#[test]
+fn an_index_from_before_sources_reads_as_none() {
+    let old = json!([{"index": 0, "seq": 1, "trigger": "turn-start", "at": 1, "width": 1,
+        "height": 1, "distance": 0.0, "hash": 0}]);
+    let back: Vec<Frame> = serde_json::from_value(old).unwrap();
+    assert_eq!(back[0].source, None);
+}
+
+#[test]
+fn a_capture_names_its_source() {
+    assert_eq!(source_of("window"), "window");
+    assert_eq!(source_of("simulator"), "simulator");
+    assert_eq!(source_of("tab_7"), "page");
+}
+
+#[test]
+fn only_a_native_window_with_a_running_share_host_offers_its_screen() {
+    let running = json!({"running": true, "deviceId": "d47f285e", "deviceName": "Studio Mac"});
+    assert_eq!(
+        screen_offer("window", &running),
+        Some(json!({"device": "d47f285e", "name": "Studio Mac"}))
+    );
+    // A page or the simulator keeps polled frames.
+    assert_eq!(screen_offer("page", &running), None);
+    assert_eq!(screen_offer("simulator", &running), None);
+    // No share host, or one with no device yet: frames.
+    assert_eq!(screen_offer("window", &json!({"running": false, "state": "not-joined"})), None);
+    assert_eq!(screen_offer("window", &json!({"running": true, "deviceId": ""})), None);
 }
 
 #[test]

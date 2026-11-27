@@ -4,8 +4,13 @@
 // only once the chat has a frame, and polls for the newest one only while a turn runs and the
 // window is on screen. Pure CSS and pointer events.
 // Leo, 2026-11-24: "we can also drag and shrink and expand and hide the preview window".
+// A native Mac window (RFD 0150: "the window hosts a cmux-rd tile instead of polled frames"): when
+// the daemon offers that Mac's screen (`turn_frames.rs` `screen_offer`), the window is a live tile
+// whose Watch live opens the screen in the app's Mac Screen tab (cmux-rd); the frame stays its
+// poster. No offer, or a page or the simulator: frames, as before. The daemon decides; this draws.
 import { useCallback, useEffect, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n";
+import { linkScheme } from "../links";
 import {
   dockReducer,
   initialDock,
@@ -16,10 +21,10 @@ import {
   type DockMode,
   type DockState,
 } from "./dockState";
-import type { TurnFrame } from "./turnFrames";
+import { screenLink, type Latest, type LiveScreen, type TurnFrame } from "./turnFrames";
 import "./liveFrames.css";
 
-export type LatestFrame = (sinceSeq: number) => Promise<{ frame?: TurnFrame; seq: number }>;
+export type LatestFrame = (sinceSeq: number) => Promise<Latest>;
 const POLL_MS = 1500;
 
 export function FramesDock({
@@ -39,6 +44,7 @@ export function FramesDock({
   const t = useT();
   const layer = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<TurnFrame>();
+  const [screen, setScreen] = useState<LiveScreen>();
   const hasFrame = frame !== undefined;
   const seq = useRef(0);
   const bounds = (): Bounds => {
@@ -72,6 +78,7 @@ export function FramesDock({
   useEffect(() => {
     seq.current = 0;
     setFrame(undefined);
+    setScreen(undefined);
   }, [pane, latest]);
   const pull = useCallback(async () => {
     if (!latest) return;
@@ -79,6 +86,8 @@ export function FramesDock({
       const next = await latest(seq.current);
       seq.current = next.seq;
       if (next.frame) setFrame(next.frame);
+      // Every reply says what the window shows now, new frame or not.
+      setScreen(next.screen);
     } catch {
       // The next tick asks again.
     }
@@ -133,12 +142,20 @@ export function FramesDock({
   const title = t("header.preview");
   const size = shownSize(dock);
   const full = dock.mode === "full";
+  const scheme = linkScheme();
+  const live = screen && scheme ? screenLink(scheme, screen) : undefined;
   const style = full
     ? undefined
     : { transform: `translate(${dock.x}px, ${dock.y}px)`, width: size.width, height: size.height };
   return (
     <div ref={layer} className="acpmux-frames-dock-layer">
-      <section className="acpmux-frames-dock ui-glass" data-mode={dock.mode} style={style} aria-label={title}>
+      <section
+        className="acpmux-frames-dock ui-glass"
+        data-mode={dock.mode}
+        data-live={live ? "screen" : undefined}
+        style={style}
+        aria-label={title}
+      >
         <header
           className="acpmux-frames-dock__head"
           onPointerDown={begin("move")}
@@ -187,6 +204,12 @@ export function FramesDock({
           >
             <img src={frame.full} alt={title} draggable={false} />
           </button>
+        )}
+        {dock.mode !== "pill" && live && (
+          <a className="acpmux-frames-dock__live" href={live} title={screen?.name || undefined}>
+            <span className="acpmux-frames-dock__live-dot" aria-hidden />
+            {t("turnFrames.watchLive")}
+          </a>
         )}
         {dock.mode === "open" && (
           <hr
