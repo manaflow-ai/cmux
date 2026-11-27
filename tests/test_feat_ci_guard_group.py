@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ci-guards.yml's `ci` group runs for feat-cmux-next pull requests and pushes.
+"""The ci guard group remains reachable on opted-in feat pull requests and pushes.
 
 ci.yml's "CI fast guards" job runs the group (scripts/ci/guards-local.sh, among them
 tests/test_preflight_trust.py and every workflow lint) but skips pull requests into
@@ -8,7 +8,6 @@ for the branch: test_preflight_trust.py errored in all five tests there unseen (
 """
 import os
 from pathlib import Path
-import re
 import sys
 import shutil
 import subprocess
@@ -29,10 +28,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import docs_only_paths  # noqa: E402
+from pr_test_lanes import Expression, truthy  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
-LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 
 
 def triggers(workflow: dict) -> dict:
@@ -50,17 +49,29 @@ def covers_feat(trigger) -> bool:
     return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
-def runs_ci_group(job: dict) -> bool:
-    """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
-    condition = str(job.get("if", "")).replace("!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') ||", "")
-    # The land tier (tests/test_head_tier.py) runs it at the head handed to land, and the label guard
-    # (tests/test_ci_label_events_skip_full_ci.py) skips only other labels' events: neither keeps it off feat-cmux-next.
-    condition = condition.replace(LAND_TIER, "")
-    condition = re.sub(r"!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
-                       r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*?github\.event\.label\.name\)\)", "",
-                       condition)
-    if "feat-cmux-next" in condition and "!=" in condition:
+class GuardExpression(Expression):
+    @staticmethod
+    def call(name, args):
+        if name.lower() == "contains" and len(args) == 2 and isinstance(args[0], list):
+            return args[1] in args[0]
+        return Expression.call(name, args)
+
+
+def runs_ci_group(job: dict, event: str) -> bool:
+    """The opted-in full-CI PR or a push can run the default ci guard group."""
+    context = {
+        "github.event_name": event,
+        "github.event.action": "synchronize" if event == "pull_request" else "",
+        "github.event.pull_request.base.ref": "feat-cmux-next",
+        "github.event.pull_request.labels.*.name": ["full-ci"],
+        "vars.CI_GUARD_GROUP_ON_FULL_CI": "1",
+        "needs.coalesce.outputs.run": "true",
+        "needs.full-carry.outputs.tier": "full",
+        "needs.fast-check-route.outputs.ci_guard_group": "true",
+        "needs.fast-check-route.result": "success",
+    }
+    condition = str(job.get("if", "true")).removeprefix("${{").removesuffix("}}").strip()
+    if truthy(GuardExpression(condition, context).evaluate()) is not True:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
@@ -72,7 +83,7 @@ def runs_ci_group(job: dict) -> bool:
 
 
 class FeatRunsTheCiGuardGroup(unittest.TestCase):
-    def test_a_workflow_runs_the_ci_group_on_feat_pull_requests_and_pushes(self):
+    def test_a_workflow_runs_the_ci_group_on_opted_in_feat_pull_requests_and_pushes(self):
         for event in ("pull_request", "push"):
             with self.subTest(event=event):
                 found = []
@@ -82,7 +93,7 @@ class FeatRunsTheCiGuardGroup(unittest.TestCase):
                     if event not in on or not covers_feat(on[event]):
                         continue
                     found += [f"{path.name}:{name}" for name, job in (workflow.get("jobs") or {}).items()
-                              if runs_ci_group(job)]
+                              if runs_ci_group(job, event)]
                 self.assertTrue(found, f"no {event} workflow for feat-cmux-next runs scripts/ci/guards-local.sh")
 
 
@@ -277,12 +288,17 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
-        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
-        self.assertTrue(self.job()["if"].startswith(  # then the land tier (tests/test_head_tier.py)
-                        "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
-                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
-                        self.job()["if"])
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route", "full-carry"])
+        condition = self.job()["if"]
+        for required in (
+            "!cancelled()",
+            "needs.coalesce.outputs.run != 'false'",
+            "needs.full-carry.outputs.tier != 'none'",
+            "needs.fast-check-route.outputs.ci_guard_group != 'false'",
+            "github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped'",
+            "vars.CI_GUARD_GROUP_ON_FULL_CI == '1'",
+        ):
+            self.assertIn(required, condition)
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"

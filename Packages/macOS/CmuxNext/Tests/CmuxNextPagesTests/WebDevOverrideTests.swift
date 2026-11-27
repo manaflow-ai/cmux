@@ -58,6 +58,12 @@ struct WebDevOverrideTests {
         #expect(remote.gallery == nil)
     }
 
+    @Test func theTriggerMarksABackgroundChangeAndMissingMeansAsked() {
+        #expect(WebDevOverride.parse(Data(#"{"overlay": "~/web-overlay", "trigger": "background"}"#.utf8), home: home).background)
+        #expect(!WebDevOverride.parse(Data(#"{"overlay": "~/web-overlay", "trigger": "asked"}"#.utf8), home: home).background)
+        #expect(!WebDevOverride.parse(Data(#"{"overlay": "~/web-overlay"}"#.utf8), home: home).background)
+    }
+
     @Test func disabledOrInvalidFileIsEmpty() {
         let off = WebDevOverride.parse(Data(#"{"enabled": false, "server": "http://127.0.0.1:4181/"}"#.utf8), home: home)
         #expect(off == WebDevOverride())

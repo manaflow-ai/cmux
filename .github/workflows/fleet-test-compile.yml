@@ -33,7 +33,7 @@ name: fleet test-compile (advisory)
 # a fallback: the mac-fallback job runs the old client on it only when the read
 # gives no verdict and the variable is set (never the required compile's
 # CI_COMPILE_CHECK_GATEWAY: on 2026-10-22 this check held 13 of the 19 runners
-# serving glaeda-side-light-xcode-26.6 while 71 required app compiles queued).
+# serving mac-light while 71 required app compiles queued).
 #
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
 # its base) is the macOS package lane's packages whose sources or path
@@ -96,7 +96,7 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
     steps:
       - name: Checkout the merge commit and its base
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -173,7 +173,7 @@ jobs:
       - name: Checkout the trusted compile result reader
         if: ${{ needs.plan.outputs.needed == 'true' }}
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -236,7 +236,7 @@ jobs:
     name: fleet/test-compile fallback (advisory)
     needs: [plan, compile]
     if: ${{ needs.compile.outputs.verdict == 'none' && vars.CI_TEST_COMPILE_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TEST_COMPILE_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_TEST_COMPILE_GATEWAY (#54437)
     permissions: {}
     # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
     # report: a job timeout concludes as a failure, which would read as red.

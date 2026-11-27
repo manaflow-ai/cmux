@@ -100,6 +100,164 @@
           ]
         },
         {
+          "key": "agents.env",
+          "name": "agentEnv",
+          "note": "Variables every agent chat gets, as Claude Code's env setting and Codex's shell_environment_policy.set. acpmux reads it at each chat start (cmux-tui/crates/acpmux/src/agent_env.rs): a value the profile, preset, route, session or login shell sets wins; a remote-origin chat gets none.",
+          "title": {
+            "key": "settings.agents.env",
+            "text": "Agent Environment"
+          },
+          "help": {
+            "key": "settings.agents.env.help",
+            "text": "Variables every new chat's agent and its tools get. A value an agent profile already sets wins."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "environment",
+            "env",
+            "variables",
+            "agent",
+            "claude",
+            "codex",
+            "shell"
+          ]
+        },
+        {
+          "key": "agents.envExclude",
+          "name": "agentEnvExclude",
+          "note": "Variable names (or PREFIX_*) no agent chat gets, as Codex's shell_environment_policy.exclude. acpmux removes them last when it builds the agent's command (cmux-tui/crates/acpmux/src/agent_env.rs); its own ACPMUX_* session wiring stays.",
+          "title": {
+            "key": "settings.agents.envExclude",
+            "text": "Hidden from Agents"
+          },
+          "help": {
+            "key": "settings.agents.envExclude.help",
+            "text": "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."
+          },
+          "placeholder": {
+            "key": "settings.agents.envExclude.placeholder",
+            "text": "NAME or PREFIX_*"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "environment",
+            "env",
+            "exclude",
+            "hide",
+            "secret",
+            "variables",
+            "agent"
+          ]
+        },
+        {
+          "key": "agents.additionalDirectories",
+          "name": "additionalDirectories",
+          "note": "Folders every new chat gets on top of its Sources, as Claude Code's additionalDirectories setting: Claude Code --add-dir, ACP additionalDirectories. acpmux adds them at chat creation (cmux-tui/crates/acpmux/src/hub/additional_dirs.rs); a folder that is not there is skipped; a remote-origin chat gets none.",
+          "title": {
+            "key": "settings.agents.additionalDirectories",
+            "text": "Folders Every Chat Sees"
+          },
+          "help": {
+            "key": "settings.agents.additionalDirectories.help",
+            "text": "Added to every new chat's Sources. Use full or ~/ paths."
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "folders",
+            "directories",
+            "add-dir",
+            "additional",
+            "sources",
+            "agent",
+            "claude",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.sandbox.mode",
+          "name": "sandboxMode",
+          "note": "acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). permissionMode (default, what acpmux did before): the sandbox follows the permission mode; the Codex bridge's modes carry their own sandbox_mode (ask and agent workspace-write, read-only read-only, agent-full-access danger-full-access) and Claude Code runs without its sandbox. workspaceWrite: full-access modes are off, as with sessions.allowFullAccess off, so Codex never runs danger-full-access; Claude Code starts with --settings sandbox.enabled true and sandbox.allowUnsandboxedCommands false, merged into the launch's own inline --settings (its sandbox covers Bash). A remote-origin chat keeps its own sandbox.",
+          "title": {
+            "key": "settings.agents.sandboxMode",
+            "text": "Agent Sandbox"
+          },
+          "help": {
+            "key": "settings.agents.sandboxMode.help",
+            "text": "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "permissionMode",
+              "title": {
+                "key": "settings.choice.sandboxPermissionMode",
+                "text": "Follow Permission Mode"
+              }
+            },
+            {
+              "value": "workspaceWrite",
+              "title": {
+                "key": "settings.choice.sandboxWorkspaceWrite",
+                "text": "Workspace Only"
+              }
+            }
+          ],
+          "default": "permissionMode",
+          "keywords": [
+            "sandbox",
+            "workspace",
+            "write",
+            "seatbelt",
+            "bubblewrap",
+            "full access",
+            "agent",
+            "claude",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.sandbox.network",
+          "name": "sandboxNetwork",
+          "note": "acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). harness (default, what acpmux did before): each harness's own; Codex's workspace-write sandbox has no network, Claude Code's sandbox asks per domain. allow: the codex app-server launch gets -c sandbox_workspace_write.network_access=true unless its command line or codex's config sets that key; a mode switched to mid-chat uses the bridge's own policy, which has no network. Claude Code's network rules stay its own. A remote-origin chat keeps its own.",
+          "title": {
+            "key": "settings.agents.sandboxNetwork",
+            "text": "Sandbox Network"
+          },
+          "help": {
+            "key": "settings.agents.sandboxNetwork.help",
+            "text": "Allow lets Codex's workspace sandbox reach the network."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "harness",
+              "title": {
+                "key": "settings.choice.sandboxNetworkHarness",
+                "text": "Harness Default"
+              }
+            },
+            {
+              "value": "allow",
+              "title": {
+                "key": "settings.choice.sandboxNetworkAllow",
+                "text": "Allow"
+              }
+            }
+          ],
+          "default": "harness",
+          "keywords": [
+            "sandbox",
+            "network",
+            "internet",
+            "codex",
+            "network_access",
+            "agent"
+          ]
+        },
+        {
           "key": "agents.claudeOutputStyle",
           "name": "claudeOutputStyle",
           "note": "Claude Code's outputStyle for the chats cmux starts; acpmux puts it in the launch's one --settings at each Claude Code start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs). agent (the default) passes nothing, so Claude Code's own settings decide; a --settings of the profile's that names outputStyle keeps its value.",
@@ -277,59 +435,467 @@
           ]
         },
         {
-          "key": "agents.modelRouter.model",
-          "name": "modelRouterModel",
-          "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",
+          "key": "agents.defaults.claude.model",
+          "name": "claudeDefaultModel",
+          "note": "The model a new Claude Code chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).",
           "title": {
-            "key": "settings.agents.modelRouter.model",
-            "text": "cmux Model Router Model"
+            "key": "settings.agents.defaults.claude.model",
+            "text": "Claude Code Model for New Chats"
           },
           "help": {
-            "key": "settings.agents.modelRouter.model.help",
-            "text": "The model new cmux model router chats start on."
+            "key": "settings.agents.defaults.claude.model.help",
+            "text": "A model id such as claude-opus-5-5. Empty starts on the last model you picked."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "model",
+            "default model",
+            "new chat",
+            "claude",
+            "claude code"
+          ]
+        },
+        {
+          "key": "agents.defaults.claude.effort",
+          "name": "claudeDefaultEffort",
+          "note": "The reasoning effort a new Claude Code chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.",
+          "title": {
+            "key": "settings.agents.defaults.claude.effort",
+            "text": "Claude Code Effort for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.claude.effort.help",
+            "text": "How hard a new chat thinks. Last Used keeps the last effort you picked."
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "deepseek/deepseek-v4.1-flash-1017",
+              "value": "auto",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash1017",
-                "text": "DeepSeek V4.1 Flash 1017 (Images)"
+                "key": "settings.choice.effortLastUsed",
+                "text": "Last Used"
               }
             },
             {
-              "value": "deepseek/deepseek-v4.1-flash",
+              "value": "low",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash",
-                "text": "DeepSeek V4.1 Flash"
+                "key": "settings.choice.effortLow",
+                "text": "Low"
               }
             },
             {
-              "value": "deepseek/deepseek-v4-flash",
+              "value": "medium",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Flash",
-                "text": "DeepSeek V4 Flash"
+                "key": "settings.choice.effortMedium",
+                "text": "Medium"
               }
             },
             {
-              "value": "deepseek/deepseek-v4-pro",
+              "value": "high",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Pro",
-                "text": "DeepSeek V4 Pro"
+                "key": "settings.choice.effortHigh",
+                "text": "High"
+              }
+            },
+            {
+              "value": "xhigh",
+              "title": {
+                "key": "settings.choice.effortXHigh",
+                "text": "Extra High"
+              }
+            },
+            {
+              "value": "max",
+              "title": {
+                "key": "settings.choice.effortMax",
+                "text": "Max"
               }
             }
           ],
-          "default": "deepseek/deepseek-v4.1-flash-1017",
+          "default": "auto",
+          "keywords": [
+            "effort",
+            "reasoning",
+            "thinking",
+            "reasoning effort",
+            "model_reasoning_effort",
+            "new chat",
+            "claude",
+            "claude code"
+          ]
+        },
+        {
+          "key": "agents.defaults.codex.model",
+          "name": "codexDefaultModel",
+          "note": "The model a new Codex chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).",
+          "title": {
+            "key": "settings.agents.defaults.codex.model",
+            "text": "Codex Model for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.codex.model.help",
+            "text": "A model id such as gpt-6.2-sol. Empty starts on the last model you picked."
+          },
+          "kind": "text",
+          "default": "",
           "keywords": [
             "model",
-            "router",
-            "cmux router",
-            "deepseek",
-            "vision",
-            "images",
-            "inference",
             "default model",
-            "new chat"
+            "new chat",
+            "codex",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.defaults.codex.effort",
+          "name": "codexDefaultEffort",
+          "note": "The reasoning effort a new Codex chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.",
+          "title": {
+            "key": "settings.agents.defaults.codex.effort",
+            "text": "Codex Effort for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.codex.effort.help",
+            "text": "How hard a new chat thinks. Last Used keeps the last effort you picked."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.effortLastUsed",
+                "text": "Last Used"
+              }
+            },
+            {
+              "value": "low",
+              "title": {
+                "key": "settings.choice.effortLow",
+                "text": "Low"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.effortMedium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "high",
+              "title": {
+                "key": "settings.choice.effortHigh",
+                "text": "High"
+              }
+            },
+            {
+              "value": "xhigh",
+              "title": {
+                "key": "settings.choice.effortXHigh",
+                "text": "Extra High"
+              }
+            },
+            {
+              "value": "max",
+              "title": {
+                "key": "settings.choice.effortMax",
+                "text": "Max"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "effort",
+            "reasoning",
+            "thinking",
+            "reasoning effort",
+            "model_reasoning_effort",
+            "new chat",
+            "codex",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.titles.model",
+          "name": "textGenerationModel",
+          "note": "The Claude model that writes cmux's generated text: chat titles, task names, rolling summaries and diff hunk summaries (every _acpmux/complete that names no model and runs on Claude Code, cmux-tui/crates/acpmux/src/hub/complete.rs and hub/titles.rs, read through model_settings.rs). acpmux config titles.model / summaries.model still win. cmux NEXT writes no commit messages or PR text with a model. Default haiku, the small model these ran on before the row.",
+          "title": {
+            "key": "settings.agents.titles.model",
+            "text": "Text Generation Model"
+          },
+          "help": {
+            "key": "settings.agents.titles.model.help",
+            "text": "The Claude model that writes chat titles and summaries."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "haiku",
+              "title": {
+                "key": "settings.choice.textModelHaiku",
+                "text": "Haiku"
+              }
+            },
+            {
+              "value": "sonnet",
+              "title": {
+                "key": "settings.choice.textModelSonnet",
+                "text": "Sonnet"
+              }
+            },
+            {
+              "value": "opus",
+              "title": {
+                "key": "settings.choice.textModelOpus",
+                "text": "Opus"
+              }
+            }
+          ],
+          "default": "haiku",
+          "keywords": [
+            "title",
+            "titles",
+            "summary",
+            "summaries",
+            "text generation",
+            "model",
+            "haiku",
+            "naming"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.path",
+          "name": "claudeProviderPath",
+          "note": "The program acpmux starts for the built-in Claude Code (claude) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.path",
+            "text": "Claude Code Program"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.path.help",
+            "text": "The Claude Code program new chats run. Empty uses the one on your PATH."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "/usr/local/bin/claude"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "path",
+            "binary",
+            "program",
+            "executable",
+            "command"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.home",
+          "name": "claudeProviderHome",
+          "note": "CLAUDE_CONFIG_DIR for the built-in Claude Code; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.home",
+            "text": "Claude Code Home Folder"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.home.help",
+            "text": "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "~/.claude-work"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "home",
+            "config dir",
+            "CLAUDE_CONFIG_DIR",
+            "folder"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.args",
+          "name": "claudeProviderArgs",
+          "note": "Extra arguments after the built-in Claude Code launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.args",
+            "text": "Claude Code Launch Arguments"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.args.help",
+            "text": "Arguments added when cmux starts Claude Code, one per entry."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "--verbose"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "args",
+            "arguments",
+            "flags",
+            "launch",
+            "command line"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.env",
+          "name": "claudeProviderEnv",
+          "note": "Environment for the built-in Claude Code, over config.json's defaults.claude.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.env",
+            "text": "Claude Code Environment"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.env.help",
+            "text": "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "env",
+            "environment",
+            "variables"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.path",
+          "name": "codexProviderPath",
+          "note": "The codex binary the built-in Codex bridge runs (its CODEX_PATH) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.path",
+            "text": "Codex Program"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.path.help",
+            "text": "The Codex program new chats run. Empty uses the one on your PATH."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "/usr/local/bin/codex"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "path",
+            "binary",
+            "program",
+            "executable",
+            "command"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.home",
+          "name": "codexProviderHome",
+          "note": "CODEX_HOME for the built-in Codex; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.home",
+            "text": "Codex Home Folder"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.home.help",
+            "text": "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "~/.codex-work"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "home",
+            "config dir",
+            "CODEX_HOME",
+            "folder"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.args",
+          "name": "codexProviderArgs",
+          "note": "Extra arguments after the built-in Codex launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.args",
+            "text": "Codex Launch Arguments"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.args.help",
+            "text": "Arguments added when cmux starts Codex, one per entry."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "--verbose"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "args",
+            "arguments",
+            "flags",
+            "launch",
+            "command line"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.env",
+          "name": "codexProviderEnv",
+          "note": "Environment for the built-in Codex, over config.json's defaults.codex.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.env",
+            "text": "Codex Environment"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.env.help",
+            "text": "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "env",
+            "environment",
+            "variables"
           ]
         }
       ]
