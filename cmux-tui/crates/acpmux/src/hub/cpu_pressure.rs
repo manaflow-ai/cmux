@@ -8,7 +8,9 @@
 //! host's decision (`cpuPressure`).
 //!
 //! macOS only does anything: elsewhere no sampler runs, so the controller never demotes, and the
-//! loop is not started.
+//! loop is not started. While no live session is `dynamic` (the class is opt-in) the loop and the
+//! sampler wait with no timer, so an idle daemon does not wake for them; a session entering the
+//! class wakes the loop ([`wake`]).
 
 use super::*;
 use crate::cpu_class::CpuClass;
@@ -33,7 +35,7 @@ fn timer_due(next: &mut tokio::time::Instant, now: tokio::time::Instant) -> bool
 
 /// A turn the person waits on started: its harness leaves background class now, not within a
 /// tick.
-pub(super) fn wake() {
+pub(crate) fn wake() {
     WAKE.notify_one();
 }
 
@@ -52,11 +54,27 @@ impl Hub {
         self.scope.spawn_until_cancelled("cpu-pressure", async move {
             let mut next_tick = tokio::time::Instant::now() + TICK;
             loop {
-                tokio::select! {
-                    _ = tokio::time::sleep_until(next_tick) => {},
-                    _ = WAKE.notified() => {},
+                let wanted = match weak.upgrade() {
+                    Some(hub) => hub.cpu_pressure_wants_samples(),
+                    None => break,
                 };
+                Sampler::want(wanted);
+                if wanted {
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(next_tick) => {},
+                        _ = WAKE.notified() => {},
+                    };
+                } else {
+                    // Nothing to decide for: no timer until a session enters the class.
+                    WAKE.notified().await;
+                    next_tick = tokio::time::Instant::now() + TICK;
+                }
                 let Some(hub) = weak.upgrade() else { break };
+                if !hub.cpu_pressure_wants_samples() {
+                    // The last dynamic session ended: never leave a decision standing on it.
+                    hub.cpu_pressure_tick(None).await;
+                    continue;
+                }
                 let now = tokio::time::Instant::now();
                 if timer_due(&mut next_tick, now) {
                     hub.cpu_pressure_tick(Sampler::read()).await;
@@ -67,6 +85,20 @@ impl Hub {
                 }
             }
         });
+    }
+
+    /// Whether the sampler should read the host now: some live harness runs in the `dynamic`
+    /// class (or is still starting toward it).
+    #[doc(hidden)]
+    pub fn cpu_pressure_wants_samples(&self) -> bool {
+        self.live_session_handles().iter().any(|session| {
+            session
+                .child
+                .try_lock()
+                .ok()
+                .and_then(|slot| slot.clone())
+                .is_some_and(|child| child.run_class() == CpuClass::Dynamic)
+        })
     }
 
     /// One pass with `sample` (tests drive it with their own): the decision, then each live

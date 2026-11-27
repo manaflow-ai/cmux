@@ -31,6 +31,7 @@ mod composer_draft;
 mod composer_draft_tests;
 mod events;
 mod failure_copy;
+mod live_line;
 pub mod new_line;
 mod reconnect_wait;
 mod run;
@@ -156,6 +157,8 @@ impl Reread {
 
 /// Screen rects from the last frame, for mouse hit testing.
 pub struct App {
+    /// Requests started by this terminal UI end when it closes.
+    pub(crate) scope: cmux_scope::Scope,
     pub(crate) client: Arc<Client>,
     pub(crate) tx: mpsc::UnboundedSender<AppMsg>,
     pub sessions: Vec<Value>,
@@ -178,8 +181,6 @@ pub struct App {
     pub input: Editor,
     /// The composer's tie to the chat's durable draft (`composer_draft.rs`).
     pub draft_sync: composer_draft::DraftSync,
-    /// The owner of the model switches that keep a chat's level (`picks_hold.rs`).
-    pub(crate) picks_scope: cmux_scope::Scope,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.

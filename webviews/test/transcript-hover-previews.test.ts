@@ -4,15 +4,20 @@
 // Exercise actual pointer entry in the mounted transcript: focus-only chip tests cannot catch
 // a mouse hover that never opens its timestamp or link preview.
 import { expect, test } from "bun:test";
-import { chromium, webkit } from "playwright";
+import { chromium, webkit, type BrowserType } from "playwright";
 import { papercutPane } from "./support/papercutChat";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-hover-previews.test.ts", async () => {
-  for (const [name, engine] of [
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ] as const) {
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("transcript-hover-previews.test.ts", engine[0], engine[1])) engines.push(engine);
+  for (const [name, engine] of engines) {
     test(`${name}: message timestamps and link previews open on pointer hover`, async () => {
       const browser = await engine.launch({ headless: true });
       const pane = await papercutPane(() => browser, {

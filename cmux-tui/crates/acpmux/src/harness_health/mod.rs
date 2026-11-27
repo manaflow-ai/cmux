@@ -78,7 +78,7 @@ pub struct HarnessHealth {
     /// Why a part of the check failed (not installed, `--version` failed).
     pub problem: Option<String>,
     pub checked_at: u64,
-    /// The person turned auto-update on for it (`auto.rs`; off by default).
+    /// Auto-update is on for it (`auto.rs`; on unless the person turned it off).
     #[serde(default)]
     pub auto_update: bool,
     /// The last update auto-update ran for it, since the daemon started.
@@ -143,7 +143,7 @@ pub struct Settings {
     pub cache: Option<PathBuf>,
     /// The user's home, where bun and the native installers live.
     pub home: PathBuf,
-    /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
+    /// The harnesses turned auto-update off (`<acpmux home>/harness-auto-update.json`); None: off for all.
     pub auto_update: Option<PathBuf>,
     /// A capture fixture's rows (`harness_fixture.rs`): served as every
     /// check, with nothing read from this machine and no update run.
