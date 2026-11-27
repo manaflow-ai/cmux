@@ -201,23 +201,21 @@ import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
 import { sinceDone } from "./conversation/SinceDivider";
-import {
-  readUnread,
-  subscribeUnread,
-  unreadPending,
-  noteUnreadNews,
-  noteUnreadCount,
-} from "./conversation/unreadState";
+import { noteUnreadNews, noteUnreadCount } from "./conversation/unreadState";
+import { readThroughOf, subscribeReadThrough } from "./conversation/readThroughState";
 import { sinceNews, sinceCount, type HeldSpan, SinceTurnHold } from "./conversation/sinceNews";
 import {
-  jumpUpShown,
-  jumpUpTarget,
-  lastOwnPrompt,
-  placeOffView,
-  type JumpBack,
-  type PromptScan,
-  IdleTracker,
-} from "./jumpUp";
+  emptyUnseenScan,
+  firstUnseen,
+  lineOver,
+  jumpControl,
+  seenThrough,
+  unseenTurns,
+  visibleRows,
+  type JumpControl,
+  type UnseenScan,
+} from "./jumpControl";
+import { jumpPairLook, jumpUpBadge } from "./jumpPair.experiment";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
@@ -289,7 +287,7 @@ import {
   warmAnchorTop,
   heldReaderPlace,
 } from "./transcript/scrollAnchors";
-import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpWiring";
+import { jumpToLatestWith, placeViewWith } from "./transcript/jumpWiring";
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
@@ -346,10 +344,6 @@ function writeFlow(
 
 /// No turn held back from the unread line (sinceNews.ts `HeldSpan`).
 const NO_HELD: readonly HeldSpan[] = [];
-/// A store subscription that hears nothing (Jump up off: the unread state is not read).
-const NO_SUBSCRIPTION = () => () => {};
-/// With Jump up off, the unread view it would read: one constant, so a scroll reads no unread state.
-const NO_UNREAD = () => undefined;
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
@@ -835,6 +829,8 @@ function TranscriptView({
   afterLatest,
   sinceKey,
   promptAuthor,
+  readThrough,
+  onSeenThrough,
   onJumpToSince,
   showMinimap = true,
   endReserve: cardReserve = 0,
@@ -992,6 +988,13 @@ function TranscriptView({
   /// The author id this pane sends as (multiplayer/presenceClient.ts `selfId`): Jump up's "sent"
   /// mark is this author's newest prompt, never another person's in a shared chat (jumpUp.ts).
   promptAuthor?: string;
+  /// The reader's seen cursor, a log seq (direct.ts `readThroughNow`, acpmux hub/seen.rs): rows after it
+  /// by an agent or another person are unseen, and the jump control points up to the first of them
+  /// while it lies above the view. Undefined: not known yet, nothing is unseen.
+  readThrough?: number;
+  /// The newest row seq in view, when nothing unseen lies above the view (jumpControl.ts
+  /// `seenThrough`): the client counts it seen while the reader attends (direct.ts `noteVisibleThrough`).
+  onSeenThrough?: (seq: number | undefined) => void;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -1148,8 +1151,6 @@ function TranscriptView({
       return false;
     const { top, delta } = scrollRef.current;
     if (drawn.at(top, delta, followNow, drawn.shown, drawn.warmAt) !== drawn.key) return false;
-    // A commit's effect keeps the reader's idle stretch (jumpUp.ts `keepSoon`); a skipped one keeps it here.
-    idleKept.current.keepSoon();
     return true;
   };
   const setScrollAt = (top: number, delta?: number) => {
@@ -1182,26 +1183,13 @@ function TranscriptView({
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message.
   const jumpShown = useRef(false);
-  /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
-  /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
-  /// hints.
-  const [idle] = useState(() => new IdleTracker());
-  /// The same tracker, for the scroll handlers (a ref keeps them free of render values).
-  const idleKept = useRef(idle);
-  // This chat's stretch (the last chat's is kept first, so coming straight back reads it).
-  idle.open(sessionId, jumpButton);
-
-  const jumpBack = useRef<JumpBack | undefined>(undefined);
-  const [jumpBackHeld, setJumpBackHeld] = useState(false);
-  /// Lets go of the way back a Jump up press holds.
-  const dropJumpBack = useCallback(() => {
-    jumpBack.current = undefined;
-    setJumpBackHeld(false);
-  }, [setJumpBackHeld]);
-  const [promptScan] = useState<{ current: PromptScan }>(() => ({
-    current: { length: 0 },
-  }));
-  const [jumpUpHint] = useState(() => ({ current: -1 }));
+  /// The first unseen row's read, picked up where the last render stopped (jumpControl.ts `firstUnseen`).
+  const unseenScan = useRef<UnseenScan>(emptyUnseenScan());
+  /// The reader asked for the latest message (Jump to latest, End, a send): the rows they skipped on
+  /// the way are theirs to have passed, so what is in view counts as seen whatever lies above, and
+  /// the control never comes back up at the bottom (Leo, 2026-11-12: "it appears again", #42032).
+  /// Their next move up lets go of it.
+  const caughtUp = useRef(false);
   /// The turns the unread line holds back (sinceNews.ts `SinceTurnHold`).
   const [sinceHold] = useState(() => new SinceTurnHold());
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
@@ -4878,6 +4866,7 @@ function TranscriptView({
       scrolledTo.current = { top: 0, atLatest: false };
       seenAnchor.current = undefined;
       heldPlace.current = undefined;
+      caughtUp.current = false;
       scrollPacer.current?.cancel();
       stopJump();
       stopBottomStackFold();
@@ -6250,10 +6239,8 @@ function TranscriptView({
     seenSends.current = sends;
     // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
     renderRate.sent(performance.now());
-    // The reader acted: the pinned Jump up mark goes, an idle stretch starts at the prompt's row once
-    // it comes, and a way back a Jump up press held goes with the ride to the latest message (jumpUp.ts).
-    if (jumpButton) dropJumpBack();
-    if (jumpButton) idle.sent(promptScan.current.found);
+    // The reader acted: they are at the latest message, whatever they skipped (`caughtUp`).
+    caughtUp.current = true;
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
@@ -6631,24 +6618,6 @@ function TranscriptView({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
-    // The reader's own scroll: an idle stretch starts where it rests, a third down the view where a
-    // press puts it back (Jump up, jumpUp.ts), the mark it pinned goes, and a way back Jump up held is
-    // theirs no longer.
-    // Only an input that scrolls (userScroll.ts `scrolledByHand`): a press on text holds the view as
-    // any input does, but a row settling or a page landing inside that hold is not the reader moving.
-    // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
-    // reader's: the offsets its glide steps through and the one it lands on are not stops, and it
-    // keeps the way back it holds.
-    const placed = placedTop.current;
-    placedTop.current = undefined;
-    const byHand = !programmatic && userScrollIntent(node).scrolledByHand();
-    if (byHand && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
-      idle.scrolled(restingAnchor(layoutScrollTop(node) + node.clientHeight / 3, false, layout, rows) ?? undefined);
-      if (jumpBack.current) {
-        jumpBack.current = undefined;
-        setJumpBackHeld(false);
-      }
-    }
     // The reader's own scroll down that brings following back is a move toward the latest row, as a wheel down while
     // following is (`cancelProgrammatic`) and a wheel at the end is (`reader-end`): it asks to follow through the input
     // hold it leaves. Without the ask, what landed at the end inside that hold (the turn's last rows as the reader got
@@ -6705,10 +6674,11 @@ function TranscriptView({
         follow,
         focusComposer,
         latestLayout,
-        idle,
-        dropJumpBack,
         stopJump,
         rideToLatest,
+        reachedLatest: () => {
+          caughtUp.current = true;
+        },
       },
       focused,
       path,
@@ -6762,35 +6732,19 @@ function TranscriptView({
       },
       top,
     );
-  const pressUp = () =>
-    pressUpWith({
-      ref,
-      jumpBack,
-      setJumpBackHeld,
-      followingRef,
-      jumpToLatest,
-      placeView,
-      upTopRef,
-      latestLayout,
+  /// The jump control's press while it points up: to the line over the first unseen row (`upTarget`,
+  /// below), held by its row, as the row measures on the way. The reader asked for this place, so the
+  /// view stops following (`placeViewWith`).
+  const pressUp = () => {
+    const target = upTargetRef.current;
+    if (!target) return;
+    const hint = { current: -1 };
+    placeView(() => {
+      const { layout: placed, rows: shown } = latestLayout.current;
+      const index = indexOfRow(shown, target.rowId, hint);
+      return (index >= 0 ? placed.geometry.topAt(index) : target.top) - THREAD_TOP;
     });
-  const pressUpRef = useRef(pressUp);
-  pressUpRef.current = pressUp;
-  // Esc goes back while Jump up holds a way back, unless something before it took the key (the
-  // composer's Esc that arms Stop, a menu, a picker): those call preventDefault.
-  useEffect(() => {
-    if (!jumpBackHeld) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      pressUpRef.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [jumpBackHeld]);
-  // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
-  useLayoutEffect(() => {
-    if (jumpBack.current) dropJumpBack();
-  }, [sessionId, dropJumpBack]);
+  };
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -6917,8 +6871,10 @@ function TranscriptView({
             (pointer.pointerType === "touch" ? pointer.clientY > pointerY : pointer.clientY < pointerY)) ||
           (touch !== undefined && touchY !== undefined && touch.clientY > touchY));
       const downInput = readerDownInput(event, pointer, touch);
-      if (movingUp) readerDown.current = undefined;
-      else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
+      if (movingUp) {
+        readerDown.current = undefined;
+        caughtUp.current = false;
+      } else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
       // A wheel or key down at the scroller's end, where the browser scrolls nothing and sends no
       // scroll event: the reader is at the latest row, so it follows again from here. A pressed drag
       // (selecting text near the end) is not a move to the latest row, nor a key a control keeps (the
@@ -7586,14 +7542,6 @@ function TranscriptView({
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
-  // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
-  // first while it is unread, else the mark their idle stretch pinned once a screen of new content
-  // came in below it. Layout and rows only measure it; nothing here but the reader's acts moves it.
-  const unreadView = useSyncExternalStore(
-    jumpUpOn ? subscribeUnread : NO_SUBSCRIPTION,
-    jumpUpOn ? readUnread : NO_UNREAD,
-    jumpUpOn ? readUnread : NO_UNREAD,
-  );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
@@ -7619,45 +7567,62 @@ function TranscriptView({
     noteUnreadCount(sinceKey, sinceMessages);
   }, [sinceKey, sinceRow, sinceHasNews, sinceMessages]);
   const jumpUp = jumpButton && jumpUpOn;
-  const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
-  // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
-  const idleNow = idle.settle({
-    topOf: (place) => {
-      const index = indexOfRow(rows, place.rowId, idle.hint);
-      return index >= 0 ? layout.geometry.topAt(index) + place.offset : undefined;
-    },
-    rows,
-    heightAt: (index) => layout.geometry.heightAt(index),
-    indexOf: (place) => indexOfRow(rows, place.rowId, idle.hint),
-    totalHeight: layout.totalHeight,
-    viewHeight: height,
-    lastPrompt: ownPrompt?.id,
+  // The cursor as the client last moved it (conversation/readThroughState.ts), never behind the
+  // snapshot's: it moves without a pane render. No cursor from the pane: nothing is unseen.
+  const readThroughNow = useCallback(() => readThroughOf(sessionId), [sessionId]);
+  const movedThrough = useSyncExternalStore(subscribeReadThrough, readThroughNow, readThroughNow);
+  const through =
+    readThrough === undefined || movedThrough === undefined ? readThrough : Math.max(readThrough, movedThrough);
+  const unseenIndex = jumpButton ? firstUnseen(rows, through, unseenScan, promptAuthor, sessionId ?? "") : -1;
+  // The reader went to the latest message (`caughtUp`), read once per render.
+  const caught = caughtUp.current;
+  // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the
+  // floating tab row and the dock cover the view's edges.
+  const viewTop = shownTop - THREAD_TOP;
+  const seenView = jumpButton
+    ? visibleRows(layout.geometry, viewTop, viewTop + height - topInset - dockSpace)
+    : { first: 0, last: -1 };
+  // One control, three states (jumpControl.ts): up while an unseen row lies above the view, Jump to
+  // latest while away from the latest message, else hidden. The single look draws Jump to latest alone.
+  const [pairLook] = useState(() => experimentArm(jumpPairLook));
+  const unseenAbove = jumpUp && pairLook !== "single" && !caught && unseenIndex >= 0 && unseenIndex < seenView.first;
+  const control: JumpControl = jumpButton
+    ? jumpControl({
+        unseenAbove,
+        behind,
+        asks: needsYou?.count ?? 0,
+        asksElsewhere: needsYou?.elsewhere ?? 0,
+      })
+    : { kind: "hidden" };
+  // A hidden control fades out as what it last was, so it does not flip arrow as it goes.
+  const lastControl = useRef<JumpControl>({ kind: "latest" });
+  const drawnControl = control.kind === "hidden" ? lastControl.current : control;
+  useLayoutEffect(() => {
+    lastControl.current = drawnControl;
   });
-  const upTarget = jumpUp
-    ? jumpUpTarget(sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined, idleNow.mark)
-    : undefined;
-  // The stretch's place and mark are kept for the chat's next load (a reload, an update, a restart),
-  // written when they change, after a hand scroll's steps settle (IdleTracker.keepSoon), and at once
-  // when the pane goes.
-  useEffect(() => idle.keepSoon());
-  useEffect(() => () => idle.keepNow(), [idle]);
-  const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
-  const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffView(upTop, {
-    shownTop,
-    height,
-    threadTop: THREAD_TOP,
-    topInset,
-    dockSpace,
+  // Where a press goes: the "New" line when it sits just over the first unseen row (only rows that
+  // never count between them, the reader's own prompt), else that row.
+  const upRow = unseenIndex >= 0 ? lineOver(rows, unseenIndex, sinceIndex, promptAuthor) : -1;
+  const upTarget = upRow >= 0 ? { rowId: rows[upRow]!.id, top: layout.geometry.topAt(upRow) } : undefined;
+  const [upBadge] = useState(() => experimentArm(jumpUpBadge));
+  const upTurns = drawnControl.kind === "up" && upBadge === "count" ? unseenTurns(rows, unseenIndex) : 0;
+  // What is in view is seen once the reader attends (the client decides that): reported when it
+  // changes, never past an unseen row above the view unless the reader went to the latest (`caughtUp`).
+  const seenCandidate =
+    jumpButton && through !== undefined
+      ? seenThrough(rows, seenView, caught ? -1 : unseenIndex, promptAuthor)
+      : undefined;
+  const seenReport = useRef(onSeenThrough);
+  useLayoutEffect(() => {
+    seenReport.current = onSeenThrough;
   });
-  // One control at a time: while Jump to latest shows, Jump up waits (Leo, 2026-11-12: the two
-  // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
-  const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
-  const upShown = jumpUp && !latestShown && jumpUpShown(upOff, jumpBackHeld);
+  useEffect(() => {
+    seenReport.current?.(seenCandidate);
+  }, [seenCandidate]);
   // Everything this render drew from the scroll offset, as one key, worked out as the render above
   // works it out (`ahead`, `view`, `range`, `warmAt`, `warm`, `history`, `behind`, the soft edges):
   // a scroll frame whose offset gives the same key commits nothing (`scrollUnchanged`). O(log rows):
-  // a few searches of the layout. Jump up reads the offset each render (`upOff`), so it never skips.
+  // a few searches of the layout. The jump control reads the offset each render (`unseenAbove`), so it never skips.
   // perf-hot: 0.1ms transcript-scroll-frame
   const scrollDrawsAt = (top: number, delta: number, followed: boolean, shownBefore: boolean, held?: string) => {
     const at = ref.current ? scrollOrigin(ref.current) : 0;
@@ -7727,13 +7692,13 @@ function TranscriptView({
       scrollPacer.current?.enqueue({ top: scrollRef.current.top, atLatest: followingRef.current });
   });
   // What a press reads (`pressUp`), as of the last commit.
-  const upTopRef = useRef({ top: upTop, place: upTarget });
+  const upTargetRef = useRef<{ rowId: string; top: number } | undefined>(undefined);
   useLayoutEffect(() => {
-    upTopRef.current = { top: upTop, place: upTarget };
+    upTargetRef.current = upTarget;
   });
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
-  const jumpVisible = latestShown;
+  const jumpVisible = control.kind !== "hidden";
   const jumpShownReport = useRef(onJumpShownChange);
   useLayoutEffect(() => {
     jumpShownReport.current = onJumpShownChange;
@@ -7833,6 +7798,8 @@ function TranscriptView({
   // One identity for the pane's life: a wheel tick re-renders the transcript to draw the rows coming into view,
   // and a new handler each time drew the Jump to latest control again with it (render-counts.bench.ts `scroll`).
   const onJumpLatest = useStableCallback((focused: boolean) => {
+    // Pointing up (an unseen row above the view): to that row, not the latest message.
+    if (control.kind === "up") return pressUp();
     // One press, one move: to the latest message when this chat's ask waits there (or no
     // ask is open), else straight to the next chat's ask.
     // With no ask open it is Jump to latest, whatever the last render read for `behind`.
@@ -7904,10 +7871,8 @@ function TranscriptView({
     sinceRow,
     clearTop,
     sinceIndex,
-    jumpUp,
-    upShown,
-    jumpBackHeld,
-    pressUp,
+    jumpVisible,
+    up: drawnControl.kind === "up" ? { badge: upBadge, turns: upTurns } : undefined,
     working,
     onJumpLatest,
     needsYou,

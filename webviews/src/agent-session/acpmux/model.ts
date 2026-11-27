@@ -1652,6 +1652,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// The reader's seen cursor on this chat, a log seq (direct.ts `readCursor`, acpmux hub/seen.rs
+  /// `read_through`): rows after it by an agent or another person are unseen (jumpControl.ts).
+  readThrough?: number;
   /// A return placed that line (the chat picked, shown again, the reader back): the view opens at
   /// it, not at the latest message (App.tsx). Unset for the line a scroll up placed.
   sinceLands?: true;
@@ -2892,6 +2895,9 @@ export type AcpmuxMessageRun = {
   failed: number;
   running: boolean;
   rows: string[];
+  /// The newest log seq among the rows it folds: the line is unseen while any of them is
+  /// (jumpControl.ts `newestSeq`); the row's own `seq` is its first's, where it sorts.
+  through?: number;
   /// The ids of the messages it received (each message's `msgId`, an inbox notice's prompt ids):
   /// laneNoticeBatches.ts never draws one of these again in a "Received N messages" row.
   messages?: string[];

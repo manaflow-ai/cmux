@@ -144,7 +144,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
 
 /// A run of members as its line draws it, or null for a run that does not fold (one line, no
 /// message, only received lines).
-type FoldedRun = { run: AcpmuxMessageRun; version: number } | null;
+type FoldedRun = { run: AcpmuxMessageRun; version: number; from?: number } | null;
 
 /// The run read last time from the same member rows, by its first row, and the line drawn for it.
 /// The running turn is shaped again on every record and keeps its earlier rows as the same objects
@@ -205,8 +205,19 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
         members.slice(at + 1).some((m) => m.kind === "activity"),
     );
   if (lines < 2 || (sent + received === 0 && !compacted) || onlyReceived) return null;
+  // The seqs of the records it folds: the line sorts by its first and is unseen while its newest is
+  // (jumpControl.ts), so a run that came after the reader's seen cursor sends Jump up to it.
+  let from: number | undefined;
+  let through: number | undefined;
+  for (const row of members) {
+    if (row.seq === undefined) continue;
+    from ??= row.seq;
+    through = Math.max(through ?? row.seq, row.seq);
+  }
   return {
+    ...(from !== undefined && { from }),
     run: {
+      ...(through !== undefined && { through }),
       sent,
       received,
       work: parts.flatMap((part) => part.work),
@@ -305,6 +316,7 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false
         version: folded.version * 2 + (open ? 1 : 0),
         at: first.at,
         kind: MESSAGE_RUN,
+        ...(folded.from !== undefined && { seq: folded.from }),
         foldOpen: open,
         messageRun: folded.run,
         ...(first.settled && { settled: true }),

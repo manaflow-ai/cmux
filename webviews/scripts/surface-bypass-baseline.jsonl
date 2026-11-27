@@ -441,8 +441,8 @@
 {"file":"agent-session/acpmux/TaskGoalStrip.tsx","kind":"title-attribute","count":3}
 {"file":"agent-session/acpmux/teamAudit/TeamAuditScreen.tsx","kind":"raw-button","count":3}
 {"file":"agent-session/acpmux/TerminalPickersNote.tsx","kind":"title-attribute","count":1}
-{"file":"agent-session/acpmux/transcript/JumpButtons.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/transcript/JumpButtons.tsx","kind":"title-attribute","count":2}
+{"file":"agent-session/acpmux/transcript/JumpButtons.tsx","kind":"raw-button","count":1}
+{"file":"agent-session/acpmux/transcript/JumpButtons.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/TrustAsk.tsx","kind":"raw-button","count":11}
 {"file":"agent-session/acpmux/TrustAsk.tsx","kind":"title-attribute","count":3}
 {"file":"agent-session/acpmux/turnChanges/TurnShotsPair.tsx","kind":"raw-button","count":1}
