@@ -181,7 +181,7 @@ jobs:
       # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
       - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key
@@ -396,7 +396,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install python3
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3
       - name: Every listed target is in its package's Linux shape
         run: python3 scripts/ci/swift_linux_targets.py --verify
 

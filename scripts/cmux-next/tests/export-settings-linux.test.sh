@@ -13,7 +13,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 repo="$tmp/repo"
 pkg=Packages/macOS/CmuxNext
-for rel in schemas/settings scripts/cmux-next/linux-exports docs/mdm \
+for rel in schemas/settings scripts/cmux-next/linux-exports docs/mdm art/manifest.json \
   "$pkg/Sources/CmuxNextSettings" "$pkg/Sources/CmuxNextDesign" "$pkg/Sources/CmuxNextDesignTokens" \
   scripts/cmux-next/settings-exports.txt scripts/cmux-next/export-settings-linux.sh scripts/cmux-next/string_catalogs.py; do
   mkdir -p "$repo/$(dirname "$rel")"
