@@ -104,6 +104,7 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
@@ -122,6 +123,7 @@ members = [
     "crates/cmux-bounded",
     "crates/cmux-no-checkout",
     "crates/cmux-remote-protocol",
+    "crates/cmux-remote-web",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -183,13 +185,17 @@ members = [
     "crates/cmux-agent-pane-policy",
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-felt",
     "crates/cmux-terminal-projection",
@@ -357,13 +363,17 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-stack-auth",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-felt",
     "crates/cmux-terminal-projection",
@@ -461,6 +471,7 @@ cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
+cmux-browser-sync = { path = "crates/cmux-browser-sync" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-presence = { path = "crates/cmux-presence" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
@@ -693,6 +704,7 @@ ring = "0.17"
 # TCP keepalive on accepted daemon WebSocket sockets (cmux-tui-core).
 socket2 = { version = "0.6", features = ["all"] }
 snow = "0.10"
+wasm-bindgen = "0.2"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 tokio-util = { version = "0.7", features = ["rt"] }
