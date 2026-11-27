@@ -47,21 +47,44 @@ echo "GAMUT host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" m
 # ab: build base and head, run the gamut on each, rounds times, interleaved; print each side's medians.
 ab() {
   local here want side i rc=0 sides=(base head)
-  # A release build writes its detailed log to build-$side.log and can run long enough to trip the
-  # controller's silent-measurement guard. Keep the managed step alive while that log is being written.
-  build_with_heartbeat() {
-    local build_out="$1" build_name="$2" build_config="$3" heartbeat
-    (
-      while sleep 30; do
-        echo "GAMUT build $build_name still-running"
-      done
-    ) &
-    heartbeat=$!
-    build_dmg "$build_out" "$build_name" "$build_config"
-    local build_rc=$?
-    kill "$heartbeat" 2>/dev/null || true
-    wait "$heartbeat" 2>/dev/null || true
-    return "$build_rc"
+  # The controller stops a measurement that emits nothing for 45 minutes. Builds write their detail to a file, so
+  # every long setup/build step gets both a visible progress line and its own hard bound. The previous heartbeat was
+  # inside build_dmg and did not cover the silent fetch/setup phase (measurement 02407e5c47eac74b234e6611).
+  gamut_progress() {
+    local label="$1" log="$2" started=$SECONDS last
+    while sleep "${GAMUT_PROGRESS_EVERY_S:-60}"; do
+      last=""
+      [[ -f "$log" ]] && last="$(tail -n 1 "$log" 2>/dev/null | tr '\n' ' ' | cut -c1-120)"
+      echo "GAMUT $label still-running $((SECONDS - started))s${last:+ last=$last}"
+    done
+  }
+  fetch_commit() {
+    local sha="$1" log="$out/fetch-${sha:0:12}.log" progress rc
+    echo "GAMUT fetch $sha"
+    gamut_progress "fetch $sha" "$log" & progress=$!
+    GIT_TERMINAL_PROMPT=0 scripts/ci/timeout.sh --kill-after=15 "${GAMUT_FETCH_TIMEOUT_S:-300}" \
+      git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 fetch --no-tags --recurse-submodules=no --depth=1 --progress \
+      https://github.com/manaflow-ai/cmux.git "$sha" >"$log" 2>&1
+    rc=$?
+    kill "$progress" 2>/dev/null || true
+    wait "$progress" 2>/dev/null || true
+    tail -n 20 "$log" 2>/dev/null || true
+    echo "GAMUT fetch $sha finished rc=$rc"
+    return "$rc"
+  }
+  build_with_progress() {
+    local build_out="$1" build_name="$2" build_config="$3" log="$1/build-$2.log" progress rc
+    echo "GAMUT build $build_name start"
+    gamut_progress "build $build_name" "$log" & progress=$!
+    scripts/ci/timeout.sh --kill-after=15 "${GAMUT_BUILD_TIMEOUT_S:-2400}" \
+      bash -c 'source "$1"; build_dmg "$2" "$3" "$4"' _ \
+      "$out/nightly-fresh-launch-lib.sh" "$build_out" "$build_name" "$build_config"
+    rc=$?
+    kill "$progress" 2>/dev/null || true
+    wait "$progress" 2>/dev/null || true
+    tail -n 20 "$log" 2>/dev/null || true
+    echo "GAMUT build $build_name finished rc=$rc"
+    return "$rc"
   }
   # nightly-fresh-launch.sh's build_dmg, without running its main (as launch-ready.sh sources it).
   sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
@@ -74,15 +97,17 @@ ab() {
   [[ -n "$base" ]] || base="$here"
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   for want in "$base" "$headsha"; do
-    git cat-file -e "$want^{commit}" 2>/dev/null \
-      || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
+    git cat-file -e "$want^{commit}" 2>/dev/null || fetch_commit "$want" || {
+      echo "GAMUT cannot fetch $want" >&2
+      exit 3
+    }
   done
   # Each build checks its commit out and comes back here, so the check below is always this checkout's.
   for side in "${sides[@]}"; do
     want="$base"; [[ "$side" == head ]] && want="$headsha"
     echo "GAMUT build $side $want"
     git -c advice.detachedHead=false checkout --quiet --detach "$want" || exit 3
-    build_with_heartbeat "$out" "$side" release; rc=$?
+    build_with_progress "$out" "$side" release; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || { echo "GAMUT build $side failed (build-$side.log)"; exit "$rc"; }
   done
