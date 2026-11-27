@@ -29,12 +29,12 @@
   "flows": [
     {
       "id": "screen-share-webrtc-synthetic",
-      "title": "Synthetic screen pixels traverse real WebRTC and reach the Mac viewer display layer",
+      "title": "Synthetic screen pixels traverse real WebRTC and decode without a display",
       "source": ["aziz:screen-sharing", "leo:mock-phone-checks"],
       "kit": [],
       "ui": [],
       "swift": [
-        {"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "SyntheticScreenStreamTests"}
+        {"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "HeadlessSyntheticScreenStreamTests"}
       ],
       "paths": [
         "Packages/Shared/CmuxVNCWebRTC/**",

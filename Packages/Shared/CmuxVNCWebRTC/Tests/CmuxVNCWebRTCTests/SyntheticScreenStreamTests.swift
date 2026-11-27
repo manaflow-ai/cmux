@@ -5,12 +5,13 @@ import AVFoundation
 import CoreVideo
 import Darwin
 import Testing
+import WebRTC
 
 /// Real WebRTC host/encoder/ICE/decoder and the Mac renderer, without capture permission,
 /// a phone, an Internet signaling service, or Rust policy overrides.
 @Suite(.serialized)
 struct SyntheticScreenStreamTests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_WEBRTC_DISPLAY_TEST"] == "1"), .timeLimit(.minutes(1)))
     @MainActor
     func syntheticFramesReachTheDisplayedPixels() async throws {
         guard #available(macOS 14.4, *) else {
@@ -52,7 +53,7 @@ struct SyntheticScreenStreamTests {
         let decodedBefore = counter.snapshot.0
         var latencies: [Double] = []
         for index in 0 ..< 12 {
-            let shade: UInt8 = index.isMultiple(of: 2) ? 192 : 64
+            let shade = UInt8(48 + index * 15)
             let started = ContinuousClock.now
             source.set(shade)
             // Checking changed pixels catches a decoder callback that never reaches the display.
@@ -88,7 +89,7 @@ struct SyntheticScreenStreamTests {
 
     private static func centerLuma(_ pixel: CVPixelBuffer) -> Int? {
         guard CVPixelBufferGetPixelFormatType(pixel) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
-        CVPixelBufferLockBaseAddress(pixel, .readOnly)
+        guard CVPixelBufferLockBaseAddress(pixel, .readOnly) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddressOfPlane(pixel, 0) else { return nil }
         let offset = CVPixelBufferGetHeightOfPlane(pixel, 0) / 2 * CVPixelBufferGetBytesPerRowOfPlane(pixel, 0) + CVPixelBufferGetWidthOfPlane(pixel, 0) / 2
@@ -97,6 +98,80 @@ struct SyntheticScreenStreamTests {
 
     private func milliseconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+    }
+}
+
+/// Default PR gate: no view, window server, simulator, screen capture, or external service.
+@Suite(.serialized)
+struct HeadlessSyntheticScreenStreamTests {
+    @Test(.timeLimit(.minutes(1)))
+    func syntheticFramesTraverseWebRTC() async throws {
+        let wall = ContinuousClock.now
+        let cpu = clock()
+        let source = MarkerScreen()
+        let (hostSide, viewerSide) = LoopbackSignaling.pair()
+        let host = ScreenStreamHost(name: "headless-synthetic-screen", backend: { source })
+        let hostTask = Task { try await host.serve(hostSide) }
+        let viewer = ScreenStreamViewer(signaling: viewerSide)
+        let pixels = DecodedMarker()
+        viewer.onVideo = { $0.track.add(pixels) }
+        defer {
+            viewer.close()
+            host.disconnectViewer()
+            hostSide.close()
+            viewerSide.close()
+            hostTask.cancel()
+            source.stop()
+        }
+        try await viewer.connect()
+        try await pixels.waitFor(32, timeout: .seconds(10))
+        let before = pixels.snapshot.count
+        var latencies: [Double] = []
+        for index in 0 ..< 12 {
+            let shade = UInt8(48 + index * 15)
+            let started = ContinuousClock.now
+            source.set(shade)
+            try await pixels.waitFor(shade, timeout: .seconds(2))
+            latencies.append(Self.ms(started.duration(to: .now)))
+        }
+        let stats = await viewer.videoStats()
+        let decoded = pixels.snapshot.count - before
+        let p95 = latencies.sorted()[Int(ceil(Double(latencies.count) * 0.95)) - 1]
+        #expect(decoded >= 12)
+        #expect(stats.framesDecoded >= 12)
+        #expect(stats.framesReceived >= 12)
+        #expect(stats.bytesReceived > 0)
+        #expect(pixels.snapshot.size == CGSize(width: 320, height: 240))
+        #expect(p95 < 250, "source change to decoded marker p95 exceeded 250 ms")
+        print("SCREEN_WEBRTC_HEADLESS markers=\(latencies.count) decoded=\(decoded) received=\(stats.framesReceived) p95_ms=\(p95) wall_ms=\(Self.ms(wall.duration(to: .now))) cpu_s=\(Double(clock() - cpu) / Double(CLOCKS_PER_SEC))")
+    }
+
+    private static func ms(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+    }
+
+    private final class DecodedMarker: NSObject, RTCVideoRenderer, @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = (count: 0, shade: -1, size: CGSize.zero)
+        var snapshot: (count: Int, shade: Int, size: CGSize) { lock.withLock { value } }
+        func setSize(_ size: CGSize) {}
+        func renderFrame(_ frame: RTCVideoFrame?) {
+            guard let frame else { return }
+            let i420 = frame.buffer.toI420()
+            let shade = Int(i420.dataY[Int(i420.height / 2) * Int(i420.strideY) + Int(i420.width / 2)])
+            lock.withLock {
+                value = (value.count + 1, shade, CGSize(width: Int(frame.width), height: Int(frame.height)))
+            }
+        }
+        func waitFor(_ shade: UInt8, timeout: Duration) async throws {
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            while ContinuousClock.now < deadline {
+                if abs(snapshot.shade - Int(shade)) <= 8 { return }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            throw MarkerTimeout(shade: shade)
+        }
+        private struct MarkerTimeout: Error { let shade: UInt8 }
     }
 }
 

@@ -39,7 +39,7 @@ class SelectTests(unittest.TestCase):
             with self.subTest(path=path):
                 result = self.sel(path)
                 self.assertIn("screen-share-webrtc-synthetic", result["flows"])
-                self.assertIn({"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "SyntheticScreenStreamTests"}, result["swift"])
+                self.assertIn({"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "HeadlessSyntheticScreenStreamTests"}, result["swift"])
 
     def sel(self, *paths):
         return fs.select(MANIFEST, list(paths))
