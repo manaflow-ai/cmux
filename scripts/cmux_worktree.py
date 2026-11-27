@@ -132,7 +132,7 @@ def libc():
     return _libc
 
 
-def clone_path(src: Path, dst: Path) -> None:
+def clone_path(src: Path, dst: Path, reflink: str = "always") -> None:
     """Clone a file or a whole folder tree (dst must not exist).
 
     macOS: clonefile(2), which clones a folder tree in one call on APFS.
@@ -145,9 +145,10 @@ def clone_path(src: Path, dst: Path) -> None:
             code = ctypes.get_errno()
             raise OSError(code, f"clonefile {src} -> {dst}: {os.strerror(code)}")
         return
-    # always, never auto: where the volume has no reflinks a copy would write every byte twice
-    # (the seed and the worktree) instead of once; clone_supported() sends that case to a checkout.
-    result = subprocess.run(["cp", "-a", "--reflink=always", str(src), str(dst)], capture_output=True, text=True)
+    # always for the seed's files: where the volume has no reflinks a copy would write every byte
+    # twice (the seed and the worktree) instead of once; clone_supported() sends that case to a
+    # checkout. --cargo passes auto: a copied target still saves the build.
+    result = subprocess.run(["cp", "-a", f"--reflink={reflink}", str(src), str(dst)], capture_output=True, text=True)
     if result.returncode != 0:
         raise OSError(errno.EIO, f"cp {src} -> {dst}: {result.stderr.strip()}")
 
@@ -563,9 +564,9 @@ def seed_cargo_target(repo: Path, dest: Path, crate_dir: str) -> dict:
                     (mine / "target" / item.name).mkdir()
                     for sub in item.iterdir():
                         if sub.name != "incremental":
-                            clone_path(sub, mine / "target" / item.name / sub.name)
+                            clone_path(sub, mine / "target" / item.name / sub.name, reflink="auto")
                 else:
-                    clone_path(item, mine / "target" / item.name)
+                    clone_path(item, mine / "target" / item.name, reflink="auto")
             report["from"] = str(target)
             return report
         finally:
@@ -596,7 +597,35 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     if branch_flag:
         args += [branch_flag] + ([branch] if branch else [])
     args += [str(path), base]
+    made_branch = branch if branch_flag == "-b" or (
+        branch_flag == "-B" and not git_ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}")) else None
     git(repo, *args)
+    try:
+        return _fill_worktree(repo, path, seed_dir, cargo_dirs, started)
+    except BaseException:
+        # As `git worktree add` does when its checkout fails: no half-made worktree stays registered
+        # (a helper that finds the folder would reuse it), nor the branch this add made.
+        git(repo, "worktree", "remove", "--force", "--force", str(path), check=False)
+        shutil.rmtree(path, ignore_errors=True)
+        git(repo, "worktree", "prune", check=False)
+        if made_branch:
+            git(repo, "branch", "-D", made_branch, check=False)
+        raise
+
+
+def _empty_except_git(path: Path) -> None:
+    """Remove everything in a new worktree but its .git file (a clone left half done)."""
+    for name in os.listdir(path):
+        if name == ".git":
+            continue
+        target = path / name
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+
+def _fill_worktree(repo: Path, path: Path, seed_dir: Path, cargo_dirs: List[str], started: float) -> AddResult:
     target_commit = git(path, "rev-parse", "HEAD").strip()
     oid_size = oid_size_of(repo)
     result = AddResult(str(path), target_commit, "checkout", 0.0)
@@ -613,6 +642,10 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
         result.note = f"cloning failed, checked out instead: {error}"
         log(f"cmux-worktree: {result.note}")
         seed_commit = None
+        result.method = "checkout"
+        # A clone that failed after its files were made (an index entry the seed lacks) leaves the
+        # seed's files behind: the checkout below starts from an empty tree, as git's does.
+        _empty_except_git(path)
     if seed_commit is None:
         git(path, "read-tree", "-u", "--reset", "HEAD")
         result.files_written = None
@@ -624,6 +657,9 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     for crate_dir in cargo_dirs:
         result.cargo.append(seed_cargo_target(repo, path, crate_dir))
     result.seconds = round(time.monotonic() - started, 2)
+    # `--no-checkout` skips the post-checkout hook that `git worktree add` runs (git-lfs, bootstrap hooks).
+    git(path, "hook", "run", "--ignore-missing", "post-checkout", "--", "0" * (oid_size * 2), target_commit, "1",
+        check=False)
     if result.method == "clone" and (result.files_written or 0) > SEED_STALE_FILES:
         result.seed_moved = move_seed(Seed(seed_dir), target_commit)
     return result

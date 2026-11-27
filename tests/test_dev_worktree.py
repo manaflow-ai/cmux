@@ -61,6 +61,20 @@ def physical_offset(path: Path) -> int | None:
         os.close(fd)
 
 
+def volume_clones(folder: Path) -> bool:
+    """Whether folder's volume has clones: APFS, or a Linux reflink file system (not ext4 or tmpfs).
+    Where it has none, `add` checks out as git does and makes no seed."""
+    if DARWIN:
+        return True
+    probe, copy = folder / ".probe", folder / ".probe-copy"
+    probe.write_bytes(b"x")
+    try:
+        return subprocess.run(["cp", "--reflink=always", str(probe), str(copy)], capture_output=True).returncode == 0
+    finally:
+        probe.unlink(missing_ok=True)
+        copy.unlink(missing_ok=True)
+
+
 def age(worktree: Path, days: float) -> None:
     """Make a worktree look last used `days` ago (its index, HEAD and reflog times)."""
     gdir = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
@@ -128,9 +142,12 @@ class AddTests(unittest.TestCase):
         result = tool(self.f.repo, self.f.seed, "add", "--json", "-b", "feature", str(dest), self.f.c)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
-        self.assertEqual(report["method"], "clone", report)
-        self.assertEqual(report["seed_commit"], self.f.s)
-        self.assertEqual(report["files_written"], 3)  # edit.txt, gone.txt, new.txt
+        if volume_clones(self.f.tmp):
+            self.assertEqual(report["method"], "clone", report)
+            self.assertEqual(report["seed_commit"], self.f.s)
+            self.assertEqual(report["files_written"], 3)  # edit.txt, gone.txt, new.txt
+        else:
+            self.assertEqual(report["method"], "checkout", "a volume without clones would copy every byte")
         self.assertEqual(git(dest, "rev-parse", "HEAD").stdout.strip(), self.f.c)
         self.assertEqual(git(dest, "symbolic-ref", "HEAD").stdout.strip(), "refs/heads/feature")
         self.assert_clean_fresh(dest)
@@ -150,6 +167,11 @@ class AddTests(unittest.TestCase):
         result = tool(self.f.repo, self.f.seed, "add", "--json", "--detach", str(dest), "origin/main")
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
+        if not volume_clones(self.f.tmp):
+            self.assertEqual(report["method"], "checkout", report)
+            self.assertFalse(self.f.seed.exists(), "a seed (a full copy) was made where clones are not possible")
+            self.assert_clean_fresh(dest)
+            return
         self.assertEqual(report["method"], "clone", report)
         self.assertEqual(report["files_written"], 0)
         self.assert_clean_fresh(dest)
@@ -282,6 +304,30 @@ class GitCowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.f.seed.exists(), "a seed (a full copy) was made where clones are not possible")
         self.assertEqual(git(self.f.tmp / "wt", "status", "--porcelain").stdout, "")
+
+    def test_a_failed_add_leaves_no_worktree_and_no_branch(self) -> None:
+        # read-tree fails: the index lock is taken (another git), as a full disk or a stop would fail it.
+        hooks = self.f.tmp / "hooks"
+        hooks.mkdir()
+        dest = self.f.tmp / "broken"
+        result = self.cow("add", "-b", "broken", str(dest), env={"CMUX_WORKTREE_NO_CLONE": "1",
+                                                                "GIT_INDEX_FILE": "/nonexistent/dir/index"})
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn(str(dest), self.registered())
+        self.assertFalse(dest.exists(), "a half-made worktree folder stayed")
+        self.assertEqual(git(self.f.repo, "branch", "--list", "broken").stdout, "", "the branch the add made stayed")
+
+    def test_the_post_checkout_hook_runs_as_for_git_worktree_add(self) -> None:
+        hooks = self.f.tmp / "hooks"
+        hooks.mkdir()
+        hook = hooks / "post-checkout"
+        hook.write_text(f"#!/bin/sh\necho \"$(pwd -P) $1 $2 $3\" >> {self.f.tmp / 'hook.log'}\n")
+        hook.chmod(0o755)
+        git(self.f.repo, "config", "core.hooksPath", str(hooks))
+        result = self.cow("add", "--detach", str(self.f.tmp / "hooked"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.f.tmp / "hook.log").read_text().splitlines()
+        self.assertIn(f"{self.f.tmp / 'hooked'} {'0' * 40} {self.f.c} 1", lines)
 
     def test_other_commands_are_git_worktrees(self) -> None:
         self.assertEqual(self.cow("add", "-b", "x", str(self.f.tmp / "x")).returncode, 0)
