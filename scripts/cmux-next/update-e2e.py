@@ -33,22 +33,26 @@ state dirs) is removed at the end; anything that existed before is kept.
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
-# nightly-next ships as cmux NEXT (cx-x7hwx): a tagged nightly id with its
-# own socket, daemon session (cmux-app-cmux-next) and acpmux home.
-BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
-APP_NAME = "cmux NEXT.app"
-SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
+# nightly-next ships as cmux NIGHTLY (.github/workflows/nightly.yml, track nightly-next: bundleId
+# com.cmuxterm.app.nightly, appName cmux NIGHTLY). Its control socket keeps the channel's /tmp name
+# (ControlSocketPath: /tmp/cmux-nightly.sock, a link to the state folder's socket) and its acpmux home is
+# ~/.acpmux (BuildIdentity.acpmuxHome: NIGHTLY keeps the shared roots). The installed bundle is checked
+# against these (check_identity), so the next identity change fails here by name instead of as a socket wait.
+BUNDLE_ID = "com.cmuxterm.app.nightly"
+APP_NAME = "cmux NIGHTLY.app"
+SOCKET = "/tmp/cmux-nightly.sock"
 HOME = os.path.expanduser("~")
-# cmux NEXT's acpmux (its build's home, BuildIdentity): its home, socket and config.
-ACPMUX_HOME = os.path.join(HOME, ".acpmux", "builds", BUNDLE_ID)
+# NIGHTLY's acpmux: its home, socket and config.
+ACPMUX_HOME = os.path.join(HOME, ".acpmux")
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
-parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
-parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
+# The one Nightly feed (#36287), the one nightly-next-launch-smoke.yml reads; the /next/ appcast froze on 2026-11-05.
+parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--from", dest="from_build", help="installed build (default: the second newest build Nightly apps are offered)")
+parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the newest build Nightly apps are offered)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
 parser.add_argument("--idle", action="store_true", help="also prove automatic install after a quiet idle window")
 parser.add_argument("--keep", action="store_true", help="keep the scratch folder (debugging)")
@@ -164,10 +168,19 @@ def fetch(url, timeout=600):
     return urllib.request.urlopen(urllib.request.Request(url, headers=USER_AGENT), timeout=timeout)
 
 
+# The channels a Nightly app accepts (scripts/ci/nightly_next_launch_smoke.py NIGHTLY_CHANNELS): no channel,
+# cmux-next-stable or cmux-next. A Dev-ring (cmux-next-dev) or Canary-only item is never offered to a Nightly app,
+# so it is never the build an update is expected to reach, nor the one installed before it.
+NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
+
+
 def feed_items():
     xml = fetch(opts.feed, timeout=30).read().decode()
     items = []
     for item in re.findall(r"<item>.*?</item>", xml, re.S):
+        channel = re.search(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>", item)
+        if (channel.group(1) if channel else None) not in NIGHTLY_CHANNELS:
+            continue
         build = re.search(r"<sparkle:version>(.*?)<", item)
         build = build.group(1) if build else re.search(r'sparkle:version="([^"]+)"', item).group(1)
         url = re.search(r'<enclosure[^>]*url="([^"]+\.dmg)"', item).group(1)
@@ -197,6 +210,19 @@ def install(item, folder):
         run("hdiutil", "detach", mount, timeout=120)
     os.unlink(dmg)
     return app
+
+
+def check_identity(app):
+    """The installed bundle is the identity this script drives; exits with the difference when it is not."""
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+        bundle_id = plistlib.load(f).get("CFBundleIdentifier")
+    name = os.path.basename(app)
+    ok = bundle_id == BUNDLE_ID and name == APP_NAME
+    record("feed build is the identity this script drives", ok,
+           f"{name} {bundle_id}; expected {APP_NAME} {BUNDLE_ID} (update BUNDLE_ID, APP_NAME, SOCKET and ACPMUX_HOME)")
+    if not ok:
+        print(json.dumps({"results": results, "ok": False}, indent=1))
+        sys.exit(1)
 
 
 def bundle_build(app):
@@ -510,6 +536,7 @@ def main():
         apps = os.path.join(work, "apps")
         os.makedirs(apps)
         path = install(from_item, apps)
+        check_identity(path)
         record("installed the older build", bundle_build(path) == from_item["build"], bundle_build(path))
 
         app = App(path, config)
