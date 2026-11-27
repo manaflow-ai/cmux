@@ -1432,6 +1432,15 @@ jobs:
           fi
           python3 -I scripts/cmux-next/check-spawn-owner.py "$GITHUB_WORKSPACE" ${base[@]+"${base[@]}"}
 
+      # A module whose doc says it is sans-IO takes time, sockets and tasks from its caller: no
+      # Instant::now(), sleep, socket or spawn in its product code (check-sans-io.py, its rules tested here).
+      - name: cmux-next sans-IO guard
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          python3 -I scripts/cmux-next/check-sans-io.py "$GITHUB_WORKSPACE"
+          python3 tests/test_sans_io_guard.py
+
       - name: cmux-next localization debt ratchet
         if: ${{ !cancelled() }}
         timeout-minutes: 5

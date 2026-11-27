@@ -518,6 +518,11 @@ path = "tests/test_main_compile_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_measure_fetch_commit_no_origin.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_measure_fetch_commit_no_origin.py"
+
+[[test]]
 path = "tests/test_media_app_cache.py"
 lane = "linux-guard"
 
@@ -868,6 +873,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_same_tree_reuse.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
+
+[[test]]
+path = "tests/test_sans_io_guard.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_script_module_loads.py"

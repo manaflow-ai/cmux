@@ -759,6 +759,9 @@ export interface AllotmentView {
   decision: AllotmentDecision;
   hard_cap_micros: number | null;
   as_of: number;
+  /** Each member id's display name, as the platform's view carries it; a member missing here is
+   * shown by id. */
+  names?: Record<string, string>;
 }
 
 export type AllotmentPosition = AllotmentDecision["position"];

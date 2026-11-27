@@ -3404,6 +3404,7 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or "_tests." in name
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
