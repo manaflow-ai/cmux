@@ -292,6 +292,10 @@ extension AgentTabStore {
         }
         // The header's Terminal and Browser on the chat's right (Leo, 2026-10-31): a tab in the pane holding that kind,
         // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
+        tabs.openCloudTerminalScoped = { [weak services] chat, cwd in
+            guard let services else { return false }
+            return CloudFrontedChats.openTool(.terminal, chat: chat, cwd: cwd, services: services) ?? false
+        }
         tabs.openToolScoped = { [weak services] chat, kind, cwd in
             guard let services else { return false }
             // A Cloud chat's Browser is its machine's desktop and its Terminal runs there (CloudFrontedChats.openTool, cmux#55413).

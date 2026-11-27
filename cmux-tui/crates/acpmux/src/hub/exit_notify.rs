@@ -13,6 +13,11 @@
 //! - when the parent itself closed it (it knows);
 //! - when no parent is named or every one up the chain is closed (logged);
 //! - when the parent is on a peer (logged; a follow-up sends it through the outbox).
+//!
+//! With `ACPMUX_SUPERVISOR_ACT=1` (default off) a crash's supervisor decision is acted on
+//! (`supervisor.rs`): `restart` sends the closed chat one hub-set prompt after
+//! [`RESTART_AFTER`] ([`Hub::supervisor_restart`]); `escalate` and `restart` add a line to the
+//! record the parent gets saying what acpmux did.
 
 use super::*;
 use crate::close_why::CloseRecord;
@@ -20,6 +25,10 @@ use crate::exit_record::{ExitRecord, KIND, MAX_HOPS, parent_tag};
 
 /// Tries of one delivery, waiting this long before each retry.
 const RETRY_SECS: &[u64] = &[2, 5, 15, 60];
+
+/// How long a restart waits after the close, so the close's own steps (the lane link's retire)
+/// finish before the chat reopens.
+const RESTART_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Where an exit record goes: the open parent, and the closed ones it passed on the way.
 pub(super) struct Route {
@@ -41,20 +50,35 @@ impl Hub {
         let (link_parent, prs) = link.map_or((None, vec![]), |(p, prs)| (Some(p), prs));
         let record = session.read_meta(|m| ExitRecord::new(m, close, prs));
         let first = link_parent.or_else(|| session.read_meta(parent_tag));
-        if crate::supervisor::enabled() {
-            self.supervisor_log(session, &record, first.as_deref());
+        use crate::supervisor as sup;
+        let acts = sup::acts() && sup::acts_on(&record);
+        let decision = (sup::enabled() || acts)
+            .then(|| self.supervisor_log(session, &record, first.as_deref()))
+            .filter(|_| acts);
+        let note = decision.as_ref().and_then(sup::Decision::parent_note);
+        if let Some(sup::Decision::Restart { .. }) = decision {
+            let (hub, session, record) = (hub.clone(), session.clone(), record.clone());
+            self.scope.spawn_until_cancelled("supervisor-restart", async move {
+                tokio::time::sleep(RESTART_AFTER).await;
+                hub.supervisor_restart(&session, &record).await;
+            });
         }
         let Some(first) = first else { return };
         self.scope.spawn_until_cancelled("exit-record", async move {
-            hub.exit_record_deliver(&record, &first).await;
+            hub.exit_record_deliver(&record, &first, note.as_deref()).await;
         });
     }
 
     /// Logs what the supervisor would do about this exit (`supervisor.rs`) next to its record:
-    /// `mux/supervisor_decision` in the ended chat. Only a log; nothing acts on it yet. Its
+    /// `mux/supervisor_decision` in the ended chat, and returns it. Its
     /// earlier restarts are the decisions to restart it logged in the window; its tokens are the
     /// newest `usage_update`'s `used`.
-    fn supervisor_log(&self, session: &Arc<Session>, record: &ExitRecord, parent: Option<&str>) {
+    fn supervisor_log(
+        &self,
+        session: &Arc<Session>,
+        record: &ExitRecord,
+        parent: Option<&str>,
+    ) -> crate::supervisor::Decision {
         use crate::supervisor::{self as sup, Intensity, Restart};
         let limit = Intensity::default();
         let now = std::time::SystemTime::now()
@@ -87,7 +111,7 @@ impl Hub {
         let decision = sup::decide(record, now, tokens, &restarts, limit, parent);
         let restart = sup::restart_type(record);
         tracing::info!(session = %record.session, name = %record.name,
-            class = record.class.as_str(), ?restart, ?decision, "supervisor decision (log only)");
+            class = record.class.as_str(), ?restart, ?decision, "supervisor decision");
         self.append(
             session,
             "mux",
@@ -96,6 +120,51 @@ impl Hub {
                    "restartsInWindow": restarts.len(), "limit": limit,
                    "promptId": record.prompt_id()}),
         );
+        decision
+    }
+
+    /// Restarts `session`, closed by a crash, as its supervisor decided: one hub-set prompt in
+    /// its chat reopens it and resumes its agent from the transcript, as any prompt does. Its id
+    /// is the exit record's with `~restart`, so a second try never doubles it. Logged
+    /// `mux/supervisor_restart` before it is sent, and `mux/supervisor_restart_failed` with the
+    /// error when it is refused. Skipped when the chat opened again, is being deleted or moved.
+    pub(super) async fn supervisor_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        record: &ExitRecord,
+    ) {
+        use crate::supervisor as sup;
+        if session.status() != SessionStatus::Closed
+            || session.purging.load(Ordering::SeqCst)
+            || session.purged.load(Ordering::SeqCst)
+            || session.meta().moved_to.is_some()
+        {
+            tracing::info!(session = %record.session, "supervisor restart skipped: not closed here");
+            return;
+        }
+        let prompt_id = format!("{}~restart", record.prompt_id());
+        self.append(
+            session,
+            "mux",
+            sup::RESTART_KIND,
+            json!({"promptId": prompt_id, "transcript": record.transcript,
+                   "class": record.class.as_str()}),
+        );
+        let provenance = json!({"kind": sup::RESTART_KIND, "promptId": record.prompt_id(),
+                                "class": record.class.as_str(), "transcript": record.transcript});
+        let opts = PromptOptions {
+            prompt_id: Some(prompt_id),
+            resend: true,
+            provenance: Some(provenance),
+            ..PromptOptions::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": sup::restart_text(record)})];
+        if let Err(e) = self.prompt_with(session, blocks, "acpmux", true, opts).await
+            && !e.data.as_ref().is_some_and(|d| d["held"] == true)
+        {
+            tracing::warn!(session = %record.session, "supervisor restart refused: {}", e.message);
+            self.append(session, "mux", "supervisor_restart_failed", json!({"error": e.message}));
+        }
     }
 
     /// The open session an exit record of `from` goes to, starting at the parent `first` names
@@ -128,7 +197,14 @@ impl Hub {
         Err("its parents run deeper than the walk")
     }
 
-    async fn exit_record_deliver(self: &Arc<Self>, record: &ExitRecord, first: &str) {
+    /// `note` is what acpmux did about the exit (the supervisor's restart or escalation), added
+    /// to the text and the provenance.
+    pub(super) async fn exit_record_deliver(
+        self: &Arc<Self>,
+        record: &ExitRecord,
+        first: &str,
+        note: Option<&str>,
+    ) {
         let route = match self.exit_route(&record.session, first) {
             Ok(r) => r,
             Err(why) => {
@@ -143,7 +219,7 @@ impl Hub {
         }
         let mut waits = RETRY_SECS.iter();
         loop {
-            match self.exit_record_to(&route, record).await {
+            match self.exit_record_to(&route, record, note).await {
                 Ok(()) => {
                     tracing::info!(session = %record.session, name = %record.name,
                         to = %route.to.id, via = ?route.via, class = record.class.as_str(),
@@ -177,14 +253,21 @@ impl Hub {
         self: &Arc<Self>,
         route: &Route,
         record: &ExitRecord,
+        note: Option<&str>,
     ) -> Result<(), RpcError> {
         let p = route.to.clone();
-        let provenance = json!({
+        let mut provenance = json!({
             "kind": KIND, "from": record.session, "fromName": record.name, "to": p.id,
             "via": route.via, "class": record.class.as_str(),
             "record": serde_json::to_value(record).unwrap_or_default(),
         });
-        let blocks = vec![json!({"type": "text", "text": record.text(&route.via)})];
+        let mut text = record.text(&route.via);
+        if let Some(note) = note {
+            provenance["supervisor"] = json!(note);
+            text.push(' ');
+            text.push_str(note);
+        }
+        let blocks = vec![json!({"type": "text", "text": text})];
         let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(record.prompt_id()),
