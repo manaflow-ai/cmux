@@ -45,6 +45,16 @@ on:
   # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
   # that finds none dispatches this workflow as before.
   workflow_call:
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: App key for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_1:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_2:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
   workflow_dispatch:
     inputs:
       pr:
