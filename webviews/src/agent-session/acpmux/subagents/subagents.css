@@ -2979,3 +2979,26 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;
 }
+
+/* The one line's bar holds still (coordinator's design pass, 2026-11-27, after Leo asked whether it
+   should grow and shrink): the composer's full width and one row tall, whatever it says. Its width
+   never follows its words, its digits are tabular so "10 subagents working, 16 background commands
+   running" keeps its width as a count ticks, and its words never wrap (they truncate). The only size
+   change is coming and going: it slides in as the first subagent or background command starts and
+   out as the last one ends, in 150 ms (5/6 of the standard 180 ms). */
+.acpmux-running-tray[data-line] {
+  --acpmux-tray-enter: acpmux-tray-settle-in calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  --acpmux-tray-leave: acpmux-tray-leave calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  inline-size: auto;
+  align-self: stretch;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head {
+  inline-size: 100%;
+  overflow: hidden;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
