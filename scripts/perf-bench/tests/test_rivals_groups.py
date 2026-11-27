@@ -163,6 +163,14 @@ class ByProcess(unittest.TestCase):
                                                                     98136: "browser-tab + home"})
         self.assertEqual(rivals.renderer_pages([], commands), {})
 
+    def test_renderer_pages_reads_renderers_list_helpers(self):
+        # renderers.list (Release too) names each helper's client and each page's owner; it wins over ps args
+        commands = {932: "cmux Helper (Renderer) --type=renderer", 940: "cmux Helper (Renderer) --renderer-client-id=9"}
+        helpers = [{"pid": 932, "client": 7}, {"pid": 940, "client": 9}]
+        pages = [{"origin": "cmux-page://cmux.agent", "path": "/chat", "renderer_clients": [7], "owner": {"kind": "agent", "tab": "t1"}},
+                 {"origin": "cmux-page://cmux.settings", "renderer_clients": [9]}]
+        self.assertEqual(rivals.renderer_pages(pages, commands, helpers), {932: "agent/chat [agent tab]", 940: "settings"})
+
 
 if __name__ == "__main__":
     unittest.main()

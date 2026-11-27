@@ -212,21 +212,25 @@ def growth_by_process(series: dict, settle_cut: float) -> list[dict]:
     return sorted(out, key=lambda row: -row["added_mb"])
 
 
-def renderer_pages(pages: list[dict], commands: dict) -> dict[int, str]:
-    """{pid: page} for the cmux renderers that host `pages` (`debug.cef_pages`: origin, hidden, renderer_clients),
-    matched by the renderer's `--renderer-client-id` (as bench_power.renderer_roles). Names which page a renderer
-    born mid-soak loads (RFD 0062: 3 renderers born after the settle cut on an idle first screen). Pure."""
-    by_client = {}
+def renderer_pages(pages: list[dict], commands: dict, helpers: list | None = None) -> dict[int, str]:
+    """{pid: page} for the cmux renderers that host `pages` (`renderers.list`, Release too, or `debug.cef_pages` on
+    bench and DEV builds: origin, path, hidden, renderer_clients, owner), matched by `renderers.list`'s helper
+    {pid, client} or else the renderer's `--renderer-client-id` (as bench_power.renderer_roles). Names which page a
+    renderer born mid-soak loads (RFD 0062: 3 renderers born after the settle cut on an idle first screen). Pure."""
+    by_client = {int(h["client"]): int(h["pid"]) for h in helpers or []
+                 if isinstance(h, dict) and isinstance(h.get("client"), (int, float)) and isinstance(h.get("pid"), (int, float))}
     for pid, cmd in commands.items():
         found = re.search(r"--renderer-client-id=(\d+)", cmd or "")
         if found:
-            by_client[int(found.group(1))] = pid
+            by_client.setdefault(int(found.group(1)), pid)
     names: dict[int, set] = {}
     for page in pages or []:
         origin = str(page.get("origin") or "")
         role = (origin[len("cmux-page://"):].removeprefix("cmux.") or "page") if origin.startswith("cmux-page://") \
             else "browser-tab" if origin.startswith(("http://", "https://")) else (origin.split(":", 1)[0] or "blank")
         role += str(page.get("path") or "") if origin.startswith("cmux-page://") and page.get("path") not in (None, "", "/") else ""
+        owner = page.get("owner") if isinstance(page.get("owner"), dict) else {}
+        role += f" [{owner['kind']} tab]" if owner.get("kind") else ""
         role += " (hidden)" if page.get("hidden") else ""
         for client in page.get("renderer_clients") or []:
             if int(client) in by_client:
@@ -589,12 +593,16 @@ class Run:
                     unnamed.append(row["pid"])
             if unnamed and app.socket:
                 # Only when a renderer is new: one socket read and one process-table read, none on a steady app.
-                pages = rpc(app.socket, "debug.cef_pages").get("pages")
-                named = renderer_pages(pages, app.instance.pids()) if isinstance(pages, list) else {}
+                listed = rpc(app.socket, "renderers.list", {"interval_ms": 0})
+                if not isinstance(listed.get("pages"), list):
+                    listed = rpc(app.socket, "debug.cef_pages") | {"first_error": listed.get("error")}
+                pages = listed.get("pages")
+                named = renderer_pages(pages, app.instance.pids(), listed.get("helpers")) if isinstance(pages, list) else {}
+                failed = None if isinstance(pages, list) else f"(no reply: {str(listed.get('first_error') or listed.get('error'))[:60]})"
                 for pid in unnamed:  # a renderer with no page yet (a spare, or one still loading) is asked again, 3 times
                     series[pid]["asked"] += 1
                     if named.get(pid) or series[pid]["asked"] >= 3:
-                        series[pid]["page"] = named.get(pid) or ("(no page)" if isinstance(pages, list) else None)
+                        series[pid]["page"] = named.get(pid) or failed or "(no page)"
             groups.append(by_group(memory["kinds"], window["kinds"]))
             if last_round:
                 last_window, detail_memory = window, memory
