@@ -305,7 +305,12 @@ function checkSuggestionSurface(ctx: PlayContext): void {
     if (box.getPropertyValue(property) !== list.getPropertyValue(property))
       throw new Error(`suggestions differ from the composer: ${property}`);
   }
-  if (popover.hasAttribute("data-host-glass")) throw new Error("suggestions draw a separate native popup material");
+  // One material with the box: the App's popover glass under both, with the cover the popover draws
+  // (#50119, #56805; NewTabScreen.test.tsx reads the same attributes).
+  const boxGlass = ctx.document.querySelector(".nt-box")!.getAttribute("data-host-glass");
+  if (popover.getAttribute("data-host-glass") !== "popover" || boxGlass !== "popover")
+    throw new Error("suggestions and the composer do not share the App's popover glass");
+  if (!popover.hasAttribute("data-host-glass-cover")) throw new Error("suggestions draw their glass without its cover");
 }
 
 /// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
