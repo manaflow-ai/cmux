@@ -1,10 +1,10 @@
-//! Real transport measurement for RFD 0140 machine presence.
+//! Local RPC measurement for RFD 0140 machine presence.
 //!
 //! This is intentionally ignored in ordinary test runs: it waits for the production 30 s
-//! heartbeat TTL. The harness uses two in-process hubs connected by an authenticated loopback
-//! WebSocket, so the measured path includes the peer transport without launching OS daemons. The
-//! fleet command runs it with `TESTNAME -- --ignored --nocapture` and records the p95 visibility
-//! and expiry numbers.
+//! heartbeat TTL. The harness uses two in-process local client connections against one hub;
+//! machine presence is deliberately daemon-local and the production peer link rejects presence beats.
+//! The fleet command runs it with `TESTNAME -- --ignored --nocapture` and records the p95
+//! visibility and expiry numbers.
 
 #![cfg(unix)]
 
@@ -14,11 +14,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::config::{Config, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::peer::Peer;
 use acpmux::protocol::here::{HereActivity, HereBeatParams, HereDeviceKind};
 use acpmux::rpc::method;
-use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
+use acpmux::server::serve_connection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -87,38 +85,11 @@ impl Client {
     }
 }
 
-async fn pair() -> (Arc<Hub>, Arc<Hub>, Arc<Peer>, Client) {
-    let a = Hub::new(config(), store(&config()));
-    let b = Hub::new(config(), store(&config()));
-    let home = tempfile::tempdir().unwrap();
-    let auth = PeerAuth::create(home.path()).unwrap();
-    let peer_token =
-        std::fs::read_to_string(acpmux::server::peer_auth::token_path(home.path())).unwrap();
-    let listener = bind_ws("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    tokio::spawn(serve_ws_with(
-        b.clone(),
-        listener,
-        "transport-presence".into(),
-        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
-    ));
-    a.add_peer(
-        "b",
-        &format!("ws://127.0.0.1:{port}"),
-        Some("transport-presence".into()),
-        Some(peer_token.trim().into()),
-        false,
-    )
-    .await
-    .unwrap();
-    let peer = a.peer_by_name("b").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while a.peers()[0]["state"] != "connected" {
-        assert!(Instant::now() < deadline, "peer did not connect: {:?}", a.peers());
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let client = Client::connect(&b).await;
-    (a, b, peer, client)
+async fn pair() -> (Arc<Hub>, Client, Client) {
+    let hub = Hub::new(config(), store(&config()));
+    let source = Client::connect(&hub).await;
+    let observer = Client::connect(&hub).await;
+    (hub, source, observer)
 }
 
 fn beat(seq: u64, scope: &str) -> Value {
@@ -209,34 +180,31 @@ async fn wait_for_expiry(client: &mut Client, scope: &str, deadline: Instant) ->
     }
 }
 
-async fn peer_request_until(
-    peer: &Peer,
+async fn client_request_until(
+    client: &mut Client,
     method_name: &str,
     params: Value,
     deadline: Instant,
 ) -> Value {
-    tokio::time::timeout_at(
-        tokio::time::Instant::from_std(deadline),
-        peer.request(method_name, params),
-    )
-    .await
-    .expect("peer request timeout")
-    .expect("peer request failed")
+    let timeout = deadline.saturating_duration_since(Instant::now());
+    assert!(!timeout.is_zero(), "client request deadline elapsed");
+    client.request_with_timeout(method_name, params, timeout).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "fleet measurement: waits for the production 30 s presence TTL"]
-async fn two_hubs_presence_visibility_p95_and_ttl() {
-    let (_a, _b, peer, mut client) = pair().await;
+async fn two_clients_presence_visibility_p95_and_ttl() {
+    let (_hub, mut source, mut observer) = pair().await;
     let mut visibility = Vec::with_capacity(SAMPLES);
     for seq in 1..=SAMPLES as u64 {
         let scope = format!("rfd0140-seq-{seq}");
         let started = Instant::now();
         let deadline = started + Duration::from_secs(5);
         let changed =
-            peer_request_until(&peer, method::MUX_HERE_BEAT, beat(seq, &scope), deadline).await;
+            client_request_until(&mut source, method::MUX_HERE_BEAT, beat(seq, &scope), deadline)
+                .await;
         assert_eq!(changed["changed"], true, "heartbeat {seq} was not accepted: {changed}");
-        visibility.push(wait_for_scope(&mut client, &scope, started, deadline, true).await);
+        visibility.push(wait_for_scope(&mut observer, &scope, started, deadline, true).await);
     }
     let mut sorted = visibility.clone();
     sorted.sort();
@@ -252,8 +220,8 @@ async fn two_hubs_presence_visibility_p95_and_ttl() {
     let final_scope = format!("rfd0140-final-{SAMPLES}");
     let sent_at = Instant::now();
     let ack_deadline = sent_at + Duration::from_secs(5);
-    let changed = peer_request_until(
-        &peer,
+    let changed = client_request_until(
+        &mut source,
         method::MUX_HERE_BEAT,
         beat((SAMPLES + 1) as u64, &final_scope),
         ack_deadline,
@@ -262,7 +230,7 @@ async fn two_hubs_presence_visibility_p95_and_ttl() {
     assert_eq!(changed["changed"], true, "final heartbeat was not accepted: {changed}");
     let acked_at = Instant::now();
     let expiry_deadline = sent_at + TTL + Duration::from_secs(2);
-    let expiry = wait_for_expiry(&mut client, &final_scope, expiry_deadline).await;
+    let expiry = wait_for_expiry(&mut observer, &final_scope, expiry_deadline).await;
     let tolerance = Duration::from_millis(2);
     let expected = (sent_at + TTL, acked_at + TTL);
     let observed = (expiry.last_visible.0, expiry.first_absent.1);
