@@ -2,6 +2,7 @@
 import type { Frame, Page } from "playwright";
 import { waitForPageHook, watchPageErrors } from "./support/benchPage";
 import leoNightly from "./profiles/leo-nightly.json";
+import { keyPhasesProbe, readKeyPhases } from "./keyPhases";
 
 type Surface = Page | Frame;
 type LoadReceipt = {
@@ -95,13 +96,15 @@ export async function runComposerLoad(
     toolLines: number;
     /// Around the typed keys only (a CPU profile of the window the keys wait in, not the setup).
     typing?: { start(): Promise<void>; stop(): Promise<void> };
+    /// Each key's time by phase, from the page's own event timestamps (keyPhases.ts; a `KEY-PHASES` line).
+    phases?: boolean;
   },
 ) {
   const { port, mode, length, keys, gap } = options;
   // Named apart from the acceptance `errors` list below: these are the page's own thrown/console errors,
   // collected from the goto onward so a pane that never installs its hook reports what it held instead.
   const pageErrors = watchPageErrors(page);
-  if (process.env.CTL0_PROBE) await page.addInitScript({ path: process.env.CTL0_PROBE }); // CTL0-TEMP
+  if (options.phases) await page.addInitScript(keyPhasesProbe);
   const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
   const status = response?.status();
   // A static server that answers `/` with a 404 body loads as a page: without this the bench waits
@@ -243,8 +246,7 @@ export async function runComposerLoad(
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
-  if (process.env.CTL0_PROBE) console.log("CTL0 " + JSON.stringify(await page.evaluate(() => (window as any).__ctl0?.()))); // CTL0-TEMP
-  if (process.env.CTL0_SAMPLES) require("fs").appendFileSync(process.env.CTL0_SAMPLES, JSON.stringify({ mode, frames: result.watch.frames, samples: result.typing.samples }) + "\n"); // CTL0-TEMP
+  if (options.phases) console.log(`KEY-PHASES ${JSON.stringify({ mode, length, phases: await readKeyPhases(page) })}`);
   const after = await readLoads();
   for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
   const loadRates = after.map((receipt, i) => {

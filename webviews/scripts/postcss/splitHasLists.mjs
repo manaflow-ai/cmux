@@ -12,7 +12,7 @@
 //
 // Detector: test/split-has-lists.test.ts builds every stylesheet under src/ through this config and
 // Lightning CSS at Vite's targets and fails on any rule that ships as a whole-list `:is(...)` with a
-// `:has(` in it. Pattern: cmuxterm-hq docs/handbook/patterns/webkit-has-invalidation.md.
+// `:has(` in it. Pattern: cmuxterm-hq docs/handbook/pane-level-has-restyles-every-row.md.
 
 /** The selectors of `rule` to write one rule each, or undefined to leave it as it is. */
 export function hasListParts(rule) {
