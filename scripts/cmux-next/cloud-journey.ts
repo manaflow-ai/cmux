@@ -6251,7 +6251,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       for (let run = 1; run <= seedRuns; run++) {
         await J.step(seedRuns > 1 ? `${REPO_SEED_STEP} ${run}/${seedRuns}` : REPO_SEED_STEP, async () => {
           // Clone and borrow as two execs, each with the exec route's whole 300 s (cloud-journey-repo-seed.ts).
-          const s = repoSeedScripts(`/tmp/cmux-seed-probe-${process.pid}-${run}`);
+          // In the guest account's own home, not a guessable name in the guest's shared /tmp (tests/test_ci_noclobber_sweep.py).
+          const s = repoSeedScripts(`/home/cmux/.cache/cmux-seed-probe-${process.pid}-${run}`);
           const c = await exec(s.clone, 300_000);
           let r = c;
           let out = c.stdout;

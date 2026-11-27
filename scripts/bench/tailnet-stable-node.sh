@@ -4,7 +4,7 @@
 # the host namespace, and one tailscaled per namespace on its own socket and state. It never touches a real tailnet
 # or any tailscaled that is already running here.
 #
-#   sudo scripts/bench/tailnet-stable-node.sh [MOVES=20] [OUT=/tmp/tnsb-$$]
+#   sudo scripts/bench/tailnet-stable-node.sh [MOVES=20] [OUT=a new mktemp folder]
 #
 # Namespaces: bclient (the user's tailnet node), bcmux (the stable node: tailscaled plus the front proxy, forwards
 # between the tailnet and a private bridge), bvma and bvmb (the VMs, 10.50.0.11 and .12, echo on :7001).
@@ -17,11 +17,12 @@ SELF=$(readlink -f "$0")
 HERE=$(dirname "$SELF")
 if [ "$(id -u)" -ne 0 ]; then exec sudo -E bash "$SELF" "$@"; fi
 MOVES=${1:-20}
-OUT=${2:-/tmp/tnsb-$$}
+OUT=${2:-$(mktemp -d /tmp/tnsb.XXXXXX)}  # a fresh folder of this run, never a guessable name
 GAP=${GAP:-3}
 HS_VER=0.27.1
 PY=(python3 -I "$HERE/tailnet_bench.py")
 mkdir -p "$OUT"
+echo "out: $OUT" >&2
 cd "$OUT"
 export DEBIAN_FRONTEND=noninteractive
 

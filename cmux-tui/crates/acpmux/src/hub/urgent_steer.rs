@@ -21,6 +21,7 @@ pub(super) const UNREAD_AFTER: Duration = Duration::from_secs(120);
 /// The most times one steer stops the step.
 const MAX_STEPS: usize = 5;
 /// The longest the agent's answer to a stop of its step is waited for.
+// timeout: a stop that goes unanswered only logs stopped=false; the steer stays queued and is looked at again after UNREAD_AFTER.
 const STEP_NOW_WAIT: Duration = Duration::from_secs(5);
 
 /// Whether an inbox notice's provenance carries a blocker in any of its threads.
