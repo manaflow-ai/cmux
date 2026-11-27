@@ -50,7 +50,7 @@ test("a user line another agent or the inbox drew is not the turn's prompt", () 
 test("a turn's end drawn with the next prompt and its line still ends the turn", () => {
   // Shapes from hidden-reshow TURN_TRACE: the ended turn and the next turn's prompt in one render, so
   // `after` has a live line again, under the next prompt (the reply jumped 87 px with no fold).
-  const running = [
+  const running: AcpmuxRow[] = [
     row("user-5865", "user"),
     { ...row("worked-user-5865", "worked"), turnPhase: "running" },
     row("activity-5868", "activity"),
