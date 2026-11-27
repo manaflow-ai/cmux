@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextHomeModel
 public import Foundation
 
 /// The Chief conversation's notice when the person's last message has had no reply
@@ -8,52 +9,70 @@ public import Foundation
 /// with the reason, after its retries (optchat-chief brain/reply_ledger.rs), so a
 /// slow reply from a running brain shows nothing (Leo, 2026-11-03: "don't fucking show
 /// no response from model"); this rule covers a brain that died or never started.
+///
+/// The rule (who waits, the limit, when to look again) is `chief_brain.reply_watchdog` in
+/// cmux-home-rules; this type reads the brain only past the limit, as before.
 public nonisolated struct ChiefReplyWatchdog {
     public nonisolated init() {}
-    /// How long a person's message may wait before Home says so.
+    /// How long a person's message may wait before Home says so (the rules' `REPLY_LIMIT_SECS`).
     public static let limit: TimeInterval = 120
 
     /// When the person's unanswered message arrived: the head is a person's
     /// text (not a Chief's or another agent's), nil when it is answered.
     public static func waitingSince(_ summary: ConversationSummary) -> Date? {
-        guard let last = summary.lastMessage, last.retractedAt == nil else { return nil }
-        let author = summary.participants.first { $0.id == last.author }
-        // An unknown author is a person the head does not list yet; an agent never waits,
-        // nor does another agent's message posted through `cmux chief -p --from`
-        // (`agent~` client ids, cmux-conversation agent_sender.rs): its sender hears back
-        // on its own channel.
-        guard author?.kind != .agent, !last.author.hasPrefix("agent_"),
-              !last.clientMsgID.hasPrefix(agentSenderMark) else { return nil }
-        return date(last.createdAt)
+        check(summary, now: Date(), brainRunning: nil)?.waitingSinceSecs.map(Date.init(timeIntervalSince1970:))
     }
-
-    /// The `client_msg_id` prefix of another agent's message (cmux-conversation `MARK`).
-    static let agentSenderMark = "agent~"
 
     /// The notice at `now`: nil while nothing waits past `limit`, and nil while the
     /// Chief's brain runs (`brainRunning`, read only past `limit`), which answers or says
     /// why it cannot.
     public static func notice(_ summary: ConversationSummary, now: Date,
                               brainRunning: @autoclosure () -> Bool) -> String? {
-        guard let since = waitingSince(summary), now.timeIntervalSince(since) >= limit,
-              !brainRunning() else { return nil }
+        guard check(summary, now: now, brainRunning: nil)?.pastLimit == true,
+              check(summary, now: now, brainRunning: brainRunning())?.notice == "chiefNotRunning" else { return nil }
         return HomeStrings.chiefNotRunning
     }
 
     /// When to look again (at `limit`, then each minute, for a brain that stops while
     /// the message waits), nil when nothing waits.
     public static func nextCheck(_ summary: ConversationSummary, now: Date) -> Date? {
-        guard let since = waitingSince(summary) else { return nil }
-        let appear = since.addingTimeInterval(limit)
-        if now < appear { return appear }
-        let minutes = (now.timeIntervalSince(since) / 60).rounded(.down) + 1
-        return since.addingTimeInterval(minutes * 60)
+        check(summary, now: now, brainRunning: nil)?.nextCheckSecs.map(Date.init(timeIntervalSince1970:))
     }
 
-    /// RFC 3339 UTC, with or without milliseconds (the owner writes them).
-    static func date(_ text: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    private static func check(_ summary: ConversationSummary, now: Date, brainRunning: Bool?) -> WatchdogReply? {
+        let last = summary.lastMessage.map {
+            WatchdogRequest.Last(author: $0.author, clientMsgID: $0.clientMsgID, createdAt: $0.createdAt,
+                                 retractedAt: $0.retractedAt)
+        }
+        let request = WatchdogRequest(
+            summary: .init(participants: summary.participants.map { ChiefBrainParticipant(id: $0.id, kind: $0.kind.rawValue) },
+                           lastMessage: last),
+            nowSecs: now.timeIntervalSince1970, brainRunning: brainRunning)
+        return try? HomeRules.chiefBrain("reply_watchdog", request)
     }
+}
+
+private nonisolated struct WatchdogRequest: Encodable {
+    nonisolated struct Last: Encodable {
+        var author: String
+        var clientMsgID: String
+        var createdAt: String
+        var retractedAt: String?
+    }
+
+    nonisolated struct Summary: Encodable {
+        var participants: [ChiefBrainParticipant]
+        var lastMessage: Last?
+    }
+
+    var summary: Summary
+    var nowSecs: Double
+    var brainRunning: Bool?
+}
+
+private nonisolated struct WatchdogReply: Decodable {
+    var waitingSinceSecs: Double?
+    var pastLimit: Bool
+    var notice: String?
+    var nextCheckSecs: Double?
 }
