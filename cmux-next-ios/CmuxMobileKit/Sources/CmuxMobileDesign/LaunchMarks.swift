@@ -146,9 +146,34 @@ public final class LaunchMarks {
         return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
     }()
 
-    /// The marks as one JSON object, `{"mark": ms, ...}`.
+    /// Work summed up to the first frame (`list_cells_n`, `list_cells_ms`, ...): a count or a
+    /// duration in ms, not a time since the process started. Adds nothing once `first_frame` is taken.
+    public private(set) var totals: [(name: String, value: Double)] = []
+
+    /// Adds `value` to the total `name` while the launch's first frame is still to come.
+    public func add(_ name: String, _ value: Double) {
+        guard !has("first_frame") else { return }
+        if let index = totals.firstIndex(where: { $0.name == name }) {
+            totals[index].value += value
+        } else {
+            totals.append((name, value))
+        }
+    }
+
+    /// Times `body` into the totals `<name>_n` and `<name>_ms` while the first frame is to come.
+    public func time<T>(_ name: String, _ body: () -> T) -> T {
+        guard !has("first_frame") else { return body() }
+        let start = CACurrentMediaTime()
+        let result = body()
+        add(name + "_n", 1)
+        add(name + "_ms", (CACurrentMediaTime() - start) * 1000)
+        return result
+    }
+
+    /// The marks and totals as one JSON object, `{"mark": ms, ...}`.
     public var json: String {
-        "{" + marks.map { String(format: "\"%@\":%.1f", $0.name, $0.ms) }.joined(separator: ",") + "}"
+        let all = marks.map { ($0.name, $0.ms) } + totals.map { ($0.name, $0.value) }
+        return "{" + all.map { String(format: "\"%@\":%.1f", $0.0, $0.1) }.joined(separator: ",") + "}"
     }
 }
 

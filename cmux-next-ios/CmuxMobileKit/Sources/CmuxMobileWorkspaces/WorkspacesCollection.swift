@@ -154,10 +154,12 @@ final class WorkspacesCollectionView: UICollectionView {
     private var laidOut = false
 
     override func layoutSubviews() {
-        guard !laidOut, bounds.width > 0 else { return super.layoutSubviews() }
+        guard !laidOut, bounds.width > 0 else {
+            return LaunchMarks.shared.time("list_relayout") { super.layoutSubviews() }
+        }
         laidOut = true
         LaunchMarks.shared.mark("list_layout")
-        super.layoutSubviews()
+        LaunchMarks.shared.time("list_relayout") { super.layoutSubviews() }
         LaunchMarks.shared.mark("list_layout_done")
     }
 
@@ -275,7 +277,7 @@ final class WorkspacesListCell: UICollectionViewCell {
     required init?(coder: NSCoder) { nil }
 
     override func layoutSubviews() {
-        super.layoutSubviews()
+        LaunchMarks.shared.time("list_cell_layout") { super.layoutSubviews() }
         // 1 pt, as the plain list's separator measured on the iOS 26.5 simulator (3 px at 3x).
         let height: CGFloat = 1
         let size = DynamicTypeSize(traitCollection.preferredContentSizeCategory) ?? .large
@@ -293,7 +295,7 @@ final class WorkspacesListCell: UICollectionViewCell {
             fitted.size = CGSize(width: width, height: height)
             return fitted
         }
-        let fitted = super.preferredLayoutAttributesFitting(attributes)
+        let fitted = LaunchMarks.shared.time("list_fit") { super.preferredLayoutAttributesFitting(attributes) }
         if let key, let heights { heights.store(key, width: width, height: fitted.size.height) }
         return fitted
     }
@@ -380,6 +382,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     /// Fills a cell with its item's current value, and remembers what it shows.
     private func configure(_ cell: WorkspacesListCell, _ id: String) {
+        LaunchMarks.shared.time("list_configure") { configureNow(cell, id) }
+    }
+
+    private func configureNow(_ cell: WorkspacesListCell, _ id: String) {
         guard let item = items[id], let actions else { return }
         cell.heights = heights
         cell.key = WorkspacesHeightCache.Key(id: id, item: item)
