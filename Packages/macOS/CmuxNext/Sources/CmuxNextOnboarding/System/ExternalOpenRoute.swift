@@ -30,6 +30,9 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// page to open in a browser tab, signed in as the person's cmux account. A link it refuses opens
     /// as a plain browser tab when it is a web address.
     case shareLink(URL)
+    /// Screen Sharing asked while Home stands for the hidden home workspace: the Mac Screen
+    /// tab (`device`'s screen, or the home page for "") in a workspace the window shows.
+    case macScreen(device: String)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
 }
