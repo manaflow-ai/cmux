@@ -92,11 +92,14 @@ fn output_limit_never_splits_utf8() {
 
 #[tokio::test]
 async fn the_mac_lends_nothing_to_a_peer_it_is_off_for() {
-    let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let e = admit_owner("box", false, &slots).unwrap_err();
+    let slots = Arc::new(OwnerSlots::new());
+    let read = json!({"action": "read", "repo": "o/r"});
+    let e = admit_owner("box", false, &slots, &read).unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "github.denied");
-    let held = admit_owner("box", true, &slots).unwrap();
-    let e = admit_owner("box", true, &slots).unwrap_err();
+    let held: Vec<_> = (0..OWNER_SLOTS)
+        .map(|_| admit_owner("box", true, &slots, &json!({"action": "token"})).unwrap())
+        .collect();
+    let e = admit_owner("box", true, &slots, &read).unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "github.busy");
     drop(held);
     // Whatever the peer sends is checked again on the Mac.
@@ -194,4 +197,25 @@ fn every_failed_action_says_which_login_it_ran_with() {
     let data = with_source(coded, Some("keyring")).data.unwrap();
     assert_eq!(data, json!({"reason": "github.app_token", "source": "keyring"}));
     assert_eq!(with_source(RpcError::internal("x"), None).data, None);
+}
+
+/// Reads in a loop never keep an action that lands work from starting: with every read slot
+/// held, a `token` (a push), an issue or a comment still gets in, and another read does not.
+#[test]
+fn reads_never_fill_the_slots_a_push_needs() {
+    let slots = Arc::new(OwnerSlots::new());
+    let read = json!({"action": "read", "repo": "o/r"});
+    let reads: Vec<_> =
+        (0..READ_SLOTS).map(|_| admit_owner("box", true, &slots, &read).unwrap()).collect();
+    let e = admit_owner("box", true, &slots, &read).unwrap_err();
+    assert_eq!(e.data.unwrap()["reason"], "github.busy");
+    let push = admit_owner("box", true, &slots, &json!({"action": "token"})).unwrap();
+    assert_eq!(slots.available_permits(), OWNER_SLOTS - READ_SLOTS - 1);
+    drop(push);
+    // Unparseable or unknown counts as a read: the stricter lane.
+    assert!(admit_owner("box", true, &slots, &json!({})).is_err());
+    drop(reads);
+    assert_eq!(slots.available_permits(), OWNER_SLOTS);
+    assert!(is_read(&json!({"action": "merge"})));
+    assert!(!is_read(&json!({"action": "draft_pr"})));
 }
