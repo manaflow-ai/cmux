@@ -14,7 +14,8 @@ A pre-job the PR job already waits on (or a one-step job) runs `decide`. It read
 job's workflow on the base branch, newest first, and takes that job's newest decided verdict (success or failure;
 skipped, cancelled and unfinished runs are passed over, at most --runs runs, none created over --max-age-hours
 ago: a red no base push has re-judged in that long, say a workflow whose paths the fixing push did not touch,
-runs the job again). When it is a failure the PR job is
+runs the job again; base push runs skip the job often (cmux-next.yml's cargo tier: 462 of 548 on 2026-11-25, so
+12 runs held no verdict about 14% of the time), and the caller sets --runs past that). When it is a failure the PR job is
 skipped, and the annotation names the base run that is red. A green, a missing verdict, or any read that fails or
 runs past the deadline runs the job: the skip fails open.
 
@@ -42,16 +43,19 @@ usage:
   base_red_skip.py decide --workflow FILE --job NAME [--base feat-cmux-next] [--events push] [--dispatch-title PREFIX] [--runs 6]
       [--max-age-hours 12]
       [--audit-percent 10] -> `base_red=true|false` and `base_run=<url>` lines on stdout (for $GITHUB_OUTPUT)
-Environment: GITHUB_REPOSITORY, GH_TOKEN (actions: read), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME.
+Environment: GITHUB_REPOSITORY, GH_TOKEN (actions: read), GH_TOKEN_FALLBACK (optional, actions: read: read with it
+once GH_TOKEN is refused with a 403 or 429), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -59,20 +63,82 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deadline_http  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-DEADLINE_S = 40.0
+# The whole read set (one list, then at most --runs jobs reads) ends by DEADLINE_S; each read try by READ_S of it, so
+# one slow answer is tried again instead of eating the budget. 2026-11-25 from 12Z GitHub answered slowly, and with
+# one 40 s budget for up to 13 reads and no retry, decide-many failed open on PRs whose base was red (~2.0k PR
+# minutes of cargo that day). The cmux-next.yml step that runs it allows 3 minutes.
+DEADLINE_S = 90.0
+READ_S = 20.0
+READ_TRIES = 3
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 DECIDED = {"success": False, "failure": True}
 
 
-def get_json(path: str, token: str, deadline: deadline_http.Deadline):
+class Refused(RuntimeError):
+    """A 403 or 429: this token's quota (or its rights) refused the read; another token may still be let in."""
+
+
+def get_json(path: str, token: str, deadline: deadline_http.Deadline, sleep=time.sleep):
+    """GET PATH as JSON: a timeout, a dropped connection or a 5xx is tried again (READ_TRIES tries, each at
+    most READ_S, all inside DEADLINE); a 403 or 429 raises Refused at once, so token_reader moves to the next token
+    instead of spending the deadline on a spent quota; any other status, or the last try's failure, raises."""
     req = urllib.request.Request(f"{API}{path}", headers={
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    status, body, _ = deadline_http.request(req, deadline=deadline)
-    if status != 200:
-        raise RuntimeError(f"GET {path}: HTTP {status}")
-    return json.loads(body)
+    last = ""
+    for attempt in range(READ_TRIES):
+        left = deadline.at - deadline.clock()
+        if left <= 0:
+            break
+        if attempt:
+            pause = min(2.0 ** attempt, left / 2)
+            sleep(pause)
+            left -= pause
+        try:
+            status, body, headers = deadline_http.request(
+                req, deadline=deadline_http.Deadline(min(READ_S, left), clock=deadline.clock))
+        except (OSError, http.client.HTTPException) as err:  # RequestTimeout and URLError are OSErrors
+            last = f"{type(err).__name__}: {err}"
+            continue
+        if status in (403, 429):
+            rate_left = headers.get("x-ratelimit-remaining") if headers is not None else None
+            raise Refused(f"GET {path}: HTTP {status}" + (f" (rate limit left: {rate_left})" if rate_left is not None else ""))
+        if status in RETRY_STATUSES:
+            last = f"HTTP {status}"
+            continue
+        if status != 200:
+            raise RuntimeError(f"GET {path}: HTTP {status}")
+        return json.loads(body)
+    raise RuntimeError(f"GET {path}: {last or 'no time left'} (after {READ_TRIES} tries or the {deadline.seconds:g} s deadline)")
+
+
+def token_reader(tokens: list[str], deadline: deadline_http.Deadline, get=get_json):
+    """A read that moves to the next token when one is refused (403/429), and keeps it for the reads after.
+
+    The workflow's GITHUB_TOKEN shares one hourly quota with every job of the repository: on 2026-11-24 18-19Z it
+    answered 403 to 4 of 6 generated-files decides, so each ran the 20-60 min job the base already had red. The
+    jobs pass a GitHub App token as GH_TOKEN_FALLBACK, which has its own quota."""
+    state = {"at": 0}
+
+    def read(path: str):
+        errors = []
+        while state["at"] < len(tokens):
+            try:
+                return get(path, tokens[state["at"]], deadline)
+            except Refused as err:
+                errors.append(str(err))
+                state["at"] += 1
+        raise RuntimeError("; ".join(errors) or "no token to read the base with")
+    return read
+
+
+def tokens_of(env) -> list[str]:
+    """GH_TOKEN (or GITHUB_TOKEN), then GH_TOKEN_FALLBACK when set: the order token_reader tries them in."""
+    tokens = [t for t in (env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", env.get("GH_TOKEN_FALLBACK") or "")
+              if t]
+    return list(dict.fromkeys(tokens)) or [""]
 
 
 def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: int, read, max_age_hours: float = 12.0,
@@ -89,7 +155,7 @@ def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: in
         titled = event == "workflow_dispatch" and bool(dispatch_title)
         # A titled list reads one page of 100 (about 12 h of cmux-next.yml dispatches, 2026-11-24) and keeps --runs.
         query = urllib.parse.urlencode({"branch": base, "event": event, "status": "completed",
-                                        "per_page": 100 if titled else runs})
+                                        "per_page": 100 if titled else min(runs, 100)})
         listed = read(f"/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
         kept = 0
         for run in listed.get("workflow_runs") or []:
@@ -117,7 +183,13 @@ def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: in
             break  # no readable age: no verdict past here to skip on
         if age_h > max_age_hours:
             break
-        listed_jobs = read(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+        try:
+            listed_jobs = read(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+        except Exception:
+            # A slow GitHub ends the walk, not the verdicts already read: a red found on a newer run still skips.
+            if found:
+                break
+            raise
         for item in listed_jobs.get("jobs") or []:
             name = item.get("name")
             if name in want and name not in found and item.get("conclusion") in DECIDED:
@@ -149,10 +221,8 @@ def decide(args, env=os.environ, read=None, now=None) -> list[str]:
     if env.get("GITHUB_EVENT_NAME") != "pull_request":
         return ["base_red=false"]
     repo = env.get("GITHUB_REPOSITORY", "")
-    token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
     if read is None:
-        deadline = deadline_http.Deadline(DEADLINE_S)
-        read = lambda path: get_json(path, token, deadline)  # noqa: E731
+        read = token_reader(tokens_of(env), deadline_http.Deadline(DEADLINE_S))
     try:
         red, url = base_verdict(repo, args.workflow, job, args.base, args.runs, read,
                                 getattr(args, "max_age_hours", 12.0), now, events_of(args),
@@ -181,10 +251,8 @@ def decide_many(args, env=os.environ, read=None, now=None) -> list[str]:
     if env.get("GITHUB_EVENT_NAME") != "pull_request" or not jobs:
         return ["red_jobs=[]"]
     repo = env.get("GITHUB_REPOSITORY", "")
-    token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
     if read is None:
-        deadline = deadline_http.Deadline(DEADLINE_S)
-        read = lambda path: get_json(path, token, deadline)  # noqa: E731
+        read = token_reader(tokens_of(env), deadline_http.Deadline(DEADLINE_S))
     try:
         found = base_verdicts(repo, args.workflow, jobs, args.base, args.runs, read,
                               getattr(args, "max_age_hours", 12.0), now, events_of(args),
