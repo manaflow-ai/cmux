@@ -13,18 +13,57 @@ public struct AutomaticUpdatePause {
     /// be a temp thing"): while paused the card's switch could not turn on.
     public static let app = false
 
-    /// Set once ``resumeAutomaticChecks(in:)`` ran on these defaults.
-    public static let resumedKey = "cmux.next.automaticUpdatePause.resumedChecks.v1"
+    /// Marks a shared Sparkle value written by the temporary pause.
+    public static let appliedKey = "cmux.next.automaticUpdatePause.applied.v2"
+    /// Whether the pause replaced a persisted shared value.
+    public static let previousValuePresentKey = "cmux.next.automaticUpdatePause.previousValuePresent.v2"
+    /// The shared Sparkle value that the pause replaced.
+    public static let previousValueKey = "cmux.next.automaticUpdatePause.previousValue.v2"
 
-    /// Every paused launch wrote `SUEnableAutomaticChecks = false`, which Sparkle reads at start for its launch
-    /// check and schedule, before ``UpdaterService/configure`` applies `updates.checkAutomatically`. The first
-    /// unpaused launch removes that `false` once (Sparkle's registered default, on, applies until the person's
-    /// setting is written back), so a Mac that ran a paused build checks again by itself.
-    public static func resumeAutomaticChecks(in defaults: UserDefaults) {
-        guard !defaults.bool(forKey: resumedKey) else { return }
-        if defaults.object(forKey: UpdateSettings.automaticChecksKey) != nil, !defaults.bool(forKey: UpdateSettings.automaticChecksKey) {
-            defaults.removeObject(forKey: UpdateSettings.automaticChecksKey)
+    /// Applies the pause or the resolved NEXT setting before Sparkle is constructed. The return value records a
+    /// pre-existing shared opt-out, which remains authoritative for this launch and for later settings updates.
+    @discardableResult
+    public static func prepare(in defaults: UserDefaults, resolvedAutomaticChecks: Bool?, paused: Bool) -> Bool {
+        let wasApplied = defaults.bool(forKey: appliedKey)
+        let previousPresent = defaults.bool(forKey: previousValuePresentKey)
+        let previousValue = defaults.bool(forKey: previousValueKey)
+        let sharedOptOut: Bool
+        if wasApplied {
+            sharedOptOut = previousPresent && !previousValue
+        } else {
+            sharedOptOut = defaults.object(forKey: UpdateSettings.automaticChecksKey) != nil
+                && !defaults.bool(forKey: UpdateSettings.automaticChecksKey)
         }
-        defaults.set(true, forKey: resumedKey)
+
+        if paused {
+            if !wasApplied {
+                if let value = defaults.object(forKey: UpdateSettings.automaticChecksKey) {
+                    defaults.set(true, forKey: previousValuePresentKey)
+                    defaults.set((value as? NSNumber)?.boolValue ?? defaults.bool(forKey: UpdateSettings.automaticChecksKey),
+                                 forKey: previousValueKey)
+                } else {
+                    defaults.set(false, forKey: previousValuePresentKey)
+                    defaults.removeObject(forKey: previousValueKey)
+                }
+                defaults.set(true, forKey: appliedKey)
+            }
+            defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+            return sharedOptOut
+        }
+
+        if wasApplied {
+            if previousPresent {
+                defaults.set(previousValue, forKey: UpdateSettings.automaticChecksKey)
+            } else {
+                defaults.removeObject(forKey: UpdateSettings.automaticChecksKey)
+            }
+            defaults.removeObject(forKey: appliedKey)
+            defaults.removeObject(forKey: previousValuePresentKey)
+            defaults.removeObject(forKey: previousValueKey)
+        }
+        if let resolvedAutomaticChecks {
+            defaults.set(resolvedAutomaticChecks && !sharedOptOut, forKey: UpdateSettings.automaticChecksKey)
+        }
+        return sharedOptOut
     }
 }

@@ -205,6 +205,8 @@ public final class UpdaterService {
     @ObservationIgnored var healthCheckSocket: (() -> String?)?
     /// Files a failed check after an update (the App's crash reporter's non-fatal report).
     @ObservationIgnored var healthCheckFile: UpdateHealthFailure.File?
+    /// A shared `SUEnableAutomaticChecks = false` from the classic updater remains an explicit opt-out in NEXT.
+    @ObservationIgnored private let preservesSharedAutomaticChecksOptOut: Bool
     /// When this updater was made, early in the launch: the check counts relay refusals since then.
     @ObservationIgnored let launchedAt = Date()
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
@@ -388,6 +390,7 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 pausesAutomaticUpdates: Bool = false,
+                automaticChecksAtLaunch: Bool? = nil,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
@@ -408,6 +411,10 @@ public final class UpdaterService {
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
+        preservesSharedAutomaticChecksOptOut = AutomaticUpdatePause.prepare(
+            in: defaults,
+            resolvedAutomaticChecks: identity.track == .development ? nil : automaticChecksAtLaunch,
+            paused: pausesAutomaticUpdates)
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
         starPrompt = StarPromptCenter(defaults: defaults, now: now)
@@ -423,8 +430,6 @@ public final class UpdaterService {
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
-        // Unpaused: the pause's `SUEnableAutomaticChecks = false` comes off once, before Sparkle reads it.
-        if !pausesAutomaticUpdates, identity.track != .development { AutomaticUpdatePause.resumeAutomaticChecks(in: defaults) }
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
@@ -446,9 +451,6 @@ public final class UpdaterService {
             // agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = false
             controller.downloadsUpdatesInBackground = false
-            // Paused: Sparkle reads `SUEnableAutomaticChecks` at start, before the settings apply, for its
-            // launch check and its schedule. ``configure`` writes the setting's own value back once unpaused.
-            if pausesAutomaticUpdates { defaults.set(false, forKey: UpdateSettings.automaticChecksKey) }
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS
