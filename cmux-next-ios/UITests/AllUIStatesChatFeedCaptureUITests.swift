@@ -154,33 +154,21 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "permission-sending", args: Self.feed + ["-cmuxMobile.dev.slowApproval", "YES"]) { app in
                 C.steps([{ C.swipeLeft(app.tables["feed.list"].cells["feed.row.f-permission"], "permission row") }, { C.tap(app.tables["feed.list"].buttons["Allow"], "Allow action") }])
             },
-            Scene(group: g, id: "row-context-menu", args: Self.feed) { app in C.longPress(app.tables["feed.list"].cells["feed.row.f-pricing"], "pricing row") },
-            // Long-press peek (FeedPeek). The chat was opened once, so its transcript is on the phone:
-            // the preview is the chat's newest turns.
-            Scene(group: g, id: "row-peek-chat", args: Self.feed) { app in
-                let row = app.tables["feed.list"].cells["feed.row.f-finished"]
-                for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
-                return C.steps([
-                    { C.tap(row, "finished row") },
-                    { C.wait(app.navigationBars.buttons["More"].firstMatch, "chat", timeout: 30) },
-                    { C.pause(2); return C.tap(app.navigationBars.buttons.firstMatch, "Back") },
-                    { C.pause(1.5); return C.longPress(row, "finished row") },
-                    { C.wait(C.any(app, "feed.peek.chat"), "chat preview", timeout: 10) },
-                ])
+            // The row's menu opens from its ••• button only.
+            Scene(group: g, id: "row-ellipsis-menu", args: Self.feed) { app in
+                C.tap(app.tables["feed.list"].cells["feed.row.f-pricing"].buttons["Event actions"], "pricing row •••")
             },
-            // A chat never opened in this launch: the preview is the event's own text, not a spinner.
-            Scene(group: g, id: "row-peek-event", args: Self.feed) { app in
-                C.steps([
-                    { C.longPress(app.tables["feed.list"].cells["feed.row.f-permission"], "permission row") },
-                    { C.wait(C.any(app, "feed.peek.event"), "event preview", timeout: 10) },
-                ])
+            // A hold on a row's text selects the held word in place (no lifted row, no menu).
+            Scene(group: g, id: "row-hold-selects-text", args: Self.feed) { app in
+                C.longPress(app.tables["feed.list"].cells["feed.row.f-pricing"], "pricing row")
             },
             Scene(group: g, id: "open-finished-chat", args: Self.feed) { app in
                 let row = app.tables["feed.list"].cells["feed.row.f-finished"]
                 for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
                 return C.tap(row, "finished row")
             },
-            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"]),
+            // keep: past AutoRetry's 10 s quiet bound, the quiet line is the state shown.
+            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"], ready: .clock(12)),
             Scene(group: g, id: "new-events-pill", args: Self.feed,
                   env: ["CMUX_MOBILE_FEED_STRESS": "300", "CMUX_MOBILE_FEED_STRESS_LIVE": "3"]) { app in
                 C.steps([{ C.tap(app.buttons["All"].firstMatch, "All chip") }, { C.scrollDown(app, times: 3) }, { C.wait(app.buttons["feed.newPill"], "new events pill", timeout: 15) }])

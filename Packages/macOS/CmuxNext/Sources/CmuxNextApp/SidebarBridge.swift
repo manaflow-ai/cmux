@@ -66,6 +66,7 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.lists(id.rawValue, in: $0.id) == true } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.chatMoveTargets = { [weak self] id in self.map { ChatMoveDrop(host: $0.services).targets(of: id) } ?? [] }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
         model.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // Loose rows come before every group unless the home session places
@@ -80,12 +81,10 @@ final class SidebarBridge {
         container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
+        model.agentSignatures = services.agentSignatures
         wireSubagentOpen()
-        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
-        // a group or a machine list.
-        container.sidebarView.removesOnDragOut = { [weak model] id in
-            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
-        }
+        // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
+        container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }
@@ -203,6 +202,13 @@ final class SidebarBridge {
             self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
             BenchSpans.measure("sidebar.pendingRow.render") { self.container.sidebarView.renderInFrame() } // the model changed in this turn; the list draws the row in its frame
         }
+        // A chat moving to another machine: its row there, saying the step (``ChatMoves``); a row it shares stays put.
+        sameTurn.observe({ services.cloud.chatMoves.all.values.compactMap { move in
+            move.workspace.map { SidebarChatMove(workspace: WorkspaceID($0), machine: move.travels ? move.machine.map(MachineID.init) : nil, line: move.line, fraction: move.fraction) }
+        }.sorted { $0.workspace.rawValue < $1.workspace.rawValue } }) { [weak self] moves in
+            self?.rows.chatMoves = moves
+            self?.container.sidebarView.renderInFrame()
+        }
         // R99: the rows of another space, for the page beside the current one during a swipe.
         model.spaceSections = { [weak windowState, spaceCache] key in
             guard let windowState else { return [] }
@@ -245,8 +251,7 @@ final class SidebarBridge {
         let isLaunchWindow = windows.controllers.isEmpty && windows.restoresSession(state.id)
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn), connecting: seed.connecting.rerunning(sameTurn))
-        // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
-        model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
+        model.seedView(from: saved, documentShown: services.sidebarDoc.drag(room: state.profileID.rawValue) != nil)
         let savedSpaces = saved.flatMap { $0.profiles.isEmpty ? nil : $0 }
         if let savedSpaces { seededProfiles = (savedSpaces.sidebarProfiles, savedSpaces.sidebarActiveProfileID) }
         // No saved spaces (each new window): the store's, by the rows pass's own function, so the first frame has the space bar. Not `seededProfiles`: the pass keeps those while a launch lists none.
@@ -268,6 +273,7 @@ final class SidebarBridge {
         model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
+        if !launching { model.awaitsDocument = false } // the launch ended without the document
         if model.layout != layout { model.layout = layout; sectionsPass?.ensureValues() } // a new pin has its value in this turn
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.

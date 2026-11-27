@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.uiFamily.help" : {
+      "comment" : "Settings > Agent Chat: help for the chat interface font family row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عائلة خطوط أو قائمة منها مفصولة بفواصل. عند تعيينها، تحل محل خط واجهة الدردشة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Porodica fonta ili lista porodica odvojenih zarezom. Kada je postavljena, zamjenjuje font sučelja chata."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En skrifttypefamilie eller en kommasepareret liste af dem. Når den er angivet, erstatter den skrifttypen for chatgrænsefladen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Schriftfamilie oder eine durch Kommas getrennte Liste. Wenn gesetzt, ersetzt sie die Schrift der Chat-Oberfläche."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una familia de fuentes o una lista separada por comas. Si se define, sustituye a la fuente de la interfaz del chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une famille de polices ou une liste séparée par des virgules. Si elle est définie, elle remplace la police de l’interface du chat."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una famiglia di font o un elenco separato da virgole. Se impostata, sostituisce il font dell’interfaccia della chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "フォントファミリー、またはそのカンマ区切りのリスト。設定すると、チャットのインターフェイスフォントの代わりに使われます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្រួសារពុម្ពអក្សរ ឬបញ្ជីរបស់វាដែលបំបែកដោយក្បៀស។ ពេលកំណត់ វាជំនួសពុម្ពអក្សរចំណុចប្រទាក់ជជែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "글꼴 패밀리 또는 쉼표로 구분한 목록입니다. 설정하면 채팅 인터페이스 글꼴을 대체합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En skriftfamilie eller en kommaseparert liste med dem. Når den er angitt, erstatter den skriften for chatgrensesnittet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rodzina czcionek lub ich lista rozdzielona przecinkami. Po ustawieniu zastępuje czcionkę interfejsu czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma família de fontes ou uma lista separada por vírgulas. Quando definida, substitui a fonte da interface do chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Семейство шрифтов или их список через запятую. Если задано, заменяет шрифт интерфейса чата."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตระกูลแบบอักษรหรือรายการที่คั่นด้วยจุลภาค เมื่อตั้งค่าแล้วจะใช้แทนแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir yazı tipi ailesi veya virgülle ayrılmış bir listesi. Ayarlandığında Sohbet Arayüzü Yazı Tipinin yerini alır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Родина шрифтів або їх список через кому. Якщо задано, замінює шрифт інтерфейсу чату."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một họ phông chữ hoặc danh sách cách nhau bằng dấu phẩy. Khi được đặt, nó thay thế phông chữ giao diện trò chuyện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一个字体系列，或以逗号分隔的列表。设置后将取代聊天界面字体。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一個字體系列，或以逗號分隔的清單。設定後會取代聊天介面字體。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
