@@ -237,4 +237,33 @@ for f in acpmux-protocol.json acpmux-abi.surface.json; do
   [[ "$(cat "$ir/$spec/$f")" == new ]] || fail "$f must be blessed"
   grep -q "^fixed: blessed $spec/$f" "$tmp/out" || fail "a blessed $f must be reported"
 done
+# A regenerated settings schema grows schemas/settings/published-keys.txt with cmux-config's writer (step 5c):
+# run 45924857630's schema gate refused a repair for 11 new keys the record lacked. A stand-in cargo plays the
+# writer: it appends NEW_KEY, and fails when KEYS_FAIL says so; then the record is put back and left to a person.
+pk="$tmp/pk"; mkdir -p "$pk/cmux-tui/crates/cmux-config/tests" "$pk/schemas/settings" "$tmp/pkbin"
+echo '// stand-in' > "$pk/cmux-tui/crates/cmux-config/tests/published_keys.rs"
+echo '{"rows":["a"]}' > "$pk/schemas/settings/settings-schema.json"
+printf '# record\na\n' > "$pk/schemas/settings/published-keys.txt"
+cat > "$tmp/pkbin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $CMUX_PUBLISHED_KEYS_WRITE $*" > "$CARGO_ARGS"
+[ -n "$KEYS_FAIL" ] && { echo "error: could not compile"; exit 101; }
+echo b >> ../schemas/settings/published-keys.txt
+SH
+chmod +x "$tmp/pkbin/cargo"
+git -C "$pk" init -q && git -C "$pk" add -A && git -C "$pk" -c user.name=t -c user.email=t@t commit -qm fixture
+rm -f "$tmp/cargo-args"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed on an unchanged schema"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the record must be written only after the schema changed"
+echo '{"rows":["a","b"]}' > "$pk/schemas/settings/settings-schema.json"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt --unverified-settings-exports "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed with unverified settings exports"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the record must wait for verified settings exports"
+grep -q '^left: schemas/settings/published-keys.txt (waits' "$tmp/out" || fail "the waiting record must be reported"
+KEYS_FAIL=1 CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed when the writer fails"
+git -C "$pk" diff --quiet -- schemas/settings/published-keys.txt || fail "a failed writer must leave the record as it was"
+grep -q '^left: schemas/settings/published-keys.txt not written .*could not compile' "$tmp/out" || fail "a failed writer must be reported"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed growing the record"
+grep -qx "$pk/cmux-tui 1 test --locked -p cmux-config --test published_keys" "$tmp/cargo-args" || fail "the record must be cmux-config's writer in cmux-tui: $(cat "$tmp/cargo-args")"
+[[ "$(grep -v '^#' "$pk/schemas/settings/published-keys.txt" | paste -sd ' ' -)" == "a b" ]] || fail "the record must gain the new key"
+grep -q '^fixed: recorded the regenerated settings schema.s new keys in schemas/settings/published-keys.txt' "$tmp/out" || fail "a grown record must be reported"
 echo "base autofix: ok"
