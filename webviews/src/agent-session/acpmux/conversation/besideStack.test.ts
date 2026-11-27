@@ -2,7 +2,7 @@
 // icons cut along a straight line beside the composer card's rounded corner, "where as chatgpt allows
 // it like this").
 import { expect, test } from "bun:test";
-import { bandMask, besideMask, joinMasks } from "./besideStack";
+import { bandMask, besideMask, clippedRect, joinMasks } from "./besideStack";
 
 const card = { left: 16, top: 460, right: 684, bottom: 556, radiusLeft: 22, radiusRight: 22 };
 
@@ -107,4 +107,13 @@ test("a transparent overlay band keeps the whole band visible", () => {
   const mask = bandMask({ top: 400, bottom: 428, holes: [] }, 700)!;
   expect(mask.sizes).toBe("700px 28px");
   expect(mask.positions).toBe("0px 400px");
+});
+
+test("a folding pending card's hole stops at the visible ask section", () => {
+  expect(
+    clippedRect({ left: 16, top: 436, right: 684, bottom: 620 }, { left: 16, top: 400, right: 684, bottom: 500 }),
+  ).toEqual({ left: 16, top: 436, right: 684, bottom: 500 });
+  expect(
+    clippedRect({ left: 16, top: 436, right: 684, bottom: 620 }, { left: 16, top: 400, right: 684, bottom: 436 }),
+  ).toBeUndefined();
 });

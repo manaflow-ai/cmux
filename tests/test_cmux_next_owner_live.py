@@ -74,6 +74,42 @@ class Holder(unittest.TestCase):
         rows = [row("h3/tabs-refine"), row("h5/keeper", owns="PL-instant")]
         self.assertEqual(live.holder(cell, rows, "")[0], "h5/keeper")
 
+    def test_an_owns_tag_naming_the_area_holds_it(self):
+        # 2026-11-27 01:20Z: gcp-agent-lane-13/goal-next-code-shrinks-a-2-2 was live and tagged owns=package-layering,
+        # yet a push into the area still told the coordinator it "has no live holder (PL-arch, else lanes ...)": only
+        # the PL- token was read. Chromium hosting and Guardrails were tagged by name the same night.
+        area = "Package layering, signpost catalog (CmuxNextSignposts names; app moves out of CmuxNextApp)"
+        cell = ("PL-arch, else lanes arch-*,*layering*,*signpost* (coordinator rule 2026-11-23: the live lane working "
+                "in it; Performance Lead, 2026-10-23); new signpost names: PL-arch + PL-telemetry")
+        coord = row("cosmic-gray/claude-sr2-coord", "running", owns="coordinator")
+        holder_row = row("gcp-agent-lane-13/goal-next-code-shrinks-a-2-2", "ready", owns="package-layering")
+        self.assertEqual(live.holder(cell, [coord, holder_row], "", area),
+                         ("gcp-agent-lane-13/goal-next-code-shrinks-a-2-2", "holds owns=package-layering"))
+        # the area's own words, any case, a comma list, or the whole name
+        for tag in ("Package layering", "PACKAGE-LAYERING, other", area, "package layering, signpost catalog"):
+            rows = [coord, row("h/keeper", owns=tag)]
+            self.assertEqual(live.holder(cell, rows, "", area)[0], "h/keeper", tag)
+        chromium = "Chromium hosting (page layer, host view, clip, shim)"
+        rows = [coord, row("g17/feed-fix-chromium-pane", "running", owns="Chromium hosting")]
+        self.assertEqual(live.holder("PL-cef-layer (clip memo: Leo, c22a10712b6)", rows, "", chromium)[0],
+                         "g17/feed-fix-chromium-pane")
+        guard = "Guardrails, pre-push gate, codebase health"
+        rows = [coord, row("g11/lint-never-blocks-autofix", "running", owns="Guardrails, pre-push gate, codebase health")]
+        self.assertEqual(live.holder("Performance Lead (PL-guardrails)", rows, "", guard)[0],
+                         "g11/lint-never-blocks-autofix")
+        # a word's start, another area, or a closed session holds nothing
+        for tag in ("pack", "layering", "Chromium side of motion", "package-layeringx"):
+            rows = [coord, row("h/other", owns=tag)]
+            self.assertEqual(live.holder(cell, rows, "", area)[0], "cosmic-gray/claude-sr2-coord", tag)
+        closed = [coord, row("h/gone", "closed", owns="package-layering")]
+        self.assertEqual(live.holder(cell, closed, "", area)[0], "cosmic-gray/claude-sr2-coord")
+        # the notices print a tag that works
+        self.assertIn("owns=PL-arch", live.unheld_notice(area, cell, ["a"], "0" * 12, "b", "d"))
+        self.assertIn("owns=motion-gate-and-animation-switches",
+                      live.unheld_notice("Motion gate and animation switches", "Performance Lead", ["a"], "0" * 12,
+                                         "b", "d"))
+        self.assertEqual(live.tag_hint(area, "lead: cmux-ad"), "package-layering")
+
     def test_a_role_with_no_live_lane_falls_to_the_coordinator(self):
         rows = [row("h1/tabs-refine", "closed"), row("c/coord", owns="coordinator")]
         found = live.holder("Aziz (human); lanes ios-*", rows, "")
@@ -237,6 +273,14 @@ class Route(unittest.TestCase):
         self.assertRegex(key, r"^day \d{4}-\d\d-\d\d$")
         self.assertIn("has no live holder", text)
         self.assertIn("cmux-tui/crates/acpmux/src/lib.rs", text)
+        # A session tagged with the area's name holds it too (guardrails passes the area to holder()).
+        sent.clear()
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows + [row("host-c/area-keeper", owns="acpmux-daemon")], None),
+                                           "host-a/coordinator")
+        self.assertIn("held by host-c/area-keeper (holds owns=acpmux-daemon)", lines[0])
+        self.assertEqual(sent[0][0], "host-c/area-keeper")
+        self.assertNotIn("has no live holder", sent[0][3])
         # A holder that took the workstream hears of each branch once a UTC day, not each pushed head.
         rows.append(row("host-b/acpmux-keeper", owns="PL-acpmux"))
         sent.clear()
@@ -300,6 +344,55 @@ class Route(unittest.TestCase):
             lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
 
+
+    def test_a_branch_cut_before_an_owners_change_routes_by_the_merged_row(self):
+        """2026-11-27: cmux#60006 dropped `design-*motion*` from Layout motion upstream, yet lane/mobile-bandwidth-steps
+        (cut before it) still sent its push to the transcript-motion lane: the hook read the row from the lane's own
+        copy. The merged table answers who holds an area now."""
+        guardrails = _load("cmux_next_guardrails_owner_upstream_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(path, text, message):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message)
+
+        table = "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n| Layout motion | `Layout/` | lanes {} | x |\n"
+        git("init", "-q", "-b", "main")
+        commit("plans/cmux-next/OWNERS.md", table.format("motion-*,design-*motion*"), "base")
+        base = git("rev-parse", "HEAD")
+        git("checkout", "-qb", "lane/mobile")
+        commit("Layout/Pane.swift", "pane\n", "own change")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        commit("plans/cmux-next/OWNERS.md", table.format("motion-*"), "owners fix (#60006)")
+        git("update-ref", guardrails.UPSTREAM, "HEAD")
+        git("checkout", "-q", "lane/mobile")
+        own = types.SimpleNamespace(base=base, head=head, before=())
+        rows = [row("host-a/design-transcript-motion", "running"), row("host-b/motion-springs", "running")]
+        sent = []
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([(to, area) for to, area, *_ in sent], [("host-b/motion-springs", "Layout motion")])
+        # A push that itself rewrites the row means its own table.
+        prev = git("rev-parse", "HEAD")
+        commit("plans/cmux-next/OWNERS.md", table.format("mobile-*"), "claim the row")
+        commit("Layout/Pane.swift", "pane 2\n", "own change 2")
+        own = types.SimpleNamespace(base=prev, head=git("rev-parse", "HEAD"), before=())
+        rows.append(row("host-c/mobile-bandwidth-steps", "running"))
+        sent.clear()
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([to for to, *_ in sent], ["host-c/mobile-bandwidth-steps"])
 
     def test_a_github_update_branch_merge_carries_no_owned_files(self):
         """2026-11-26: lane/updater-restore-adopt at a2b890f491d4 told the sidebar lane it changed
