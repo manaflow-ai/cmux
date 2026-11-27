@@ -219,6 +219,18 @@ mod tests {
     }
 
     #[test]
+    fn prefetch_is_stamped_by_its_own_switch() {
+        // The scorecard's byFeature splits only on what is stamped; prefetch's row asks its own
+        // gate, which reads this setting and kill switch (`hub/prefetch.rs`).
+        assert!(FEATURES.iter().any(|f| f.name == "prefetch"));
+        assert_eq!(setting_key("prefetch"), crate::hub::prefetch::SETTING_ENABLED);
+        assert_eq!(env_key("prefetch"), crate::hub::prefetch::ENV_KILL);
+        assert!(crate::hub::prefetch::enabled_by(None, None));
+        let off = json!({"agents": {"harnessMagic": {"prefetch": {"enabled": false}}}});
+        assert!(!crate::hub::prefetch::enabled_by(Some(&off), None));
+    }
+
+    #[test]
     fn opt_in_features_are_off_unless_switched_on() {
         // Surgery and dedupe are opt-in (Leo 2026-11-26: "only do it for our personal fleet
         // situation"): their own gates, which their FEATURES rows ask, read off by default.
