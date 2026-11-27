@@ -76,11 +76,11 @@ function Bench() {
   const [, setTick] = useState(0);
   // The bench's handles, set once mounted (the setters are stable); ready only once they are.
   useEffect(() => {
-    window.benchChangeOne = (index) =>
+    window.benchChangeOne = ((index: number) =>
       setConversations((old) => {
         const id = `c${index}`;
         return new Map(old).set(id, change(old.get(id)!));
-      });
+      })) as typeof window.benchChangeOne;
     window.benchTick = () => setTick((tick) => tick + 1);
     window.benchReady = true;
   }, []);
