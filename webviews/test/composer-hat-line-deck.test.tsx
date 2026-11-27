@@ -2,8 +2,9 @@
 // The one-line composer hat's marks (hatLine.experiment.ts; Leo, 2026-11-20: "thumb through
 // them like a Rolodex or whatever at the top ... there's a slight pop and something ... perhaps the text
 // itself maybe changes like on the top of the composer hat"). Every arm but `words` draws one mark per
-// running line on the line itself: pointing at one names its line, leaving gives the sentence back, a
-// click opens it and leaves the hat folded; the hat hides from its top-edge tab, with no eye (Leo, 2026-11-27).
+// running line on the line itself: a click opens it and leaves the hat folded, and pointing at one
+// changes nothing in the sentence (Leo, 2026-11-27: "tdont think we should have this hover anymore it's
+// really bad"); the hat hides from its top-edge tab, with no eye (Leo, 2026-11-27).
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom, trackReactScheduler } from "./support/domTeardown";
@@ -157,13 +158,14 @@ describe("the one-line hat's marks", () => {
     }
   });
 
-  test("pointing at a mark names its line and leaving gives the sentence back", async () => {
+  test("pointing at a mark keeps the sentence", async () => {
     const { host, title, marks, enter, leave, done } = await mount("trail");
     try {
       const sentence = title();
       await enter(marks()[2]!);
-      expect(marks()[2]!.hasAttribute("data-peeked")).toBe(true);
-      expect(title()).toContain("Port the history page");
+      expect(marks()[2]!.hasAttribute("data-peeked")).toBe(false);
+      expect(title()).toBe(sentence);
+      expect(host.querySelector(".acpmux-running-tray__latest")).toBeNull();
       await leave(marks()[2]!, host.querySelector(".acpmux-running-tray__head")!);
       await leave(host.querySelector(".acpmux-hat-deck")!, dom.window.document.body);
       expect(title()).toBe(sentence);
