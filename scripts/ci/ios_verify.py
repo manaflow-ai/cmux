@@ -134,6 +134,18 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False) -> str:
     return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}" + ("-strict" if strict else "")
 
 
+def stream(cmd: list[str], tag: str) -> tuple[int, str]:
+    """Run CMD, echo each line to stderr as "[TAG] line" while it runs, and return its exit code and output. A
+    capture-only run printed nothing until the step ended, so a step waiting in the fleet queue (a pinned worker busy
+    with a runner job) looked hung: two proofs sat silent for 90 min and ended at the caller's timeout, exit 124."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    lines = []
+    for line in p.stdout:
+        lines.append(line)
+        print(f"[{tag}] {line}", end="", file=sys.stderr, flush=True)
+    return p.wait(), "".join(lines)
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
            "--key", step_key(step, head, pr, strict), "--target-worker", step["worker"],
@@ -147,12 +159,11 @@ def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    text = p.stdout + "\n" + p.stderr
+    code, text = stream(cmd, step["name"])
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
-            "step": m.group(1) if m else None, "result": "pass" if p.returncode == 0 else "fail",
-            "exit": p.returncode, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
+            "step": m.group(1) if m else None, "result": "pass" if code == 0 else "fail",
+            "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
 def run_script(script: str) -> dict:
