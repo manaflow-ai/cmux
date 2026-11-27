@@ -13,7 +13,10 @@
 // (chosen), the gaps shaded in every track, and nothing (before). `one-call` is his screenshot: one
 // 2.7s read in a 14.1s turn. `leo-turn` is his 2026-11-22 screenshot ("IF THIS IS THE CASE, THEN
 // DON'T FUCKING DISPLAY THIS BULLSHIT LIKE THIS"): a 1m 40s turn of a 551ms thought, one 24.5s call
-// and 1m 15s of model time, now plain lines; `leo-turn-chart` is how it drew before.
+// and 1m 15s of model time, now plain lines; `leo-turn-chart` is how it drew before. `leo-1127` is his
+// 2026-11-27 screenshot, "2 calls · 2.8s": a command and a sent message, the message the slowest. Its
+// message's bar drew in the fixed merged purple whatever the theme (he asked why it was purple if
+// that was just his theme); a call outside the named kinds now takes a neutral ink from the theme.
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxActivity } from "../model";
 import {
@@ -73,6 +76,14 @@ const ONE_CALL_ROW = { at: START + 14_100, durationMs: 14_100 };
 const LEO_TURN: AcpmuxActivity[] = [thought(25_000, 25_551), call("send-1", "other", "Sent a message", 52_000, 76_500)];
 const LEO_TURN_ROW = { at: START + 100_400, durationMs: 100_400 };
 
+// Leo's 2026-11-27 screenshot: "2 calls · 2.8s", a 3ms thought, a 2.2s command, a 2.5s sent message.
+const LEO_1127: AcpmuxActivity[] = [
+  thought(0, 3),
+  call("queue-1", "execute", "Queue lands for #60053 and #60188", 100, 2_300, { command: "cmux-gh land 60053 60188" }),
+  call("send-2", "other", "Sent a message", 300, 2_800),
+];
+const LEO_1127_ROW = { at: START + 2_800, durationMs: 2_800 };
+
 type Props = {
   look: WaterfallLook;
   summary?: WaterfallSummary;
@@ -80,9 +91,10 @@ type Props = {
   form?: WaterfallForm;
   one?: boolean;
   leo?: boolean;
+  queued?: boolean;
 };
 
-function Waterfall({ look, summary, modelTime, form, one, leo }: Props) {
+function Waterfall({ look, summary, modelTime, form, one, leo, queued }: Props) {
   return (
     <TurnActionsContext.Provider value={{ showCall: () => true }}>
       <div className="acpmux-shell" style={{ padding: 16 }}>
@@ -90,8 +102,8 @@ function Waterfall({ look, summary, modelTime, form, one, leo }: Props) {
             a block around it gives it the pane's width, as the transcript's row does. */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <TurnWaterfall
-            row={leo ? LEO_TURN_ROW : one ? ONE_CALL_ROW : ROW}
-            work={leo ? LEO_TURN : one ? ONE_CALL : WORK}
+            row={queued ? LEO_1127_ROW : leo ? LEO_TURN_ROW : one ? ONE_CALL_ROW : ROW}
+            work={queued ? LEO_1127 : leo ? LEO_TURN : one ? ONE_CALL : WORK}
             look={look}
             summary={summary}
             modelTime={modelTime}
@@ -129,6 +141,10 @@ export default componentEntry<Props>({
     "leo-turn-chart": {
       note: "Before: the same turn as a chart, a 551ms tick, one 24.5s bar and 1m 15s of stripes. Nothing to compare.",
       props: { look: "bars", leo: true, form: "chart" },
+    },
+    "leo-1127": {
+      note: 'Leo\'s 2026-11-27 turn, "2 calls · 2.8s": a command (the accent) and a sent message, the slowest. The message\'s bar is a neutral ink from the theme, no longer the fixed merged purple, so the bars follow the theme; the slowest is told by its outline, bold time and tag.',
+      props: { look: "bars", queued: true },
     },
     "one-call": {
       note: 'One 2.7s read in a 14.1s turn: one call and mostly the model, so plain lines, "Thinking 11.4s" and the read.',
