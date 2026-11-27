@@ -105,6 +105,43 @@ import UIKit
         #expect(yellow == 0, "the card's picture draws every control: \(yellow) placeholder pixels")
     }
 
+    /// Leo's picture (2026-11-23): a tab card whose "Agent stopped" card leads with Continue (the
+    /// turn had done work) and has Details, the placeholder in the second button's place. Both
+    /// lead words take the same stand-in; this is the Continue one, in the card and in its picture.
+    @Test func aContinueLedStoppedCardHasNoPlaceholderInItsPicture() throws {
+        let store = Self.chat()
+        store.apply(.batch([
+            .userMessage(text: "Run the background suite", promptId: "p3", turnId: "t3", attachments: [], at: Self.at.addingTimeInterval(30)),
+            .turnStarted(turnId: "t3", at: Self.at.addingTimeInterval(30)),
+            .update(.agentMessageChunk(text: "Starting the background suite.", messageId: "m3")),
+            .turnResult(turnId: "t3", status: .failed, errorText: "API Error: 529 overloaded_error", at: Self.at.addingTimeInterval(40)),
+        ]))
+        let turn = try #require(store.turns.last)
+        #expect(turn.continuesAfterFailure, "a turn that did work leads with Continue")
+        let choice = try #require(RetryModelChoice(store: store, turn: turn))
+        func card(still: Bool) -> some View {
+            FailureCard(title: "Agent stopped", message: "Background suite stop is rate limited or out of capacity.",
+                        detail: "API Error: 529 overloaded_error", retryWith: choice, leadsWithContinue: true) {}
+                .padding(20)
+                .background(Color.black)
+                .environment(\.chatStill, still)
+        }
+        let live = try #require(Self.still(card(still: false), size: CGSize(width: 402, height: 300)))
+        let standIn = try #require(Self.still(card(still: true), size: CGSize(width: 402, height: 300)))
+        if let png = live.pngData() { Attachment.record(png, named: "continue-card-still-before.png") }
+        if let png = standIn.pngData() { Attachment.record(png, named: "continue-card-still-after.png") }
+        #expect(try Self.placeholderPixels(live) > 300, "the live Menu beside Continue is the placeholder in a still")
+        #expect(try Self.placeholderPixels(standIn) == 0, "beside Continue the stand-in draws the button")
+
+        let feed = AgentCardFeed(store: store)
+        let key = AgentCardRasterKey.current(feed, turns: store.turns, colorScheme: .dark, page: Self.page,
+                                             visibleHeight: Self.page.height, topInset: 70, bottomInset: 110, scale: 1)
+        try #require(key.isDrawable)
+        let picture = try #require(AgentCardRasterizer.render(feed, key))
+        if let png = picture.pngData() { Attachment.record(png, named: "continue-card-picture-after.png") }
+        #expect(try Self.placeholderPixels(picture) == 0, "the tab card's picture draws Continue's neighbor")
+    }
+
     /// The live preview (shown until the picture is drawn, and as a swipe neighbor) draws the same
     /// stand-ins, so the card does not change when its picture replaces it.
     @Test func theLivePreviewDrawsTheStandInsToo() throws {

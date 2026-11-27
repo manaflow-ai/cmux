@@ -233,6 +233,7 @@ pub(super) fn set_workspace_metadata(
     title: Option<Option<String>>,
     pinned: Option<bool>,
     marked_unread: Option<bool>,
+    keep_awake: Option<bool>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
@@ -243,6 +244,7 @@ pub(super) fn set_workspace_metadata(
         title,
         pinned,
         marked_unread,
+        keep_awake,
         ..Default::default()
     };
     let result = mux.set_workspace_metadata(
@@ -264,6 +266,7 @@ pub(super) fn set_workspace_metadata(
         "title": record.title,
         "pinned": record.pinned,
         "marked_unread": record.marked_unread,
+        "keep_awake": record.keep_awake,
         "workspace_revision": result.revision,
         "changed": result.changed,
         "replayed": result.replayed,
