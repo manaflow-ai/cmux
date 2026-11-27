@@ -49,7 +49,7 @@ impl Provider {
     }
 
     /// The provider a built-in profile launches: Claude Code through acpmux's own adapter on a
-    /// `claude` program (not the subrouter's `sr claude proxy`), or Codex through the bridge.
+    /// `claude` program, or Codex through the bridge.
     /// `None` for a profile of the person's own (`builtin` false) and every other harness.
     pub fn of_builtin(profile: &HarnessProfile, builtin: bool) -> Option<Self> {
         if !builtin {
