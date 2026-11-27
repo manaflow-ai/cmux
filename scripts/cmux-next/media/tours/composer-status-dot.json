@@ -1,0 +1,69 @@
+{
+  "title": "Composer status dot: a quiet footer dot opens its status rundown without covering the transcript",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {
+      "title": "Launch the showcase app",
+      "wait": 2
+    },
+    {
+      "title": "Open an agent chat",
+      "cmux": ["agent", "new-chat", "--cwd", "/tmp"],
+      "wait": 4
+    },
+    {
+      "title": "Select the seeded chat with composer statuses",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {"action": "select_session", "session": "mock-session"}
+      },
+      "wait": 2
+    },
+    {
+      "title": "The unobtrusive status dot rests in the composer footer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {"action": "query", "selector": ".acpmux-composer-status-dot[data-shown]"}
+      },
+      "record": true,
+      "readback": {"at": "elements", "count": 1},
+      "wait": 1
+    },
+    {
+      "title": "Click the dot to pin its rundown card",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {"action": "click", "selector": ".acpmux-composer-status-dot[data-shown]"}
+      },
+      "record": true,
+      "readback": {"at": "clicked", "contains": ["true"]},
+      "wait": 2
+    },
+    {
+      "title": "The card lists the problem first, then the attention item",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {"action": "query", "selector": ".acpmux-status-card"}
+      },
+      "record": true,
+      "readback": {"at": "elements", "count": 1},
+      "wait": 2
+    },
+    {
+      "title": "Escape closes the card and returns to the footer",
+      "rpc": {"method": "debug.key", "params": {"key": "escape"}},
+      "record": true,
+      "wait": 1
+    },
+    {
+      "title": "Escape leaves no status card mounted",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {"action": "query", "selector": ".acpmux-status-card"}
+      },
+      "record": true,
+      "readback": {"at": "elements", "empty": true},
+      "wait": 1
+    }
+  ]
+}
