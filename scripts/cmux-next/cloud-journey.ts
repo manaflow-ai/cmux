@@ -5173,8 +5173,13 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
  * `cloud.quota.exceeded` (createWithRoom: a create refused at the cap) are the same: cmux-vm.yml run 46001354720's
  * after-deploy journey went red on "quota_headroom:account-team used 5/5, need 2" while cmux-platform's own deploy
  * journeyed on that team, and NOW's cloud_deploy_gate read the deploy as broken.
+ *
+ * A provider that refuses to make a machine at all is capacity too: `cloud.provider.unavailable` (VM API 503
+ * `vm-provider.createQueueFull`) and Freestyle's "infrastructure overloaded: VM start capacity queue wait expired".
+ * cmux-platform run 46010808734 went red on a cold create that settled `create_overdue` after 6 such refusals.
+ * A bare exec `vm_unavailable` on a machine that was given stays the build's (above).
  */
-export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b/i;
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b|cloud\.provider\.unavailable|createQueueFull|infrastructure overloaded|start capacity queue/i;
 export function capacityOnly(reds: Step[]): boolean {
   return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
 }
