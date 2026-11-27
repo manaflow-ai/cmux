@@ -118,6 +118,35 @@ impl Supervisor {
     }
 }
 
+/// Both update providers share `apps.updates.list`. Keep the git provider's
+/// consent details and status alongside the Community/extension rows; the
+/// Community row wins when both providers know the same app.
+pub(super) fn merge_update_lists(mut community: Value, mut git: Value) -> Value {
+    let mut rows = BTreeMap::new();
+    if let Some(git_rows) = git.get_mut("updates").and_then(Value::as_array_mut) {
+        for row in git_rows.drain(..) {
+            if let Some(id) = row.get("app").and_then(Value::as_str) {
+                rows.insert(id.to_string(), row);
+            }
+        }
+    }
+    if let Some(community_rows) = community.get_mut("updates").and_then(Value::as_array_mut) {
+        for row in community_rows.drain(..) {
+            if let Some(id) = row.get("app").and_then(Value::as_str) {
+                let existing = rows.entry(id.to_string()).or_insert_with(|| serde_json::json!({}));
+                if let (Some(existing), Value::Object(fields)) = (existing.as_object_mut(), row) {
+                    existing.extend(fields);
+                }
+            }
+        }
+    }
+    if let (Some(result), Value::Object(fields)) = (git.as_object_mut(), community) {
+        result.extend(fields);
+        result.insert("updates".into(), Value::Array(rows.into_values().collect()));
+    }
+    git
+}
+
 fn still_offered(
     offer: &UpdateRow,
     sources: &BTreeMap<String, Value>,

@@ -38,3 +38,38 @@ fn an_offer_lists_only_while_its_app_stays_installed_at_the_checked_commit() {
     assert!(!still_offered(&row, &at(B), &installed), "moved since the check");
     assert!(!still_offered(&row, &at(A), &BTreeSet::new()), "uninstalled");
 }
+
+#[test]
+fn the_shared_update_list_keeps_both_providers_and_git_consent_details() {
+    let community = serde_json::json!({
+        "updates": [
+            {"app": "a/shared", "version": "2.0", "commit": B},
+            {"app": "b/community", "version": "3.0"}
+        ],
+        "revision": 7,
+        "checked_at": 1234
+    });
+    let git = serde_json::json!({
+        "updates": [
+            {"app": "a/shared", "version": "1.9", "needs_consent": true,
+             "new_scopes": ["workspace:read"], "available": {"commit": B}},
+            {"app": "c/git", "needs_consent": false}
+        ],
+        "checking": true,
+        "checked_at": 12,
+        "errors": [{"app": "d/offline", "error": "offline"}]
+    });
+    let merged = merge_update_lists(community, git);
+    let rows = merged["updates"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "one row per app, including either provider alone");
+    assert_eq!(rows[0]["version"], "2.0", "Community takes precedence");
+    assert_eq!(rows[0]["needs_consent"], true);
+    assert_eq!(rows[0]["new_scopes"], serde_json::json!(["workspace:read"]));
+    assert_eq!(rows[0]["available"]["commit"], B);
+    assert_eq!(rows[1]["app"], "b/community");
+    assert_eq!(rows[2]["app"], "c/git");
+    assert_eq!(merged["checking"], true);
+    assert_eq!(merged["checked_at"], 1234);
+    assert_eq!(merged["revision"], 7);
+    assert_eq!(merged["errors"][0]["app"], "d/offline");
+}
