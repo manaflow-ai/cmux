@@ -92,7 +92,6 @@ export function AnswerControls({ density = "inline", ...rest }: Props) {
 
 interface ControlProps extends Props {
   density: FeedDensity;
-  disabled: boolean;
 }
 
 /** Decline (secondary) and the primary action. */

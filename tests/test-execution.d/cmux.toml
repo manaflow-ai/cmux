@@ -112,7 +112,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_dev_daily_tree_wait.py"
 
 [[test]]
 path = "tests/test_cmux_next_dev_kick.py"
@@ -215,6 +216,10 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). A GUI regression test (plans/cmux-next/main-thread-scheduling.md 1.5): it builds the LARGE session in a bench app and types real keys, so it needs a quiet fleet mini with the input grant; each step's author runs scripts/measure/main-thread-large-session.sh --mode=test on the fleet before and after the step. --self-test checks its judge with no app."
 
 [[test]]
+path = "tests/test_cmux_next_media_base_build_keeps_afters.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -251,7 +256,8 @@ reason = "Run the portable summary regression locally (kept manual under the 202
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_perf_gate_unlit.py"
 
 [[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
@@ -272,7 +278,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_changed_paths.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_changed_paths.py"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
@@ -284,11 +291,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_gate.py"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_main_twin.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_main_twin.py"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
@@ -318,7 +327,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_route_replay.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_route_replay.py"
 
 [[test]]
 path = "tests/test_cmux_next_same_tree_failed.py"
@@ -407,6 +417,10 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_channel_keeper.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -472,6 +486,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_republish_same_commit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_stranded_owner_sweep.py"
 lane = "linux-guard"
 
 [[test]]
