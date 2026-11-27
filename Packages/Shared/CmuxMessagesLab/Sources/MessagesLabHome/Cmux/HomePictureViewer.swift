@@ -96,7 +96,6 @@ final class HomePictureViewer: NSView {
         scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.05
         scroll.maxMagnification = 8
@@ -299,18 +298,28 @@ final class HomePictureViewer: NSView {
         }
     }
 
-    private func fit() {
-        layoutSubtreeIfNeeded()
-        let size = canvas.frame.size
-        let room = scroll.bounds.size
-        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return }
-        scroll.magnification = min(1, room.width / size.width, room.height / size.height)
+    /// The zoom that fits a picture `size` points large in `room`, keeping its aspect: a large picture shrinks to fit,
+    /// a small one grows to fill the pane (issue 51939: a pasted screenshot opened at its own small size in the middle
+    /// of an empty viewer), within the scroll view's zoom range. 1 for an empty size or room.
+    static func fitMagnification(_ size: CGSize, in room: CGSize, range: ClosedRange<CGFloat> = 0.05...8) -> CGFloat {
+        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return 1 }
+        return min(range.upperBound, max(range.lowerBound, min(room.width / size.width, room.height / size.height)))
     }
 
+    private var fitMagnification: CGFloat {
+        Self.fitMagnification(canvas.frame.size, in: scroll.bounds.size, range: scroll.minMagnification...scroll.maxMagnification)
+    }
+
+    private func fit() {
+        layoutSubtreeIfNeeded()
+        guard canvas.frame.width > 0, canvas.frame.height > 0, scroll.bounds.width > 0, scroll.bounds.height > 0 else { return }
+        scroll.magnification = fitMagnification
+    }
+
+    /// Double-click: the picture at its own size, or back to fit.
     private func toggleActualSize() {
-        let size = canvas.frame.size, room = scroll.bounds.size
-        let fitted = min(1, room.width / max(1, size.width), room.height / max(1, size.height))
-        if abs(scroll.magnification - fitted) < 0.01 { scroll.magnification = 1 } else { scroll.magnification = fitted }
+        let fitted = fitMagnification
+        scroll.magnification = abs(scroll.magnification - fitted) < 0.01 && abs(fitted - 1) >= 0.01 ? 1 : fitted
     }
 
     private func showCompare() {

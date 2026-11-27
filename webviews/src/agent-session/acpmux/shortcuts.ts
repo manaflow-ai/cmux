@@ -4,6 +4,8 @@ import { createContext, useContext } from "react";
 /// pushes their keycaps through the bridge's applyShortcuts (CmuxNextAgentPane AgentPaneShortcuts).
 export const SHORTCUT_ACTIONS = {
   newAgentChat: "palette.newAgentChat",
+  /// Show all chats: the command palette's chats page (the New Tab page's All sessions).
+  searchChats: "agentPane.searchChats",
   toggleDictation: "palette.toggleDictation",
   permissionAllowOnce: "agentPane.permission.allowOnce",
   permissionAllowChat: "agentPane.permission.allowChat",

@@ -29,7 +29,8 @@ public struct NewTaskFloatingButton: View {
                 .frame(width: Self.size, height: Self.size)
                 .contentShape(.circle)
         }
-        .buttonStyle(CmuxMobilePressFillStyle(cornerRadius: Self.size / 2))
+        // The same circular wash it had (cornerRadius: size / 2), now named.
+        .buttonStyle(.cmuxPressFillCircle)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel("New Task")
         .accessibilityHint("Write a prompt and choose the agents that run it")
@@ -106,7 +107,9 @@ private struct NewTaskButtonHost: ViewModifier {
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
             }
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: shows)
+            // Gone at once when a page is pushed (not shrinking over the page coming in);
+            // back with its spring once a page has left.
+            .animation(shows ? theme.motion.snap.animation.unlessReduceMotion : nil, value: shows)
             #if DEBUG
             // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
             .task {

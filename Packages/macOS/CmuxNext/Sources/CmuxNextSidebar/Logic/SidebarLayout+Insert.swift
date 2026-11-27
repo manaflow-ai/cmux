@@ -8,34 +8,45 @@ nonisolated extension SidebarLayout {
     /// Splices `insertion`'s workspace row into this layout, as `make(sections:metrics:options:)` lays it out with the
     /// row added to the sections; the rows after it move down by its slot and the section's later rows count one more
     /// node before them. False (unchanged) when the row cannot be spliced and the list must be laid out again: a
-    /// filter, a drag, Group by Status, Folder or Recents, the session tree, a row limit, the chat history, a row that
-    /// folds (Done, archived), a section that showed no row, or no drawn neighbour row to place it by.
+    /// filter, a drag, Group by Status, Folder or Recents, a row limit, the chat history, a row that folds (Done,
+    /// archived), a section that showed no row, or no drawn neighbour row to place it by. Under the session tree
+    /// (lineage nesting, on by default) only a row no session started and that started none (`splicesUnderTree`).
     ///
     /// - Parameters:
     ///   - insertion: The set that added the row (its section as the set left it, and the row's node index).
     ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with; the layout was made with the same ones.
-    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
+    ///   - pending: Later nodes of the section a batch (`SidebarLooseEdits`) splices in after this one, in node order: no
+    ///     row has them yet, so the row goes before the first later node that has one.
+    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions,
+                              pending: Set<Int> = []) -> Bool {
         let section = insertion.section, k = insertion.node
         guard let ws = insertion.workspace, o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil,
               o.excludedItem == nil, !o.excludedWorkspaces.contains(ws.id), !o.grouping.isGrouped, !o.hidesWorkspaces,
-              o.sessionTree == nil, o.rowLimit == 0, pinnedChatsY == nil, earlierChatsY == nil,
+              Self.splicesUnderTree(o, inserting: ws.id), o.rowLimit == 0, pinnedChatsY == nil, earlierChatsY == nil,
               section.machine != nil, !section.isDocSection, !Self.folds(ws, o),
               position(of: .workspace(ws.id)) == nil else { return false }
+        // Under the session tree the rows draw in lineage order, not node order: a root draws after every earlier
+        // root's subtree. The new row is a root with no child, so it stands right before the next node's row when that
+        // one is a root too, or (the last node) right after the root before it when that one draws nothing under it.
+        let nests = o.sessionTree != nil
         // Where `make` puts node k: right before the row of the node after it, or right after the row of the loose
         // node before it. Each must be its node's own row at the top level of the section (not a fold, a group's member
         // or a group drawn as its one member) and drawn in node order (not behind a "Done" or "Archived" row).
         let nodes = section.nodes
         var at: Int?, y: CGFloat = 0, sibling = 0
-        if k + 1 < nodes.count, !Self.folds(nodes[k + 1], o), let next = position(of: Self.rowKey(nodes[k + 1])),
-           Self.isOwnTopRow(rows[next], in: section) {
+        var after = k + 1
+        while pending.contains(after) { after += 1 }
+        if after < nodes.count, !Self.folds(nodes[after], o), let next = position(of: Self.rowKey(nodes[after])),
+           Self.isOwnTopRow(rows[next], in: section), Self.isTreeRoot(rows[next]) {
             (at, y, sibling) = (next, rows[next].y, rows[next].siblingIndex)
-        } else if k > 0, !Self.folds(nodes[k - 1], o), Self.isLoose(nodes[k - 1]), let previous = position(of: Self.rowKey(nodes[k - 1])),
-                  Self.isOwnTopRow(rows[previous], in: section) {
+        } else if k > 0, !nests || k + 1 == nodes.count, !Self.folds(nodes[k - 1], o), Self.isLoose(nodes[k - 1]),
+                  let previous = position(of: Self.rowKey(nodes[k - 1])),
+                  Self.isOwnTopRow(rows[previous], in: section), Self.isTreeRoot(rows[previous]),
+                  !nests || previous + 1 == rows.count || Self.isTreeRoot(rows[previous + 1]) {
             (at, y, sibling) = (previous + 1, rows[previous].maxY + rowSpacing, rows[previous].siblingIndex + 1)
         }
-        // An anchor under "Archive (N)" is an archived group's row there (`appendArchive`), not its node's place.
-        guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
+        guard let at else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
         let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))
@@ -59,6 +70,8 @@ nonisolated extension SidebarLayout {
             if moved { setRow(later, at: i) }
             i += 1
         }
+        // Under the tree a later node's row can draw above the new one (a sub-session under an earlier root).
+        if nests { renumberEarlierRows(before: at, in: section.id, from: sibling, by: 1) }
         // The section's header counts its nodes.
         if let header = position(of: .section(section.id)) {
             var counted = rows[header]
@@ -77,9 +90,11 @@ nonisolated extension SidebarLayout {
     mutating func removeLoose(_ removal: SidebarRowRemoval, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
         let section = removal.section, ws = removal.workspace, k = removal.node
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.grouping.isGrouped, !o.hidesWorkspaces, o.sessionTree == nil, o.rowLimit == 0, pinnedChatsY == nil,
+              !o.grouping.isGrouped, !o.hidesWorkspaces, Self.splicesUnderTree(o), o.rowLimit == 0, pinnedChatsY == nil,
               earlierChatsY == nil, section.machine != nil, !section.isDocSection, !section.nodes.isEmpty, !Self.folds(ws, o),
               let at = position(of: .workspace(ws.id)), Self.isOwnTopRow(rows[at], in: section), rows[at].siblingIndex == k,
+              // Under the session tree only a root with no sub-session goes alone: no other row's depth, order or roll-up reads it.
+              Self.isTreeRoot(rows[at]), rows[at].content?.treeFold == nil,
               base.resolved(for: o).rowSpacing == rowSpacing else { return false }
         let row = rows[at]
         // The row's slot is its height and the spacing to a row of its section beside it: the next one starts there,
@@ -104,6 +119,7 @@ nonisolated extension SidebarLayout {
             if moved { setRow(later, at: i) }
             i += 1
         }
+        if o.sessionTree != nil { renumberEarlierRows(before: at, in: section.id, from: k + 1, by: -1) }
         if let header = position(of: .section(section.id)) {
             var counted = rows[header]
             counted.childCount -= 1
@@ -112,6 +128,38 @@ nonisolated extension SidebarLayout {
         SidebarPerfCounters.add(.layoutRows)
         return true
     }
+
+    /// The session tree draws a sub-session right under its parent, so a row above the spliced one can be a later
+    /// node's: the rows of `section` before `at` whose node index is `first` or more move by `delta`, as the rows
+    /// after it do. Without a tree the rows draw in node order and none above is a later node's.
+    private mutating func renumberEarlierRows(before at: Int, in section: SectionID, from first: Int, by delta: Int) {
+        var i = at - 1
+        while i >= 0, rows[i].section == section {
+            var earlier = rows[i], moved = false
+            switch earlier.key {
+            case .section, .doneFold, .showMore: break // no node's index
+            default:
+                if earlier.parentIndex == nil, earlier.siblingIndex >= first { (earlier.siblingIndex, moved) = (earlier.siblingIndex + delta, true) }
+            }
+            if let parent = earlier.parentIndex, parent >= first { (earlier.parentIndex, moved) = (parent + delta, true) }
+            if moved { setRow(earlier, at: i) }
+            i -= 1
+        }
+    }
+
+    /// Whether a one-row splice can stand for the full layout under the session tree `o` draws (none: always).
+    /// Not with `sidebar.sessionTree`'s keycaps or chat history, which a new row renumbers or moves. `id`, the row
+    /// added, must be a root no listed session started and that started none: its row then has no depth, chevron or
+    /// roll-up, and no other row's changes. The scan is of the lineage (the sessions an agent started), not the rows.
+    private static func splicesUnderTree(_ o: SidebarLayoutOptions, inserting id: WorkspaceID? = nil) -> Bool {
+        guard let tree = o.sessionTree else { return true }
+        guard o.keycaps.isEmpty, o.chatHistory == nil else { return false }
+        guard let id else { return true }
+        return tree.parents[id] == nil && !tree.parents.values.contains(id)
+    }
+
+    /// `row` draws at the session tree's top level (always, without a tree): no sub-session's row.
+    private static func isTreeRoot(_ row: SidebarRow) -> Bool { (row.content?.treeDepth ?? 0) == 0 }
 
     /// Whether `ws` is drawn behind a fold row (Done, Settled, archived), out of node order.
     private static func folds(_ ws: SidebarWorkspace, _ o: SidebarLayoutOptions) -> Bool {

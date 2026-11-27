@@ -84,7 +84,9 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 /// `--harness local`: every profile in this machine's harness folder (what
 /// Add Machine copies, so a remote chat starts with the agents this Mac has).
 pub(crate) const LOCAL_HARNESSES: &str = "local";
-const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
+/// The remote's harness folder: cmux NEXT's own `cmux-next` on a Mac
+/// (`cmux_config::NEXT_DIR`), `cmux` elsewhere.
+const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux; case $(uname -s) in Darwin) d=$d-next;; esac; d=$d/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
 /// Machine card, `HostCLI.stop`).
@@ -138,7 +140,12 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
-    // Last: whether an agent is ready there, with the install and sign-in offers.
+    // Last: install missing agent CLIs during Add Machine (safe and
+    // non-secret), then report readiness and the person-owned sign-in offer.
+    // `host doctor` remains read-only and calls `step` directly.
+    if plan.lends_github && fix && gate(Step::Agents, &done).is_none() {
+        let _ = crate::cli::host_agents::install_missing(&remote, &plan.name, &mut emit);
+    }
     let agents = gate(Step::Agents, &done)
         .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
     emit(&agents);
@@ -202,6 +209,18 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .or_else(|| ssh_peers.iter().find(|(_, host, _)| host == target))
         .cloned()
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
+}
+
+/// A line for `doctor NAME` when the hub already carries NAME: its chats work over the hub, and
+/// the ssh steps that follow test a direct route from this machine, which the hub makes optional.
+pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
+    let row = peers.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let connected = row.get("state").and_then(Value::as_str) == Some("connected");
+    (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
+        format!(
+            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
+        )
+    })
 }
 
 /// How a running daemon stays current: [`update_step::update`], given the
@@ -492,7 +511,7 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
 }
 
 /// The build in a `--version` line: `acpmux 0.1.0 (BUILD)`.
-fn build_of(line: &str) -> Option<&str> {
+pub(super) fn build_of(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once('(')?;
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }

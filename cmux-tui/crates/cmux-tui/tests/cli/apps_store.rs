@@ -19,8 +19,8 @@ const KEY_HEX: &str = "8f0e1d2c3b4a59687766554433221100ffeeddccbbaa9988776655443
 const INSTALL_ID: &str = "inst_apps_store";
 
 /// One daemon with its own state, app directories and scripted app host.
-struct Apps {
-    dir: PathBuf,
+pub(crate) struct Apps {
+    pub(crate) dir: PathBuf,
     socket: PathBuf,
     session: String,
     /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
@@ -30,7 +30,7 @@ struct Apps {
 }
 
 impl Apps {
-    fn new(name: &str) -> Self {
+    pub(crate) fn new(name: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-as-{name}-{}-{stamp}", std::process::id()));
@@ -85,7 +85,7 @@ impl Apps {
 
     /// Starts the daemon with the app's install key, so a connection can
     /// prove itself the verified cmux app.
-    fn start(&self) {
+    pub(crate) fn start(&self) {
         let mut child = self
             .command("ensure")
             .arg("--install-key-stdin")
@@ -107,7 +107,7 @@ impl Apps {
     }
 
     /// A connection with no hello: the daemon derives origin agent.
-    fn agent(&self) -> Client {
+    pub(crate) fn agent(&self) -> Client {
         let stream = UnixStream::connect(&self.socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(12))).unwrap();
         Client { reader: BufReader::new(stream), next: 100 }
@@ -150,7 +150,7 @@ impl Drop for Apps {
     }
 }
 
-struct Client {
+pub(crate) struct Client {
     reader: BufReader<UnixStream>,
     next: u64,
 }
@@ -158,7 +158,7 @@ struct Client {
 impl Client {
     /// Sends `request` with a fresh id and returns the reply with that id
     /// (apps events may arrive in between).
-    fn rpc(&mut self, mut request: Value) -> Value {
+    pub(crate) fn rpc(&mut self, mut request: Value) -> Value {
         self.next += 1;
         request["id"] = json!(self.next);
         writeln!(self.reader.get_mut(), "{request}").unwrap();
@@ -186,13 +186,13 @@ impl Client {
     }
 
     /// An App Store op; `origin` is the claimed origin.
-    fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
+    pub(crate) fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
         self.rpc(json!({ "cmd": "apps-store", "op": op, "args": args, "origin": origin }))
     }
 
     /// A `cmux.protocol/2` request as a page host sends it (selectors
     /// current, a string id); `extra` adds envelope members.
-    fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
+    pub(crate) fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
         self.next += 1;
         let id = format!("v2-{}", self.next);
         let mut params = params;
@@ -217,7 +217,7 @@ impl Client {
     }
 }
 
-fn v2_ok(reply: &Value) -> &Value {
+pub(crate) fn v2_ok(reply: &Value) -> &Value {
     assert_eq!(reply["ok"], true, "{reply}");
     &reply["result"]
 }
@@ -232,7 +232,7 @@ fn error_code(reply: &Value) -> &str {
     reply["error_code"].as_str().unwrap_or_else(|| panic!("expected a refusal: {reply}"))
 }
 
-fn ok(reply: &Value) -> &Value {
+pub(crate) fn ok(reply: &Value) -> &Value {
     assert_eq!(reply["ok"], true, "{reply}");
     &reply["data"]
 }
@@ -244,7 +244,7 @@ fn write_script(path: &Path, body: &str) {
 
 /// Writes app `<publisher>/<dir>` into `root` with `extra` merged into its
 /// manifest v2.
-fn write_app(root: &Path, publisher: &str, dir: &str, extra: Value) {
+pub(crate) fn write_app(root: &Path, publisher: &str, dir: &str, extra: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(&app).unwrap();
     // A store app's repository owner is its publisher; cmux's is manaflow-ai.
@@ -941,10 +941,11 @@ fn the_app_store_answers_v2_namespace_requests_for_the_apps_page() {
     let refused = history.v2("apps.catalog.list", json!({}), page);
     assert_eq!(v2_reason(&refused), "page_not_allowed");
 
-    // An install from the Apps page needs the person's confirmation.
+    // An install from the Apps page needs the person's gesture: the Install click mints the
+    // token, with no sheet (Leo, 2026-11-16: "if i click install it means it works").
     let install = json!({"app": "acme/tool"});
     let refused = relay.v2("apps.install", install.clone(), json!({"idempotency_key": "g1"}));
-    assert_eq!(v2_reason(&refused), "confirmation_required");
+    assert_eq!(v2_reason(&refused), "gesture_required");
     let digest =
         sha2::Sha256::digest(br#"{"app":"acme/tool","machine":"current","session":"current"}"#);
     let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -1326,6 +1327,7 @@ fn the_store_examples_list_and_install_for_the_user() {
 #[test]
 fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed() {
     let apps = Apps::new("fp-store");
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform docs/cmux-next/sidebar-customization
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let quick_links = repo.join("samples/apps/quick-links");
     let first_party = apps.dir.join("fp-src");
@@ -1702,6 +1704,32 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
     ids
 }
 
+/// Builds `AppPlatform/store` with the real `sync-app-runtime.sh --store`, as
+/// a build does, into the folder the daemon reads as `CMUX_APPS_DIRS`; returns
+/// the package folder names.
+fn build_store_folder(apps: &Apps) -> Vec<String> {
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next docs/cmux-next/sidebar-customization
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let platform = apps.dir.join("platform");
+    let out = Command::new("bash")
+        .arg(repo.join("scripts/cmux-next/sync-app-runtime.sh"))
+        .arg("--store")
+        .env("CMUX_APP_PLATFORM_DIR", &platform)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "sync --store: {}", String::from_utf8_lossy(&out.stderr));
+    let bundled = apps.dir.join("bundled");
+    std::fs::remove_dir_all(&bundled).unwrap();
+    std::fs::rename(platform.join("store"), &bundled).unwrap();
+    let mut names: Vec<String> = std::fs::read_dir(&bundled)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 /// What opening an installed app shows, by the rule every entry point uses
 /// (`AppOpenTarget` in CmuxNextApps, then `app.open`): a `cmux.pane/1` the app
 /// draws (a scene export) or hosts as a web page (`web_pages`), else an https
@@ -1709,8 +1737,25 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
 /// action (`native_pane_show_action`, the table the sidebar item and
 /// `app.open` share); a native pane with none opens nothing. `None` is an app
 /// with nothing to open: installing it adds nothing the person can use.
-fn open_target(entry: &Value) -> Option<String> {
+fn open_target(entry: &Value, placed: &Value) -> Option<String> {
     let manifest = &entry["manifest"];
+    let id = entry["id"].as_str().unwrap_or_default();
+    if manifest["implements"]["cmux.widget/1"].is_object() {
+        // A widget shows only as a placed tile: the Install click places it (widgets.rs).
+        return ["newtab", "sidebar"].into_iter().find_map(|place| {
+            placed[place]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tile| tile["app"] == id)
+                .map(|tile| format!("widget tile {} in {place}", tile["size"]))
+        });
+    }
+    // A first-party setting-backed entry (#46903's Auto cleanup, `worktrees.autoCleanup`): its
+    // Install turns that cmux setting on, and the listing's switch shows it; there is no pane.
+    if let Some(key) = manifest["setting"]["key"].as_str() {
+        return Some(format!("setting {key}"));
+    }
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
         let app = entry["id"].as_str().unwrap_or_default();
@@ -1735,14 +1780,19 @@ fn open_target(entry: &Value) -> Option<String> {
         .map(|url| format!("web app {url}"))
 }
 
-/// Installs, as the person, every app the App Store lists, and returns each
-/// listing with what opening it shows (`None`: nothing to open).
-fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
+/// Installs, as the person, every app the App Store lists (on `shelf`, every
+/// shelf when `None`), with exactly the params the page's Install click sends,
+/// and returns each listing with what it shows after (`None`: nothing).
+fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Option<String>)> {
     let mut agent = apps.agent();
     let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
     let rejected = ok(&reply)["lines"].as_array().cloned().unwrap_or_default();
     assert!(rejected.is_empty(), "no shipped package is rejected: {rejected:?}");
-    let reply = agent.store("cmux.apps.catalog.list", json!({ "limit": 200 }), "cli");
+    let mut args = json!({ "limit": 200 });
+    if let Some(shelf) = shelf {
+        args["shelf"] = json!(shelf);
+    }
+    let reply = agent.store("cmux.apps.catalog.list", args, "cli");
     let catalog = ok(&reply).clone();
     let listed: Vec<String> = catalog["listings"]
         .as_array()
@@ -1763,6 +1813,8 @@ fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
     }
     let reply = agent.rpc(json!({ "cmd": "apps-list" }));
     let entries = ok(&reply)["apps"].as_array().cloned().unwrap();
+    let reply = agent.store("cmux.apps.widgets.list", json!({}), "cli");
+    let placed = ok(&reply)["layout"].clone();
     listed
         .into_iter()
         .map(|id| {
@@ -1775,7 +1827,7 @@ fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
                 (json!(true), json!(true), json!(true)),
                 "{id} is installed and on: {entry}"
             );
-            let target = open_target(entry);
+            let target = open_target(entry, &placed);
             (id, target)
         })
         .collect()
@@ -1787,23 +1839,33 @@ fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
 /// app hands it to its daemon, with no other app directory, as after #44290) installs for the
 /// person and then has something to open: a pane or a web page. A
 /// command-only package (the old Standup sample) fails here.
+///
+/// The shelf is built the way a build builds it: the BUNDLED first-party apps,
+/// and `AppPlatform/store` from the real `sync-app-runtime.sh --store` (cmux's
+/// own STORE apps, the widgets, beside the samples) as `CMUX_APPS_DIRS`. Every
+/// Discover listing is checked, so a new STORE package that installs and shows
+/// nothing fails here before it ships: a widget counts only once its Install
+/// placed its tile.
 #[test]
 fn every_shipped_store_listing_installs_and_has_something_to_open() {
     let apps = Apps::new("every-listing");
     let shipped = copy_shipped_first_party(&apps.dir.join("first-party"));
     assert!(shipped.contains(&"cmux/cloud".to_string()), "{shipped:?}");
-    assert!(shipped.contains(&"cmux/coderouter".to_string()), "{shipped:?}");
+    let store = build_store_folder(&apps);
+    assert!(store.contains(&"widget-clock".to_string()), "the widgets are on the shelf: {store:?}");
     apps.start();
-    let results = install_every_listing(&apps);
+    let results = install_every_listing(&apps, Some("store"));
+    assert!(results.iter().any(|(id, _)| id == "cmux/clock"), "{results:?}");
     let nothing: Vec<&String> =
         results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
     assert!(
         nothing.is_empty(),
         "listed apps with nothing to open after install: {nothing:?}; all: {results:?}"
     );
-    for id in ["cmux/cloud", "cmux/coderouter"] {
-        assert!(results.iter().any(|(listed, _)| listed == id), "{id} listed: {results:?}");
-    }
+    assert!(
+        results.iter().any(|(listed, _)| listed == "cmux/cloud"),
+        "cmux/cloud listed: {results:?}"
+    );
 }
 
 /// The check above catches the class Leo hit: with the Standup sample on the
@@ -1818,8 +1880,64 @@ fn a_command_only_store_listing_has_nothing_to_open_after_install() {
         Command::new("cp").arg("-R").arg(&standup).arg(apps.dir.join("bundled")).status().unwrap();
     assert!(status.success());
     apps.start();
-    let results = install_every_listing(&apps);
+    let results = install_every_listing(&apps, None);
     let nothing: Vec<&String> =
         results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
     assert_eq!(nothing, [&"manaflow-ai/standup".to_string()], "{results:?}");
+}
+
+/// The App Store page's listing (appstore-look): a row carries the app's
+/// one-line tagline (absent when the manifest has none); `catalog.get` adds
+/// its screenshots and where the app shows up, derived from what it
+/// implements and its palette commands; `asset.get` serves a listed
+/// screenshot past the icon's size limit, and nothing else that large.
+#[test]
+fn a_listing_has_its_tagline_screenshots_and_where_it_shows_up() {
+    let apps = Apps::new("listing-look");
+    copy_shipped_first_party(&apps.dir.join("first-party"));
+    let bundled = apps.dir.join("bundled");
+    write_app(
+        &bundled,
+        "acme",
+        "shots",
+        json!({
+            "tagline": { "en": "See your builds at a glance", "ja": "ビルドをひと目で確認" },
+            "screenshots": ["shots/one.png"],
+        }),
+    );
+    write_app(&bundled, "acme", "plain", json!({}));
+    let shots = bundled.join("shots");
+    std::fs::create_dir_all(shots.join("shots")).unwrap();
+    // Past the 512 KiB icon limit, inside the screenshot one.
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(600 * 1024, 0);
+    std::fs::write(shots.join("shots/one.png"), &png).unwrap();
+    std::fs::write(shots.join("shots/unlisted.png"), &png).unwrap();
+    apps.start();
+    let mut agent = apps.agent();
+
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "limit": 200 }), "cli");
+    let catalog = ok(&reply);
+    assert_eq!(listing(catalog, "acme/shots")["tagline"], "See your builds at a glance");
+    assert!(listing(catalog, "acme/plain").get("tagline").is_none(), "{reply}");
+
+    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "acme/shots"}), "cli");
+    let detail = ok(&reply);
+    assert_eq!(detail["tagline"], "See your builds at a glance", "{reply}");
+    assert_eq!(detail["screenshots"], json!(["shots/one.png"]), "{reply}");
+    assert_eq!(detail["contributes"], json!([]), "{reply}");
+
+    let reply = agent.store(
+        "cmux.apps.asset.get",
+        json!({"app": "acme/shots", "path": "shots/one.png"}),
+        "cli",
+    );
+    let url = ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
+    assert!(url.starts_with("data:image/png;base64,"), "{reply}");
+    let reply = agent.store(
+        "cmux.apps.asset.get",
+        json!({"app": "acme/shots", "path": "shots/unlisted.png"}),
+        "cli",
+    );
+    assert_eq!(error_code(&reply), "apps.asset.too_large", "{reply}");
 }

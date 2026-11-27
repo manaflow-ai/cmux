@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe sample app data), not shipped UI.
 import { appsPageEntry, type AppsPageVariant } from "../../gallery/format";
-import { sampleApps } from "./mockProvider";
+import { manyStoreApps, sampleApps, storeApps } from "./mockProvider";
 
 const base = sampleApps();
 const empty = { details: {}, installed: {}, grants: {} } satisfies AppsPageVariant["data"];
@@ -24,8 +24,9 @@ deployed.details["manaflow-ai/hello-deploy"] = {
   ...structuredClone(template),
   id: "manaflow-ai/hello-deploy",
   name: "Hello Deploy",
+  tagline: "Run a tiny web server on your own machine or Cloud and open it in a tab",
   description:
-    "Install = deploy + pin: runs a small web server on your cmux Cloud machine or on a machine you host yourself, and opens it as a pane in your workspace.",
+    "Installing runs a small web server on your cmux Cloud machine or on a machine you host yourself, then opens it in a tab. The page shows the request headers the server receives, so you can see everything is connected.",
   publisher: "manaflow-ai",
   publisher_verified: false,
   tier: "unverified",
@@ -55,6 +56,22 @@ deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
   },
 };
 
+// An app installed from a git repo: its page links the repo at the pinned commit.
+const fromGit = structuredClone(base);
+fromGit.details["sample-org/standup"] = {
+  ...structuredClone(template),
+  id: "sample-org/standup",
+  name: "Standup",
+  description: "A public-safe sample app installed from a git repo subdirectory, pinned to a tagged commit.",
+  publisher: "sample-org",
+  publisher_verified: false,
+  tier: "unverified",
+  repository: "https://github.com/sample-org/cmux-apps",
+  path: "apps/standup",
+  commit: "3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+  tag: "v1.2.0",
+};
+
 // The curated store (Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps"): Discover
 // lists only the first-party apps cmux ships (Cloud, CodeRouter); the SDK examples are on the
 // Examples shelf, offered to developers; `cmux ext dev` apps show only under Installed.
@@ -62,6 +79,7 @@ const curatedTemplate = structuredClone(template);
 const app = (
   id: string,
   name: string,
+  tagline: string,
   description: string,
   shelf: "store" | "example" | "local",
   categories: string[],
@@ -70,6 +88,7 @@ const app = (
   ...structuredClone(curatedTemplate),
   id,
   name,
+  tagline,
   description,
   shelf,
   categories,
@@ -82,27 +101,14 @@ const app = (
   installed: shelf === "local",
   scopes: [],
 });
+const store = storeApps();
 const curatedApps = [
-  app(
-    "cmux/cloud",
-    "Cloud",
-    "Create, start, pause, resize and delete your cmux Cloud machines, take and restore snapshots, and see your plan and usage.",
-    "store",
-    ["cloud", "developer-tools"],
-    "cloud",
-  ),
-  app(
-    "cmux/coderouter",
-    "CodeRouter",
-    "Set up and watch CodeRouter, the cmux model router: provider accounts, sharing, API keys, usage, failover order and a test request.",
-    "store",
-    ["agents", "cloud", "monitoring"],
-    "arrow.triangle.branch",
-  ),
+  ...Object.values(store.details),
   app(
     "manaflow-ai/quick-links",
     "Quick Links",
-    "A declarative app: your links as a sidebar section and a pane, drawn natively by cmux from a scene.",
+    "Your favorite links in the sidebar, one click to open",
+    "Keep the links you use most in the sidebar and in their own tab. Click one to open it in a browser tab, and edit the list in Settings.",
     "example",
     ["sidebar", "productivity"],
     "link",
@@ -110,7 +116,8 @@ const curatedApps = [
   app(
     "manaflow-ai/standup",
     "Standup",
-    "A command-only app: jot what you did, list it at standup, clear it after.",
+    "Jot what you did, read it back at standup, then clear it",
+    "Jot down what you did as you go, list it all at standup, and clear it when you're done. Everything runs from the command palette or the cmux command line.",
     "example",
     ["productivity"],
     "checklist",
@@ -118,7 +125,8 @@ const curatedApps = [
   app(
     "manaflow-ai/cmux-docs",
     "cmux Docs",
-    "A web app: the cmux docs pinned in the sidebar, opening as a tab in your workspace.",
+    "The cmux docs one click away in your sidebar",
+    "The cmux docs, pinned to your sidebar. Click to read them in a tab right next to your work.",
     "example",
     ["developer-tools"],
     "book",
@@ -126,7 +134,8 @@ const curatedApps = [
   app(
     "manaflow-ai/hello-deploy",
     "Hello Deploy",
-    "Install = deploy + pin: runs a small web server on your Cloud machine or one you host, as a pane.",
+    "Run a tiny web server on your own machine or Cloud and open it in a tab",
+    "Installing runs a small web server on your cmux Cloud machine or on a machine you host yourself, then opens it in a tab.",
     "example",
     ["developer-tools", "cloud"],
     "server.rack",
@@ -134,14 +143,16 @@ const curatedApps = [
   app(
     "local/changes",
     "Changes",
+    "Your open pull requests, live, in the sidebar",
     "Your open pull requests, live, in the sidebar.",
     "local",
     ["git"],
     "arrow.triangle.pull",
   ),
-  app("local/clock", "Clock", "A clock on the New Tab page.", "local", ["fun"], "clock"),
+  app("local/clock", "Clock", "A clock on New Tab", "A clock on the New Tab page.", "local", ["fun"], "clock"),
 ];
 const curated = {
+  assets: store.assets,
   details: Object.fromEntries(curatedApps.map((detail) => [detail.id, detail])),
   installed: Object.fromEntries(
     curatedApps
@@ -163,6 +174,28 @@ const curated = {
   ),
   grants: {},
 };
+// The store with a dozen apps (the widget apps from the widgets lane), one listing with no
+// description and one the host failed to load: Discover shows neither.
+const many12 = manyStoreApps();
+// Cloud installed (a first-party app: Show/Hide, Open), with its permissions as switches.
+const cloudInstalled = structuredClone(store);
+cloudInstalled.details["cmux/cloud"]!.installed = true;
+cloudInstalled.installed["cmux/cloud"] = {
+  id: "cmux/cloud",
+  name: "Cloud",
+  version: "1.4.0",
+  enabled: true,
+  hidden: false,
+  sandboxed: false,
+  source: "default",
+  tier: "first-party",
+};
+cloudInstalled.grants["cmux/cloud"] = {
+  app: "cmux/cloud",
+  sandboxed: false,
+  scopes: cloudInstalled.details["cmux/cloud"]!.scopes.map((scope) => ({ ...scope, granted: !scope.optional })),
+};
+
 // A developer (developer mode on, or a `cmux ext dev` app): the owner offers Examples.
 const curatedDeveloper = { ...structuredClone(curated), examples: true };
 
@@ -175,6 +208,7 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/FeaturesView.tsx",
     "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
@@ -182,8 +216,89 @@ export default appsPageEntry({
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
     "pages/apps/items.tsx",
+    "pages/apps/SourceLink.tsx",
   ],
   variants: {
+    "features-list": {
+      note: "Chosen Features tab (features=list, the default; Leo 10-21, ask-36ade8776b): every built-in feature as a switch on its own setting, grouped like Settings. The managed row cannot change.",
+      hash: "#/features",
+      data: store,
+    },
+    "features-tiles": {
+      note: "Variant (DEV, features=tiles): a card per feature, on ones tinted.",
+      hash: "#/features?features=tiles",
+      data: store,
+    },
+    "features-chips": {
+      note: "Variant (DEV, features=chips): one toggle chip per feature, the densest.",
+      hash: "#/features?features=chips",
+      data: store,
+    },
+    "browse-hero-rows": {
+      note: "Chosen Discover (browse=hero, the default): Cloud and CodeRouter each as a hero with a screenshot; a small store needs no shelves.",
+      hash: "#/discover?layout=grid",
+      data: store,
+    },
+    "browse-hero-rows-many": {
+      note: "Chosen Discover with a dozen apps: Cloud as the hero, then a shelf per category with two or more apps, the rest under More apps. The untitled and the broken listing never show.",
+      hash: "#/discover?layout=grid",
+      data: many12,
+    },
+    "browse-grid-featured-pair": {
+      note: "Variant (DEV, browse=pair): the Cloud banner, two featured cards side by side, then every app.",
+      hash: "#/discover?layout=grid&browse=pair",
+      data: store,
+    },
+    "browse-grid-featured-pair-many": {
+      note: "Variant (DEV, browse=pair) with a dozen apps.",
+      hash: "#/discover?layout=grid&browse=pair",
+      data: many12,
+    },
+    "browse-raycast-list": {
+      note: "Variant (DEV, browse=list, the Raycast Store): rows with icon, name, one line, category tags, publisher and the action.",
+      hash: "#/discover?layout=grid&browse=list",
+      data: store,
+    },
+    "browse-raycast-list-many": {
+      note: "Variant (DEV, browse=list) with a dozen apps.",
+      hash: "#/discover?layout=grid&browse=list",
+      data: many12,
+    },
+    "listing-carousel-sidebar": {
+      note: "Chosen listing (listing=carousel, the default): big icon, name, tagline, meta line and Install on the right; the screenshot carousel; Shows up in, Permissions and Information in a column on the right.",
+      hash: "#/discover?layout=grid&app=cmux/coderouter",
+      data: store,
+    },
+    "listing-carousel-sidebar-cloud": {
+      note: "The chosen listing for Cloud: its own tab and palette commands under Shows up in; the optional terminal permission says Optional.",
+      hash: "#/discover?layout=grid&app=cmux/cloud",
+      data: store,
+    },
+    "listing-carousel-installed": {
+      note: "The chosen listing once installed: Open and Hide; the permissions become switches in the main column, in the same plain words.",
+      hash: "#/discover?layout=grid&app=cmux/cloud",
+      data: cloudInstalled,
+    },
+    "listing-carousel-widget": {
+      note: "The chosen listing for a widget app (Usage): one screenshot, Sidebar widget and New Tab places.",
+      hash: "#/discover?layout=grid&app=cmux/usage",
+      data: many12,
+    },
+    "listing-hero-stacked": {
+      note: "Variant (DEV, listing=stacked, the iOS App Store): a screenshot strip, the description, then an Information grid of Shows up in, Permissions and the facts.",
+      hash: "#/discover?layout=grid&listing=stacked&app=cmux/coderouter",
+      data: store,
+    },
+    "listing-compact": {
+      note: "Variant (DEV, listing=compact, the Raycast Store): one readable column, the facts after the description.",
+      hash: "#/discover?layout=grid&listing=compact&app=cmux/coderouter",
+      data: store,
+    },
+    "deep-link-not-in-store": {
+      note: "A deep link to an app the store does not list (a sample that left Discover): Discover with one quiet line, never an error page.",
+      hash: "#/discover?layout=grid&app=cmux/running-agents",
+      data: store,
+    },
     curated: {
       note: "Discover as everyone sees it: only cmux's first-party apps (Cloud, CodeRouter); no SDK examples, no cmux ext dev apps.",
       hash: "#/discover?layout=grid",
@@ -250,6 +365,11 @@ export default appsPageEntry({
       hash: "#/discover?layout=split&app=manaflow-ai/hello-deploy",
       data: deployed,
     },
+    "detail-git": {
+      note: "An app installed from git: Repository links github.com/OWNER/REPO/PATH @ the short commit, pinned to that commit.",
+      hash: "#/discover?layout=split&app=sample-org/standup",
+      data: fromGit,
+    },
     "installed-deploy": {
       note: "Installed with a deployed app: its row says where the instance runs.",
       hash: "#/installed",
@@ -282,19 +402,19 @@ export default appsPageEntry({
       data: many,
     },
     error: {
-      note: "The catalog owner returns a permission error.",
+      note: "The catalog owner keeps failing: the loading grid stays and one quiet line says it is still loading; it is read again on its own, with no Reload.",
       mode: "error",
       error: { code: "cmux.apps.permission", message: "The catalog is unavailable to this workspace." },
       hash: "#/discover?layout=grid",
       data: base,
     },
     "not-found": {
-      note: "A deep link names an app that is no longer in the catalog.",
+      note: "A deep link names an app that is no longer in the catalog: the split view shows Discover's list and the quiet note.",
       hash: "#/discover?layout=split&app=sample.missing",
       data: base,
     },
     "detail-error": {
-      note: "The selected app detail fails once, then can be retried without losing selection.",
+      note: "The selected app detail fails once: it reads as loading and is read again on its own, keeping the selection (no Reload).",
       detailError: { code: "cmux.apps.backend_unavailable", message: "The app details are temporarily unavailable." },
       hash: "#/discover?layout=split&app=cmux.coderouter",
       data: base,

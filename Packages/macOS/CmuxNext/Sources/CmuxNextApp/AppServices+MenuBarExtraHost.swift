@@ -7,6 +7,7 @@ import CmuxNextSettings
 extension AppServices: MenuBarExtraHost {
     var menuBarAccount: MenuBarMenuState.Account? { SidebarAccount(cloud.auth)?.menuBarAccount(teamSymbol: TeamRowText.symbol(cloud.auth)) }
     var menuBarAvatar: NSImage? { SidebarAccount(cloud.auth)?.avatar.image(diameter: 16) }
+    var menuBarSignInBackend: String? { cloud.configuration.signInBackendLine }
     var menuBarAgentsWorking: Int { AgentNeedsInputJump.workingCount(AgentNeedsInputJump.tabs(of: daemon.store)) }
     var menuBarAgentsNeedingInput: Int { AgentNeedsInputJump.targets(chats: .app, tabs: AgentNeedsInputJump.tabs(of: daemon.store)).count }
     var menuBarUpdateReady: Bool { updater.indicatorPhase.isReady }
@@ -19,5 +20,6 @@ extension AppServices: MenuBarExtraHost {
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }
     func menuBarResumeComputerUse(_ session: String) { cmuxRemote.sendComputerUseSession(.resume, session: session) }
     func menuBarShowComputerUseCursor(_ session: String) { cmuxRemote.sendComputerUseSession(.spotlight, session: session) }
+    func menuBarExtensionRows() -> [NSView] { apps.client.statusItems.menuBarRows() }
     func menuBarOpenChat(_ id: String) { if let lane = AgentPriorityChats.app.lane(id) { SidebarPriorityFeed.open(lane, services: self) } }
 }

@@ -2,15 +2,17 @@
 //! listed here is closed with `unknown_service`.
 
 use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::Bytes;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
-use cmux_mobile_link::{ChannelEvent, IncomingChannel};
+use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -27,13 +29,41 @@ use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub device_id: String,
-    /// The link session (a UUID): one `upload` folder per session.
+    /// The link session (a UUID). Legacy uploads use one folder per session.
     pub session_id: String,
     /// The link's media lane (browser video as RTP: a WebRTC track or UDP
     /// inside the WireGuard tunnel), if the
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path and a direct path's peer address, for its route
+    /// ([`cmux_mobile_link::dial::route_name`]); `None` off a dialed link.
+    pub route: Option<LinkRoute>,
+    /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
+    pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+    /// The link's viewport sync port, on a WireGuard overlay (`None` elsewhere).
+    pub viewport: Option<Arc<crate::viewport_link::LinkHub>>,
+}
+
+/// What the link's route is read from.
+#[derive(Debug, Clone)]
+pub struct LinkRoute {
+    pub path: tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>,
+    pub peer: cmux_mobile_link::dial::PeerAddr,
+}
+
+impl LinkRoute {
+    /// The route now: `direct-lan`, `direct-wan`, `direct`, `relay` or `none`.
+    pub fn name(&self) -> &'static str {
+        cmux_mobile_link::dial::route_name(*self.path.borrow(), *self.peer.borrow())
+    }
+}
+
+impl Peer {
+    /// The wire name of the link's path now (`direct`, `turn`, `turn-tls`, `none`).
+    pub fn path_name(&self) -> Option<&'static str> {
+        self.path.as_ref().map(|path| crate::control::path_name(*path.borrow()))
+    }
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -44,6 +74,17 @@ pub async fn serve(
     peer: Peer,
     link: Arc<crate::pairing::LinkAuth>,
     incoming: IncomingChannel,
+) {
+    serve_with_upload_timeout(config, peer, link, incoming, UPLOAD_STALL_TIMEOUT).await;
+}
+
+/// Serve a channel with a host-selected inactivity deadline for resumable uploads.
+pub async fn serve_with_upload_timeout(
+    config: Arc<ServiceConfig>,
+    peer: Peer,
+    link: Arc<crate::pairing::LinkAuth>,
+    incoming: IncomingChannel,
+    upload_timeout: Duration,
 ) {
     let IncomingChannel { service, args, lane, channel } = incoming;
     let (mut sender, mut receiver) = channel.split();
@@ -100,16 +141,19 @@ pub async fn serve(
         }
     }
     let result = match service.as_str() {
-        "auth" => crate::pairing::serve(
-            config.pairing.as_ref(),
-            &peer.device_id,
-            &link,
-            &args,
-            &sender,
-            &mut receiver,
-        )
-        .await
-        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        "auth" => {
+            crate::pairing::note_phone_app(&peer.device_id, &args, peer.path_name());
+            crate::pairing::serve(
+                config.pairing.as_ref(),
+                &peer.device_id,
+                &link,
+                &args,
+                &sender,
+                &mut receiver,
+            )
+            .await
+            .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
         _ if gate == crate::pairing::Gate::Busy => {
             Err(Refusal::new("busy", "too many channels wait for this iPhone's pairing"))
         }
@@ -121,22 +165,55 @@ pub async fn serve(
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer, &args, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
+        "catch-up" => crate::catch_up::serve(&config, &peer, &args, &sender).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
-        "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "upload" => upload(&config, &peer, &args, &sender, receiver, upload_timeout).await,
+        "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
             let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
             crate::machine::serve(&sender, &name, &grants).await
         }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
-        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "pair-requests" => {
+            crate::pair_requests::serve(config.pairing.as_ref(), &peer.device_id, &link, &args, &sender)
+                .await
+                .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
+        "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
+        // Swift live code patches for a cmux Dev app on this phone (live_code.rs).
+        "live-code" => crate::live_code::serve(&sender, receiver).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "try-pr" => crate::try_pr::serve(&sender, &args).await,
+        "site-data" => {
+            let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
+            let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
+            crate::site_data::serve(tabs, &args, &control::emit, &sender).await
+        }
+        cmux_phone_page::SERVICE => crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await,
+        "phone-frames" => {
+            let route = peer.route.clone();
+            crate::phone_frames::serve_on(
+                &peer.device_id,
+                &crate::phone_frames::default_path(),
+                &move || route.as_ref().map(LinkRoute::name),
+                &sender,
+                receiver,
+            )
+            .await
+        }
+        "tabs" => {
+            let tabs = &*crate::tab_snapshots::TABS;
+            let socket = Some(config.daemon_socket());
+            crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
+        }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -204,32 +281,58 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// `WS_MAX_MESSAGE_BYTES`).
 const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 
+const UPLOAD_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+const UPLOAD_ACK_BYTES: u64 = 1 << 20;
+const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
 /// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
 /// wallpaper, `appearance.rs`).
-pub const CAPABILITIES: [&str; 7] = [
-    "removal-v1",
-    "file-preview-v1",
-    "localhost-forward-v1",
-    "cloud-directory-v1",
-    "cloud-acpmux-v1",
-    "needs-you-v1",
-    "appearance-v1",
+/// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
+/// waiting on this Mac, `pair_requests.rs`).
+/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
+/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
+/// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
+/// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
+/// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
+/// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
+/// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
+/// content-defined chunks, `bundle.rs`).
+/// The names are declared once in `cmux_mobile_link::names`.
+pub const CAPABILITIES: [&str; 13] = [
+    names::REMOVAL,
+    names::FILE_PREVIEW,
+    names::LOCALHOST_FORWARD,
+    names::CLOUD_DIRECTORY,
+    names::CLOUD_ACPMUX,
+    names::NEEDS_YOU,
+    names::APPEARANCE,
+    names::PAIR_REQUESTS,
+    names::PHONE_FRAMES,
+    names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
+    names::MAILBOX_SEND,
+    names::BUNDLE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
-pub const BROWSER_STREAM: &str = "browser-stream-v1";
+pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
 /// video on the link's media lane when the link has one.
-pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
+pub const BROWSER_VIDEO_TRACK: &str = names::BROWSER_VIDEO_TRACK;
 /// Added when this Mac streams its phone tabs' simulators (`surface`), with
 /// `video: "track"` as for browser tabs.
-pub const SURFACE_STREAM: &str = "surface-stream-v1";
+pub const SURFACE_STREAM: &str = names::SURFACE_STREAM;
 /// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
 /// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
-pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const CLOUD_DESKTOP: &str = names::CLOUD_DESKTOP;
+/// Added when `surface` also streams this Mac's own displays, view only
+/// (`d~<display>`, `surface.rs`): the Mac screen as rd/1 on the phone's link.
+pub const MAC_DISPLAY: &str = names::MAC_DISPLAY;
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -243,6 +346,19 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.available() {
         out.push(CLOUD_DESKTOP);
+    }
+    if config.surface.streams_mac_display() {
+        out.push(MAC_DISPLAY);
+    }
+    if crate::site_data::enabled() && control::enabled() {
+        out.push(names::SITE_DATA_HANDOFF);
+    }
+    if crate::lan::running() {
+        // The phone may enroll for the LAN direct path (`lan`, lan.rs).
+        out.push(crate::lan::CAPABILITY);
+    }
+    if crate::try_pr::available() {
+        out.push(crate::try_pr::CAPABILITY);
     }
     out
 }
@@ -434,7 +550,7 @@ where
         serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
         serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
             "kind":"ios","device_kind":"iphone",
-            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+            "capabilities":[names::CLOUD_MOBILE_CHAT,names::CONVERSATION_TABS,names::AGENT_SESSION_TABS]}),
     ] {
         write
             .write_all(request.to_string().as_bytes())
@@ -453,7 +569,7 @@ where
             && !response
                 .pointer("/data/capabilities")
                 .and_then(Value::as_array)
-                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+                .is_some_and(|caps| caps.iter().any(|cap| cap == names::CLOUD_MOBILE_CHAT))
         {
             return Err(Refusal::new(
                 "forbidden",
@@ -598,6 +714,14 @@ async fn daemon(
     {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
+    // A new phone asks for redraw ids (`"pseq": true`) and for viewport sync (`"viewport_sync": 1`);
+    // an old one gets the plain stream.
+    let pseq = args.get("pseq") == Some(&Value::Bool(true));
+    let asked = args.get("viewport_sync").and_then(Value::as_u64) == Some(1);
+    let sync = match (asked, &config.viewport_sync, &peer.viewport) {
+        (true, Some(selector), Some(hub)) => Some((Arc::clone(hub), selector.clone())),
+        _ => None,
+    };
     splice(
         &path,
         session,
@@ -608,6 +732,7 @@ async fn daemon(
         sender,
         receiver,
         peer.session_exposure.clone(),
+        LineStamps { pseq, sync },
     )
     .await
 }
@@ -633,7 +758,15 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None).await
+    let stamps = LineStamps { pseq: true, sync: None };
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None, stamps).await
+}
+
+/// How a splice's daemon lines leave for the phone: stamped with redraw ids (`pseq`) or not,
+/// and through a viewport sync (the link's port and the path selector's numbers) or not.
+struct LineStamps {
+    pseq: bool,
+    sync: Option<(Arc<crate::viewport_link::LinkHub>, crate::viewport_sync::SelectorConfig)>,
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
@@ -642,6 +775,7 @@ const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
+#[allow(clippy::too_many_arguments)] // one splice: its socket, policies, channel, exposure and line stamps
 async fn splice(
     path: &Path,
     label: &str,
@@ -650,6 +784,7 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    stamps: LineStamps,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
@@ -680,12 +815,25 @@ async fn splice(
     let daemon_exposure = exposure.clone();
     let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
+    // The daemon lane: when each output byte went to the phone (output_paint.rs).
+    let output_stamps = reply_phone.as_deref().map(crate::output_paint::Tracker::start);
+    let LineStamps { pseq, sync } = stamps;
+    let mut viewport = sync.map(|(hub, selector)| {
+        crate::viewport_link::ViewportLink::new(hub, selector, pseq, daemon_lines.clone())
+    });
+    let hybrid_marks = viewport.as_ref().map(crate::viewport_link::ViewportLink::hybrid_marks);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
             let mut line = Vec::new();
             match reader.read_until(b'\n', &mut line).await {
-                Ok(0) | Err(_) => return,
+                Ok(0) | Err(_) => {
+                    // Every sync's last lines, in order, before the stream ends.
+                    if let Some(viewport) = &mut viewport {
+                        let _ = viewport.finish().await;
+                    }
+                    return;
+                }
                 Ok(_) => {
                     // hostd's own releases: answered to hostd, not the phone.
                     if answers.answer(&line) {
@@ -694,6 +842,18 @@ async fn splice(
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
+                    if let Some(viewport) = &mut viewport {
+                        // Its own lines and this one, stamped when asked, in order.
+                        if viewport.on_line(line).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    // A redraw's id and its read time (Mac redraw to iPhone paint), when asked.
+                    let line = crate::viewport_link::stamped(line, pseq);
+                    if let Some(stamps) = &output_stamps {
+                        stamps.line(&line);
+                    }
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -713,10 +873,7 @@ async fn splice(
     side_workers.spawn(async move {
         while let Some((line, verdict)) = side_rx.recv().await {
             let Some(cache) = &side_cache else { return };
-            if let Some((tree, personal, layout)) = side_requirements(&line) {
-                cache.wait_for(tree, personal, layout).await;
-            }
-            let verdict = owned_check(cache, &line, verdict);
+            let verdict = daemon_owned_verdict(cache, &line, verdict).await;
             match verdict {
                 Verdict::Refuse(answer) => {
                     if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
@@ -811,15 +968,13 @@ async fn splice(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
-                    if refusals.send(answer).await.is_err() {
-                        return;
-                    }
-                    continue;
-                }
-                let (verdict, canonical) = policy.evaluate(&line);
-                if let Some(canonical) = canonical {
-                    line = canonical;
+                let (checked, verdict) = daemon_line_verdict(&policy, line, request_exposure.as_ref());
+                line = checked;
+                // A hybrid attach's surface never syncs (its stream is not the PTY's bytes).
+                if let Some(marks) = &hybrid_marks
+                    && !matches!(verdict, Verdict::Refuse(_))
+                {
+                    marks.observe(&line);
                 }
                 // A reply to a terminal notification is answered locally. Keep it
                 // in the input task so it cannot be confused with an ordinary rewrite.
@@ -905,7 +1060,8 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     let Some(line) = exposed_daemon_line(line, exposure.as_ref()) else { continue };
-                    if sender.send(Bytes::from(line)).await.is_err() {
+                    let mark = crate::paint_latency::flush_mark(&line);
+                    if sender.send_marked(Bytes::from(line), mark).await.is_err() {
                         // The phone is gone (its close frame, a removed phone). Its
                         // close reaches the phone-to-daemon task, which releases its
                         // sizes: let that finish (bounded) instead of aborting it,
@@ -953,6 +1109,85 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// The first check of one phone request line on a daemon lane (the `daemon` and `chief`
+/// splices and `catch-up`): the chat exposure, then the lane's policy. The line to go on
+/// (the Chief lane's re-serialized object) and its verdict; an exposure refusal is a
+/// `Refuse`.
+fn daemon_line_verdict(
+    policy: &LinePolicy,
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> (Vec<u8>, Verdict) {
+    if let Some(answer) = daemon_exposure_refusal(&line, exposure) {
+        let answer = String::from_utf8_lossy(answer.strip_suffix(b"\n").unwrap_or(&answer)).into_owned();
+        return (line, Verdict::Refuse(answer));
+    }
+    let (verdict, canonical) = policy.evaluate(&line);
+    (canonical.unwrap_or(line), verdict)
+}
+
+/// The daemon lane's ownership check of a request the policy let through: the cached
+/// views it needs are read (waited for when cold), then [`owned_check`]. The splice's
+/// side worker and `catch-up` both call this.
+async fn daemon_owned_verdict(
+    cache: &crate::workspace_cache::WorkspaceCache,
+    line: &[u8],
+    verdict: Verdict,
+) -> Verdict {
+    if let Some((tree, personal, layout)) = side_requirements(line) {
+        cache.wait_for(tree, personal, layout).await;
+    }
+    owned_check(cache, line, verdict)
+}
+
+/// One read-only request a `catch-up` sends the daemon, checked as the `daemon` channel
+/// checks the same line: [`daemon_line_verdict`] (exposure, then [`DaemonPolicy`]), then,
+/// for a line that names something owned, [`daemon_owned_verdict`] against the live
+/// workspace cache (a line that needs one and has none is refused), the Mac's folder for a
+/// new tab, and the exposure once more. `Ok`: the bytes to send (with their newline);
+/// `Err`: the refusal line the channel would have answered.
+pub(crate) async fn checked_daemon_request(
+    policy: &DaemonPolicy,
+    cache: Option<&crate::workspace_cache::WorkspaceCache>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    line: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let (line, verdict) = daemon_line_verdict(&LinePolicy::Daemon(policy.clone()), line, exposure);
+    let needs_cache = side_requirements(&line).is_some() || crate::policy::ownership(&line).is_some();
+    let verdict = match (cache, needs_cache) {
+        (Some(cache), _) => daemon_owned_verdict(cache, &line, verdict).await,
+        (None, false) => verdict,
+        (None, true) => {
+            let request = serde_json::from_slice::<Value>(&line).ok();
+            Verdict::Refuse(crate::policy::error_line(
+                request.as_ref().and_then(|request| request.get("id")),
+                "forbidden",
+                "not available without the workspace cache",
+            ))
+        }
+    };
+    let line = match verdict {
+        Verdict::Forward => line,
+        Verdict::Rewrite(line) => line,
+        Verdict::Refuse(answer) => return Err(answer),
+    };
+    let mut line = with_pane_folder(cache.and_then(|cache| cache.tree()).as_deref(), line);
+    if let Some(answer) = daemon_exposure_refusal(&line, exposure) {
+        return Err(String::from_utf8_lossy(answer.strip_suffix(b"\n").unwrap_or(&answer)).into_owned());
+    }
+    line.push(b'\n');
+    Ok(line)
+}
+
+/// A daemon reply line as the `daemon` channel would pass it to the phone (the exposure's
+/// reply filter, [`exposed_daemon_line`]); None when it would drop it.
+pub(crate) fn exposed_daemon_reply(
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    exposed_daemon_line(line, exposure)
 }
 
 /// Check again after the side worker's awaits and when draining queued replies.
@@ -1122,10 +1357,235 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
     let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
         .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
-    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
-        .await
-        .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    let (socket, _) = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(limits),
+        false,
+        "cmux_mobile_host::services::acpmux",
+    )
+    .await
+    .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
+}
+
+/// Session bindings the two halves of one `acpmux` relay share.
+#[derive(Default)]
+struct AcpmuxRelayState {
+    bound_sessions: HashSet<String>,
+    pending_new: HashSet<String>,
+    server_reply_ids: std::collections::HashMap<String, String>,
+}
+
+/// What the relay does with one phone message ([`AcpmuxRelay::upstream`]).
+pub(crate) enum Upstream {
+    /// Send this (canonical, maybe marked) text to acpmux.
+    Send(String),
+    /// Answer the phone with this and send nothing to acpmux.
+    Answer(String),
+    /// The message's session ids could not be resolved now (not a refusal): answer the phone
+    /// with this and send nothing to acpmux.
+    Unresolved(String),
+    /// The exposure changed under the relay, or became unreadable: end the relay.
+    Close,
+}
+
+/// What the relay does with one acpmux text message ([`AcpmuxRelay::downstream`]).
+pub(crate) enum Downstream {
+    /// Send this (filtered) text to the phone.
+    Send(String),
+    /// Drop it (it names a chat the phone may not see).
+    Skip,
+    /// A chat this relay touched is no longer exposed: end the relay.
+    Close,
+}
+
+/// The checks one `acpmux` relay applies to every message both ways: canonical session
+/// ids, per-chat exposure, the asking-mode rule, Full-access marking on the phone's own
+/// credential, and the reply filter. The `acpmux` channel and `catch-up`
+/// (`catch_up.rs`) both call these, so a catch-up line passes exactly what the channel's
+/// would.
+pub(crate) struct AcpmuxRelay<'a> {
+    target: &'a AcpmuxTarget,
+    exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// acpmux was reached on the phone's own credential (`control::phone_credential`).
+    as_phone: bool,
+    /// What both directions learn about the sessions this phone touches. Locked only for a
+    /// moment, never across an await.
+    shared: std::sync::Mutex<AcpmuxRelayState>,
+}
+
+impl<'a> AcpmuxRelay<'a> {
+    pub(crate) fn new(
+        target: &'a AcpmuxTarget,
+        exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+        as_phone: bool,
+    ) -> Self {
+        Self { target, exposure, as_phone, shared: std::sync::Mutex::new(AcpmuxRelayState::default()) }
+    }
+
+    pub(crate) fn state(&self) -> crate::control::SessionExposure {
+        self.exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default()
+    }
+
+    /// Whether the relay must end now: the exposure is unreadable, or a chat it touched
+    /// was turned off.
+    pub(crate) fn closed(&self, state: &crate::control::SessionExposure) -> bool {
+        let relay = self.shared.lock().expect("acpmux relay state");
+        !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
+    }
+
+    /// Checks one phone message on its way to acpmux. `side` is hostd's own second
+    /// connection for the mode check (`_acpmux/info`), opened on first use.
+    pub(crate) async fn upstream(
+        &self,
+        side: &mut Option<AcpmuxSocket>,
+        known: &mut CanonicalIds,
+        text: &str,
+    ) -> Upstream {
+        let Some((text, dependencies)) = canonicalize_requests(self.target, text, known).await else {
+            return Upstream::Unresolved(serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string());
+        };
+        let state = self.state();
+        if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
+            return Upstream::Close;
+        }
+        let refusal = {
+            let relay = self.shared.lock().expect("acpmux relay state");
+            crate::acpmux_policy::exposure_refusal_with_replies(
+                &text,
+                &state,
+                &relay.bound_sessions,
+                &relay.server_reply_ids,
+            )
+        };
+        if let Some(answer) = refusal {
+            return Upstream::Answer(answer);
+        }
+        {
+            let mut relay = self.shared.lock().expect("acpmux relay state");
+            if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                let requests = match &value {
+                    Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                    other => vec![other],
+                };
+                for request in requests {
+                    if request
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .is_some_and(|method| method == "session/new" || method == "acp.session.new")
+                        && let Some(id) = request.get("id")
+                    {
+                        relay.pending_new.insert(id.to_string());
+                    }
+                }
+            }
+            relay.bound_sessions.extend(dependencies);
+            // Bind every accepted session-targeting request, not only
+            // prompt/retry methods; info, events and mode changes also
+            // keep a live channel's exposure alive.
+            for (_, session) in crate::acpmux_policy::request_targets(&text) {
+                relay.bound_sessions.insert(session.clone());
+            }
+        }
+        // An agent a phone drives stays in a mode that asks
+        // (`acpmux_policy`): a refused mode set is answered here.
+        let refused = match crate::acpmux_policy::refusal(&text) {
+            Some(answer) => Some(answer),
+            None => match crate::acpmux_policy::controlled_session(&text) {
+                Some((id, session)) => {
+                    let mode = current_mode(self.target, side, &session).await;
+                    crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
+                }
+                None => None,
+            },
+        };
+        // On the phone's own credential acpmux decides by its Full-access setting.
+        let (text, refused) = match (refused, self.as_phone) {
+            (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
+                Some(marked) => (marked, None),
+                None => (text, Some(answer)),
+            },
+            (refused, _) => (text, refused),
+        };
+        if let Some(answer) = refused {
+            return Upstream::Answer(answer);
+        }
+        let latest = self.state();
+        let mut relay = self.shared.lock().expect("acpmux relay state");
+        if !latest.available
+            || relay.bound_sessions.iter().any(|session| latest.blocked.contains(session))
+            || crate::acpmux_policy::exposure_refusal_with_replies(
+                &text,
+                &latest,
+                &relay.bound_sessions,
+                &relay.server_reply_ids,
+            )
+            .is_some()
+        {
+            return Upstream::Close;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+            let methodless = match &value {
+                Value::Array(items) => items.iter().all(|item| item.get("method").is_none()),
+                other => other.get("method").is_none(),
+            };
+            if methodless {
+                for id in crate::acpmux_policy::response_ids(&text) {
+                    relay.server_reply_ids.remove(&id);
+                }
+            }
+        }
+        Upstream::Send(text)
+    }
+
+    /// Checks one acpmux text message on its way to the phone.
+    pub(crate) fn downstream(&self, text: &str) -> Downstream {
+        let state = self.state();
+        let mut relay = self.shared.lock().expect("acpmux relay state");
+        if !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session)) {
+            return Downstream::Close;
+        }
+        for (id, session) in crate::acpmux_policy::returned_sessions(text) {
+            if relay.pending_new.remove(&id) {
+                relay.bound_sessions.insert(session);
+            }
+        }
+        let Some(text) = crate::acpmux_policy::filter_response(text, &state, &relay.bound_sessions) else {
+            return Downstream::Skip;
+        };
+        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+            let requests = match &value {
+                Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                other => vec![other],
+            };
+            for request in requests {
+                if request.get("method").is_some() {
+                    for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
+                        relay.bound_sessions.insert(session.clone());
+                        relay.server_reply_ids.insert(id, session);
+                    }
+                }
+            }
+        }
+        Downstream::Send(text)
+    }
+}
+
+/// The acpmux connection a phone's channel uses: on the phone's own credential when the app
+/// gave it one and acpmux takes it (true), else the dashboard token (false).
+pub(crate) async fn connect_for_phone(
+    target: &AcpmuxTarget,
+    device_id: &str,
+) -> Result<(AcpmuxSocket, bool), Refusal> {
+    let credential = control::phone_credential(device_id);
+    let own = match credential.as_deref() {
+        Some(credential) => connect_acpmux_as(target, Some(credential)).await.ok(),
+        None => None,
+    };
+    match own {
+        Some(socket) => Ok((socket, true)),
+        None => Ok((connect_dashboard(target).await?, false)),
+    }
 }
 
 /// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
@@ -1136,7 +1596,7 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
 /// rule). What `acpmux_policy` refuses then goes on marked, and acpmux runs it only when
 /// that phone's Full-access setting (Settings > Devices on the Mac, off by default)
 /// covers it. Without a credential, or when acpmux refuses it, the dashboard token and
-/// the refusal here stay as they were.
+/// the refusal here stay as they were. Every message passes [`AcpmuxRelay`].
 async fn acpmux(
     config: &ServiceConfig,
     peer: &Peer,
@@ -1149,146 +1609,96 @@ async fn acpmux(
     {
         return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
     }
-    let credential = control::phone_credential(&peer.device_id);
-    let own = match credential.as_deref() {
-        Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
-        None => None,
-    };
-    let as_phone = own.is_some();
-    let socket = match own {
-        Some(socket) => socket,
-        None => connect_dashboard(&config.acpmux).await?,
-    };
+    let (socket, as_phone) = connect_for_phone(&config.acpmux, &peer.device_id).await?;
     let (mut ws_sink, mut ws_source) = socket.split();
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
-    let mut exposure = peer.session_exposure.clone();
-    let mut bound_sessions = HashSet::<String>::new();
-    let mut pending_new = HashSet::<String>::new();
-    let mut server_reply_ids = std::collections::HashMap::<String, String>::new();
+    let relay = AcpmuxRelay::new(&config.acpmux, peer.session_exposure.clone(), as_phone);
+    let relay = &relay;
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
-    loop {
-        tokio::select! {
-            changed = async {
-                let Some(exposure) = exposure.as_mut() else { std::future::pending().await };
-                exposure.changed().await
-            }, if exposure.is_some() => {
-                if changed.is_err() { break; }
-                let state = exposure.as_ref().expect("exposure receiver").borrow().clone();
-                if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) {
-                    break;
-                }
-            }
-            event = receiver.recv() => match event {
+    // Session ids acpmux already answered as their own canonical id on this link. A current
+    // phone names chats by canonical id, so its later requests skip the per-request trusted
+    // side socket and `_acpmux/info`; an alias (an older phone) still resolves every time.
+    let mut canonical_ids = CanonicalIds::default();
+    // Two independent halves (contract point 5, input never head-of-line blocked behind
+    // bulk): a big frame waiting for room toward the phone (`downstream`) no longer stops
+    // `upstream` reading the phone's next prompt. When either half ends, the other is
+    // dropped and the socket closed.
+    let upstream = async {
+        loop {
+            let event = receiver.recv().await;
+            match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
-                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await else {
-                        let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
-                        let _ = sender.send(Bytes::from(answer)).await;
-                        continue;
-                    };
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
-                        break;
-                    }
-                    if let Some(answer) = crate::acpmux_policy::exposure_refusal_with_replies(&text, &state, &bound_sessions, &server_reply_ids) {
-                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
-                        continue;
-                    }
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
-                        for request in requests {
-                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new")
-                                && let Some(id) = request.get("id") {
-                                pending_new.insert(id.to_string());
+                    match relay.upstream(&mut side, &mut canonical_ids, &text).await {
+                        Upstream::Send(text) => {
+                            if ws_sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
                             }
                         }
-                    }
-                    bound_sessions.extend(dependencies);
-                    // Bind every accepted session-targeting request, not only
-                    // prompt/retry methods; info, events and mode changes also
-                    // keep a live channel's exposure alive.
-                    for (_, session) in crate::acpmux_policy::request_targets(&text) {
-                        bound_sessions.insert(session.clone());
-                    }
-                    // An agent a phone drives stays in a mode that asks
-                    // (`acpmux_policy`): a refused mode set is answered here.
-                    let refused = match crate::acpmux_policy::refusal(&text) {
-                        Some(answer) => Some(answer),
-                        None => match crate::acpmux_policy::controlled_session(&text) {
-                            Some((id, session)) => {
-                                let mode = current_mode(&config.acpmux, &mut side, &session).await;
-                                crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
+                        Upstream::Answer(answer) | Upstream::Unresolved(answer) => {
+                            if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
+                                break;
                             }
-                            None => None,
-                        },
-                    };
-                    // On the phone's own credential acpmux decides by its Full-access setting.
-                    let (text, refused) = match (refused, as_phone) {
-                        (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
-                            Some(marked) => (marked, None),
-                            None => (text, Some(answer)),
-                        },
-                        (refused, _) => (text, refused),
-                    };
-                    if let Some(answer) = refused {
-                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
-                            break;
                         }
-                        continue;
-                    }
-                    let latest = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !latest.available || bound_sessions.iter().any(|session| latest.blocked.contains(session))
-                        || crate::acpmux_policy::exposure_refusal_with_replies(&text, &latest, &bound_sessions, &server_reply_ids).is_some() { break; }
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let methodless = match &value { Value::Array(items) => items.iter().all(|item| item.get("method").is_none()), other => other.get("method").is_none() };
-                        if methodless { for id in crate::acpmux_policy::response_ids(&text) { server_reply_ids.remove(&id); } }
-                    }
-                    if ws_sink.send(Message::Text(text.into())).await.is_err() {
-                        break;
+                        Upstream::Close => break,
                     }
                 }
                 _ => break,
-            },
-            message = ws_source.next() => match message {
+            }
+        }
+        Ok::<(), Refusal>(())
+    };
+    let downstream = async {
+        loop {
+            match ws_source.next().await {
                 Some(Ok(Message::Text(text))) => {
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) { break; }
-                    for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
-                        if pending_new.remove(&id) { bound_sessions.insert(session); }
-                    }
-                    let Some(text) = crate::acpmux_policy::filter_response(&text, &state, &bound_sessions) else { continue };
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
-                        for request in requests {
-                            if request.get("method").is_some() {
-                                for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
-                                    bound_sessions.insert(session.clone());
-                                    server_reply_ids.insert(id, session);
-                                }
-                            }
-                        }
-                    }
-                    if sender.send(crate::link_deflate::frame(deflate, &text).await).await.is_err() {
+                    let filtered = match relay.downstream(&text) {
+                        Downstream::Send(text) => text,
+                        Downstream::Skip => continue,
+                        Downstream::Close => break,
+                    };
+                    if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if state.configured || !state.available { break; }
+                    let state = relay.state();
+                    if state.configured || !state.available {
+                        break;
+                    }
                     if sender.send(bytes).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 Some(Ok(_)) => {}
-            },
+            }
         }
-    }
+    };
+    let exposure_watch = async {
+        let mut exposure = peer.session_exposure.clone();
+        let Some(exposure) = exposure.as_mut() else { return std::future::pending::<()>().await };
+        loop {
+            if exposure.changed().await.is_err() {
+                return;
+            }
+            let state = exposure.borrow().clone();
+            if relay.closed(&state) {
+                return;
+            }
+        }
+    };
+    let outcome = tokio::select! {
+        outcome = upstream => outcome,
+        () = downstream => Ok(()),
+        () = exposure_watch => Ok(()),
+    };
+    // The unfinished halves are dropped by the select; now the socket can close.
     let _ = ws_sink.close().await;
-    Ok(())
+    outcome
 }
 
 /// The acpmux WebSocket on the dashboard token. Supervised, the app's acpmux may have
@@ -1365,15 +1775,52 @@ async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Valu
     tokio::time::timeout(std::time::Duration::from_secs(5), query).await.ok().flatten()
 }
 
-async fn canonical_session(target: &AcpmuxTarget, session: &str) -> Option<String> {
-    trusted_session_query(target, "_acpmux/info", serde_json::json!({"sessionId":session,"waitLogs":false}))
-        .await?
-        .get("sessionId")?
-        .as_str()
-        .map(str::to_owned)
+/// Ids acpmux resolved to themselves on one phone link. A canonical session id never
+/// becomes an alias of another session, so it needs no second trusted lookup; exposure is
+/// still checked on every request against the canonical id. Bounded: past the cap it starts
+/// over, which only costs lookups again.
+#[derive(Default)]
+pub(crate) struct CanonicalIds(HashSet<String>);
+
+impl CanonicalIds {
+    const CAP: usize = 4096;
+
+    fn contains(&self, session: &str) -> bool {
+        self.0.contains(session)
+    }
+
+    fn insert(&mut self, session: String) {
+        if self.0.len() >= Self::CAP {
+            self.0.clear();
+        }
+        self.0.insert(session);
+    }
 }
 
-async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(String, HashSet<String>)> {
+async fn canonical_session(target: &AcpmuxTarget, session: &str, known: &mut CanonicalIds) -> Option<String> {
+    if known.contains(session) {
+        return Some(session.to_owned());
+    }
+    let canonical = trusted_session_query(
+        target,
+        "_acpmux/info",
+        serde_json::json!({"sessionId":session,"waitLogs":false}),
+    )
+    .await?
+    .get("sessionId")?
+    .as_str()
+    .map(str::to_owned)?;
+    if canonical == session {
+        known.insert(canonical.clone());
+    }
+    Some(canonical)
+}
+
+async fn canonicalize_requests(
+    target: &AcpmuxTarget,
+    text: &str,
+    known: &mut CanonicalIds,
+) -> Option<(String, HashSet<String>)> {
     let mut value = serde_json::from_str::<Value>(text).ok()?;
     let mut dependencies = HashSet::new();
     let requests = match &mut value {
@@ -1426,13 +1873,13 @@ async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(Str
         };
         let canonical = match (named.first(), handoff_target) {
             (Some(named), Some(destination)) => {
-                if canonical_session(target, named).await? != destination {
+                if canonical_session(target, named, known).await? != destination {
                     return None;
                 }
                 destination
             }
             (None, Some(destination)) => destination,
-            (Some(named), None) => canonical_session(target, named).await?,
+            (Some(named), None) => canonical_session(target, named, known).await?,
             (None, None) => continue,
         };
         for key in ["sessionId", "session", "name"] {
@@ -1582,16 +2029,13 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file of any size inside a workspace root, then
-/// close with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now. `file-preview`
-/// prepends metadata from the same open descriptor before streaming those bytes.
-async fn file(
+/// The regular file `args.path` names, opened inside the shared roots (the Chat Folders, then the
+/// Mac's workspace folders as they are now), checked again where the open descriptor points. `file`,
+/// `file-preview` and `bundle` `get` read only through it.
+pub(crate) async fn open_shared_file(
     config: &ServiceConfig,
     args: &Value,
-    sender: &ChannelSender,
-    preview_metadata: bool,
-) -> Result<(), Refusal> {
+) -> Result<(tokio::fs::File, std::fs::Metadata), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -1624,6 +2068,20 @@ async fn file(
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
+    Ok((file, metadata))
+}
+
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
+    let (file, metadata) = open_shared_file(config, args).await?;
     // A distinct service keeps old hosts' raw file bytes from being mistaken for
     // metadata. Read the size from this descriptor, after all confinement checks,
     // so the phone can check free storage before accepting the file's contents.
@@ -1741,6 +2199,15 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
+/// The surface check's query: page records (`page-tabs-v1`), then `list-workspaces`.
+fn surface_query() -> String {
+    format!(
+        "{{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\"]}}\n{{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}}\n",
+        names::CONVERSATION_TABS,
+        names::PAGE_TABS
+    )
+}
+
 /// A phone tab is one this Mac's daemon lists now (`list-workspaces`); no
 /// answer streams nothing.
 impl crate::surface::SurfaceTabs for ServiceConfig {
@@ -1748,13 +2215,9 @@ impl crate::surface::SurfaceTabs for ServiceConfig {
         Box::pin(async move {
             // Page tabs read as their record (`conversation.page`) only for a client
             // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
-            daemon_query(
-                &self.daemon_socket(),
-                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
-                "cmux-mobile-surface",
-            )
-            .await
-            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+            daemon_query(&self.daemon_socket(), surface_query().as_bytes(), "cmux-mobile-surface")
+                .await
+                .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
         })
     }
 }
@@ -1821,7 +2284,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
-async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
+pub(crate) async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
@@ -1894,15 +2357,28 @@ fn with_pane_folder(reply: Option<&Value>, line: Vec<u8>) -> Vec<u8> {
 /// The folder an `upload` writes to. With `cwd` (a folder of one of the
 /// Mac's tabs, or inside a shared root): `<cwd>/.cmux/attachments/phone-<session>`,
 /// next to acpmux's own attachments, so the agent of that workspace reads
-/// it without leaving its folder. Without: `<uploads>/<session>`.
-async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -> Result<PathBuf, Refusal> {
+/// it without leaving its folder. Without: `<uploads>/<session>`. Resumable
+/// uploads use a per-phone directory in place of the link session.
+async fn upload_folder(
+    config: &ServiceConfig,
+    peer: &Peer,
+    cwd: Option<&str>,
+    resumable: bool,
+) -> Result<PathBuf, Refusal> {
     let session: String =
         peer.session_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(36).collect();
     if session.is_empty() {
         return Err(Refusal::new("bad_request", "no link session"));
     }
+    // The link's session id changes on redial. Scope resumable parts to this phone
+    // across links, without putting a peer-supplied path component on disk.
+    let scope = if resumable {
+        format!("device-{:x}", Sha256::digest(peer.device_id.to_ascii_lowercase().as_bytes()))
+    } else {
+        session
+    };
     let Some(cwd) = cwd else {
-        let folder = config.uploads_dir.join(&session);
+        let folder = config.uploads_dir.join(&scope);
         create_private_dir(&config.uploads_dir)?;
         create_private_dir(&folder)?;
         return Ok(folder);
@@ -1915,10 +2391,12 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
         return Err(Refusal::new("bad_request", "cwd is not a folder"));
     }
     let in_roots = confine(&config.file_roots, &canonical).is_ok();
+    // The daemon is asked only for a folder outside the roots (`daemon_query` bounds it at
+    // 5 s, `unavailable`, on which the phone falls back to the uploads folder).
     if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
         return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
-    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{session}"));
+    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{scope}"));
     std::fs::create_dir_all(&folder)
         .map_err(|e| Refusal::new("io", format!("cannot create the upload folder: {e}")))?;
     // `.cmux` or `attachments` may be a symlink out of the workspace.
@@ -1930,7 +2408,37 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
     Ok(resolved)
 }
 
-fn create_private_dir(path: &Path) -> Result<(), Refusal> {
+/// Keep resumable bytes inside the authorized publish folder and partition them
+/// by authenticated device, even when two publish folders resolve to one alias.
+/// A link session may change on redial; the device identity must not.
+fn upload_parts_dir(folder: &Path, device_id: &str) -> Result<PathBuf, Refusal> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let folder = std::fs::canonicalize(folder).map_err(|e| Refusal::new("io", e.to_string()))?;
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(device_id.to_ascii_lowercase().as_bytes())));
+    match std::fs::DirBuilder::new().mode(0o700).create(&parts) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(Refusal::new("io", format!("cannot create the upload parts: {e}"))),
+    }
+    // Refuse aliases instead of allowing one phone's staging directory to point
+    // at another's. Open before changing permissions so a symlink is never chmod'ed.
+    let directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&parts)
+        .map_err(|_| Refusal::new("forbidden", "the upload parts must be a private directory"))?;
+    directory
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| Refusal::new("io", e.to_string()))?;
+    let resolved = std::fs::canonicalize(&parts).map_err(|_| Refusal::new("io", "upload parts vanished"))?;
+    if resolved.parent() != Some(folder.as_path()) {
+        return Err(Refusal::new("forbidden", "the upload parts leave the upload folder"));
+    }
+    Ok(resolved)
+}
+
+pub(crate) fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     use std::os::unix::fs::DirBuilderExt;
     match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
         Ok(()) => Ok(()),
@@ -1940,22 +2448,28 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
-fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+    let path = link_upload(folder, name, part)?;
+    let _ = std::fs::remove_file(part);
+    Ok(path)
+}
+
+fn upload_candidate(folder: &Path, name: &str, attempt: usize) -> PathBuf {
+    if attempt == 1 {
+        return folder.join(name);
+    }
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
     };
+    folder.join(format!("{stem} {attempt}{extension}"))
+}
+
+fn link_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     for attempt in 1..=999 {
-        let candidate = if attempt == 1 {
-            folder.join(name)
-        } else {
-            folder.join(format!("{stem} {attempt}{extension}"))
-        };
+        let candidate = upload_candidate(folder, name, attempt);
         match std::fs::hard_link(part, &candidate) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(part);
-                return Ok(candidate);
-            }
+            Ok(()) => return Ok(candidate),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(Refusal::new("io", format!("cannot save the upload: {e}"))),
         }
@@ -1963,43 +2477,199 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
     Err(Refusal::new("io", "too many files with that name"))
 }
 
+/// A completed upload remains replayable if its final reply was lost. The
+/// record is private, device-scoped, and binds to the published inode, not just
+/// a filename that the user might later replace.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UploadCompletion {
+    name: String,
+    size: u64,
+    file: String,
+    device: u64,
+    inode: u64,
+    sha256: String,
+}
+
+fn completed_upload(
+    receipt: &Path,
+    folder: &Path,
+    name: &str,
+    size: u64,
+    hash: Option<&str>,
+) -> Result<Option<PathBuf>, Refusal> {
+    use std::io::Read;
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(receipt)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(Refusal::new("io", e.to_string())),
+    };
+    let meta = file.metadata().map_err(|e| Refusal::new("io", e.to_string()))?;
+    if !meta.is_file() || meta.nlink() != 1 || meta.len() > 4096 {
+        return Err(Refusal::new("io", "invalid upload completion"));
+    }
+    let done: UploadCompletion = serde_json::from_reader(file.take(4097))
+        .map_err(|_| Refusal::new("io", "invalid upload completion"))?;
+    if done.name != name || done.size != size || hash.is_some_and(|hash| hash != done.sha256) {
+        return Err(Refusal::new("bad_request", "upload_id already completed a different file"));
+    }
+    if Path::new(&done.file).file_name().and_then(|name| name.to_str()) != Some(done.file.as_str()) {
+        return Err(Refusal::new("io", "invalid completed upload path"));
+    }
+    let path = folder.join(&done.file);
+    let meta = std::fs::symlink_metadata(&path)
+        .map_err(|_| Refusal::new("not_found", "the completed upload is no longer present"))?;
+    if !meta.is_file()
+        || meta.len() != size
+        || (meta.dev(), meta.ino()) != (done.device, done.inode)
+        || file_sha256(&path).as_deref() != Some(done.sha256.as_str())
+    {
+        return Err(Refusal::new("io", "the completed upload changed"));
+    }
+    Ok(Some(path))
+}
+
+/// Write a complete receipt before making it visible. A crash during the write
+/// leaves only an unreferenced temporary file; a retry never reads partial JSON.
+fn record_upload_completion(
+    receipt: &Path,
+    path: &Path,
+    name: &str,
+    size: u64,
+    hash: &str,
+) -> Result<(), Refusal> {
+    use std::io::Write;
+    let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let meta = std::fs::symlink_metadata(path).map_err(io_error)?;
+    if !meta.is_file() || meta.len() != size {
+        return Err(Refusal::new("io", "the completed upload changed"));
+    }
+    let done = UploadCompletion {
+        name: name.into(),
+        size,
+        file: path.file_name().unwrap().to_string_lossy().into_owned(),
+        device: meta.dev(),
+        inode: meta.ino(),
+        sha256: hash.into(),
+    };
+    let temporary = receipt.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut record = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(io_error)?;
+        record
+            .write_all(&serde_json::to_vec(&done).map_err(|e| Refusal::new("io", e.to_string()))?)
+            .map_err(io_error)?;
+        record.sync_all().map_err(io_error)?;
+        std::fs::rename(&temporary, receipt).map_err(io_error)?;
+        std::fs::File::open(receipt.parent().unwrap()).and_then(|dir| dir.sync_all()).map_err(io_error)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
+}
+
+fn publish_resumable_upload(
+    folder: &Path,
+    name: &str,
+    part: &Path,
+    receipt: &Path,
+    size: u64,
+    hash: Option<&str>,
+) -> Result<PathBuf, Refusal> {
+    let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let meta = std::fs::symlink_metadata(part).map_err(io_error)?;
+    if !meta.is_file() || meta.len() != size {
+        return Err(Refusal::new("io", "the upload part changed"));
+    }
+    let actual = file_sha256(part).ok_or_else(|| Refusal::new("io", "cannot hash upload"))?;
+    if hash.is_some_and(|hash| hash != actual) {
+        return Err(Refusal::new("bad_request", "upload sha256 does not match its bytes"));
+    }
+    let path = match meta.nlink() {
+        1 => link_upload(folder, name, part)?,
+        // The process stopped after publication but before recording completion.
+        // Recover the exact published inode, with the same bounded name search
+        // as publication; never link it a second time or scan the whole folder.
+        2 => (1..=999)
+            .map(|attempt| upload_candidate(folder, name, attempt))
+            .find(|candidate| {
+                std::fs::symlink_metadata(candidate).is_ok_and(|saved| {
+                    saved.is_file() && (saved.dev(), saved.ino()) == (meta.dev(), meta.ino())
+                })
+            })
+            .ok_or_else(|| Refusal::new("io", "cannot locate published upload"))?,
+        _ => return Err(Refusal::new("io", "unexpected upload part links")),
+    };
+    // Make the published link durable before the completion record can outlive it.
+    std::fs::File::open(folder).and_then(|dir| dir.sync_all()).map_err(io_error)?;
+    record_upload_completion(receipt, &path, name, size, &actual)?;
+    std::fs::remove_file(part).map_err(io_error)?;
+    Ok(path)
+}
+
 /// `upload` `{name, size, cwd?}`: the phone sends exactly `size` bytes as
 /// data frames; hostd writes them to a new file of the upload folder
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
-/// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short or long upload leaves no file. Any `size` is
-/// accepted: the bytes stream to disk as they arrive (attachments have no
-/// size cap). `size` may be a JSON number or a decimal string (the app's
-/// channel arguments are strings).
+/// channel closes with that code. Legacy uploads remove an incomplete part.
+/// Resumable uploads retain it for a later attempt. Nothing is overwritten,
+/// nothing is executed, and any `size` is accepted: the bytes stream to disk
+/// as they arrive (attachments have no size cap). `size` may be a JSON number
+/// or a decimal string (the app's channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
     sender: &ChannelSender,
     receiver: ChannelReceiver,
+    stall_timeout: Duration,
 ) -> Result<(), Refusal> {
-    match receive_upload(config, peer, args, receiver).await {
-        Ok((path, size)) => {
-            tracing::info!(size, phone = peer.device_id, "upload saved");
-            let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+    let resumable = args.get("upload_id").is_some();
+    match receive_upload(config, peer, args, sender, receiver, stall_timeout).await {
+        Ok(Received { path, size, deduped }) => {
+            tracing::info!(size, deduped, phone = peer.device_id, "upload saved");
+            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size});
+            if deduped {
+                reply["deduped"] = true.into();
+            }
+            let mut reply = reply.to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Ok(())
         }
         Err(refusal) => {
-            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable && refusal.code == "resume_gap" {
+                return Err(refusal);
+            }
+            let mut reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Err(refusal)
         }
     }
 }
 
-async fn receive_upload(
-    config: &ServiceConfig,
-    peer: &Peer,
-    args: &Value,
-    mut receiver: ChannelReceiver,
-) -> Result<(PathBuf, u64), Refusal> {
+/// A finished upload: where it is, and whether it was a stored copy (no bytes crossed).
+struct Received {
+    path: PathBuf,
+    size: u64,
+    deduped: bool,
+}
+
+/// An `upload`'s (or a `bundle` `put`'s) `{name, size, cwd?}`: the safe file name, the declared size
+/// and the folder it lands in ([`upload_folder`]).
+fn upload_name_size(args: &Value) -> Result<(String, u64), Refusal> {
     let name = args
         .get("name")
         .and_then(Value::as_str)
@@ -2011,8 +2681,189 @@ async fn receive_upload(
     }
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
     let name = safe_file_name(name);
+    Ok((name, size))
+}
+
+pub(crate) async fn upload_target(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+) -> Result<(String, u64, PathBuf), Refusal> {
+    let (name, size) = upload_name_size(args)?;
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
-    let folder = upload_folder(config, peer, cwd).await?;
+    // A resumable upload (`upload_id`) lands in the phone's device-keyed folder, so a redial
+    // on a new link session finds the same folder and part.
+    let resumable = args.get("upload_id").is_some();
+    let folder = upload_folder(config, peer, cwd, resumable).await?;
+    Ok((name, size, folder))
+}
+
+async fn receive_upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    stall_timeout: Duration,
+) -> Result<Received, Refusal> {
+    let (name, size) = upload_name_size(args)?;
+    if let Some(value) = args.get("upload_id") {
+        let id = value
+            .as_str()
+            .filter(|id| {
+                id.len() == 36 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'-'))
+            })
+            .ok_or_else(|| Refusal::new("bad_request", "invalid upload_id"))?;
+        let offset = match args.get("offset") {
+            None => Some(0),
+            Some(Value::String(s)) if s.bytes().all(|b| b.is_ascii_digit()) => s.parse().ok(),
+            Some(value) => value.as_u64(),
+        }
+        .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
+        // Validate the request before either completed-upload replay or dedup
+        // can return a path without consuming a payload.
+        if offset > size {
+            return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
+        }
+        let sha256 = match args.get("sha256") {
+            None => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .map(str::to_ascii_lowercase)
+                    .ok_or_else(|| Refusal::new("bad_request", "invalid sha256"))?,
+            ),
+        };
+        let (_, _, folder) = upload_target(config, peer, args).await?;
+        let parts = upload_parts_dir(&folder, &peer.device_id)?;
+        cleanup_stale_upload_parts(&parts);
+        let part = parts.join(format!(".{id}.part"));
+        let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+        // Drop the descriptor before waking a retry, including on cancellation.
+        let _release;
+        let raw = open_upload_part(&part).await?;
+        _release = UploadLockRelease;
+        let receipt = parts.join(format!(".{id}.done"));
+        let replay = {
+            let (receipt, folder, name, hash) =
+                (receipt.clone(), folder.clone(), name.clone(), sha256.clone());
+            tokio::task::spawn_blocking(move || {
+                let result = completed_upload(&receipt, &folder, &name, size, hash.as_deref());
+                (raw, result)
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))?
+        };
+        let (raw, replay) = replay;
+        if let Some(path) = replay? {
+            let _ = std::fs::remove_file(&part);
+            let _ = sender.send(Bytes::from(format!("{{\"have\":{size}}}\n"))).await;
+            return Ok(Received { path, size, deduped: false });
+        }
+        let meta = raw.metadata().map_err(io_error)?;
+        if !meta.is_file() || !matches!(meta.nlink(), 1 | 2) {
+            return Err(Refusal::new("io", "the upload part must be a regular file with one link"));
+        }
+        // A preceding writer may have published and unlinked this inode between open and lock.
+        let named =
+            std::fs::symlink_metadata(&part).map_err(|_| Refusal::new("busy", "upload part changed"))?;
+        if (named.dev(), named.ino()) != (meta.dev(), meta.ino()) {
+            return Err(Refusal::new("busy", "upload part changed"));
+        }
+        if meta.nlink() == 2 {
+            let (folder, name, part, receipt, hash) =
+                (folder.clone(), name.clone(), part.clone(), receipt.clone(), sha256.clone());
+            let path = tokio::task::spawn_blocking(move || {
+                // Keep the writer's lock throughout recovery and cleanup.
+                let _lock = raw;
+                publish_resumable_upload(&folder, &name, &part, &receipt, size, hash.as_deref())
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))??;
+            let _ = sender.send(Bytes::from(format!("{{\"have\":{size}}}\n"))).await;
+            return Ok(Received { path, size, deduped: false });
+        }
+        let mut file = tokio::fs::File::from_std(raw);
+        confine_open(std::slice::from_ref(&parts), &file)?;
+        let index = upload_index_dir(&parts, &folder);
+        if let (Some(hash), Some(index)) = (&sha256, &index)
+            && UPLOAD_DEDUP.load(std::sync::atomic::Ordering::Relaxed)
+            && let Some(stored) = dedup_lookup(index, &folder, hash, size).await
+        {
+            // The part this upload may have begun is not needed any more (it is ours: locked, one link).
+            record_upload_completion(&receipt, &stored, &name, size, hash)?;
+            let _ = std::fs::remove_file(&part);
+            return Ok(Received { path: stored, size, deduped: true });
+        }
+        let length = meta.len();
+        if offset > length {
+            let _ =
+                sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
+            return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
+        }
+        file.set_len(offset).await.map_err(io_error)?;
+        file.seek(SeekFrom::Start(offset)).await.map_err(io_error)?;
+        let _ = sender.send(Bytes::from(format!("{{\"have\":{offset}}}\n"))).await;
+        let mut received = offset;
+        let mut last_ack = offset;
+        while received < size {
+            let data = async {
+                loop {
+                    match receiver.recv().await {
+                        Some(ChannelEvent::Data(bytes)) if bytes.is_empty() => continue,
+                        event => return event,
+                    }
+                }
+            };
+            let bytes = match timeout(stall_timeout, data).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => bytes,
+                ended => {
+                    file.flush().await.map_err(io_error)?;
+                    file.sync_data().await.map_err(io_error)?;
+                    send_upload_ack(sender, received).await;
+                    return Err(if ended.is_err() {
+                        Refusal::new("stalled", "upload stalled waiting for data")
+                    } else {
+                        Refusal::new("bad_request", "the upload ended early")
+                    });
+                }
+            };
+            if bytes.len() as u64 > size - received {
+                let _ = std::fs::remove_file(&part);
+                return Err(Refusal::new("bad_request", "more bytes than the declared size"));
+            }
+            file.write_all(&bytes).await.map_err(io_error)?;
+            received += bytes.len() as u64;
+            // An ack means durable: each MiB is synced as it lands, so a Mac that crashes or loses
+            // power never loses bytes the phone was told it has, and the final answer below waits on
+            // the last MiB at most instead of syncing the whole file.
+            if received < size && received - last_ack >= UPLOAD_ACK_BYTES {
+                file.flush().await.map_err(io_error)?;
+                file.sync_data().await.map_err(io_error)?;
+                send_upload_ack(sender, received).await;
+                last_ack = received;
+            }
+        }
+        file.flush().await.map_err(io_error)?;
+        file.sync_data().await.map_err(io_error)?;
+        send_upload_ack(sender, received).await;
+        let path = {
+            let (folder, name, part, receipt, hash) =
+                (folder.clone(), name.clone(), part.clone(), receipt.clone(), sha256.clone());
+            tokio::task::spawn_blocking(move || {
+                let _lock = file;
+                publish_resumable_upload(&folder, &name, &part, &receipt, size, hash.as_deref())
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))??
+        };
+        if let (Some(hash), Some(index)) = (&sha256, &index) {
+            dedup_record(index, hash, &path);
+        }
+        return Ok(Received { path, size, deduped: false });
+    }
+    let (_, _, folder) = upload_target(config, peer, args).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -2047,12 +2898,465 @@ async fn receive_upload(
     let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
     })?;
-    Ok((path, size))
+    Ok(Received { path, size, deduped: false })
+}
+
+/// Whole-file dedup (PROTOCOL.md `upload`, `sha256`). Off only in tests that play a Mac from
+/// before it (an older hostd ignores the field).
+#[doc(hidden)]
+pub static UPLOAD_DEDUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The dedup index of one upload folder: `<parts>/.sha256-<folder name>/<sha256>`, each entry a
+/// file holding the stored file's name in that folder. One file per hash, so a lookup or a record
+/// costs the same at any number of uploads, and the index lives as long as the folder's files.
+/// Scoped to the folder (one phone, one workspace): a phone never learns of another's files.
+fn upload_index_dir(parts: &Path, folder: &Path) -> Option<PathBuf> {
+    let name = folder.file_name()?.to_str()?;
+    Some(parts.join(format!(".sha256-{name}")))
+}
+
+const MAX_DEDUP_ENTRY_BYTES: usize = 4096;
+
+fn dedup_name(name: &str) -> Option<std::ffi::CString> {
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name).ok()
+}
+
+fn dedup_index_name(index: &Path) -> Option<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = index.file_name()?;
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name.as_bytes()).ok()
+}
+
+/// Open the index directory through its parts directory, refusing aliases at both final components.
+fn open_dedup_index(index: &Path, create: bool) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let parent = index.parent()?;
+    let name = dedup_index_name(index)?;
+    let parent = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(parent)
+        .ok()?;
+    if create {
+        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+        if result == -1 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST) {
+            return None;
+        }
+    }
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn open_dedup_entry(index: &std::fs::File, name: &str) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = dedup_name(name)?;
+    let fd = unsafe {
+        libc::openat(index.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn remove_dedup_entry(index: &std::fs::File, name: &str) {
+    use std::os::fd::AsRawFd;
+
+    let Some(name) = dedup_name(name) else { return };
+    let _ = unsafe { libc::unlinkat(index.as_raw_fd(), name.as_ptr(), 0) };
+}
+
+/// The SHA-256 of a regular file, not following a symlink.
+fn file_sha256(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        match file.read(&mut buffer).ok()? {
+            0 => break,
+            n => hasher.update(&buffer[..n]),
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+/// The stored file the index names for `hash`, when it is still a regular file in `folder` of
+/// `size` bytes whose content hashes to `hash`. A stale entry (moved, deleted, changed) is removed.
+async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Option<PathBuf> {
+    let (index, folder, hash) = (index.to_path_buf(), folder.to_path_buf(), hash.to_string());
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+
+        let index = open_dedup_index(&index, false)?;
+        let entry = open_dedup_entry(&index, &hash)?;
+        let metadata = entry.metadata().ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_DEDUP_ENTRY_BYTES as u64 {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(MAX_DEDUP_ENTRY_BYTES + 1);
+        if entry.take((MAX_DEDUP_ENTRY_BYTES + 1) as u64).read_to_end(&mut bytes).is_err()
+            || bytes.len() > MAX_DEDUP_ENTRY_BYTES
+        {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let name = std::str::from_utf8(&bytes).ok()?;
+        let name = name.trim_end_matches('\n');
+        let plain =
+            !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0');
+        let stored = folder.join(name);
+        let valid = plain
+            && std::fs::symlink_metadata(&stored).is_ok_and(|meta| meta.is_file() && meta.len() == size)
+            && file_sha256(&stored).as_deref() == Some(hash.as_str());
+        if !valid {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        Some(stored)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Records `stored` as the file for `hash` (best effort: a failed record only costs a later
+/// re-send its bytes). The hash is the phone's claim; a lookup re-verifies it before use.
+fn dedup_record(index: &Path, hash: &str, stored: &Path) {
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let Some(name) = stored.file_name().and_then(|n| n.to_str()) else { return };
+    let Some(index) = open_dedup_index(index, true) else { return };
+    let temp_name = format!(".{hash}.{}.tmp", uuid::Uuid::new_v4());
+    let Some(temp_name_c) = dedup_name(&temp_name) else { return };
+    let fd = unsafe {
+        libc::openat(
+            index.as_raw_fd(),
+            temp_name_c.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if fd == -1 {
+        return;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    let mut temp = unsafe { std::fs::File::from_raw_fd(fd) };
+    let written = temp.write_all(name.as_bytes());
+    let hash_name = dedup_name(hash);
+    let renamed = if written.is_ok() {
+        hash_name.is_some_and(|hash_name| unsafe {
+            libc::renameat(index.as_raw_fd(), temp_name_c.as_ptr(), index.as_raw_fd(), hash_name.as_ptr())
+                == 0
+        })
+    } else {
+        false
+    };
+    drop(temp);
+    if !renamed {
+        let _ = unsafe { libc::unlinkat(index.as_raw_fd(), temp_name_c.as_ptr(), 0) };
+    }
+}
+
+// A phone's local channel close can finish just before hostd releases the file.
+// Wake immediate retries when a writer finishes, including writers on another link.
+static UPLOAD_UNLOCKED: std::sync::LazyLock<tokio::sync::watch::Sender<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(()).0);
+
+struct UploadLockRelease;
+
+impl Drop for UploadLockRelease {
+    fn drop(&mut self) {
+        UPLOAD_UNLOCKED.send_replace(());
+    }
+}
+
+async fn open_upload_part(part: &Path) -> Result<std::fs::File, Refusal> {
+    let open = async {
+        let mut unlocked = UPLOAD_UNLOCKED.subscribe();
+        loop {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(part)
+                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(std::fs::TryLockError::WouldBlock) => drop(file),
+                Err(std::fs::TryLockError::Error(e)) => return Err(Refusal::new("io", e.to_string())),
+            }
+            let _ = unlocked.changed().await;
+        }
+    };
+    timeout(Duration::from_secs(2), open)
+        .await
+        .map_err(|_| Refusal::new("busy", "another channel is writing this upload"))?
+}
+
+async fn send_upload_ack(sender: &ChannelSender, received: u64) {
+    let _ = sender.send(Bytes::from(format!("{{\"ack\":{received}}}\n"))).await;
+}
+
+struct UploadPartsDirStream(*mut libc::DIR);
+
+impl Drop for UploadPartsDirStream {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: fdopendir transfers ownership of this descriptor to the
+            // DIR stream, which remains valid until this guard is dropped.
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+}
+
+fn cleanup_stale_upload_parts(folder: &Path) {
+    let Ok(directory) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(folder)
+    else {
+        return;
+    };
+    cleanup_stale_upload_parts_fd(&directory);
+}
+
+fn cleanup_stale_upload_parts_fd(directory: &std::fs::File) {
+    use std::ffi::CStr;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    // Keep the verified directory open for the complete scan and cleanup.  A
+    // pathname read followed by remove_file(path) can be redirected by a
+    // concurrent rename or symlink replacement, including outside the upload
+    // folder.  Enumerate through a duplicate descriptor and unlink relative
+    // to the original descriptor instead.
+    let directory_fd = directory.as_raw_fd();
+    let duplicate = unsafe { libc::dup(directory_fd) };
+    if duplicate == -1 {
+        return;
+    }
+    let stream = UploadPartsDirStream(unsafe { libc::fdopendir(duplicate) });
+    if stream.0.is_null() {
+        unsafe { libc::close(duplicate) };
+        return;
+    }
+    let stale = |meta: &std::fs::Metadata| {
+        meta.is_file()
+            && meta
+                .modified()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UPLOAD_PART_MAX_AGE)
+    };
+    unsafe {
+        // Process each name while the descriptor remains open instead of
+        // retaining an unbounded list for large staging directories.
+        loop {
+            let entry = libc::readdir(stream.0);
+            if entry.is_null() {
+                break;
+            }
+            let bytes = CStr::from_ptr((*entry).d_name.as_ptr()).to_bytes();
+            if bytes == b"."
+                || bytes == b".."
+                || !bytes
+                    .strip_prefix(b".")
+                    .is_some_and(|rest| rest.ends_with(b".part") || rest.ends_with(b".done"))
+            {
+                continue;
+            }
+            let Ok(name) = std::ffi::CString::new(bytes) else { continue };
+            let fd = libc::openat(
+                directory_fd,
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            );
+            if fd == -1 {
+                continue;
+            }
+            // SAFETY: `fd` is the owned descriptor returned by openat.
+            let file = std::fs::File::from_raw_fd(fd);
+            // Recheck under the writer's lock. A retry may have reopened the part during the scan.
+            if file.try_lock().is_ok() && file.metadata().is_ok_and(|meta| stale(&meta) && meta.nlink() == 1)
+            {
+                let _ = libc::unlinkat(directory_fd, name.as_ptr(), 0);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_completion_recovers_interrupted_publication_and_checks_bytes() {
+        let folder = tempfile::tempdir().unwrap();
+        let parts = upload_parts_dir(folder.path(), "phone").unwrap();
+        let part = parts.join(".recovery.part");
+        let receipt = parts.join(".recovery.done");
+        std::fs::write(folder.path().join("a.txt"), "old").unwrap();
+        std::fs::write(&part, "new").unwrap();
+        // Simulate process loss after the second hard link and during receipt
+        // serialization. The partial temporary receipt is never authoritative.
+        let published = link_upload(folder.path(), "a.txt", &part).unwrap();
+        std::fs::write(parts.join(".recovery.interrupted.part"), "{broken").unwrap();
+        let hash = format!("{:x}", Sha256::digest(b"new"));
+        let recovered =
+            publish_resumable_upload(folder.path(), "a.txt", &part, &receipt, 3, Some(&hash)).unwrap();
+        assert_eq!(recovered, published);
+        assert!(!folder.path().join("a 3.txt").exists());
+        assert!(!part.exists());
+        assert_eq!(
+            completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&hash)).unwrap(),
+            Some(published.clone())
+        );
+        let wrong_hash = "0".repeat(64);
+        assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&wrong_hash)).is_err());
+        // Same inode, same size is insufficient proof of completion.
+        std::fs::write(&published, "bad").unwrap();
+        assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&hash)).is_err());
+    }
+
+    #[test]
+    fn upload_completion_refuses_legacy_hashless_and_partial_receipts() {
+        let folder = tempfile::tempdir().unwrap();
+        let parts = upload_parts_dir(folder.path(), "phone").unwrap();
+        let receipt = parts.join(".legacy.done");
+        let published = folder.path().join("a.txt");
+        std::fs::write(&published, b"new").unwrap();
+        let meta = std::fs::metadata(&published).unwrap();
+        let legacy = serde_json::json!({
+            "name": "a.txt", "size": 3, "file": "a.txt",
+            "device": meta.dev(), "inode": meta.ino()
+        });
+        let hash = format!("{:x}", Sha256::digest(b"new"));
+        // Development receipts without a recorded digest cannot establish the
+        // original content. Never silently upgrade them from current bytes.
+        for bytes in [serde_json::to_vec(&legacy).unwrap(), b"{broken".to_vec()] {
+            std::fs::write(&receipt, &bytes).unwrap();
+            for supplied in [None, Some(hash.as_str())] {
+                assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, supplied).is_err());
+            }
+            assert_eq!(std::fs::read(&receipt).unwrap(), bytes);
+            assert_eq!(std::fs::read(&published).unwrap(), b"new");
+        }
+    }
+
+    #[test]
+    fn upload_parts_stay_inside_authorized_folder_and_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
+        // A publish folder resolving to the workspace root used to stage in
+        // its parent. The caller may pass precisely that authorized root.
+        let parts = upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(parts.parent(), Some(std::fs::canonicalize(&folder).unwrap().as_path()));
+        assert_eq!(std::fs::metadata(&parts).unwrap().permissions().mode() & 0o777, 0o700);
+        let other = upload_parts_dir(&folder, "phone-b").unwrap();
+        assert_ne!(parts, other);
+        // Existing permissive staging directories are made private again.
+        std::fs::set_permissions(&parts, std::fs::Permissions::from_mode(0o755)).unwrap();
+        upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(std::fs::metadata(parts).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn upload_parts_refuse_symlink_aliases_between_devices() {
+        let workspace = tempfile::tempdir().unwrap();
+        let first = upload_parts_dir(workspace.path(), "phone-a").unwrap();
+        let alias = workspace.path().join(format!(".parts-{:x}", Sha256::digest(b"phone-b")));
+        std::os::unix::fs::symlink(&first, &alias).unwrap();
+        assert!(upload_parts_dir(workspace.path(), "phone-b").is_err());
+    }
+
+    #[test]
+    fn stale_cleanup_does_not_follow_file_symlinks() {
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let outside = workspace.path().join("outside.part");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&outside, b"keep").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join(".stale.part")).unwrap();
+
+        cleanup_stale_upload_parts(&folder);
+
+        assert!(outside.exists());
+        assert!(folder.join(".stale.part").exists());
+    }
+
+    #[test]
+    fn stale_cleanup_keeps_descriptor_when_folder_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let moved = workspace.path().join("parts-moved");
+        let outside = workspace.path().join("outside");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let stale = folder.join(".old.part");
+        let victim = outside.join(".victim.part");
+        std::fs::write(&stale, b"old").unwrap();
+        std::fs::write(&victim, b"keep").unwrap();
+        let old = std::time::SystemTime::now() - UPLOAD_PART_MAX_AGE - Duration::from_secs(1);
+        std::fs::File::open(&stale).unwrap().set_modified(old).unwrap();
+        std::fs::File::open(&victim).unwrap().set_modified(old).unwrap();
+
+        let directory = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&folder)
+            .unwrap();
+        std::fs::rename(&folder, &moved).unwrap();
+        symlink(&outside, &folder).unwrap();
+
+        cleanup_stale_upload_parts_fd(&directory);
+
+        assert!(!moved.join(".old.part").exists());
+        assert!(victim.exists(), "cleanup must not follow a replaced folder path");
+    }
+
+    /// The query is the bytes hostd always sent, its capability names now from the registry.
+    #[test]
+    fn surface_query_is_unchanged() {
+        assert_eq!(
+            surface_query(),
+            "{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n"
+        );
+    }
 
     /// A reply in one frame past tungstenite's default 16 MiB frame limit reads whole: an older
     /// acpmux sends its whole watch list so (24.8 MB on one Mac, 2026-11-06), and the push
@@ -2102,6 +3406,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         let view = config.view().await;
         assert!(view.browser_urls.is_empty());
@@ -2180,6 +3485,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert_eq!(
             capabilities(&config),
@@ -2190,7 +3496,13 @@ mod tests {
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
-                "appearance-v1"
+                "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1",
+                "tab-snapshots-v1",
+                "phone-page-v1",
+                "mailbox-send-v1",
+                "bundle-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2207,6 +3519,12 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1",
+                "tab-snapshots-v1",
+                "phone-page-v1",
+                "mailbox-send-v1",
+                "bundle-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2293,6 +3611,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
         config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);
@@ -2302,6 +3621,35 @@ mod tests {
         config.surface = config.surface.clone().without_simulators();
         assert!(!capabilities(&config).contains(&SURFACE_STREAM));
         assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
+        // The app that also captures this Mac's displays says so (`CMUX_MOBILE_MAC_DISPLAY=1`).
+        config.surface = config.surface.clone().with_mac_display();
+        assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP, MAC_DISPLAY]));
+        // No source at all: no display either.
+        config.surface = crate::surface::SurfaceConfig::default().with_mac_display();
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
+    }
+
+    /// Everything `version` can list is a host name in the registry, and every host name there
+    /// is one `version` can list.
+    #[test]
+    fn version_capabilities_are_the_registry_host_names() {
+        let listed: Vec<&str> = CAPABILITIES
+            .iter()
+            .copied()
+            .chain([
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK,
+                SURFACE_STREAM,
+                CLOUD_DESKTOP,
+                MAC_DISPLAY,
+                crate::try_pr::CAPABILITY,
+                names::SITE_DATA_HANDOFF,
+            ])
+            .collect();
+        let host: Vec<&str> =
+            names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
+        assert_eq!(listed, host);
     }
 
     #[test]

@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "archive",
+        &[
+            ("Take two finished chats off the lists", "acpmux archive docs-cleanup api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json archive docs-cleanup"),
+        ],
+    ),
+    (
+        "unarchive",
+        &[
+            ("Bring a chat back to the lists", "acpmux unarchive api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json unarchive api-review"),
+        ],
+    ),
+    (
         "machine-auth",
         &[
             (
@@ -26,6 +40,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux machine-auth",
             ),
             ("The same report as JSON", "acpmux --json machine-auth"),
+        ],
+    ),
+    (
+        "pr-wait",
+        &[
+            (
+                "Wait for the checks at the head you pushed, at most an hour",
+                "acpmux pr-wait 1234 --repo octo/app --sha 0123abcd --timeout 3600",
+            ),
+            ("Wait until a pull request merges or closes", "acpmux pr-wait 1234 --until merged"),
         ],
     ),
     (
@@ -354,7 +378,59 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),
+            ("Open the NEXT agent pane in the browser", "acpmux web --app"),
             ("Only print the dashboard URL", "acpmux web --no-open"),
         ],
     ),
+    (
+        "board",
+        &[
+            ("Show this device's branch board (Labs > Show Preview Features)", "acpmux board"),
+            ("The same board as JSON", "acpmux --json board"),
+        ],
+    ),
+    (
+        "scorecard",
+        &[
+            (
+                "Compare each feature on against off over the last day",
+                "acpmux scorecard --since 24h --by feature",
+            ),
+            (
+                "The 10 sessions that spent most this week",
+                "acpmux scorecard --since 7d --by session --limit 10",
+            ),
+        ],
+    ),
+    (
+        "fetch",
+        &[
+            (
+                "Download a file, checking its digest",
+                "acpmux fetch https://example.com/model.bin -o model.bin --sha256 0123abcd",
+            ),
+            (
+                "Download a release tarball",
+                "acpmux fetch https://example.com/a.tar.gz --output a.tar.gz",
+            ),
+        ],
+    ),
+    (
+        "role",
+        &[
+            ("Claim a goal for this session", "acpmux role claim goal:ci-linux-on-pool"),
+            ("List every role held here", "acpmux role ls"),
+        ],
+    ),
+    (
+        "role release",
+        &[
+            ("Give a goal up", "acpmux role release goal:ci-linux-on-pool"),
+            (
+                "Give it up for another session",
+                "acpmux role release goal:ci-linux-on-pool --session coord",
+            ),
+        ],
+    ),
+    ("role ls", &[("List every role and successor entry here", "acpmux role ls")]),
 ];

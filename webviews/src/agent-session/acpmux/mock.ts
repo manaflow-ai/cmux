@@ -15,9 +15,12 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { dataUrlImageSize } from "./conversation/imageEntries";
+import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -59,8 +62,17 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** The pause before each step of an unscripted turn (mockTurn), 350 ms when unset. A gallery play that
+   *  only needs finished turns behind its scene sets it low, so its setup turns cost no seconds of play. */
+  cmuxAcpmuxMockStepMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
+  /** The benches that list many sessions (sim-ladder, update-one, render-counts, session-scale-*, chat-fast-scroll):
+   *  page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions` from `nextCursor`), as acpmux
+   *  does (list_reply.rs), so each page holds the first page, as the app's do. */
+  cmuxAcpmuxMockPaged?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -198,6 +210,14 @@ const done = (toolCallId: string, extra: Update = {}): Update => ({
 
 /// A turn shaped like a real agent's: text, a tool call, more text, file edits, a closing answer.
 export function mockTurn(prompt: string, turn: number): Step[] {
+  // `/compact` compacts, as Claude Code does: a running note, Claude Code's 30-second repeat, then its end
+  // (snappy-bench's compaction transition: Leo 2026-11-25, "layout shifts and awkward looking animations").
+  if (/^\/compact\b/.test(prompt.trim()))
+    return [
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "completed", preTokens: 152_000, postTokens: 18_000 } },
+    ];
   const greeting = "/mock/project/src/greeting.ts";
   const notes = "/mock/project/NOTES.md";
   return [
@@ -248,11 +268,17 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
+/// `kind`: what each delta is: reply text (the default), a thought's text (`agent_thought_chunk`), or
+/// a status change alone (`usage_update`: the context ring's count moves, no row changes).
 export type LoadStreamOptions = {
   seconds: number;
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  kind?: "text" | "thought" | "status";
+  /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
+  prefixWords?: number;
+  prefixSettleMs?: number;
   /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
   /// it never emits a same-task catch-up batch.
   fixedSchedule?: boolean;
@@ -264,6 +290,12 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
+    /// This chunk's time (`performance.now()`), the one before it and its due time (the chunk before's
+    /// with no fixed schedule), so a reader can take the maxima over a window of its own (a bench's
+    /// typing window) instead of the run's.
+    atMs: number;
+    previousAtMs: number;
+    dueAtMs: number;
   }) => void;
 };
 
@@ -303,6 +335,13 @@ export class MockAcpmuxSocket {
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
+  /// Saved prompts by lower-cased name, as acpmux keeps them (prompts.rs), without its limits.
+  private prompts = new Map<string, { name: string; text: string; source: "saved"; updatedAt: number }>();
+  /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
+  private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
+  private stashSerial = 0;
+  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
+  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -342,6 +381,8 @@ export class MockAcpmuxSocket {
   /// A new chat opens in the project of the session the reader last opened.
   private attached = sessionId;
   private closed = false;
+  /// The list watch is on: off (`_acpmux/watch {enabled: false}`), only the attached chat's changes are told.
+  private watching = true;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
   /// Prompts sent and not yet finished; one sent while another runs is reported queued.
@@ -367,6 +408,24 @@ export class MockAcpmuxSocket {
     });
   }
 
+  /// The list, or with `cmuxAcpmuxMockPaged` one page of it as acpmux answers one: at most `limit` rows, newest
+  /// first, from `cursor`, with `nextCursor` while more remain; with no `limit`, the rest. Unpaged (the default),
+  /// the whole list with no cursor: a daemon that ignores `limit`.
+  private listPage(params: Record<string, unknown>): { sessions: Record<string, any>[]; nextCursor?: string } {
+    if (!(globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged) return { sessions: this.sessions };
+    const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
+    const from = cursor?.startsWith("mock:") ? Number(cursor.slice(5)) : 0;
+    const start = Number.isInteger(from) && from > 0 ? from : 0;
+    const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : undefined;
+    const ordered = [...this.sessions].sort(
+      (a, b) =>
+        (typeof b.updatedAt === "number" ? b.updatedAt : 0) - (typeof a.updatedAt === "number" ? a.updatedAt : 0),
+    );
+    const end = limit === undefined ? ordered.length : Math.min(ordered.length, start + limit);
+    const sessions = ordered.slice(start, end);
+    return end < ordered.length ? { sessions, nextCursor: `mock:${end}` } : { sessions };
+  }
+
   /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
   private seed(now: number): void {
     for (const entry of mockSessions) {
@@ -377,7 +436,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -492,7 +553,22 @@ export class MockAcpmuxSocket {
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
-    const reply = streamedReply(turn, 400);
+    let reply = streamedReply(turn, 400);
+    let at = 0;
+    let deltas = 0;
+    let tools = 0;
+    // A long reply already on screen (`prefixWords`): its first words arrive in one delta and get
+    // `prefixSettleMs` to reveal, then the timed stream goes on from where they end, so a frame's
+    // cost can be read against the reply's length.
+    const words = Math.max(0, Math.floor(options.prefixWords ?? 0));
+    if (words > 0) {
+      for (let more = 1; reply.split(" ").length < words * 2; more += 1) reply += streamedReply(turn + more, 400);
+      const prefix = reply.split(" ").slice(0, words).join(" ");
+      this.emit(target, { update: text(prefix) });
+      deltas += 1;
+      at = prefix.length;
+      await this.delay(options.prefixSettleMs ?? 1500);
+    }
     const started = performance.now();
     const end = started + options.seconds * 1000;
     const call = `load-stream-tool-${turn}`;
@@ -505,9 +581,6 @@ export class MockAcpmuxSocket {
     let previous = started;
     let maxGapMs = 0;
     let maxScheduleOffsetMs = 0;
-    let at = 0;
-    let deltas = 0;
-    let tools = 0;
     let nextChunkAt = started + options.chunkMs;
     while (performance.now() < end && !this.closed && !options.stopped?.()) {
       if (options.fixedSchedule) {
@@ -516,6 +589,8 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
+      const previousAtMs = previous;
+      const dueAtMs = options.fixedSchedule ? nextChunkAt : previous;
       maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
       if (options.fixedSchedule) {
@@ -524,7 +599,12 @@ export class MockAcpmuxSocket {
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
-      this.emit(target, { update: text(chunk) });
+      const kind = options.kind ?? "text";
+      if (kind === "thought")
+        this.emit(target, { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: chunk } } });
+      else if (kind === "status")
+        this.emit(target, { update: { sessionUpdate: "usage_update", used: 20_000 + at * 4, size: 200_000 } });
+      else this.emit(target, { update: text(chunk) });
       deltas += 1;
       const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
       if (due > toolLines) {
@@ -541,7 +621,16 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+      options.progress?.({
+        deltas,
+        toolLines,
+        elapsedMs: now - started,
+        maxGapMs,
+        maxScheduleOffsetMs,
+        atMs: now,
+        previousAtMs,
+        dueAtMs,
+      });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
@@ -622,6 +711,59 @@ export class MockAcpmuxSocket {
     return { ticks, sidebar };
   }
 
+  /// The turn `addLoadTools` left running, by session: its number and how many calls it has.
+  private openToolTurns = new Map<string, { turn: number; calls: number }>();
+
+  /// Adds `count` short tool calls to `target`'s running turn (starting one if none is), each as a busy
+  /// agent's: the call, then `gapMs` later its result, then `gapMs` before the next. No text streams, so
+  /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
+  async addLoadTools(
+    target: string,
+    options: { count: number; gapMs: number; keepOpen: boolean; reply?: string },
+  ): Promise<{ tools: number; events: number }> {
+    let open = this.openToolTurns.get(target);
+    if (!open) {
+      const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+      this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+      this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: check every file` } });
+      this.emit(target, { mux: "turn_started" });
+      open = { turn, calls: 0 };
+      this.openToolTurns.set(target, open);
+    }
+    let events = 0;
+    for (let index = 0; index < options.count && !this.closed; index += 1) {
+      const call = `load-tools-${open.turn}-${open.calls}`;
+      const command = `rg -n check src/file${open.calls}.ts`;
+      open.calls += 1;
+      this.emit(target, { update: tool(call, "execute", command, "in_progress", { rawInput: { command } }) });
+      await this.delay(options.gapMs);
+      this.emit(target, {
+        update: done(call, {
+          content: [{ type: "content", content: { type: "text", text: `src/file${index}.ts:1: check\n` } }],
+        }),
+      });
+      events += 2;
+      await this.delay(options.gapMs);
+    }
+    // `reply`: the turn's closing answer, marked the final one (`_meta.codex.phase`, read by
+    // direct.ts), so the rows only a concluded turn draws -- its walkthrough, its tagged ask card --
+    // are in play. Without it a turn ends on its calls alone and those rows never appear, which is
+    // how the judged scenario missed the append Leo kept finding (turns.ts `concluding`). It arrives
+    // whether or not the turn then ends: with `keepOpen` the turn sits on its marked final answer,
+    // which is the state the end has to swap out of without moving anything.
+    if (options.reply) {
+      this.emit(target, { update: { ...text(options.reply), _meta: { codex: { phase: "final_answer" } } } });
+      events += 1;
+      await this.delay(options.gapMs);
+    }
+    if (!options.keepOpen) {
+      this.openToolTurns.delete(target);
+      this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+      this.touch(target, { status: "idle", indicator: "done" });
+    }
+    return { tools: options.count, events };
+  }
+
   send(raw: string): void {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, any> };
     if (request.method === "session/cancel") {
@@ -633,12 +775,13 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error & { code?: string; details?: unknown; data?: unknown }) =>
+      (error: Error & { code?: string; rpcCode?: number; details?: unknown; data?: unknown }) =>
         this.deliver({
           jsonrpc: "2.0",
           id: request.id,
           error: {
-            code: -32000,
+            // A test's own JSON-RPC code (acpmux's not found, -32002) when it sets one.
+            code: typeof error.rpcCode === "number" ? error.rpcCode : -32000,
             message: error.message,
             data:
               error.data ??
@@ -694,8 +837,14 @@ export class MockAcpmuxSocket {
           typeof params.harness === "string" ? params.harness : undefined,
           typeof params.model === "string" ? params.model : undefined,
         );
+      // `enabled: false` is acpmux's per-connection pause (server/interest.rs): no other chat's change
+      // until a watch turns it on again; it answers no list (server/list_reply.rs `watch`).
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+        this.watching = params.enabled !== false;
+        return this.watching ? this.listPage(params) : {};
+      // The pages after the first (`nextCursor`), as acpmux answers them (list_reply.rs).
+      case "_acpmux/sessions":
+        return (globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged ? this.listPage(params) : {};
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -839,6 +988,95 @@ export class MockAcpmuxSocket {
           else marks.delete(Number(params.seq));
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
+      case "_acpmux/prompts_list":
+        return {
+          prompts: [...this.prompts.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          ),
+        };
+      case "_acpmux/prompts_save": {
+        const name = String(params.name ?? "").trim();
+        const text = String(params.text ?? "");
+        if (!name || !text.trim()) throw Object.assign(new Error("name and text are required"), { code: -32602 });
+        const prompt = { name, text, source: "saved" as const, updatedAt: Date.now() };
+        this.prompts.set(name.toLowerCase(), prompt);
+        return { prompt };
+      }
+      case "_acpmux/prompts_delete":
+        return {
+          removed: this.prompts.delete(
+            String(params.name ?? "")
+              .trim()
+              .toLowerCase(),
+          ),
+        };
+      case "_acpmux/stash_list":
+        return {
+          drafts: (this.stash.get(String(params.chat)) ?? []).map((draft) => ({
+            ...draft,
+            attachments: draft.attachments.map((chip) => {
+              const { data: _data, text: _text, ...light } = chip as Record<string, unknown>;
+              return light;
+            }),
+          })),
+        };
+      case "_acpmux/stash_push": {
+        const chat = String(params.chat ?? "");
+        const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+        const text = String(params.text ?? "");
+        if (!chat || (!text.trim() && !attachments.length))
+          throw Object.assign(new Error("the draft is empty"), { code: -32602 });
+        const draft = { id: `stash-${++this.stashSerial}`, text, attachments, at: Date.now() };
+        const rest = (this.stash.get(chat) ?? []).filter((entry) => entry.id !== params.replaces);
+        this.stash.set(chat, [draft, ...rest].slice(0, 5));
+        return { draft };
+      }
+      case "_acpmux/stash_get": {
+        const draft = this.stash.get(String(params.chat))?.find((entry) => entry.id === params.id);
+        if (!draft) throw Object.assign(new Error("no stashed draft with that id"), { code: -32004 });
+        return { draft };
+      }
+      case "_acpmux/stash_drop": {
+        const list = this.stash.get(String(params.chat)) ?? [];
+        const rest = list.filter((entry) => entry.id !== params.id);
+        this.stash.set(String(params.chat), rest);
+        return { removed: rest.length !== list.length };
+      }
+      case "_acpmux/stash_move": {
+        const from = String(params.chat);
+        const to = String(params.to);
+        if (from === to) return { moved: 0 };
+        const kept = this.stash.get(to) ?? [];
+        const source = this.stash.get(from) ?? [];
+        const moving = source.filter((entry) => !kept.some((own) => own.id === entry.id));
+        this.stash.set(to, [...moving, ...kept].slice(0, 5));
+        this.stash.delete(from);
+        return { moved: moving.length, ids: source.map((entry) => entry.id) };
+      }
+      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
+      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
+      case "_acpmux/agent_home": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        return this.agentHome;
+      }
+      case "_acpmux/agent_home_resolve": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
+        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+        const accepted = ids(params.accept).filter((id) => held.has(id));
+        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
+        const refused = [...ids(params.accept), ...ids(params.drop)]
+          .filter((id) => !held.has(id))
+          .map((id) => ({ id, reason: "unknown proposal" }));
+        const settled = new Set([...accepted, ...dropped]);
+        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
+        this.agentHome = {
+          ...this.agentHome,
+          revision,
+          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
+        };
+        return { accepted, dropped, refused, revision };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
@@ -1078,8 +1316,11 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
           .map((block: Record<string, string>) => {
             const id = `image-${this.promptImages.size + 1}`;
-            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
-            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+            const mimeType = block.mimeType ?? "image/png";
+            this.promptImages.set(id, { mimeType, data: block.data! });
+            // Its pixel size, as acpmux records it (hub/image_size.rs).
+            const size = dataUrlImageSize(`data:${mimeType};base64,${block.data}`);
+            return { id, mimeType, ...(block.name ? { name: block.name } : {}), ...size };
           });
         const queued = this.pending > 0 && promptId !== undefined;
         // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
@@ -1255,7 +1496,10 @@ export class MockAcpmuxSocket {
     if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) {
+        const { cmuxAcpmuxMockStepMs: stepMs } = globalThis as MockAuthGlobals;
+        await this.delay(typeof stepMs === "number" ? stepMs : 350);
+      }
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }
@@ -1296,6 +1540,8 @@ export class MockAcpmuxSocket {
     if (index < 0) return;
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
+    // A paused watch hears only the chat it attached, as acpmux's (server/mod.rs `deliver`).
+    if (!this.watching && target !== this.attached) return;
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 

@@ -1,5 +1,5 @@
 {
   "jobs": [],
-  "per_run": false,
-  "_why": "CI v2 step 9: the job ids (cmux-next.yml, and action-exports in cmux-next-pr-autofix.yml) whose same-repository pull request runs take a scheduler grant (plain cmux-mac, or the per-run label with per_run true) instead of a glaeda pool. Empty is off. Heaviest Mac runner job first. scripts/ci/mac_grants.py reads it from the trusted base (macos-placement; action-areas for action-exports)."
+  "per_run": true,
+  "_why": "CI v2 step 9: the job ids (cmux-next.yml, and action-exports in cmux-next-pr-autofix.yml) whose same-repository pull request runs take a scheduler grant (plain cmux-mac, or the per-run label with per_run true) instead of a glaeda pool. Empty is off. Heaviest Mac runner job first. scripts/ci/mac_grants.py reads it from the trusted base (macos-placement; action-areas for action-exports). Off 2026-11-21 22:45Z: 43 per-run jobs waited up to 2.5 h with no grant; on again once a granted run is read back."
 }

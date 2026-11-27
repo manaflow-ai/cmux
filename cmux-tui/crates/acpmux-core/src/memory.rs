@@ -1,7 +1,8 @@
 //! Return already-free system allocator pages after a large eviction run.
-//! Decision 117: only the owned retirement worker calls this, never a writer turn.
+//! Decision 117: only the owned retirement worker calls this, never a writer turn; acpmux's chat
+//! text calls it after it lets go of heap copies served from its saved file instead.
 
-pub(crate) fn release_free_pages() {
+pub fn release_free_pages() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         unsafe extern "C" {

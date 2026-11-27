@@ -30,11 +30,8 @@ import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
-RUNS_ON = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-    "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-    "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-)
+# The linux_8 pool it read, frozen to its label (scripts/ci/one_linux_label.py; no runs-on reads a variable).
+RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}"
 
 
 def load() -> dict:
@@ -54,7 +51,7 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share", "share_install"])
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
@@ -263,6 +260,48 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertLess(names.index("Remove the viewer user"), names.index("Remove the disposable user"))
         remove = step("Remove the disposable user")["run"]
         self.assertLess(remove.index('sudo loginctl disable-linger "$JOIN_USER"'), remove.index("/bin/kill -KILL -1"))
+
+    def test_share_install_channel_tests_the_join_install_path(self) -> None:
+        # build (the default) keeps placing the run's cmux-rd, which tests the commit; channel places none,
+        # and the join line's own cmux-rd step installs it from the channel, checked against its sha256.
+        share_install = load()["on"]["workflow_dispatch"]["inputs"]["share_install"]
+        self.assertEqual((share_install["type"], share_install["default"]), ("choice", "build"))
+        self.assertEqual(share_install["options"], ["build", "channel"])
+        resolve = step("Resolve inputs")
+        self.assertEqual(resolve["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        self.assertIn('if [ "$SHARE_INSTALL" = channel ] && [ "$SHARE" != true ]; then', resolve["run"])
+        prep = step("Prepare the share")
+        self.assertEqual(prep["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        run = prep["run"]
+        channel = run.index('if [ "$SHARE_INSTALL" = channel ]; then')
+        otherwise = run.index("else", channel)
+        done = run.index("fi\n", run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'))
+        # The link is only in the build branch; the viewer's root-owned copy is made in both.
+        self.assertLess(otherwise, run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'))
+        self.assertLess(run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'), done)
+        self.assertLess(run.index('sudo install -o root -g root -m 0755 "$CMUX_RD_BIN" "$JOIN_BASE/bin/cmux-rd"'), channel)
+        branch = run[channel:otherwise]
+        # The join script from the run's own checkout, root-owned beside acpmux; the channel's sha256 for this
+        # machine's gnu build, from files.cmux.com over https, or the run stops before any secret.
+        self.assertIn('sudo install -o root -g root -m 0644 cmux-tui/scripts/machine-join.sh "$JOIN_BASE/bin/machine-join.sh"', branch)
+        self.assertIn("https://files.cmux.com/cmux-tui/channels/feat-cmux-next.json", branch)
+        self.assertIn("--proto '=https'", branch)
+        self.assertIn('"cmux-tui-rd-$rd_target"', branch)
+        self.assertIn("x86_64-unknown-linux-gnu", branch)
+        self.assertIn("aarch64-unknown-linux-gnu", branch)
+        self.assertIn('[ "${#rd_sha}" -ne 64 ]', branch)
+        self.assertIn('echo "rd_sha256=$rd_sha" >> "$GITHUB_OUTPUT"', branch)
+        self.assertNotIn("ln -s", branch)
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        self.assertEqual(mint["env"]["RD_SHA256"], "${{ steps.share.outputs.rd_sha256 }}")
+        self.assertIn('share+=(--share-install-script "$JOIN_BASE/bin/machine-join.sh" --share-rd-sha256 "$RD_SHA256")', mint["run"])
+        # The harness runs the script's cmux-rd step as the joined user and checks what it left.
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"CMUX_JOIN_STEP=cmux-rd"', script)
+        self.assertIn('"--share-install-script"', script)
+        join = (ROOT / "cmux-tui/scripts/machine-join.sh").read_text(encoding="utf-8")
+        self.assertIn("'' | signin | cmux-rd) ;;", join)
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

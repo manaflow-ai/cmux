@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-export",
+  "description": "Copy the focused cmux conversation as Markdown with Command-J then X.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\"key\": \"cmd+j x\", \"command\": \"agentChat.copyConversation\", \"when\": \"agentPaneFocused\"}\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-export",
+    "name": "Claude Code conversation export",
+    "source": "looks/claude-code/export"
+  }
+}

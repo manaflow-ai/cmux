@@ -35,6 +35,9 @@ public final class AgentPageRetirer {
         self?.teardown($0)
     }
 
+    /// How the app's chat pages were made (spare, kept, cold), every build; read by `agent.chat.perf page_source`.
+    public let sources = AgentPageSources()
+
     public init(measure: @escaping @MainActor (String, () -> Void) -> Void = { _, body in body() }) {
         self.measure = measure
     }
@@ -43,8 +46,25 @@ public final class AgentPageRetirer {
     /// so prompts they hold go into their chats' drafts.
     public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
 
+    /// Tears every kept page down now (the chat renderer recycle): what they hold goes into their chats' drafts first.
+    public func dropKept() { kept.dropAll() }
+
     /// The kept page of closed chat `session`, taken back.
-    public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
+    public func takeKept(_ session: String) -> AgentPaneView? {
+        let page = kept.take(session)
+        if page != nil { sources.record(.kept) }
+        return page
+    }
+
+    /// Pages handed to ``retire(_:keeping:)`` that are not kept and not closed yet.
+    private var retiringPages: Set<ObjectIdentifier> = []
+
+    /// Why this retirer holds `view` (``AgentPageLiveness``): kept for Reopen Closed, on its way to its
+    /// teardown, or nil when it does not hold it.
+    public func role(of view: AgentPaneView) -> AgentPageRole? {
+        if retiringPages.contains(ObjectIdentifier(view)) { return .retiring }
+        return kept.pages.contains { $0.page === view } ? .kept : nil
+    }
 
     /// Retires `view`; a chat page of this Mac showing `session` is kept first.
     public func retire(_ view: AgentPaneView, keeping session: String? = nil) {
@@ -86,6 +106,8 @@ public final class AgentPageRetirer {
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
         // The pane hid the page when it let it go (`PaneContentView.retire`): hidden, Chromium drops its frame.
+        // Unhidden in the parking, it draws once at its size there, then reports hidden with that frame kept
+        // (`PageWebView+AwayDrawing`).
         view.isHidden = false
         PageWebView.syncChromiumVisibility(in: view)
     }
@@ -103,6 +125,7 @@ public final class AgentPageRetirer {
         // A kept page leaves its parking (and the window) when its keep ends.
         if view.superview is PageOffscreenParking { view.removeFromSuperview() }
         if view.superview == nil { pruneParkings() }
+        retiringPages.insert(ObjectIdentifier(view))
         retiring.append(RetirementEntry(view))
         timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.flush() }
     }
@@ -124,6 +147,7 @@ public final class AgentPageRetirer {
     private func closeNext() {
         guard let entry = readyToClose.peek, entry.ready else { return }
         _ = readyToClose.takeNext()
+        retiringPages.remove(ObjectIdentifier(entry.view))
         measure("agentPane.close") { entry.view.close() }
         guard !readyToClose.isEmpty else { return }
         closeTimer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.closeNext() }

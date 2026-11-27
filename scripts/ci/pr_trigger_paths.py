@@ -31,8 +31,8 @@ GitHub's filter reads at most the first 300 changed files of a pull request: a l
 past the 300th starts no run. Every derived workflow is advisory or warns on feat-cmux-next, and the feat-cmux-next
 push still runs the push-triggered ones, so that miss is a fix-forward, not a hole in a merge gate.
 
-Test: tests/test_ci_pr_trigger_paths.py, run by whoever changes a PR workflow or a decider's source (no CI step: cmux adds no CI
-tests, CLAUDE.md "never add CI gates ... or CI tests"). It needs a full checkout (cmux-ci test) for rust-workspaces.
+Test: tests/test_ci_pr_trigger_paths.py, run by whoever changes a PR workflow or a decider's source (no CI step: written
+under the 2026-10-23 no-new-CI rule, since lifted). It needs a full checkout (cmux-ci test) for rust-workspaces.
 """
 from __future__ import annotations
 
@@ -103,7 +103,10 @@ def triggers(text: str) -> dict[str, dict[str, list[str] | None] | None]:
             continue
         if key is not None and (match := re.match(r'^      - +(.*?)\s*$', line)):
             value = match.group(1)
-            if not value.startswith(("'", '"')):
+            if quoted := re.match(r"""^(['"])(.*?)\1(?:\s+#.*)?$""", value):
+                # A quoted item with a trailing comment: the quotes end the scalar, the comment is not part of it.
+                value = quoted.group(2)
+            else:
                 value = value.split(" #", 1)[0].strip()
             found[event][key].append(value.strip("'\""))  # type: ignore[index, union-attr]
     return found

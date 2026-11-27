@@ -9,18 +9,23 @@
 
 mod actions;
 mod activation;
+mod alerts;
 mod ax;
 mod capture;
 mod cgwindows;
+mod displays;
+mod idle;
 mod input;
 mod key_focus;
 mod keymap;
 mod menus;
+pub mod overlay;
 mod readback;
 mod roles;
 mod sys;
 #[cfg(test)]
 mod tests;
+mod uncover;
 mod watch;
 mod workspace;
 
@@ -31,6 +36,9 @@ use crate::desktop::*;
 use crate::keys::KeyCombo;
 use ax::{Ax, ElementCache};
 use cgwindows::CgWindow;
+
+pub use idle::person_activity;
+pub use overlay::{cursor_overlay, run_with_app};
 
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
@@ -353,11 +361,19 @@ pub(super) fn press_aiming(pid: i32) -> roles::Aiming {
 
 /// The press aiming as the posting function takes it: addressed or not,
 /// or the refusal.
+/// Readings that disagree (an app activating, a panel taking the keyboard
+/// for a moment) are read again for up to [`crate::reread::REREAD_WAIT`]
+/// before the press is refused; nothing is posted in between.
 pub(super) fn aimed(pid: i32) -> DResult<bool> {
-    match press_aiming(pid) {
-        roles::Aiming::Addressed => Ok(true),
-        roles::Aiming::Unaddressed => Ok(false),
-        roles::Aiming::Refuse => Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into())),
+    let aiming = crate::reread::reread(crate::reread::REREAD_WAIT, || {
+        Some(press_aiming(pid)).filter(|a| *a != roles::Aiming::Refuse)
+    });
+    match aiming {
+        Some(roles::Aiming::Addressed) => Ok(true),
+        Some(roles::Aiming::Unaddressed) => Ok(false),
+        Some(roles::Aiming::Refuse) | None => {
+            Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into()))
+        }
     }
 }
 
@@ -480,6 +496,21 @@ impl MacDesktop {
         }
         out
     }
+
+    /// A Chromium window covered by windows of its own background app,
+    /// raised inside that app (the front app unchanged) until its page
+    /// painted and shows to accessibility; the window order comes back when
+    /// the guard drops ([`uncover`]).
+    fn uncover_web(&self, t: &Target) -> Option<uncover::Uncovered> {
+        if !actions::chromium(t) {
+            return None;
+        }
+        let (_, window) = self.ax_window(t).ok()?;
+        let raised = uncover::uncover(t, &window, uncover::Why::Covered)?;
+        actions::show_web_content(t, &window);
+        actions::wait_web_content(&window);
+        Some(raised)
+    }
 }
 
 impl Desktop for MacDesktop {
@@ -501,7 +532,12 @@ impl Desktop for MacDesktop {
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: grant(ax::trusted()),
-            screen_capture: grant(capture::screen_capture_granted()),
+            screen_capture: grant(
+                self.host
+                    .as_ref()
+                    .and_then(|h| h.screen_capture_granted())
+                    .unwrap_or_else(capture::screen_capture_granted),
+            ),
             input: grant(post_event_granted()),
         }
     }
@@ -666,6 +702,18 @@ impl Desktop for MacDesktop {
         }
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        match &self.host {
+            Some(host) => host.frame_encoder(width, height, fps),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,
@@ -684,6 +732,9 @@ impl Desktop for MacDesktop {
         match target {
             CaptureTarget::Window(id) => {
                 let t = self.target(id)?;
+                // Chromium paints no window its app's other windows cover:
+                // raised inside its app for the capture (uncover).
+                let _uncovered = self.uncover_web(&t);
                 capture::window(t.window.id, &t.window.frame)
             }
             CaptureTarget::Display(id) => capture::display(id.as_deref()),
@@ -692,6 +743,9 @@ impl Desktop for MacDesktop {
 
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         let t = self.target(window_id)?;
+        // Chromium builds no page tree for a window its app's other windows
+        // cover: raised inside its app for the read (uncover).
+        let _uncovered = self.uncover_web(&t);
         let (_, window) = self.ax_window(&t)?;
         // A Chromium window shows its page only once asked.
         actions::show_web_content(&t, &window);
@@ -745,6 +799,10 @@ impl Desktop for MacDesktop {
 
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
         actions::scroll(self, target, dx, dy)
+    }
+
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        actions::move_pointer(self, target, delivery)
     }
 
     fn drag(
@@ -878,5 +936,17 @@ impl Desktop for MacDesktop {
             }
         }
         self.request_direct(which)
+    }
+
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(alerts::list())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        alerts::press(alert, title)
+    }
+
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        displays::list()
     }
 }

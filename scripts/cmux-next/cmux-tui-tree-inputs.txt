@@ -11,6 +11,15 @@
 # binaries, so both the switch and the Linux recipe are key inputs: a switch
 # back to mac never reuses a Linux-built tree, nor the reverse.
 tree cmux-tui
+# The standalone daemon carries the production agent pane. A web-only change
+# must publish a new executable, including its imported schemas/model catalogs.
+tree webviews
+tree schemas
+tree web/data/model-catalog
+blob scripts/cmux-next/build-agent-pane-web.sh
+blob scripts/cmux-next/private-bun.sh
+blob scripts/check-webviews-bun-version.sh
+blob scripts/webviews_bun_version.py
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
@@ -52,6 +61,7 @@ tree workers/cmux-vm/cli
 # embeds a file this list does not cover and prints the line to add. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+tree Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish
 blob Resources/cmux-cli-path/zsh/.zshenv
@@ -59,6 +69,8 @@ blob backend/catalog/cloud-operations.json
 blob backend/packages/home-core/conformance/conversation-cases.json
 blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
+blob docs/cmux-next/guide/llms-full.txt
+blob docs/cmux-next/guide/pages.json
 blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
@@ -67,18 +79,32 @@ blob plans/cmux-next/daemon-capabilities.json
 # CLI (`cmux theme`) link it. cmux-motion's build.rs also reads design-tokens.json.
 blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
 blob schemas/theme/theme-ink-vectors.json
+# cmux-theme-pack embeds the slot definitions (load.rs).
+blob schemas/theme/slots.json
 # cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
 # and the cmux CLI read them.
 blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
+blob Resources/theme-files/lily-pond.json
+blob Resources/theme-files/meadow.json
+blob Resources/theme-files/miku.json
+blob Resources/theme-files/minimal-sessions.json
+blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json
+blob Resources/theme-files/teal.json
+# cmux-config checks a theme file's `slots` against the shipped slots
+# (theme_file::slots, theme.slots.resolve).
+blob schemas/theme/slots.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json
+blob Resources/sidebar-looks/rex.json
 blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
+blob schemas/defaults/cmux-next.json
+blob schemas/settings/source/general.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
 blob schemas/agent-cursor-visibility/vectors.json
@@ -101,14 +127,17 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/updates.json
 blob schemas/settings/source/agent-cache.json
+blob schemas/settings/source/agent-settle.json
 blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
-# cmux-action-catalog's customize_elements test embeds the shipped settings defaults.
-blob schemas/defaults/cmux-next.json
+blob schemas/transcript-look/transcript-look.json
+# cmux-action-catalog's customize_elements test embeds the settings export's keys.
+blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
 # `cmux server install` over ssh sends the installer cmux.com serves (cmux-tui's cli/server_remote.rs embeds it).
@@ -137,15 +166,64 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+blob skills/cmux-ui-preview/SKILL.md
+# cmux customize docs and prompts embed the extension recipes and the copy-paste prompts.
+tree skills/cmux-extension-author
+blob schemas/motion-scale/motion-scale.json
 # cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
 blob docs/cmux-next/customize-recipes.md
 blob skills/cmux-customization/templates/clock-weather/cmux-app.json
 blob skills/cmux-customization/templates/clock-weather/main.js
 blob skills/cmux-customization/templates/my-prs/cmux-app.json
 blob skills/cmux-customization/templates/my-prs/main.js
+# cmux-customize-recipes embeds the looks it installs (examples/looks/).
+blob examples/looks/bottom-deck/cmux-setup.json
+blob examples/looks/claude-code/notification-levels/cmux-setup.json
+blob examples/looks/hairline/agent-pane/theme.css
+blob examples/looks/hairline/markdown/theme.css
+blob examples/looks/hairline/themes/hairline-light.json
+blob examples/looks/hairline/themes/hairline-slate-light.json
+blob examples/looks/hairline/themes/hairline-slate.json
+blob examples/looks/hairline/themes/hairline-stone-light.json
+blob examples/looks/hairline/themes/hairline-stone.json
+blob examples/looks/hairline/themes/hairline.json
+blob examples/looks/leader/cmux-setup.json
+blob examples/looks/leader/keybindings.json
+blob examples/looks/plush/agent-pane/theme.css
+blob examples/looks/plush/markdown/theme.css
+blob examples/looks/plush/themes/plush-clay-dark.json
+blob examples/looks/plush/themes/plush-clay.json
+blob examples/looks/plush/themes/plush-dark.json
+blob examples/looks/plush/themes/plush-dusk-dark.json
+blob examples/looks/plush/themes/plush-dusk.json
+blob examples/looks/plush/themes/plush.json
+blob examples/looks/review-desk/cmux-setup.json
+blob examples/looks/review-desk/keybindings.json
+blob examples/looks/workspace-tabs/cmux-setup.json
 blob schemas/build-identity/vectors.json
 blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl
 blob scripts/measure/screen-stream-eval/wifi-away-holds.json
+blob examples/looks/bottom-deck/cmux-setup.json
+blob examples/looks/claude-code/notification-levels/cmux-setup.json
+blob examples/looks/hairline/agent-pane/theme.css
+blob examples/looks/hairline/markdown/theme.css
+blob examples/looks/hairline/themes/hairline-light.json
+blob examples/looks/hairline/themes/hairline-slate-light.json
+blob examples/looks/hairline/themes/hairline-slate.json
+blob examples/looks/hairline/themes/hairline-stone-light.json
+blob examples/looks/hairline/themes/hairline-stone.json
+blob examples/looks/hairline/themes/hairline.json
+blob examples/looks/leader/cmux-setup.json
+blob examples/looks/leader/keybindings.json
+blob examples/looks/review-desk/cmux-setup.json
+blob examples/looks/review-desk/keybindings.json
+blob examples/looks/workspace-tabs/cmux-setup.json
+# cmux-config embeds the MDM examples and reference (docs/mdm) it checks managed settings against.
+blob docs/mdm/cmux-example.mobileconfig
+blob docs/mdm/com.manaflow.cmux.intune.plist
+blob docs/mdm/com.manaflow.cmux.json
+blob docs/mdm/com.manaflow.cmux.plist
+blob docs/mdm/managed-preferences.md

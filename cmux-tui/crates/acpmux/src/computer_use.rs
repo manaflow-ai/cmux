@@ -6,7 +6,10 @@
 
 pub mod awake;
 pub mod client;
+pub mod daemon_socket;
+pub mod locked;
 pub mod mcp;
+pub mod served;
 
 /// The tool catalog (names, schemas, the server name and its instructions),
 /// for the `cmux` server that folds this one (`cmux mcp serve`).

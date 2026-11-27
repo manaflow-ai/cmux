@@ -36,6 +36,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
+#[path = "relay_carrier.rs"]
+mod carrier;
 #[path = "relay_credential_read.rs"]
 mod credential_read;
 #[path = "relay_liveness.rs"]
@@ -96,8 +98,14 @@ impl Drop for StderrTail {
         }
     }
 }
+#[path = "relay_dial_standby.rs"]
+mod dial_standby;
+#[path = "relay_registration_loop.rs"]
+mod registration_loop;
 #[path = "relay_registration_state.rs"]
 mod registration_state;
+#[path = "relay_standby.rs"]
+mod standby;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -107,10 +115,12 @@ use crate::provider::{
 use liveness::{
     CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
 };
+use registration_loop::*;
 pub use registration_state::RegistrationState;
 #[cfg(test)]
 pub(crate) use registration_state::test_wall;
 use registration_state::wall_now;
+pub use standby::EARLY_CONNECT_NOT_INLINE;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -163,6 +173,18 @@ const MAX_RELAY_INCOMING_TASKS: usize = 64;
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
 type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
+type BoundCredentialFuture =
+    Pin<Box<dyn Future<Output = Result<BoundCredential, ()>> + Send + 'static>>;
+type BoundCredentialCallback = dyn Fn() -> BoundCredentialFuture + Send + Sync + 'static;
+
+/// A relay ticket and the CarrierGrant it was minted beside
+/// ([`RelayCredentialSource::bound_callback`]). A Connect presents the grant
+/// with the ticket, and the relay admits a ticket that names its grant only
+/// with that grant (cmuxterm-hq#19075).
+pub struct BoundCredential {
+    pub ticket: Zeroizing<String>,
+    pub grant: Option<Zeroizing<String>>,
+}
 
 /// A refreshable source for short-lived relay provider credentials.
 ///
@@ -179,6 +201,7 @@ enum RelayCredentialSourceInner {
     File(PathBuf),
     Command(CommandCredentialSource),
     Callback(Arc<CredentialCallback>),
+    BoundCallback(Arc<BoundCredentialCallback>),
 }
 
 struct CommandCredentialSource {
@@ -262,6 +285,23 @@ impl RelayCredentialSource {
         Self { inner: Arc::new(RelayCredentialSourceInner::Callback(callback)) }
     }
 
+    /// [`RelayCredentialSource::callback`] whose answer also carries the
+    /// CarrierGrant the ticket was minted beside: each client Connect presents
+    /// it. Every other use of the credential (a control socket's
+    /// authentication) takes the ticket alone.
+    pub fn bound_callback<F, Fut, E>(callback: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<BoundCredential, E>> + Send + 'static,
+        E: Send + 'static,
+    {
+        let callback = Arc::new(move || {
+            let future = callback();
+            Box::pin(async move { future.await.map_err(|_| ()) }) as BoundCredentialFuture
+        });
+        Self { inner: Arc::new(RelayCredentialSourceInner::BoundCallback(callback)) }
+    }
+
     /// True when each fetch may return a new credential: a registration renews
     /// its ticket before it expires only from such a source.
     fn renews(&self) -> bool {
@@ -269,8 +309,19 @@ impl RelayCredentialSource {
     }
 
     async fn fetch(&self) -> Result<RelayCredential, ProviderError> {
+        self.fetch_with_grant().await.map(|(credential, _)| credential)
+    }
+
+    /// The credential and, from a [`Self::bound_callback`], the grant it was
+    /// minted beside.
+    async fn fetch_with_grant(
+        &self,
+    ) -> Result<(RelayCredential, Option<Zeroizing<String>>), ProviderError> {
+        let mut grant = None;
         let value = match &*self.inner {
-            RelayCredentialSourceInner::Static(credential) => return Ok(credential.clone()),
+            RelayCredentialSourceInner::Static(credential) => {
+                return Ok((credential.clone(), None));
+            }
             RelayCredentialSourceInner::File(path) => read_credential_file(path).await?,
             RelayCredentialSourceInner::Command(command) => {
                 read_credential_command(command).await?
@@ -282,9 +333,19 @@ impl RelayCredentialSource {
                     .map_err(|_| credential_source_error("callback timed out"))?;
                 Zeroizing::new(answer.map_err(|()| credential_source_error("callback failed"))?)
             }
+            RelayCredentialSourceInner::BoundCallback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?
+                    .map_err(|()| credential_source_error("callback failed"))?;
+                grant = answer.grant;
+                answer.ticket
+            }
         };
-        RelayCredential::parse_secret(value)
-            .map_err(|_| credential_source_error("returned invalid data"))
+        let credential = RelayCredential::parse_secret(value)
+            .map_err(|_| credential_source_error("returned invalid data"))?;
+        Ok((credential, grant))
     }
 }
 
@@ -295,6 +356,7 @@ impl fmt::Debug for RelayCredentialSource {
             RelayCredentialSourceInner::File(_) => "file",
             RelayCredentialSourceInner::Command(_) => "command",
             RelayCredentialSourceInner::Callback(_) => "callback",
+            RelayCredentialSourceInner::BoundCallback(_) => "bound callback",
         };
         formatter.debug_struct("RelayCredentialSource").field("kind", &kind).finish()
     }
@@ -347,14 +409,20 @@ impl fmt::Debug for RelayCredential {
     }
 }
 
-/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
-/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
-/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
-/// only the given roots, so a caller (a test's own CA) needs no process-wide
-/// environment.
+/// How a relay's `wss` and `relay+do` connections leave this machine: their
+/// TLS trust and their proxy. The default trusts the platform's roots (and
+/// `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every relay connection did before, and
+/// follows the system's proxy for the relay's URL (`provider::proxied`: PAC on
+/// macOS, `https_proxy` elsewhere; direct when the system says direct);
+/// [`RelayTls::with_root_certificates`] trusts only the given roots and
+/// [`RelayTls::with_proxy`] names the proxy, so a caller (a test's own CA and
+/// proxy) needs no process-wide environment.
 #[derive(Clone, Default)]
 pub struct RelayTls {
     client_config: Option<Arc<rustls::ClientConfig>>,
+    proxy: cmux_proxy::ProxyConfig,
+    /// The last connection's outer path, for the transport snapshot.
+    outer: super::proxied::OuterPath,
 }
 
 impl RelayTls {
@@ -377,7 +445,23 @@ impl RelayTls {
         .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-        Ok(Self { client_config: Some(Arc::new(config)) })
+        Ok(Self { client_config: Some(Arc::new(config)), ..Self::default() })
+    }
+
+    /// Go out through `proxy` instead of the system's proxy settings
+    /// (`ProxyConfig::Direct` never proxies; `Fixed` always does, loopback too).
+    /// The result records its own outer path, apart from the trust it came from.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: cmux_proxy::ProxyConfig) -> Self {
+        self.proxy = proxy;
+        self.outer = super::proxied::OuterPath::default();
+        self
+    }
+
+    /// How the last relay connection made with this trust (or a clone of it)
+    /// went out: through which proxy, and whether its TLS was inspected.
+    pub fn outer_path(&self) -> Option<crate::observability::OuterPathSnapshot> {
+        self.outer.snapshot()
     }
 
     fn connector(&self) -> Option<Connector> {
@@ -390,6 +474,7 @@ impl fmt::Debug for RelayTls {
         formatter
             .debug_struct("RelayTls")
             .field("custom_roots", &self.client_config.is_some())
+            .field("proxy", &self.proxy)
             .finish()
     }
 }
@@ -440,6 +525,17 @@ pub struct RelayProvider {
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
     allocation_deadline: Option<Instant>,
+    /// When set, a first connect's lane waits this long, not
+    /// `control_timeout`, for the daemon to join its circuit once the relay
+    /// allocated it ([`RelayProvider::with_peer_join_wait`]).
+    peer_join_wait: Option<Duration>,
+    /// Whether a first lane's Connect is early ([`RelayProvider::with_early_connect`]).
+    early_connect: bool,
+    /// When set, a lane allocated before any other lane of its group waits
+    /// no later than this: the first lane is the one a relay parks for a
+    /// daemon that has not registered, and a caller may give up on that park
+    /// sooner than on its whole deadline.
+    first_allocation_deadline: Option<Instant>,
 }
 
 impl RelayProvider {
@@ -458,7 +554,15 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, tls: RelayTls::default(), allocation_deadline: None })
+        Ok(Self {
+            config,
+            credentials,
+            tls: RelayTls::default(),
+            allocation_deadline: None,
+            peer_join_wait: None,
+            first_allocation_deadline: None,
+            early_connect: standby::early_connect_wanted(),
+        })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -469,6 +573,39 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Wait `wait`, not `control_timeout`, for the daemon to join a circuit
+    /// the relay allocated, so a lane whose daemon never joins is given up
+    /// for a new allocation (a new circuit and a new `Incoming`) instead of
+    /// held to `control_timeout`. A daemon that joins does so in about a
+    /// second of its `Incoming`. It applies to the first connect (generation
+    /// 0) only, as [`Self::with_allocation_deadline`] does; connecting the
+    /// circuit's socket keeps its own bound.
+    pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
+        self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Send a first lane's inline Connect and hand its socket back as the link at once, the
+    /// Connect's `Ready` read by the link's first receive, so the caller's first frame (Noise
+    /// msg1) rides right behind the Connect rather than a round trip after it. A relay that
+    /// answers `Allocated` (no Standby free) fails the link with [`EARLY_CONNECT_NOT_INLINE`],
+    /// and the caller dials again with this off. Default: `CMUX_RELAY_EARLY_CONNECT=1` (off).
+    pub fn with_early_connect(mut self, on: bool) -> Self {
+        self.early_connect = on;
+        self
+    }
+
+    /// Wait for a group's first allocation no later than `deadline` (nor
+    /// later than the allocation deadline). Only the lanes opened before one
+    /// of the group's lanes is allocated wait for it: a relay parks a Connect
+    /// only while the machine's daemon has not registered, so once one lane
+    /// is allocated the later ones wait the allocation deadline in full,
+    /// however long the first one took.
+    pub fn with_first_allocation_deadline(mut self, deadline: Instant) -> Self {
+        self.first_allocation_deadline = Some(deadline);
         self
     }
 
@@ -508,7 +645,22 @@ impl TransportProvider for RelayProvider {
         let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
-        let control = connect_provider_control(&endpoint, &self.credentials, &self.tls).await?;
+        // An inline circuit (relay_standby.rs) carries its frames on this socket, so it takes
+        // a circuit's message limit, not a control socket's.
+        let limit = framing.websocket_message_limit(self.config.maximum_frame_bytes);
+        // A redial takes the standby socket the dial before left open (`relay_dial_standby.rs`;
+        // off by default), then leaves one for the next.
+        let standby = dial_standby::dial_standby_wanted();
+        let taken = if standby { dial_standby::take(&endpoint, limit).await } else { None };
+        let control = match taken {
+            Some(control) => control,
+            None => {
+                connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?
+            }
+        };
+        if standby {
+            dial_standby::prime(&endpoint, &self.credentials, limit, &self.tls);
+        }
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -521,6 +673,10 @@ impl TransportProvider for RelayProvider {
             credentials: self.credentials.clone(),
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
+            peer_join_wait: self.peer_join_wait,
+            first_allocation_deadline: self.first_allocation_deadline,
+            early_connect: self.early_connect,
+            allocated: AtomicBool::new(false),
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -537,6 +693,12 @@ struct RelayLinkGroup {
     credentials: RelayCredentialSource,
     tls: RelayTls,
     allocation_deadline: Option<Instant>,
+    peer_join_wait: Option<Duration>,
+    first_allocation_deadline: Option<Instant>,
+    early_connect: bool,
+    /// Whether one of this group's lanes has been allocated: from then on no
+    /// lane waits the first allocation's deadline.
+    allocated: AtomicBool,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -585,6 +747,9 @@ enum RelayCircuitSender {
 struct RelayCircuitReceiver {
     stream: RelayCircuitStream,
     pending: VecDeque<Bytes>,
+    /// An early Connect's lane and generation (`RelayProvider::with_early_connect`): the socket's
+    /// first answer is still to come, and only its `Ready` makes this the circuit.
+    awaiting: Option<(LaneToken, u64)>,
 }
 
 enum RelayCircuitCommand {
@@ -618,10 +783,18 @@ impl RelayCircuitLink {
             receiver: Mutex::new(RelayCircuitReceiver {
                 stream: receiver,
                 pending: VecDeque::new(),
+                awaiting: None,
             }),
             terminal,
             closed: AtomicBool::new(false),
         }
+    }
+
+    /// This circuit before the relay answered its early Connect: the first receive reads the
+    /// `Ready` for `lane` and `generation` (or fails on `Allocated`) before any frame.
+    fn awaiting_ready(mut self, lane: LaneToken, generation: u64) -> Self {
+        self.receiver.get_mut().awaiting = Some((lane, generation));
+        self
     }
 
     async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
@@ -898,6 +1071,31 @@ impl FrameLink for RelayCircuitLink {
                         ));
                     }
                     match serde_json::from_str(&text) {
+                        Ok(RelayControl::Ready { lane, generation, .. })
+                            if receiver
+                                .awaiting
+                                .as_ref()
+                                .is_some_and(|(l, g)| *l == lane && *g == generation) =>
+                        {
+                            receiver.awaiting = None;
+                        }
+                        Ok(RelayControl::Parked { .. }) if receiver.awaiting.is_some() => {}
+                        // No Standby was free (`Allocated`), or the relay refused the Connect
+                        // (a ticket to renew, a slot gone offline, a relay to pass): the caller
+                        // dials again with early Connect off, which handles each of these.
+                        Ok(RelayControl::Allocated { .. }) if receiver.awaiting.is_some() => {
+                            let error = LinkError::Transport(EARLY_CONNECT_NOT_INLINE.into());
+                            self.publish_terminal(error.clone());
+                            return Err(error);
+                        }
+                        Ok(RelayControl::Error { code, .. }) if receiver.awaiting.is_some() => {
+                            let error = LinkError::Transport(format!(
+                                "{EARLY_CONNECT_NOT_INLINE}: {}",
+                                sanitize_relay_code(&code)
+                            ));
+                            self.publish_terminal(error.clone());
+                            return Err(error);
+                        }
                         Ok(RelayControl::Error { retryable: true, .. }) => {
                             return Err(LinkError::Transport(
                                 "relay circuit became unavailable".into(),
@@ -999,6 +1197,7 @@ impl LinkGroup for RelayLinkGroup {
                 kind: TransportPathKind::Relay,
                 remote: self.endpoint.host_str().map(str::to_owned),
                 rtt_micros: None,
+                outer: self.tls.outer_path(),
             }),
         }
     }
@@ -1008,20 +1207,63 @@ impl LinkGroup for RelayLinkGroup {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
-        // The allocation deadline is the first connect's; a resume (a later
-        // generation) waits `control_timeout` as any reconnect does.
-        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
+        let join_wait = self
+            .peer_join_wait
+            .filter(|_| request.generation == 0)
+            .unwrap_or(self.config.control_timeout);
+        let limit = self.framing.websocket_message_limit(self.config.maximum_frame_bytes);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
                 return Err(ProviderError::Transport("relay connection group is closed".into()));
             }
+            // Read under the control lock, which serializes allocations: a
+            // lane queued behind the first one sees whether it was allocated.
+            let wait_until = self.wait_until(request.generation);
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
-                    connect_provider_control(&self.endpoint, &self.credentials, &self.tls).await?
+                    // A standby socket a dial before left open skips the TCP connect and the
+                    // upgrade (`relay_dial_standby.rs`; off by default).
+                    let standby = dial_standby::dial_standby_wanted();
+                    let taken = if standby {
+                        dial_standby::take(&self.endpoint, limit).await
+                    } else {
+                        None
+                    };
+                    let control = match taken {
+                        Some(control) => control,
+                        None => {
+                            connect_provider_control(
+                                &self.endpoint,
+                                &self.credentials,
+                                limit,
+                                &self.tls,
+                            )
+                            .await?
+                        }
+                    };
+                    if standby {
+                        dial_standby::prime(&self.endpoint, &self.credentials, limit, &self.tls);
+                    }
+                    control
                 }
             };
+            if self.early_connect(request.generation) {
+                // The link is this socket from here: its first receive reads the Connect's answer
+                // (`Ready`), and what the caller sends rides right behind the Connect.
+                send_connect(
+                    &mut control,
+                    &self.config,
+                    &self.credentials,
+                    &lane,
+                    request.generation,
+                )
+                .await
+                .map_err(AllocationError::into_provider_error)?;
+                self.allocated.store(true, Ordering::Release);
+                return Ok(self.inline_link_awaiting(control, lane, request.generation));
+            }
             match request_allocation(
                 &mut control,
                 &self.config,
@@ -1032,9 +1274,14 @@ impl LinkGroup for RelayLinkGroup {
             )
             .await
             {
-                Ok(allocation) => {
+                Ok(Allocation::Inline(_circuit)) => {
+                    self.allocated.store(true, Ordering::Release);
+                    return Ok(self.inline_link(control));
+                }
+                Ok(Allocation::Circuit(circuit, ticket)) => {
                     *stored_control = Some(control);
-                    allocation
+                    self.allocated.store(true, Ordering::Release);
+                    (circuit, ticket)
                 }
                 Err(AllocationError::Terminal(error)) => {
                     *stored_control = Some(control);
@@ -1050,10 +1297,14 @@ impl LinkGroup for RelayLinkGroup {
                             "relay connection group is closed".into(),
                         ));
                     }
-                    let mut replacement =
-                        connect_provider_control(&self.endpoint, &self.credentials, &self.tls)
-                            .await
-                            .map_err(|error| relay_reconnect_error(&control_error, error))?;
+                    let mut replacement = connect_provider_control(
+                        &self.endpoint,
+                        &self.credentials,
+                        limit,
+                        &self.tls,
+                    )
+                    .await
+                    .map_err(|error| relay_reconnect_error(&control_error, error))?;
                     match request_allocation(
                         &mut replacement,
                         &self.config,
@@ -1064,9 +1315,14 @@ impl LinkGroup for RelayLinkGroup {
                     )
                     .await
                     {
-                        Ok(allocation) => {
+                        Ok(Allocation::Inline(_circuit)) => {
+                            self.allocated.store(true, Ordering::Release);
+                            return Ok(self.inline_link(replacement));
+                        }
+                        Ok(Allocation::Circuit(circuit, ticket)) => {
                             *stored_control = Some(replacement);
-                            allocation
+                            self.allocated.store(true, Ordering::Release);
+                            (circuit, ticket)
                         }
                         Err(AllocationError::Terminal(error)) => {
                             *stored_control = Some(replacement);
@@ -1087,7 +1343,7 @@ impl LinkGroup for RelayLinkGroup {
             request.generation,
             allocation.1,
             self.config.maximum_frame_bytes,
-            self.config.control_timeout,
+            join_wait,
             &self.tls,
         )
         .await
@@ -1104,6 +1360,30 @@ impl LinkGroup for RelayLinkGroup {
         }
         Ok(())
     }
+}
+
+impl RelayLinkGroup {
+    /// When a lane's allocation stops waiting. The allocation deadline is the
+    /// first connect's; a resume (a later generation) waits `control_timeout`
+    /// as any reconnect does. Until one lane is allocated, a lane also waits no
+    /// later than the first allocation's deadline.
+    fn wait_until(&self, generation: u64) -> Option<Instant> {
+        if generation != 0 {
+            return None;
+        }
+        let first =
+            self.first_allocation_deadline.filter(|_| !self.allocated.load(Ordering::Acquire));
+        match (self.allocation_deadline, first) {
+            (Some(deadline), Some(first)) => Some(deadline.min(first)),
+            (deadline, first) => deadline.or(first),
+        }
+    }
+}
+
+/// What a Connect got: a circuit to join (the circuit-DO route), or this socket as the circuit.
+enum Allocation {
+    Circuit(CircuitId, String),
+    Inline(CircuitId),
 }
 
 enum AllocationError {
@@ -1136,8 +1416,23 @@ async fn request_allocation(
     wait: Duration,
     lane: &LaneToken,
     generation: u64,
-) -> Result<(CircuitId, String), AllocationError> {
-    let credential = credentials.fetch().await.map_err(AllocationError::Authentication)?;
+) -> Result<Allocation, AllocationError> {
+    send_connect(socket, config, credentials, lane, generation).await?;
+    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
+        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
+    )?
+}
+
+/// A client's Connect for `lane`, its answer not read.
+async fn send_connect(
+    socket: &mut RelaySocket,
+    config: &RelayClientConfig,
+    credentials: &RelayCredentialSource,
+    lane: &LaneToken,
+    generation: u64,
+) -> Result<(), AllocationError> {
+    let (credential, grant) =
+        credentials.fetch_with_grant().await.map_err(AllocationError::Authentication)?;
     send_control(
         socket,
         &RelayControl::Connect {
@@ -1148,26 +1443,32 @@ async fn request_allocation(
             generation,
             // `read_until_allocation` reads past `Parked` to the answer.
             accepts_parked: true,
+            grant: grant.as_deref().map(ToOwned::to_owned),
+            inline: standby::inline_wanted(),
         },
     )
     .await
-    .map_err(AllocationError::Reconnect)?;
-    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
-        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
-    )?
+    .map_err(AllocationError::Reconnect)
 }
 
 async fn read_until_allocation(
     socket: &mut RelaySocket,
     expected_lane: &LaneToken,
     expected_generation: u64,
-) -> Result<(CircuitId, String), AllocationError> {
+) -> Result<Allocation, AllocationError> {
     loop {
         match read_control(socket).await.map_err(AllocationError::Reconnect)? {
             RelayControl::Allocated { circuit, lane, generation, join_ticket }
                 if lane == *expected_lane && generation == expected_generation =>
             {
-                return Ok((circuit, join_ticket));
+                return Ok(Allocation::Circuit(circuit, join_ticket));
+            }
+            // The relay paired this inline Connect with a daemon's Standby socket: this socket
+            // is the circuit now (relay_standby.rs).
+            RelayControl::Ready { circuit, lane, generation }
+                if lane == *expected_lane && generation == expected_generation =>
+            {
+                return Ok(Allocation::Inline(circuit));
             }
             RelayControl::Error { code, retryable, .. } => {
                 return Err(if relay_authentication_error(&code) {
@@ -1452,473 +1753,127 @@ pub fn spawn_relay_daemon_registration(
     Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
-/// The registration's joined circuits belong to the registration, not to one
-/// control socket: each is its own relay socket, which the relay keeps open
-/// when the control socket closes, so a live session outlives a dropped or
-/// renewed registration. They end at shutdown, or after a pause the
-/// registration did not survive (their sockets died with it).
-#[allow(clippy::too_many_arguments)]
-async fn run_registration_loop(
-    daemon: Arc<dyn RelayIncoming>,
-    config: RelayDaemonConfig,
-    framing: RelayCircuitFraming,
-    credentials: RelayCredentialSource,
-    tls: RelayTls,
-    shutdown: watch::Receiver<bool>,
-    first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
-    log: Option<String>,
-    state: watch::Sender<RegistrationState>,
-) {
-    let mut circuits = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
-    run_registration_attempts(
-        daemon,
-        config,
-        framing,
-        credentials,
-        tls,
-        shutdown,
-        first_ready,
-        log,
-        &mut circuits,
-        &state,
-    )
-    .await;
-    circuits.shutdown().await;
-}
+/// How long one daemon-side Join of an `Incoming` circuit has alone before a
+/// second one starts beside it (on a new WebSocket, with the same join ticket).
+/// A fresh Cloud machine's daemon, paired with a parked Connect the moment it
+/// registered, sometimes never joined that first circuit: production
+/// `cloud-chat-replies-production`, cold starts 2026-11-22 18:00Z to 11-23
+/// 06:10Z, the first dial of 3 of 9 created machines waited out the client's
+/// whole 4 s peer-join wait (`outcome=relay`, link 7.2 to 11.7 s) though the
+/// daemon had registered in 340 ms, and the client's redial was joined in 0.6 to
+/// 1 s every time. The one Join was given up silently, and its WebSocket connect
+/// (resolve, TCP, TLS, upgrade) is bounded only by the relay's 10 s connect.
+/// A healthy Join is Ready in well under a second (both ends join on the same
+/// Allocated/Incoming pair), so a second attempt at 1 s lands inside the client's
+/// wait. An extra Join on a circuit the first already joined is refused by the
+/// relay (`duplicate-role`) and closes; the first keeps waiting.
+const DAEMON_JOIN_STAGGER: Duration = Duration::from_secs(1);
+/// Daemon-side Joins of one `Incoming` in all: one every [`DAEMON_JOIN_STAGGER`]
+/// while none is Ready, all kept in flight until the registration's control
+/// timeout.
+const DAEMON_JOIN_ATTEMPTS: usize = 4;
 
-#[allow(clippy::too_many_arguments)]
-async fn run_registration_attempts(
-    daemon: Arc<dyn RelayIncoming>,
-    config: RelayDaemonConfig,
-    framing: RelayCircuitFraming,
-    credentials: RelayCredentialSource,
-    tls: RelayTls,
-    mut shutdown: watch::Receiver<bool>,
-    mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
-    log: Option<String>,
-    circuits: &mut IncomingCircuitTasks,
-    state: &watch::Sender<RegistrationState>,
-) {
-    let mut retry = Retry::new();
-    let mut log = RegisterLog::new(log, Instant::now());
+/// The first of `attempt`'s results that is Ok, starting one attempt at once
+/// and another every `stagger` while none has been (at most `most` in all,
+/// every one kept in flight), within `budget`. The error is the last failed
+/// attempt's, or a join timeout when the budget ran out first.
+async fn hedged_join<T, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    budget: Duration,
+) -> Result<T, ProviderError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, ProviderError>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let deadline = Instant::now() + budget;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    let mut last_error = None;
     loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        if shutdown.has_changed().is_err() {
-            return;
-        }
-        let mut attempt = Attempt::default();
-        let result = run_registration_once(
-            daemon.clone(),
-            &config,
-            framing,
-            &credentials,
-            &tls,
-            &mut shutdown,
-            &mut first_ready,
-            circuits,
-            &mut attempt,
-            &log,
-            state,
-        )
-        .await;
-        // A registration that got ready and later died (a pause, a relay
-        // restart, an expired ticket) registers again from the first wait.
-        if attempt.registered {
-            retry.ready();
-            log.dropped(Instant::now());
-        }
-        // What the attempt met, while the next one waits. A credential source
-        // that fails (the ticket mint is down, or did not answer in its
-        // bound) is a named state, not only a stderr line.
-        state.send_replace(match &result {
-            Ok(()) => RegistrationState::Registering,
-            Err(error) if is_credential_source_error(error) => {
-                RegistrationState::CredentialUnavailable { error: error.to_string() }
-            }
-            Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
-        });
-        // A pause the registration did not survive outlived its circuits too.
-        if attempt.resumed {
-            circuits.shutdown().await;
-        }
-        let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
-        if first_ready.is_some()
-            && result.as_ref().is_err_and(|error| !error.is_retryable_carrier_failure())
-        {
-            if let Some(sender) = first_ready.take() {
-                let _ = sender.send(result);
-            }
-            return;
-        }
-        if *shutdown.borrow() {
-            return;
-        }
-        let ended = if attempt.resumed {
-            Ended::Resumed
-        } else if credential_failure {
-            Ended::Credential
-        } else {
-            Ended::Relay
-        };
-        let wait = retry.wait(ended, random_unit());
-        if let (Some(label), Err(error)) = (&log.label, &result) {
-            log.failures += 1;
-            eprintln!(
-                "{label}: attempt {} failed, retrying in {} ms: {error}",
-                log.failures,
-                wait.as_millis()
-            );
-        }
-        match back_off(&mut retry, wait, &mut shutdown, wall_now).await {
-            Waited::Elapsed => {}
-            Waited::Resumed => {
-                if let Some(label) = &log.label {
-                    eprintln!("{label}: resumed during the wait; registering now");
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next(), if !running.is_empty() => match result {
+                Ok(joined) => return Ok(joined),
+                Err(error) => {
+                    last_error = Some(error);
+                    if running.is_empty() && !more {
+                        break;
+                    }
                 }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
             }
-            Waited::Shutdown => return,
+            _ = tokio::time::sleep_until(deadline) => break,
         }
     }
+    Err(last_error.unwrap_or_else(|| relay_carrier_error("relay circuit join timed out")))
 }
 
-/// What one registration attempt got to.
-#[derive(Debug, Default)]
-struct Attempt {
-    /// It got ready (and may have ended since).
-    registered: bool,
-    /// It ended because the machine resumed from a pause it did not survive.
-    resumed: bool,
-}
+/// How long a daemon's registration WebSocket has alone before a second one opens beside it. A
+/// fresh Cloud machine's first outbound open sometimes dies silently while its network settles
+/// just after the create: production `cloud-chat-replies-production`, fresh machines, 2026-11-20
+/// to 11-24, 2 of 27 daemons logged `attempt 1 failed ... no answer within 10000 ms` and
+/// registered 10.8 and 11.1 s after they started (the retry, 86 ms later, registered in under a
+/// second), while the other 25 registered 0.15 to 0.5 s after the daemon started. Every dial
+/// parks behind that registration (`connect.link` 21 to 27 s). A healthy open is done in well
+/// under a second, so a second open at 1 s lands inside the client's wait.
+const DAEMON_REGISTER_STAGGER: Duration = Duration::from_secs(1);
+/// Registration opens of one attempt in all: one every [`DAEMON_REGISTER_STAGGER`] while none
+/// has opened.
+const DAEMON_REGISTER_ATTEMPTS: usize = 3;
 
-/// How [`wait_unless_resumed`] ended.
-#[derive(Debug, PartialEq, Eq)]
-enum Waited {
-    Elapsed,
-    /// The machine resumed: the wall clock jumped past the monotonic one, or
-    /// the monotonic clock moved past the relay's retirement between two looks.
-    Resumed,
-    Shutdown,
-}
-
-/// Waits out a failed attempt's `wait`. A resume during it (the pause
-/// outlived the reason for the wait) starts both backoffs over, so the next
-/// failure waits the first backoff again, not the one from before the pause.
-async fn back_off(
-    retry: &mut Retry,
-    wait: Duration,
-    shutdown: &mut watch::Receiver<bool>,
-    wall: fn() -> std::time::SystemTime,
-) -> Waited {
-    let waited = wait_unless_resumed(wait, shutdown, wall).await;
-    if waited == Waited::Resumed {
-        retry.ready();
-    }
-    waited
-}
-
-/// Waits `wait` (monotonic, so a pause does not count), looking at the
-/// clocks every [`CHECK_INTERVAL`]: a resume ends the wait at once. Ends at
-/// the latest when `wait` elapses or at shutdown. `wall` is the wall clock.
-async fn wait_unless_resumed(
-    wait: Duration,
-    shutdown: &mut watch::Receiver<bool>,
-    wall: fn() -> std::time::SystemTime,
-) -> Waited {
-    if wait.is_zero() {
-        return Waited::Elapsed;
-    }
-    let sleep = tokio::time::sleep(wait);
-    tokio::pin!(sleep);
-    let mut clocks = ClockWatch::new(Instant::now(), wall());
-    let mut interval = tokio::time::interval(CHECK_INTERVAL);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+/// The first of `attempt`'s results that is Ok, starting one attempt at once and another every
+/// `stagger` while none has finished (at most `most` in all). An error `fatal` names, or the
+/// last error once no attempt is left running, ends it at once: a fast refusal is the caller's
+/// retry to schedule, not an open to hedge. Each attempt keeps its own bound, and the ones that
+/// lose are dropped, which closes their sockets before any Register is sent on them.
+async fn hedged_open<T, E, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    fatal: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
     loop {
-        // After a pause longer than `wait`, the sleep and the tick are both
-        // ready and `select!` picks either: every wakeup looks at the clocks.
-        let elapsed = tokio::select! {
-            _ = &mut sleep => true,
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    return Waited::Shutdown;
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(opened) => return Ok(opened),
+                Err(error) => {
+                    if fatal(&error) || running.is_empty() {
+                        return Err(error);
+                    }
                 }
-                false
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
             }
-            _ = interval.tick() => false,
-        };
-        // A wall-clock step past the monotonic one, or a monotonic gap past
-        // the relay's retirement between two looks a second apart (a pause
-        // where every guest clock kept running).
-        let look = clocks.look(Instant::now(), wall());
-        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
-            return Waited::Resumed;
         }
-        if elapsed {
-            return Waited::Elapsed;
-        }
-    }
-}
-
-/// What a background registration writes to stderr when the relay answers
-/// its Register: the first one, and each one after a drop, never a
-/// heartbeat. A journey timeline reads the Register time from it.
-struct RegisterLog {
-    /// The registration's stderr prefix; nothing is written without one.
-    label: Option<String>,
-    /// When the registration started.
-    started: Instant,
-    /// Failed attempts since the last Register (or the start).
-    failures: u64,
-    /// When the last registration ended, once one has.
-    dropped_at: Option<Instant>,
-}
-
-impl RegisterLog {
-    fn new(label: Option<String>, started: Instant) -> Self {
-        Self { label, started, failures: 0, dropped_at: None }
-    }
-
-    /// A registration that got ready has ended at `now`.
-    fn dropped(&mut self, now: Instant) {
-        self.failures = 0;
-        self.dropped_at = Some(now);
-    }
-
-    /// The line for a Register answered at `now` on `slot`.
-    fn registered_line(&self, slot: &str, now: Instant) -> Option<String> {
-        let label = self.label.as_ref()?;
-        let elapsed = now.saturating_duration_since(self.started).as_millis();
-        let again = match self.dropped_at {
-            Some(dropped) => {
-                format!(
-                    " again, {} ms after the drop,",
-                    now.saturating_duration_since(dropped).as_millis()
-                )
-            }
-            None => String::new(),
-        };
-        let retried = match self.failures {
-            0 => String::new(),
-            1 => " and 1 failed attempt".to_owned(),
-            failures => format!(" and {failures} failed attempts"),
-        };
-        Some(format!("{label}: registered{again} on slot {slot} after {elapsed} ms{retried}"))
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_registration_once(
-    daemon: Arc<dyn RelayIncoming>,
-    config: &RelayDaemonConfig,
-    framing: RelayCircuitFraming,
-    credentials: &RelayCredentialSource,
-    tls: &RelayTls,
-    shutdown: &mut watch::Receiver<bool>,
-    first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
-    circuits: &mut IncomingCircuitTasks,
-    attempt: &mut Attempt,
-    log: &RegisterLog,
-    state: &watch::Sender<RegistrationState>,
-) -> Result<(), ProviderError> {
-    let authentication = authenticate_daemon_control(config, credentials, tls);
-    tokio::pin!(authentication);
-    let control = tokio::select! {
-        result = &mut authentication => result?,
-        changed = shutdown.changed() => {
-            if changed.is_err() || *shutdown.borrow() {
-                return Ok(());
-            }
-            authentication.await?
-        }
-    };
-    attempt.registered = true;
-    state.send_replace(RegistrationState::Registered);
-    if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
-        eprintln!("{line}");
-    }
-    if let Some(sender) = first_ready.take() {
-        let _ = sender.send(Ok(()));
-    }
-    let mut socket = control.socket;
-    // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
-    // or a resume (a wall-clock jump, or a monotonic gap past the relay's
-    // 45 s between two checks), finds a dead registration in seconds.
-    let mut liveness = registration_liveness(control.lease_seconds);
-    let mut renew_at = control.renew_at;
-    // Make-before-break: before the ticket expires a second control socket
-    // registers with a fresh one. Every relay takes a Register on the slot as
-    // the current registration and retires the one it replaced, so dials go to
-    // the new socket from that moment; Incomings already sent on the old one
-    // are still read until the relay closes it (`retiring`).
-    let mut renewal: Option<Renewal<'_>> = None;
-    let mut retiring: Option<RelaySocket> = None;
-    let mut retire_until = Instant::now();
-    let mut interval = tokio::time::interval(CHECK_INTERVAL);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut nonce = 0_u64;
-    let far = || Instant::now() + Duration::from_secs(86_400);
-    loop {
-        let message = tokio::select! {
-            _ = circuits.join_next(), if !circuits.is_empty() => continue,
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() { return Ok(()) }
-                continue;
-            }
-            _ = tokio::time::sleep_until(renew_at.unwrap_or_else(far)),
-                if renew_at.is_some() && renewal.is_none() =>
-            {
-                renew_at = None;
-                renewal = Some(Box::pin(authenticate_daemon_control(config, credentials, tls)));
-                continue;
-            }
-            renewed = poll_some(renewal.as_mut()) => {
-                renewal = None;
-                match renewed {
-                    Ok(control) => {
-                        let old = std::mem::replace(&mut socket, control.socket);
-                        retiring = Some(old);
-                        retire_until = Instant::now() + config.control_timeout;
-                        liveness = registration_liveness(control.lease_seconds);
-                        renew_at = control.renew_at;
-                    }
-                    Err(error) => {
-                        if let Some(label) = &log.label {
-                            eprintln!(
-                                "{label}: renewing the registration failed, retrying in {} ms: \
-                                 {error}",
-                                RENEWAL_RETRY.as_millis()
-                            );
-                        }
-                        renew_at = Some(Instant::now() + RENEWAL_RETRY);
-                    }
-                }
-                continue;
-            }
-            message = read_some(retiring.as_mut()) => {
-                match message {
-                    Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
-                        spawn_incoming(
-                            circuits, &daemon, config, framing, tls, circuit, lane, generation,
-                            join_ticket,
-                        );
-                    }
-                    Ok(_) => {}
-                    // Replaced: the relay closed it (after an Error), or it failed.
-                    Err(_) => retiring = None,
-                }
-                continue;
-            }
-            _ = tokio::time::sleep_until(retire_until), if retiring.is_some() =>
-            {
-                retiring = None;
-                continue;
-            }
-            _ = interval.tick() => {
-                match liveness.check(Instant::now(), wall_now()) {
-                    Check::Idle => continue,
-                    Check::Ping => {
-                        nonce = nonce.wrapping_add(1);
-                        match send_control(&mut socket, &RelayControl::Ping { nonce }).await {
-                            Ok(()) => continue,
-                            Err(error) => Err(error),
-                        }
-                    }
-                    Check::Dead => {
-                        Err(ProviderError::Transport(
-                            "relay registration stopped answering".into(),
-                        ))
-                    }
-                    Check::Resumed => {
-                        attempt.resumed = true;
-                        return Err(ProviderError::Transport(
-                            "relay registration did not survive a pause".into(),
-                        ));
-                    }
-                }
-            }
-            message = read_control(&mut socket) => message,
-        };
-        let failure = match message {
-            Ok(message) => {
-                liveness.on_inbound();
-                match message {
-                    RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
-                        spawn_incoming(
-                            circuits,
-                            &daemon,
-                            config,
-                            framing,
-                            tls,
-                            circuit,
-                            lane,
-                            generation,
-                            join_ticket,
-                        );
-                        continue;
-                    }
-                    RelayControl::Ping { nonce } => {
-                        send_control(&mut socket, &RelayControl::Pong { nonce }).await?;
-                        continue;
-                    }
-                    RelayControl::Error { code, retryable, .. } => relay_operation_rejection(
-                        &code,
-                        retryable,
-                        "relay registration is temporarily unavailable",
-                    ),
-                    _ => continue,
-                }
-            }
-            Err(error) => error,
-        };
-        // The current socket ended (the relay saw the renewal's Register before
-        // this socket's last read, or its ticket ran out) while a renewal is in
-        // flight: the renewal decides, and the registration continues on it.
-        let Some(pending) = renewal.take() else {
-            return Err(failure);
-        };
-        let renewed = tokio::select! {
-            renewed = pending => renewed,
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    return Ok(());
-                }
-                return Err(failure);
-            }
-        };
-        let Ok(control) = renewed else {
-            return Err(failure);
-        };
-        socket = control.socket;
-        liveness = registration_liveness(control.lease_seconds);
-        renew_at = control.renew_at;
-    }
-}
-
-fn registration_liveness(lease_seconds: u32) -> Liveness {
-    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
-    Liveness::new(heartbeat, Instant::now(), wall_now())
-}
-
-/// Polls `future` when there is one, else never completes (a `select!`
-/// branch's future is built even while its branch is off).
-async fn poll_some<F: Future + Unpin>(future: Option<&mut F>) -> F::Output {
-    match future {
-        Some(future) => future.await,
-        None => std::future::pending().await,
-    }
-}
-
-/// Reads `socket`'s next control message when there is a socket, else never.
-async fn read_some(socket: Option<&mut RelaySocket>) -> Result<RelayControl, ProviderError> {
-    match socket {
-        Some(socket) => read_control(socket).await,
-        None => std::future::pending().await,
     }
 }
 
 /// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
-/// circuit is already joined or the registration holds its most circuits.
+/// circuit is already joined or the registration holds its most circuits. The
+/// Join is hedged ([`DAEMON_JOIN_STAGGER`]); one that never became Ready is
+/// written to the registration's log, with how long it was tried.
 #[allow(clippy::too_many_arguments)]
 fn spawn_incoming(
     circuits: &mut IncomingCircuitTasks,
@@ -1930,6 +1885,7 @@ fn spawn_incoming(
     lane: LaneToken,
     generation: u64,
     join_ticket: String,
+    log: &RegisterLog,
 ) {
     let daemon = daemon.clone();
     let endpoint = config.endpoint.clone();
@@ -1937,24 +1893,41 @@ fn spawn_incoming(
     let maximum = config.maximum_frame_bytes;
     let timeout = config.control_timeout;
     let tls = tls.clone();
+    let label = log.label.clone();
     let task_circuit = circuit.clone();
     circuits.try_spawn(circuit, async move {
-        if let Ok(link) = join_circuit(
-            &endpoint,
-            &slot,
-            RelayRole::Daemon,
-            framing,
-            task_circuit,
-            lane,
-            generation,
-            join_ticket,
-            maximum,
+        let started = Instant::now();
+        let joined = hedged_join(
+            || {
+                join_circuit(
+                    &endpoint,
+                    &slot,
+                    RelayRole::Daemon,
+                    framing,
+                    task_circuit.clone(),
+                    lane.clone(),
+                    generation,
+                    join_ticket.clone(),
+                    maximum,
+                    timeout,
+                    &tls,
+                )
+            },
+            DAEMON_JOIN_STAGGER,
+            DAEMON_JOIN_ATTEMPTS,
             timeout,
-            &tls,
         )
-        .await
-        {
-            daemon.incoming(link).await;
+        .await;
+        match joined {
+            Ok(link) => daemon.incoming(link).await,
+            Err(error) => {
+                if let Some(label) = &label {
+                    eprintln!(
+                        "{label}: an incoming circuit was not joined after {} ms: {error}",
+                        started.elapsed().as_millis()
+                    );
+                }
+            }
         }
     });
 }
@@ -2018,6 +1991,8 @@ type Renewal<'a> = Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderErr
 struct DaemonControl {
     socket: RelaySocket,
     lease_seconds: u32,
+    /// The ticket this registered with, for its Standby sockets (relay_standby.rs).
+    ticket: standby::StandbyTicket,
     /// When to register again with a fresh ticket, before this one expires:
     /// [`RENEW_AT_LIFETIME_FRACTION`] of the ticket's lifetime after it was
     /// fetched (on this machine's monotonic clock, so a skewed wall clock does
@@ -2056,11 +2031,18 @@ async fn authenticate_daemon_control(
         let fetched_at = Instant::now();
         let credential = credentials.fetch().await?;
         let renew_at = renewal_time(credentials, &credential, fetched_at);
-        let mut socket = match connect_relay_socket_once(
-            &config.endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
-            tls,
+        let mut socket = match hedged_open(
+            || {
+                connect_relay_socket_once(
+                    &config.endpoint,
+                    Some(&credential),
+                    MAX_RELAY_CONTROL_MESSAGE_BYTES,
+                    tls,
+                )
+            },
+            DAEMON_REGISTER_STAGGER,
+            DAEMON_REGISTER_ATTEMPTS,
+            |error| matches!(error, RelaySocketConnectError::Authentication),
         )
         .await
         {
@@ -2085,7 +2067,9 @@ async fn authenticate_daemon_control(
             .map_err(|_| relay_carrier_error("relay registration timed out"))??;
         match reply {
             RelayControl::Registered { lease_seconds } => {
-                return Ok(DaemonControl { socket, lease_seconds, renew_at });
+                let expires = credential.lifetime().map(|lifetime| fetched_at + lifetime);
+                let ticket = standby::StandbyTicket { credential, expires };
+                return Ok(DaemonControl { socket, lease_seconds, ticket, renew_at });
             }
             RelayControl::Error { code, .. }
                 if relay_authentication_error(&code) && !retried_authentication =>
@@ -2111,18 +2095,14 @@ async fn authenticate_daemon_control(
 async fn connect_provider_control(
     endpoint: &Url,
     credentials: &RelayCredentialSource,
+    maximum_message_bytes: usize,
     tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let mut retried_authentication = false;
     loop {
         let credential = credentials.fetch().await?;
-        match connect_relay_socket_once(
-            endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
-            tls,
-        )
-        .await
+        match connect_relay_socket_once(endpoint, Some(&credential), maximum_message_bytes, tls)
+            .await
         {
             Ok(socket) => return Ok(socket),
             Err(RelaySocketConnectError::Authentication) if !retried_authentication => {
@@ -2162,7 +2142,19 @@ async fn connect_relay_socket(
         .map_err(RelaySocketConnectError::into_provider_error)
 }
 
+/// One relay WebSocket, opened through the relay's braid carrier ([`carrier::RelaySocketRung`]).
 async fn connect_relay_socket_once(
+    endpoint: &Url,
+    authorization: Option<&RelayCredential>,
+    maximum_message_bytes: usize,
+    tls: &RelayTls,
+) -> Result<RelaySocket, RelaySocketConnectError> {
+    carrier::RelaySocketRung { endpoint, authorization, maximum_message_bytes, tls }.join().await
+}
+
+/// The relay carrier's open: the hedged TCP connect, TLS and the upgrade, bounded by
+/// [`RELAY_CONNECT_TIMEOUT`].
+async fn open_relay_socket(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
     maximum_message_bytes: usize,
@@ -2183,8 +2175,13 @@ async fn connect_relay_socket_once(
     let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
         // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
         // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
-        let socket = connect_relay_tcp(endpoint).await?;
-        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+        let (socket, via) = connect_relay_tcp(endpoint, &tls.proxy).await?;
+        let opened =
+            client_async_tls_with_config(request, socket, Some(config), tls.connector()).await;
+        if let Ok((socket, _)) = &opened {
+            tls.outer.record(endpoint.host_str().unwrap_or(""), &via, socket);
+        }
+        opened
     })
     .await
     .map_err(|_| {
@@ -2204,21 +2201,29 @@ async fn connect_relay_socket_once(
     }
 }
 
-/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
-async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+/// The relay endpoint's TCP stream, Nagle off: through the proxy `proxy` names for the relay's
+/// URL ([`super::proxied`]), else hedged over its addresses ([`super::hedge`]).
+async fn connect_relay_tcp(
+    endpoint: &Url,
+    proxy: &cmux_proxy::ProxyConfig,
+) -> Result<(TcpStream, cmux_proxy::Via), WebSocketError> {
     let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
     let port = endpoint
         .port_or_known_default()
         .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
-    let addresses = super::dial::resolve_dial_target(host, port)
-        .await
-        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let socket =
-        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+    let direct = async {
+        let addresses = super::dial::resolve_dial_target(host, port)
             .await
-            .map_err(WebSocketError::Io)?;
-    let _ = socket.set_nodelay(true);
-    Ok(socket)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let socket =
+            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+                .await?;
+        let _ = socket.set_nodelay(true);
+        Ok(socket)
+    };
+    super::proxied::connect(host, port, endpoint.scheme() == "wss", proxy, direct)
+        .await
+        .map_err(WebSocketError::Io)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {
@@ -2284,13 +2289,31 @@ fn relay_reconnect_error(
     }
 }
 
+/// The relay's code for a slot whose daemon's ticket ran out with no renewal: the machine's
+/// relay credential is unavailable (its mint is down or stalled).
+const RELAY_CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable";
+
 /// A retryable refusal, naming the relay's error code: a short word the
-/// relay sets (`slot-busy`), kept only when it looks like one.
+/// relay sets (`slot-busy`), kept only when it looks like one. A lapsed
+/// registration (`credential-unavailable`) leads with that reason, the words a
+/// link's offline reason is read from (acpmux `peer_carrier::reason`), so the
+/// dial says why the machine is offline instead of reading as still connecting.
 fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    if code == RELAY_CREDENTIAL_UNAVAILABLE {
+        return relay_carrier_error(format!(
+            "{RELAY_CREDENTIAL_UNAVAILABLE}: the machine's relay ticket expired and was not \
+             renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
+        ));
+    }
+    relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
+}
+
+/// A relay's error code as shown: a short word as is, anything else `other`.
+fn sanitize_relay_code(code: &str) -> &str {
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
+    if word { code } else { "other" }
 }
 
 fn relay_rejection() -> ProviderError {

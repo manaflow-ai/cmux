@@ -8,7 +8,9 @@
 #                        nearest deltas (appcast-with-nearest-deltas.sh prebuild) and the git fetch of the span
 #                        the release notes cover, beside the verify steps, the launch smoke and the size budget
 #   one-job.sh deltas-join    after them: waits for both; a failed or late one only leaves its work to the
-#                        steps that did it before (the keyed appcast step, the release notes step)
+#                        steps that did it before (the keyed appcast step, the release notes step). With
+#                        NIGHTLY_NEXT_DELTAS_AFTER_FEED=true the feed needs no delta: it waits for the notes only and
+#                        stops an unfinished prebuild, whose work the post-feed delta step then does itself
 #   one-job.sh final-dmg the final DMG where verify-final-dmg.sh, the launch smoke and the size budget read it
 #   one-job.sh final-feed after the keyed appcast step: this build's appcast and deltas beside it
 #   one-job.sh source    publish-nightly's "Select the build to publish", for this job's own build only
@@ -20,6 +22,9 @@ case "${1:-}" in
     python3 -c 'import json, sys; sys.exit(json.loads(sys.argv[1]) != ["arm64"])' "$VARIANTS" \
       || { echo "nightly-next-one builds arm64 only, not $VARIANTS" >&2; exit 1; }
     { echo "CHANNEL_APP_PATH=build-universal/Build/Products/Release/$APP_NAME.app"; echo "TMPDIR=$RUNNER_TEMP"; } >> "$GITHUB_ENV"
+    # The keyless prebuild's deltas outlive this job for nightly-next-deltas, the job after the feed that signs them
+    # when it lands on this Mac (its `done` names the build and the DMG's digest; anything else is rebuilt there).
+    echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
     leftover="$HOME/Library/Keychains/build.keychain-db"
     if [ -e "$leftover" ]; then
       echo "Deleting the signing keychain an ended job left: $leftover"
@@ -54,6 +59,11 @@ case "${1:-}" in
     state="$RUNNER_TEMP/nightly-helper-builds"
     for name in nearest-deltas notes-span; do
       [ -f "$state/$name.pid" ] || continue
+      if [ "$name" = nearest-deltas ] && [ "${NIGHTLY_NEXT_DELTAS_AFTER_FEED:-}" = true ] && [ ! -f "$state/$name.status" ]; then
+        python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
+        echo "::notice title=nightly-next $name::the prebuild did not finish beside the checks; the deltas after the feed build it"
+        continue
+      fi
       if ! python3 "$PUBLISH_TOOLING/ci/background_build.py" join --state "$state" "$name" --timeout "${DELTAS_JOIN_SECONDS:-900}"; then
         python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
         echo "::warning title=nightly-next $name::the background $name did not finish; the step that did it before does it"
@@ -73,20 +83,36 @@ case "${1:-}" in
     ;;
   source)
     [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ && "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build $NIGHTLY_BUILD at $BUILD_SHA" >&2; exit 1; }
-    # nightly-out (and cef-runtime): what publish-nightly downloads, from this workspace.
+    # nightly-out (and cef-runtime, language-packs): what publish-nightly downloads, from this workspace.
     mkdir -p nightly-out
     cp final-dmg/* remote-daemon-assets/cmuxd-remote-* nightly-out/
     if [ "$CEF" = true ]; then cp -R "$RUNNER_TEMP/cef-runtime" cef-runtime; fi
+    # The packs and their pin only (not the split's stage/), as the language-packs artifact carries.
+    if [ "${LANGUAGE_PACKS:-false}" = true ]; then
+      mkdir -p language-packs
+      cp "$RUNNER_TEMP"/language-packs/*.tar.zst "$RUNNER_TEMP/language-packs/language-packs.json" language-packs/
+      # The tool packs (tool-packs.py, sign-cmux-bundle.sh 4c) sit in its tools/ when the app has them.
+      if [ -f "$RUNNER_TEMP/language-packs/tools/tool-packs.json" ]; then
+        mkdir -p language-packs/tools
+        cp "$RUNNER_TEMP"/language-packs/tools/*.tar.zst "$RUNNER_TEMP/language-packs/tools/tool-packs.json" language-packs/tools/
+      fi
+    fi
     printf '%s\n' source=own "build=$NIGHTLY_BUILD" "build_sha=$BUILD_SHA" "build_short_sha=${BUILD_SHA:0:7}" \
       "tip_sha=$TIP_SHA" "behind=$BEHIND" "behind_hours=$BEHIND_HOURS" "variant_pattern=cmux-nightly-variant-*" \
-      "tested_pattern=cmux-nightly-tested-*" run_id= "cef=$CEF" "source_archive=$SOURCE_ARCHIVE" >> "$GITHUB_OUTPUT"
+      "tested_pattern=cmux-nightly-tested-*" run_id= "cef=$CEF" "language_packs=${LANGUAGE_PACKS:-false}" \
+      language_packs_run= "source_archive=$SOURCE_ARCHIVE" >> "$GITHUB_OUTPUT"
     ;;
   wipe)
     tmp="${RUNNER_TEMP:-}"
     if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then
+      # A stopped delta prebuild can leave a DMG mounted under it; rm -rf into a read-only volume fails the job.
+      real="$(cd "$tmp" && pwd -P)"  # mount prints resolved paths
+      mount | sed -n "s#^/dev/[^ ]* on \($real/.*\) (.*#\1#p" | while IFS= read -r mounted; do
+        hdiutil detach "$mounted" -quiet </dev/null || hdiutil detach "$mounted" -force -quiet </dev/null || true
+      done
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
-    rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime
+    rm -rf signed signed-app-handoff final-dmg nightly-out nightly-deltas tested cef-runtime language-packs
     rm -f "${CHANNEL_DMG_PREFIX:-cmux-nightly-next-macos}"-*.delta
     python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;

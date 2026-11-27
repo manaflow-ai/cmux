@@ -1,5 +1,5 @@
-//! `acpmux bridge connect|send|inbox` (`desktop_bridge.rs`): connect Claude Desktop and Codex
-//! Desktop to cmux, and message them from a shell or a cmux session.
+//! `acpmux bridge connect|send|inbox` (`desktop_bridge.rs`): connect Claude Desktop, Codex
+//! Desktop and ChatGPT Desktop to cmux, and message them from a shell or a cmux session.
 //!
 //! `connect` registers the `cmux-bridge` MCP server (`acpmux bridge mcp --as APP`,
 //! `acpmux_mcp_bridge.rs`) through each harness's own CLI (`codex mcp add`, `claude mcp add-json
@@ -7,6 +7,7 @@
 //! app's `claude_desktop_config.json` when that app is installed. acpmux never edits Codex's
 //! `config.toml` or Claude Code's `.claude.json` itself (`trust.rs`). A server already named
 //! `cmux-bridge` that does not run `bridge mcp --as` is someone else's and is never replaced.
+//! ChatGPT Desktop has no such CLI: `connect chatgpt` prints the server for the person to add.
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
@@ -18,10 +19,10 @@ use crate::desktop_bridge::{self, App, Bridge};
 
 #[derive(Subcommand)]
 pub enum BridgeCmd {
-    /// Add the cmux bridge to Claude Desktop and Codex Desktop, so each can message the other and
-    /// every cmux session. Restart the app after.
+    /// Add the cmux bridge to Claude Desktop and Codex Desktop, and print it for ChatGPT Desktop,
+    /// so each can message the others and every cmux session. Restart the app after.
     Connect {
-        /// claude, codex, or both when left out.
+        /// claude, codex or chatgpt; all of them when left out.
         app: Option<String>,
         /// Print what it would run and write, change nothing.
         #[arg(long)]
@@ -30,7 +31,7 @@ pub enum BridgeCmd {
     /// Leave a message for Claude Desktop or Codex Desktop; its agent reads it with the bridge's
     /// inbox tool.
     Send {
-        /// claude-desktop or codex-desktop.
+        /// claude-desktop, codex-desktop or chatgpt-desktop.
         to: String,
         /// Who it is from (default: this session's name, or what this shell names).
         #[arg(long)]
@@ -41,7 +42,7 @@ pub enum BridgeCmd {
     },
     /// Read the messages left for Claude Desktop or Codex Desktop, and mark them read.
     Inbox {
-        /// claude-desktop or codex-desktop.
+        /// claude-desktop, codex-desktop or chatgpt-desktop.
         app: String,
         /// Leave them unread.
         #[arg(long)]
@@ -111,7 +112,7 @@ pub async fn run(cmd: BridgeCmd, json_out: bool) -> Result<()> {
 
 fn named(word: &str) -> Result<App> {
     desktop_bridge::app(word)
-        .with_context(|| format!("unknown app {word:?}: claude-desktop or codex-desktop"))
+        .with_context(|| format!("unknown app {word:?}: {}", desktop_bridge::addresses()))
 }
 
 /// Who a `send` with no `--from` is from: `ACPMUX_FROM`, this session's name, what an agent
@@ -226,6 +227,9 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
         Err(e) => return vec![step(false, format!("{}: {e:#}", app.name))],
     };
     let env = home_env();
+    if app.harness == desktop_bridge::CHATGPT {
+        return vec![by_hand(app, &argv, &env)];
+    }
     let entry = server_entry(&argv, &env);
     let mut steps = vec![if dry_run {
         step(
@@ -315,6 +319,21 @@ async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result
     Ok(format!("added {SERVER_NAME} with `claude mcp add-json --scope user`."))
 }
 
+/// ChatGPT Desktop has no CLI of its own that adds a server and no config file cmux may write, so
+/// `connect` changes nothing for it: it prints the server to add in the app's own MCP settings.
+fn by_hand(app: App, argv: &[String], env: &str) -> Value {
+    json!({
+        "ok": true,
+        "byHand": true,
+        "server": server_entry(argv, env),
+        "text": format!(
+            "{}: cmux changes nothing in this app. Add a local (STDIO) MCP server named {SERVER_NAME} in its settings, with the command `{}` and the environment `{env}`, then restart it.",
+            app.name,
+            shell_line(argv)
+        ),
+    })
+}
+
 fn step(ok: bool, text: String) -> Value {
     json!({"ok": ok, "text": text})
 }
@@ -379,7 +398,7 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
     }
     servers.insert(SERVER_NAME.to_owned(), entry.clone());
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     let mut bytes = serde_json::to_vec_pretty(&config)?;
     bytes.push(b'\n');
@@ -387,86 +406,5 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_claude_app_config_gains_the_server_and_keeps_the_rest() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("claude_desktop_config.json");
-        std::fs::write(
-            &path,
-            r#"{"mcpServers": {"other": {"command": "x"}}, "globalShortcut": "Alt+Space"}"#,
-        )
-        .unwrap();
-        let entry = server_entry(
-            &[
-                "/opt/acpmux".into(),
-                "bridge".into(),
-                "mcp".into(),
-                "--as".into(),
-                "claude-desktop".into(),
-            ],
-            "ACPMUX_HOME=/h",
-        );
-        add_to_claude_app_config(&path, &entry).unwrap();
-        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(config["globalShortcut"], "Alt+Space");
-        assert_eq!(config["mcpServers"]["other"]["command"], "x");
-        let ours = &config["mcpServers"][SERVER_NAME];
-        assert_eq!(ours["command"], "/opt/acpmux");
-        assert_eq!(ours["args"], json!(["bridge", "mcp", "--as", "claude-desktop"]));
-        assert_eq!(ours["env"]["ACPMUX_HOME"], "/h");
-    }
-
-    #[test]
-    fn a_fresh_claude_app_install_gets_its_config_folder_and_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Claude/claude_desktop_config.json");
-        add_to_claude_app_config(&path, &json!({"command": "/opt/acpmux"})).unwrap();
-        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(config["mcpServers"][SERVER_NAME]["command"], "/opt/acpmux");
-    }
-
-    #[test]
-    fn a_cmux_bridge_entry_that_is_not_ours_is_left_alone() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("claude_desktop_config.json");
-        let theirs =
-            r#"{"mcpServers": {"cmux-bridge": {"command": "/opt/other", "args": ["serve"]}}}"#;
-        std::fs::write(&path, theirs).unwrap();
-        assert!(add_to_claude_app_config(&path, &json!({"command": "/opt/acpmux"})).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
-        // Ours, from an older install, is replaced.
-        let older = r#"{"mcpServers": {"cmux-bridge": {"command": "/old/acpmux", "args": ["bridge", "mcp", "--as", "claude-desktop"]}}}"#;
-        std::fs::write(&path, older).unwrap();
-        add_to_claude_app_config(&path, &json!({"command": "/new/acpmux"})).unwrap();
-        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(config["mcpServers"][SERVER_NAME]["command"], "/new/acpmux");
-    }
-
-    #[test]
-    fn the_server_runs_this_binary_under_its_prefix() {
-        let argv = server_argv(desktop_bridge::APPS[1]).unwrap();
-        assert!(argv.ends_with(&[
-            "bridge".into(),
-            "mcp".into(),
-            "--as".into(),
-            "codex-desktop".into()
-        ]));
-        let me = crate::self_command::SelfCommand::current().unwrap();
-        assert_eq!(argv[1..argv.len() - 4], me.args_lossy::<&str>(&[])[..]);
-        assert!(ours(&json!({"args": argv[1..]})));
-        assert!(!ours(&json!({"args": ["serve", "bridge mcp --as claude-desktop"]})));
-        assert!(!ours(&json!({"args": ["bridge", "mcp", "--as", "other"]})));
-    }
-
-    #[test]
-    fn a_claude_app_config_that_is_not_json_is_left_alone() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("claude_desktop_config.json");
-        std::fs::write(&path, "{ not json").unwrap();
-        assert!(add_to_claude_app_config(&path, &json!({})).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
-    }
-}
+#[path = "bridge_tests.rs"]
+mod tests;

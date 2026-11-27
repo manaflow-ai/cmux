@@ -22,6 +22,7 @@ import dev_release_product_reuse as reuse  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps, step_run  # noqa: E402
 
 
 def runner(job) -> str:
@@ -35,7 +36,7 @@ def runner(job) -> str:
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.load((ROOT / ".github/workflows/cmux-next.yml").read_text(), Loader=yaml.BaseLoader)["jobs"]
+        cls.jobs = yaml.load(inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text()), Loader=yaml.BaseLoader)["jobs"]
 
     def test_only_feat_cmux_next_landings_run_it(self):
         condition = self.jobs["dev-landing-place"]["if"]
@@ -65,7 +66,7 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["dev-landing-compile"]
         self.assertIn(job["name"], reuse.PRODUCER_JOBS, "the DEV run's lookup refuses a record of an unknown job")
         steps = {step.get("name"): step for step in job["steps"]}
-        self.assertIn("job_input_fingerprint.py dev-release-product", steps["Look up the DEV Release app compiled on the same inputs"]["run"])
+        self.assertIn("job_input_fingerprint.py dev-release-product", step_run(steps["Look up the DEV Release app compiled on the same inputs"]))
         self.assertEqual(steps["Upload the cmux NEXT DEV Release app"]["with"]["name"],
                          reuse.PRODUCT_PREFIX + "${{ github.sha }}")
         self.assertEqual(steps["Upload the DEV Release app record"]["with"]["name"],
@@ -85,7 +86,7 @@ class WorkflowTests(unittest.TestCase):
         upload = steps["Record this host's cache for the next landing's placement"]
         self.assertEqual(upload["with"]["name"], place.HOLDER_PREFIX + "${{ steps.report.outputs.holder }}")
         self.assertEqual(upload["with"]["overwrite"], "true")
-        self.assertIn("scripts/cmux-next/dev-cas-holder.sh", steps["Report the landing compile"]["run"])
+        self.assertIn("scripts/cmux-next/dev-cas-holder.sh", step_run(steps["Report the landing compile"]))
         # The DEV run's host build moves a host's cache too.
         dev = {step.get("name"): step for step in self.jobs["cmux-scheme-compile"]["steps"]}
         self.assertIn("scripts/cmux-next/dev-cas-holder.sh", dev["Record this host's cache for the next landing's placement"]["run"])
@@ -98,9 +99,20 @@ class WorkflowTests(unittest.TestCase):
     def test_a_dev_daily_compile_is_placed_on_the_nearest_cache_first(self):
         job = self.jobs["dev-daily-place"]
         for clause in ("github.event_name == 'workflow_dispatch'", "inputs.dev_daily == true",
-                       "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
+                       "github.repository == 'manaflow-ai/cmux'",
                        "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
             self.assertIn(clause, job["if"])
+        # Every attempt is placed: run 44941204257's rescue re-run (attempt 2, 2026-11-21) skipped placement and fell
+        # to the side label's tail behind about 130 PR jobs.
+        self.assertNotIn("run_attempt", job["if"])
+        place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
+        self.assertEqual(place_env["NIGHTLY_LABEL"],
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+        runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
+        self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)
+        env_runner = self.jobs["cmux-scheme-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", env_runner)
         # Only when the compile runs: its own tree condition, word for word.
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
         # The label guard (tests/test_ci_label_events_skip_full_ci.py) ends every if; the tree comes before it.

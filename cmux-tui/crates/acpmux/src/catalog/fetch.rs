@@ -37,6 +37,8 @@ pub fn catalog_urls(debug_build: bool, override_url: Option<&str>) -> Vec<String
         Some(url)
             if debug_build && url.starts_with("https://") && reqwest::Url::parse(url).is_ok() =>
         {
+            // A dev build's override the developer set: a host they name.
+            cmux_egress::allow_named(url);
             vec![url.to_owned()]
         }
         _ => vec![CATALOG_URL.to_owned(), FALLBACK_CATALOG_URL.to_owned()],
@@ -81,7 +83,7 @@ impl HttpsFetcher {
 
     async fn get_one(&self, url: &str, etag: Option<&str>) -> Result<FetchOutcome, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let client = crate::happy_dial::http_client()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(TIMEOUT)

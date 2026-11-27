@@ -128,6 +128,46 @@ pub struct Consent {
     pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
+    /// The owner's app on another machine turned [`Self::control`] on with a signed grant
+    /// (`consent_grant.rs`). Cleared by any Off and by any local change of the surface.
+    #[serde(rename = "controlGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub control_granted_by: Option<GrantedBy>,
+    /// [`Self::control_granted_by`] for [`Self::screen`].
+    #[serde(rename = "screenGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub screen_granted_by: Option<GrantedBy>,
+    /// The person's own setting of [`Self::control`] on this machine (`machine_consent_set`,
+    /// `acpmux host consent grant|revoke --control`, Settings > Devices): it wins over anything
+    /// signed elsewhere. None: never set, the signed grants decide. Only `Some(false)`, the switch
+    /// turned off, refuses the person's own machines ([`joined_consent_allows`]); never set, they
+    /// are let in, since joining is the consent.
+    #[serde(rename = "controlLocal", default, skip_serializing_if = "Option::is_none")]
+    pub control_local: Option<bool>,
+    /// [`Self::control_local`] for [`Self::screen`].
+    #[serde(rename = "screenLocal", default, skip_serializing_if = "Option::is_none")]
+    pub screen_local: Option<bool>,
+    /// What decided [`Self::control`]: `local`, `machine` (a grant for this machine), `account`
+    /// (the account-wide grant) or `none` (`consent_grant.rs`). None on a file an older build
+    /// wrote, whose `control` is then the person's local setting.
+    #[serde(rename = "controlSource", default, skip_serializing_if = "Option::is_none")]
+    pub control_source: Option<String>,
+    /// [`Self::control_source`] for [`Self::screen`].
+    #[serde(rename = "screenSource", default, skip_serializing_if = "Option::is_none")]
+    pub screen_source: Option<String>,
+    /// Whether this was read from a `consent.json` on disk (never written: only
+    /// `machine_consent::Authority::consent` sets it). A file an older build wrote with no source
+    /// is the person's own record; no file is no record.
+    #[serde(skip)]
+    pub on_disk: bool,
+}
+
+/// Who turned a surface on from elsewhere: the pinned grantor (a Mac approver id), the account
+/// (hub user id) the grant was signed for, and when it was applied here (ms). A grant for another
+/// account than this machine's current one reads as not given (`machine_consent::for_account`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantedBy {
+    pub grantor: String,
+    pub account: String,
+    pub at: u64,
 }
 
 /// The consent surface "control for my other machines signed in to this account" (Leo,
@@ -374,7 +414,9 @@ pub(crate) fn consent_status() -> Value {
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
-    let status = consent_status();
+    // A surface granted from elsewhere for another account than this machine's reads as none.
+    let status =
+        crate::machine_consent::for_account(consent_status(), machine_user_id().as_deref());
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
         Ok(())
     } else {
@@ -387,8 +429,64 @@ pub fn require_joined_consent(surface: &str) -> Result<()> {
     if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
 }
 
+/// Who a request gated on this machine's consent came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requester {
+    /// The person's own machine: their own acpmux daemon over a peer link (`ConnAuth::
+    /// peer_daemon`), or the hand they paired on this machine. Joining is the consent (Leo,
+    /// 2026-11-22: "who's gonna walk over and click allow on a headless mac mini"): it is let in
+    /// unless the person turned the surface off here.
+    OwnMachine,
+    /// Anyone else (a paired client credential, another person's device, a shared link): it needs
+    /// the surface granted here, as before.
+    Other,
+}
+
+/// Whether `status` (a [`consent_status`]) lets `requester` use `surface`. No join here: no
+/// requirement. Granted here: yes. The person's own machine: yes unless the person turned the
+/// surface off here (`controlLocal` or `screenLocal` false); never set reads as on. Anyone else:
+/// only a grant.
+pub fn joined_consent_allows(status: &Value, surface: &str, requester: Requester) -> bool {
+    if status["consentRequired"] == false {
+        return true;
+    }
+    if !matches!(surface, "screen" | "control") {
+        return false;
+    }
+    let consent = &status["consent"];
+    if consent[surface] == "granted" {
+        return true;
+    }
+    requester == Requester::OwnMachine && consent[format!("{surface}Local")] != false
+}
+
+/// [`require_joined_consent`] for `requester`: the person's own machine needs no grant here,
+/// only the switch not turned off ([`joined_consent_allows`]). A refusal of the person's own
+/// machine is the person's own Off, so it records no ask (no sheet asks them to undo it).
+pub fn require_joined_consent_from(surface: &str, requester: Requester) -> Result<()> {
+    let status = consent_status();
+    if joined_consent_allows(&status, surface, requester) {
+        return Ok(());
+    }
+    if requester == Requester::Other {
+        let _ = record_consent_refusal(surface);
+    }
+    Err(anyhow!(CONSENT_REQUIRED))
+}
+
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
+}
+
+/// Whether this machine is joined from another device: a live (not revoked, not copied) join
+/// that signing in on this machine did not make (a join line, a pair code, a fleet or Cloud
+/// enrollment). Such a join is the person's consent for their other machines' workspace
+/// circuits (`session_service`), as it is for screen sharing.
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn joined_from_another_device() -> bool {
+    machine_credential().ok().flatten().is_some_and(|record| {
+        !record.revoked && record.joined_by.as_deref() != Some(JOINED_BY_SIGN_IN)
+    })
 }
 
 /// `joined_by` of a join signing in made.

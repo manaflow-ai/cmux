@@ -4,7 +4,7 @@
 //! state; every surface renders it and keeps no clock of its own.
 
 use crate::protocol::peer_state::{
-    CREDENTIAL_UNAVAILABLE, Carrier, DownCause, MachineLink, OfflineReason,
+    CREDENTIAL_UNAVAILABLE, Carrier, DialFail, DownCause, MachineLink, OfflineReason,
 };
 
 use crate::no_panic::LockExt;
@@ -17,6 +17,9 @@ pub(crate) struct LinkFacts {
     pub carrier: Option<Carrier>,
     /// The last attempt was refused for its token (HTTP 401 or 403).
     pub refused: bool,
+    /// Why the route last went down (`downReason`): kept across a reconnect, replaced by the
+    /// next failure that has a type.
+    pub down_reason: Option<DialFail>,
     /// The whole state last reported and when it began.
     since: Option<(MachineLink, u64)>,
 }
@@ -49,6 +52,22 @@ impl LinkFacts {
 }
 
 impl super::Peer {
+    /// The route went down for `why` (`downReason`). A failure with no type keeps the reason
+    /// before it: it says nothing new about the route.
+    pub(super) fn went_down(&self, why: Option<DialFail>) {
+        if let Some(why) = why {
+            self.facts.lock_or_recover().down_reason = Some(why);
+        }
+    }
+
+    /// The open link ended because a deadline of acpmux's own passed (the silence budget, a
+    /// send the peer never read, a probe or handshake with no answer): `timeout`. Returns
+    /// `text`, the link's error.
+    pub(super) fn deadline_passed(&self, text: String) -> String {
+        self.went_down(Some(DialFail::Timeout));
+        text
+    }
+
     /// The link's whole state now, as the peer's state notes carry it.
     pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
         let error = self.last_error.lock_or_recover().clone();
@@ -64,12 +83,99 @@ impl super::Peer {
             carrier: facts.live_carrier(state),
             cause: cause(whole, error.as_deref()),
             reason,
+            down_reason: facts.down_reason,
             since,
             next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
             last_seen: link.last_seen,
             error,
         }
     }
+}
+
+/// A dial's failure: the text the link reports (`error`), and its kind when the error that
+/// raised it had a type (`downReason`). A bare `String` error converts with no kind, and back
+/// to its text, so the dial steps that only have text keep using `?`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DialError {
+    pub fail: Option<DialFail>,
+    pub text: String,
+}
+
+impl DialError {
+    pub fn new(fail: Option<DialFail>, text: impl Into<String>) -> Self {
+        Self { fail, text: text.into() }
+    }
+
+    /// A dial step's I/O error, typed by its `ErrorKind`.
+    pub fn io(error: &std::io::Error) -> Self {
+        Self::new(fail_of_io(error), error.to_string())
+    }
+
+    /// A WebSocket upgrade's error, typed by its status or I/O error.
+    pub fn ws(error: &tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::new(fail_of_ws(error), error.to_string())
+    }
+
+    /// A dial that ran past its deadline.
+    pub fn timeout(text: String) -> Self {
+        Self::new(Some(DialFail::Timeout), text)
+    }
+}
+
+impl From<String> for DialError {
+    fn from(text: String) -> Self {
+        Self { fail: None, text }
+    }
+}
+
+impl From<DialError> for String {
+    fn from(error: DialError) -> Self {
+        error.text
+    }
+}
+
+impl std::fmt::Display for DialError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// The kind of an I/O error, from its `ErrorKind` alone; None for a kind that says nothing
+/// about the route (a reset mid-stream, a broken pipe).
+pub(crate) fn fail_of_io(error: &std::io::Error) -> Option<DialFail> {
+    use std::io::ErrorKind as K;
+    match error.kind() {
+        K::TimedOut => Some(DialFail::Timeout),
+        K::ConnectionRefused => Some(DialFail::Refused),
+        // `happy_dial::connect_tcp` raises NotFound for a name with no address.
+        K::NetworkUnreachable | K::HostUnreachable | K::AddrNotAvailable | K::NotFound => {
+            Some(DialFail::Unreachable)
+        }
+        _ => None,
+    }
+}
+
+/// The kind of a WebSocket dial's error: a refused token (`tokens::refused`, 401 or 403) is
+/// `auth`, an I/O error its kind.
+pub(crate) fn fail_of_ws(error: &tokio_tungstenite::tungstenite::Error) -> Option<DialFail> {
+    match error {
+        _ if super::tokens::refused(error) => Some(DialFail::Auth),
+        tokio_tungstenite::tungstenite::Error::Io(error) => fail_of_io(error),
+        _ => None,
+    }
+}
+
+/// The kind an `anyhow` error chain carries: its first I/O error's (the WireGuard transport's
+/// connect wraps the socket's).
+pub(crate) fn fail_of_chain(error: &anyhow::Error) -> Option<DialFail> {
+    error.chain().find_map(|cause| cause.downcast_ref::<std::io::Error>()).and_then(fail_of_io)
+}
+
+/// The connect's kind when every path failed: the most telling of theirs ([`DialFail::rank`]).
+pub(crate) fn connect_fail<'a>(
+    failed: impl IntoIterator<Item = &'a DialError>,
+) -> Option<DialFail> {
+    failed.into_iter().filter_map(|error| error.fail).min_by_key(|fail| fail.rank())
 }
 
 /// `state` as the whole link state: a down link whose last attempt was refused for its token
@@ -157,78 +263,5 @@ fn local(error: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_refused_down_link_is_auth_failed_and_says_so() {
-        assert_eq!(whole(PeerState::Offline, true, None), MachineLink::AuthFailed);
-        assert_eq!(whole(PeerState::Reconnecting, true, None), MachineLink::AuthFailed);
-        assert_eq!(whole(PeerState::Connected, true, None), MachineLink::Connected);
-        assert_eq!(whole(PeerState::Restarting, false, None), MachineLink::Restarting);
-        assert_eq!(reason(PeerState::Reconnecting, true, None), Some(OfflineReason::LoginNeeded));
-        assert_eq!(cause(MachineLink::AuthFailed, None), Some(DownCause::Auth));
-    }
-
-    #[test]
-    fn a_down_link_names_this_hosts_network_only_for_an_error_that_never_left_it() {
-        let down = MachineLink::Reconnecting;
-        assert_eq!(
-            cause(down, Some("IO error: Network is unreachable (os error 51)")),
-            Some(DownCause::LocalNetwork)
-        );
-        assert_eq!(
-            cause(
-                down,
-                Some("ssh: Could not resolve hostname box: nodename nor servname provided")
-            ),
-            Some(DownCause::LocalNetwork)
-        );
-        assert_eq!(cause(down, Some("connect timed out after 5s")), Some(DownCause::PeerDown));
-        assert_eq!(cause(MachineLink::Offline, None), Some(DownCause::PeerDown));
-        for up in [MachineLink::Connected, MachineLink::Degraded, MachineLink::Connecting] {
-            assert_eq!(cause(up, Some("Network is unreachable")), None);
-        }
-    }
-
-    #[test]
-    fn since_holds_while_the_state_holds_and_moves_when_it_changes() {
-        let mut facts = LinkFacts::default();
-        assert_eq!(facts.observe(PeerState::Connecting, None, 10), (MachineLink::Connecting, 10));
-        assert_eq!(facts.observe(PeerState::Connecting, None, 20), (MachineLink::Connecting, 10));
-        assert_eq!(facts.observe(PeerState::Connected, None, 30), (MachineLink::Connected, 30));
-        facts.carrier = Some(Carrier::Ssh);
-        assert_eq!(facts.live_carrier(PeerState::Connected), Some(Carrier::Ssh));
-        assert_eq!(facts.live_carrier(PeerState::Reconnecting), None);
-    }
-
-    /// A down link whose error names a reason is `offline` with it, never `reconnecting`; an
-    /// error a retry may fix names none, and a link that is up has none whatever its error.
-    #[test]
-    fn a_down_link_with_a_named_reason_is_offline_with_it() {
-        let cases = [
-            ("credential-unavailable: the hub answered 503", OfflineReason::CredentialUnavailable),
-            ("relay credential source callback failed", OfflineReason::CredentialUnavailable),
-            ("write: No space left on device (os error 28)", OfflineReason::DiskFull),
-            ("relay refused: vm.agent_stopping", OfflineReason::MachineStopped),
-            (
-                "daemon: restart-budget-exceeded (5 stops today)",
-                OfflineReason::RestartBudgetExceeded,
-            ),
-        ];
-        for (error, want) in cases {
-            for state in [PeerState::Reconnecting, PeerState::Offline] {
-                let got = reason(state, false, Some(error));
-                assert_eq!(got, Some(want), "{error}");
-                assert_eq!(whole(state, false, got), MachineLink::Offline, "{error}");
-            }
-            assert_eq!(reason(PeerState::Connected, false, Some(error)), None);
-            assert_eq!(reason(PeerState::Connecting, false, Some(error)), None);
-        }
-        assert_eq!(
-            reason(PeerState::Reconnecting, false, Some("connect timed out after 5s")),
-            None
-        );
-        assert_eq!(whole(PeerState::Reconnecting, false, None), MachineLink::Reconnecting);
-    }
-}
+#[path = "peer_carrier_tests.rs"]
+mod tests;

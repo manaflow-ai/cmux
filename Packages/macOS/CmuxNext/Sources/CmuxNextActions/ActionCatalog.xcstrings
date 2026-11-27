@@ -1,6 +1,15 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.agentChat.renameSession": {"extractionState":"manual","comment":"Action (palette): rename the focused agent chat's session, the name `cmux agent ls` and HOST/NAME read; Rename Tab only retitles the tab.","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة تسمية جلسة الوكيل…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preimenuj sesiju agenta…"}},"da":{"stringUnit":{"state":"needs_review","value":"Omdøb agentsession…"}},"de":{"stringUnit":{"state":"needs_review","value":"Agent-Sitzung umbenennen…"}},"en":{"stringUnit":{"state":"translated","value":"Rename Agent Session…"}},"es":{"stringUnit":{"state":"needs_review","value":"Renombrar sesión del agente…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Renommer la session de l’agent…"}},"it":{"stringUnit":{"state":"needs_review","value":"Rinomina sessione agente…"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントセッション名を変更…"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្ដូរឈ្មោះវគ្គភ្នាក់ងារ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 세션 이름 변경…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gi nytt navn til agentøkt…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zmień nazwę sesji agenta…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Renomear sessão do agente…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переименовать сеанс агента…"}},"th":{"stringUnit":{"state":"needs_review","value":"เปลี่ยนชื่อเซสชันเอเจนต์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan oturumunu yeniden adlandır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перейменувати сеанс агента…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đổi tên phiên tác tử…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重命名代理会话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重新命名代理工作階段…"}}}},
+    "action.workspace.releaseNames": {"extractionState":"manual","comment":"Action (palette): hand every pinned workspace name back to the automatic namer; names stay as they are until the next automatic name arrives.","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة كل أسماء مساحات العمل إلى التلقائي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vrati sve nazive radnih prostora na automatske"}},"da":{"stringUnit":{"state":"needs_review","value":"Frigiv alle arbejdsområdenavne til automatisk"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle Arbeitsbereichsnamen auf automatisch zurücksetzen"}},"en":{"stringUnit":{"state":"translated","value":"Release All Workspace Names to Automatic"}},"es":{"stringUnit":{"state":"needs_review","value":"Devolver todos los nombres de espacios de trabajo a automático"}},"fr":{"stringUnit":{"state":"needs_review","value":"Rendre tous les noms d'espaces de travail automatiques"}},"it":{"stringUnit":{"state":"needs_review","value":"Rilascia tutti i nomi delle aree di lavoro all'automatico"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてのワークスペース名を自動に戻す"}},"km":{"stringUnit":{"state":"needs_review","value":"ដោះលែងឈ្មោះកន្លែងធ្វើការទាំងអស់ទៅស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모든 작업 공간 이름을 자동으로 되돌리기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frigi alle arbeidsområdenavn til automatisk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przywróć wszystkie nazwy przestrzeni roboczych do automatycznych"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Liberar todos os nomes de áreas de trabalho para automático"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вернуть все имена рабочих пространств в автоматический режим"}},"th":{"stringUnit":{"state":"needs_review","value":"คืนชื่อเวิร์กสเปซทั้งหมดให้เป็นอัตโนมัติ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tüm Çalışma Alanı Adlarını Otomatiğe Bırak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повернути всі назви робочих областей в автоматичний режим"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả mọi tên không gian làm việc về tự động"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"将所有工作区名称还原为自动"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"將所有工作區名稱還原為自動"}}}},
+    "action.updates.status": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"حالة التحديث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Status ažuriranja"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdateringsstatus"}},"de":{"stringUnit":{"state":"needs_review","value":"Update-Status"}},"en":{"stringUnit":{"state":"translated","value":"Update Status"}},"es":{"stringUnit":{"state":"needs_review","value":"Estado de la actualización"}},"fr":{"stringUnit":{"state":"needs_review","value":"État de la mise à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Stato dell’aggiornamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"アップデートの状態"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្ថានភាពបច្ចុប្បន្នភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 상태"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdateringsstatus"}},"pl":{"stringUnit":{"state":"needs_review","value":"Stan aktualizacji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Status da atualização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Состояние обновления"}},"th":{"stringUnit":{"state":"needs_review","value":"สถานะการอัปเดต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme Durumu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Стан оновлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trạng thái cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"更新状态"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"更新狀態"}}}},
+    "action.updates.status.hint": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإصدار قيد التشغيل، والتحديث الجاهز، وما إذا كانت إعادة التشغيل ستثبّته الآن."}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokrenuta verzija, pripremljeno ažuriranje i da li ga ponovno pokretanje sada instalira."}},"da":{"stringUnit":{"state":"needs_review","value":"Den kørende version, den klargjorte opdatering, og om en genstart installerer den nu."}},"de":{"stringUnit":{"state":"needs_review","value":"Die laufende Version, das bereitgestellte Update und ob ein Neustart es jetzt installiert."}},"en":{"stringUnit":{"state":"translated","value":"The running build, the staged update and whether a relaunch installs it now."}},"es":{"stringUnit":{"state":"needs_review","value":"La versión en ejecución, la actualización preparada y si un reinicio la instala ahora."}},"fr":{"stringUnit":{"state":"needs_review","value":"La version en cours, la mise à jour prête et si un redémarrage l’installe maintenant."}},"it":{"stringUnit":{"state":"needs_review","value":"La versione in esecuzione, l’aggiornamento pronto e se un riavvio lo installa ora."}},"ja":{"stringUnit":{"state":"needs_review","value":"実行中のビルド、準備済みのアップデート、今再起動するとインストールされるかどうか。"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណែដែលកំពុងដំណើរការ បច្ចុប្បន្នភាពដែលបានរៀបចំ និងថាតើការបើកឡើងវិញនឹងដំឡើងវាឥឡូវឬអត់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"실행 중인 빌드, 준비된 업데이트, 지금 다시 시작하면 설치되는지 여부."}},"nb":{"stringUnit":{"state":"needs_review","value":"Versjonen som kjører, oppdateringen som er klar, og om en omstart installerer den nå."}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchomiona wersja, przygotowana aktualizacja i czy ponowne uruchomienie zainstaluje ją teraz."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A versão em execução, a atualização preparada e se uma reinicialização a instala agora."}},"ru":{"stringUnit":{"state":"needs_review","value":"Запущенная сборка, подготовленное обновление и установит ли его перезапуск сейчас."}},"th":{"stringUnit":{"state":"needs_review","value":"บิลด์ที่กำลังทำงาน อัปเดตที่เตรียมไว้ และการเปิดใหม่ตอนนี้จะติดตั้งหรือไม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çalışan sürüm, hazırlanan güncelleme ve yeniden başlatmanın onu şimdi yükleyip yüklemeyeceği."}},"uk":{"stringUnit":{"state":"needs_review","value":"Запущена збірка, підготовлене оновлення і чи встановить його перезапуск зараз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Bản đang chạy, bản cập nhật đã chuẩn bị và việc khởi động lại có cài nó ngay không."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在运行的版本、已准备好的更新，以及现在重新启动是否会安装它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在執行的版本、已準備好的更新，以及現在重新啟動是否會安裝它。"}}}},
+    "action.customize.revert": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التراجع عن تغيير المظهر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poništi promjenu izgleda"}},"da":{"stringUnit":{"state":"needs_review","value":"Fortryd ændring af udseende"}},"de":{"stringUnit":{"state":"needs_review","value":"Darstellungsänderung rückgängig machen"}},"en":{"stringUnit":{"state":"translated","value":"Undo Look Change"}},"es":{"stringUnit":{"state":"needs_review","value":"Deshacer cambio de aspecto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler le changement d’apparence"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla modifica dell’aspetto"}},"ja":{"stringUnit":{"state":"needs_review","value":"見た目の変更を元に戻す"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនធ្វើវិញនូវការប្ដូររូបរាង"}},"ko":{"stringUnit":{"state":"needs_review","value":"모양 변경 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Angre utseendeendring"}},"pl":{"stringUnit":{"state":"needs_review","value":"Cofnij zmianę wyglądu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Desfazer mudança de aparência"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить изменение вида"}},"th":{"stringUnit":{"state":"needs_review","value":"เลิกทำการเปลี่ยนรูปลักษณ์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Görünüm Değişikliğini Geri Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати зміну вигляду"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hoàn tác thay đổi giao diện"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"撤销外观更改"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"還原外觀變更"}}}},
+    "action.customize.revert.hint": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف تجربة المظهر وإعادة ما كان قبله."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prestani isprobavati izgled i vrati ono što je bilo prije."}},"da":{"stringUnit":{"state":"needs_review","value":"Stop med at prøve et udseende, og sæt det tidligere tilbage."}},"de":{"stringUnit":{"state":"needs_review","value":"Das Ausprobieren einer Darstellung beenden und den vorherigen Zustand wiederherstellen."}},"en":{"stringUnit":{"state":"translated","value":"Stop trying on a look and put back what was there before."}},"es":{"stringUnit":{"state":"needs_review","value":"Dejar de probar un aspecto y restaurar lo que había antes."}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêter d’essayer une apparence et rétablir ce qu’il y avait avant."}},"it":{"stringUnit":{"state":"needs_review","value":"Smetti di provare un aspetto e ripristina quello di prima."}},"ja":{"stringUnit":{"state":"needs_review","value":"試している見た目をやめて、元の状態に戻します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈប់សាកល្បងរូបរាង ហើយដាក់អ្វីដែលមានពីមុនមកវិញ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"시험 중인 모양을 그만두고 이전 상태로 되돌립니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Slutt å prøve et utseende, og sett tilbake det som var før."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przestań przymierzać wygląd i przywróć to, co było wcześniej."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Parar de experimentar uma aparência e restaurar o que havia antes."}},"ru":{"stringUnit":{"state":"needs_review","value":"Перестать примерять вид и вернуть то, что было раньше."}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดลองรูปลักษณ์และนำสิ่งที่มีก่อนหน้านี้กลับมา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir görünümü denemeyi bırakıp önceki hâlini geri getir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Припинити приміряти вигляд і повернути те, що було раніше."}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngừng thử giao diện và khôi phục những gì có trước đó."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"停止试用外观，恢复之前的样子。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"停止試用外觀，恢復之前的樣子。"}}}},
+    "action.keyMode.enter": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الدخول إلى وضع المفاتيح…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Uđi u način tipki…"}},"da":{"stringUnit":{"state":"needs_review","value":"Start tastetilstand…"}},"de":{"stringUnit":{"state":"needs_review","value":"Tastenmodus starten…"}},"en":{"stringUnit":{"state":"translated","value":"Enter Key Mode…"}},"es":{"stringUnit":{"state":"needs_review","value":"Entrar en modo de teclas…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Entrer dans un mode de touches…"}},"it":{"stringUnit":{"state":"needs_review","value":"Entra in modalità tasti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"キーモードに入る…"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលរបៀបគ្រាប់ចុច…"}},"ko":{"stringUnit":{"state":"needs_review","value":"키 모드 시작…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Start tastemodus…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Włącz tryb klawiszy…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrar no modo de teclas…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Войти в режим клавиш…"}},"th":{"stringUnit":{"state":"needs_review","value":"เข้าสู่โหมดปุ่ม…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tuş Moduna Gir…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійти в режим клавіш…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Vào chế độ phím…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"进入按键模式…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"進入按鍵模式…"}}}},
+    "action.keyMode.exit": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الخروج من وضع المفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izađi iz načina tipki"}},"da":{"stringUnit":{"state":"needs_review","value":"Afslut tastetilstand"}},"de":{"stringUnit":{"state":"needs_review","value":"Tastenmodus beenden"}},"en":{"stringUnit":{"state":"translated","value":"Exit Key Mode"}},"es":{"stringUnit":{"state":"needs_review","value":"Salir del modo de teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Quitter le mode de touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Esci dalla modalità tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"キーモードを終了"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាកចេញពីរបៀបគ្រាប់ចុច"}},"ko":{"stringUnit":{"state":"needs_review","value":"키 모드 종료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslutt tastemodus"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyłącz tryb klawiszy"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sair do modo de teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выйти из режима клавиш"}},"th":{"stringUnit":{"state":"needs_review","value":"ออกจากโหมดปุ่ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tuş Modundan Çık"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вийти з режиму клавіш"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thoát chế độ phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"退出按键模式"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"離開按鍵模式"}}}},
+    "action.agent.moveToMachine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نقل المحادثة إلى جهاز…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premjesti razgovor na računar…"}},"da":{"stringUnit":{"state":"needs_review","value":"Flyt chat til maskine…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat auf einen Rechner verschieben…"}},"en":{"stringUnit":{"state":"translated","value":"Move Chat to Machine…"}},"es":{"stringUnit":{"state":"needs_review","value":"Mover chat a una máquina…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacer la conversation vers une machine…"}},"it":{"stringUnit":{"state":"needs_review","value":"Sposta chat su una macchina…"}},"ja":{"stringUnit":{"state":"translated","value":"チャットをマシンに移動…"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លាស់ទីការជជែកទៅម៉ាស៊ីន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅을 다른 머신으로 이동…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flytt chat til en maskin…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przenieś czat na maszynę…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mover conversa para uma máquina…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переместить чат на машину…"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้ายแชตไปยังเครื่อง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbeti bir makineye taşı…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемістити чат на машину…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển cuộc trò chuyện sang máy…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"将聊天移至机器…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"將聊天移至機器…"}}}},
     "action.agentPane.composer.addMenu": {
       "extractionState": "manual",
       "localizations": {
@@ -914,6 +923,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示上下文用量"
+          }
+        }
+      }
+    },
+    "action.chatPriority.set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Keep Running"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعيين الاستمرار في التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi nastavak rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv Bliv ved med at køre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterlaufen festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar Seguir ejecutando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir Continuer l’exécution"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta Continua l’esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実行継続を設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ការបន្តដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계속 실행 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi Fortsett å kjøre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw Działaj dalej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir Continuar executando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать продолжение работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าทำงานต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışmaya Devam Et’i Ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задати продовження роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt Tiếp tục chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置保持运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定保持執行"
           }
         }
       }
@@ -7058,6 +7198,137 @@
     },
     "action.sidebar.revealWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示工作區"}}}},
     "action.sidebar.revealAndFocusWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal and Focus Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي والتركيز عليها"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži i fokusiraj radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen und fokussieren"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar y enfocar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher et activer l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra e attiva spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示してフォーカス"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ និងផ្ដោតលើកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시 및 포커스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż i aktywuj obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar e focar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели и перейти к нему"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงและโฟกัสพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster ve odaklan"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі й перейти до нього"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện và chuyển tới không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示并聚焦工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示並聚焦工作區"}}}},
+    "action.chief.toggleComputer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: إظهار الكمبيوتر أو إخفاؤه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Prikaži ili sakrij računar"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Vis eller skjul computer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Computer ein-/ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Toggle Computer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Mostrar u ocultar el ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief : Afficher ou masquer l’ordinateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Mostra o nascondi il computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: コンピュータの表示を切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: បង្ហាញ ឬលាក់កុំព្យូទ័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: 컴퓨터 표시/숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Vis eller skjul datamaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Pokaż lub ukryj komputer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Mostrar ou ocultar o computador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: показать или скрыть компьютер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: แสดงหรือซ่อนคอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Bilgisayarı Göster/Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: показати або сховати комп’ютер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Hiện hoặc ẩn máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief：显示或隐藏电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief：顯示或隱藏電腦"
+          }
+        }
+      }
+    },
     "action.debug.densityOverlayPlayground": {
       "extractionState": "manual",
       "localizations": {
@@ -8634,6 +8905,137 @@
       }
     }
   },
+    "argument.agentShare.role.drive": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Can drive"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Darf den Agenten steuern"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Peut piloter l’agent"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "يمكنه التحكم بالوكيل"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Puede controlar el agente"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可控制代理程式"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可控制智能体"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트 제어 가능"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントを操作可能"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Može upravljati agentom"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan styre agenten"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Può controllare l’agente"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អាចបញ្ជាភ្នាក់ងារ"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan styre agenten"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Może sterować agentem"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pode controlar o agente"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Может управлять агентом"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ควบคุมเอเจนต์ได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aracıyı yönetebilir"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Може керувати агентом"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Có thể điều khiển tác nhân"
+        }
+      }
+    }
+  },
     "argument.agentShare.role.talk": {
     "extractionState": "manual",
     "localizations": {
@@ -9940,6 +10342,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動化"
+          }
+        }
+      }
+    },
+    "action.forum.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المنتدى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーラム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វេទិកា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포럼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fórum"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форум"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ฟอรัม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форум"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diễn đàn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "论坛"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "論壇"
           }
         }
       }
@@ -19115,6 +19648,137 @@
         }
       }
     },
+    "action.appearance.background.followDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow Desktop Wallpaper"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デスクトップ壁紙に合わせる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتباع خلفية سطح المكتب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prati pozadinu radne površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg skrivebordsbaggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schreibtischhintergrund folgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguir el fondo de escritorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suivre le fond d’écran du bureau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segui lo sfondo della scrivania"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមផ្ទាំងរូបភាពផ្ទៃតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "데스크탑 배경화면 따르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg skrivebordsbakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podążaj za tapetą biurka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguir papel de parede da mesa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Следовать обоям рабочего стола"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้ภาพพื้นหลังเดสก์ท็อป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masaüstü Duvar Kağıdını İzle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стежити за шпалерами робочого столу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo hình nền màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "跟随桌面墙纸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "跟隨桌面背景"
+          }
+        }
+      }
+    },
     "action.appearance.changeBackground": {
       "extractionState": "manual",
       "localizations": {
@@ -19242,6 +19906,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "更改背景…"
+          }
+        }
+      }
+    },
+    "action.appearance.previousBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التبديل إلى الخلفية السابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prebaci na prethodnu pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift til forrige baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum vorherigen Hintergrund wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Previous Background"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar al fondo anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revenir à l’arrière-plan précédent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passa allo sfondo precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前の背景に切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរទៅផ្ទៃខាងក្រោយមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 배경으로 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt til forrige bakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz na poprzednie tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mudar para o fundo anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переключить на предыдущий фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับไปยังพื้นหลังก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki Arka Plana Geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемкнути на попередній фон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển về hình nền trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换到上一个背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換到上一個背景"
+          }
+        }
+      }
+    },
+    "action.appearance.recentBackgrounds": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفيات الأخيرة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nedavne pozadine…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seneste baggrunde…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zuletzt verwendete Hintergründe…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Backgrounds…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondos recientes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plans récents…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondi recenti…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近の背景…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយថ្មីៗ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최근 배경…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nylige bakgrunner…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie tła…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundos recentes…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недавние фоны…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลังล่าสุด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son Arka Planlar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нещодавні фони…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền gần đây…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近的背景…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近的背景…"
+          }
+        }
+      }
+    },
+    "argument.recentBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Plan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景"
+          }
+        }
+      }
+    },
+    "action.appearance.adjustBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust Background…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景を調整…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضبط الخلفية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podesi pozadinu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Juster baggrund…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund anpassen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar fondo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuster l’arrière-plan…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regola sfondo…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែសម្រួលផ្ទៃខាងក្រោយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경 조정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Juster bakgrunn…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj tło…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar fundo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить фон…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับพื้นหลัง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Planı Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати фон…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều chỉnh hình nền…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "调整背景…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "調整背景…"
+          }
+        }
+      }
+    },
+    "action.appearance.background.fill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background: Fill Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：ウインドウいっぱいに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفية: ملء النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina: ispuni prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrund: Udfyld vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund: Fenster füllen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo: llenar la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan : remplir la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo: riempi la finestra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយ៖ បំពេញបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경: 윈도우 채우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunn: Fyll vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło: wypełnij okno"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo: preencher a janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: заполнить окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลัง: เต็มหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Plan: Pencereyi Doldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: заповнити вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền: Lấp đầy cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：填满窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：填滿視窗"
+          }
+        }
+      }
+    },
+    "action.appearance.background.fit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background: Fit Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：ウインドウに合わせる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفية: ملاءمة النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina: uklopi u prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrund: Tilpas til vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund: An Fenster anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo: ajustar a la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan : adapter à la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo: adatta alla finestra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយ៖ សមនឹងបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경: 윈도우에 맞추기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunn: Tilpass vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło: dopasuj do okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo: ajustar à janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: вписать в окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลัง: พอดีหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Plan: Pencereye Sığdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: вписати у вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền: Vừa cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：适合窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：符合視窗"
           }
         }
       }
@@ -38499,6 +39949,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "前往 Chief"
+          }
+        }
+      }
+    },
+    "action.home.makeItYours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make cmux Yours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを自分好みに"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اجعل cmux خاصًا بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodite cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gør cmux til dit eget"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach cmux zu deinem"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz cmux a tu medida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisez cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendi cmux tuo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឲ្យ cmux ជារបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 내 스타일로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjør cmux til ditt eget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj cmux do siebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixe o cmux do seu jeito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройте cmux под себя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำให้ cmux เป็นแบบของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u Kendinize Göre Ayarlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштуйте cmux під себе"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh cmux theo ý bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打造你的 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打造你的 cmux"
           }
         }
       }
@@ -62736,6 +64317,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "結束 cmux"
+          }
+        }
+      }
+    },
+    "action.quitCompletely": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Completely"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنهاء بالكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izađi potpuno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut helt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollständig beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salir por completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitter complètement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esci completamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完全に終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាកចេញទាំងស្រុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "완전히 종료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt helt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakończ całkowicie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sair completamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выйти полностью"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ออกทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamamen çık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вийти повністю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thoát hoàn toàn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完全退出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完全結束"
           }
         }
       }
@@ -94198,6 +95910,137 @@
       }
     }
   },
+    "action.agentPaneReload": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent Chat: Reload"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントチャット: 再読み込み"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دردشة الوكيل: إعادة التحميل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat s agentom: Ponovo učitaj"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agentchat: Genindlæs"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent-Chat: Neu laden"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat del agente: Recargar"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat de l’agent : Recharger"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat dell’agente: Ricarica"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ផ្ទុកឡើងវិញ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트 채팅: 새로고침"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agentchat: Last inn på nytt"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Czat z agentem: Odśwież"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat do agente: Recarregar"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Чат с агентом: Перезагрузить"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แชตเอเจนต์: โหลดใหม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajan sohbeti: Yeniden Yükle"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Чат з агентом: Перезавантажити"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Trò chuyện với tác tử: Tải lại"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "智能体聊天：重新加载"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理聊天：重新載入"
+        }
+      }
+    }
+  },
     "action.notifications.dismissHighlight": {
       "extractionState": "manual",
       "localizations": {
@@ -96029,6 +97872,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "拷貝最後一個程式碼區塊"
+          }
+        }
+      }
+    },
+    "action.cloudEvacuate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evacuate to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخلاء إلى Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evakuiraj u Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evakuer til Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In die Cloud evakuieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evacuar a Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Évacuer vers le Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evacua nel Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud へ退避"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជម្លៀសទៅ Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud로 대피"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evakuer til Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ewakuuj do Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evacuar para o Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эвакуировать в Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อพยพไปที่ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud'a tahliye et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Евакуювати в Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sơ tán lên Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撤离到 Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撤離到 Cloud"
+          }
+        }
+      }
+    },
+    "action.chatPlace.set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Chat Place"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعيين مكان المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi mjesto razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv chattens placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Ort festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Establecer ubicación del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir l'emplacement de la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta posizione della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの場所を設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ទីតាំងជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 위치 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi chattens plassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw miejsce czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir local da conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать место чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าตำแหน่งของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet yerini ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Указати місце чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt vị trí cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置聊天位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定聊天位置"
+          }
+        }
+      }
+    },
+    "action.chatMove.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Chat Move"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء نقل المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkaži premještanje razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuller chatflytning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Verschiebung abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar traslado del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler le déplacement de la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulla spostamento della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの移動をキャンセル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បោះបង់ការផ្លាស់ទីការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 이동 취소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avbryt chatflytting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anuluj przenoszenie czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar mudança da conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отменить перемещение чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยกเลิกการย้ายแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet taşımayı iptal et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скасувати переміщення чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hủy di chuyển cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消聊天移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消聊天移動"
+          }
+        }
+      }
+    },
+    "action.cloudEvacuate.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Evacuation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء الإخلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkaži evakuaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuller evakuering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Evakuierung abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar evacuación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler l'évacuation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulla evacuazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退避をキャンセル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បោះបង់ការជម្លៀស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대피 취소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avbryt evakuering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anuluj ewakuację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar evacuação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отменить эвакуацию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยกเลิกการอพยพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tahliyeyi iptal et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скасувати евакуацію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hủy sơ tán"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消撤离"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消撤離"
+          }
+        }
+      }
+    },
+    "action.cloudBringBackAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring Back All Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة كل المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vrati sve razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hent alle chats tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Chats zurückholen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traer de vuelta todos los chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rapatrier toutes les conversations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riporta tutte le chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのチャットを戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំការជជែកទាំងអស់ត្រឡប់មកវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 채팅 다시 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hent alle chatter tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przywróć wszystkie czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trazer de volta todas as conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вернуть все чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำแชทกลับมาทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm sohbetleri geri getir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повернути всі чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đưa tất cả cuộc trò chuyện về"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "带回所有聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "帶回所有聊天"
+          }
+        }
+      }
+    },
+    "action.chatMove.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Chat Move"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة محاولة نقل المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovi premještanje razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv chatflytning igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Verschiebung wiederholen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reintentar traslado del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réessayer le déplacement de la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprova spostamento della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの移動を再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្យាយាមផ្លាស់ទីការជជែកម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 이동 다시 시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv chatflytting på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponów przenoszenie czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar mudança da conversa novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторить перемещение чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองย้ายแชทอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet taşımayı yeniden dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторити переміщення чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử lại di chuyển cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重试聊天移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重試聊天移動"
           }
         }
       }
@@ -112423,6 +115052,137 @@
         }
       }
     },
+    "action.settings.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo Settings Change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定の変更を取り消す"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التراجع عن تغيير الإعدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poništi promjenu postavki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortryd ændring af indstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsänderung widerrufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deshacer cambio de ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la modification des réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla modifica delle impostazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនធ្វើវិញការផ្លាស់ប្តូរការកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 변경 실행 취소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angre innstillingsendring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cofnij zmianę ustawień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfazer alteração de ajustes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить изменение настроек"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกทำการเปลี่ยนการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayar değişikliğini geri al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати зміну налаштувань"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàn tác thay đổi cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销设置更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原設定變更"
+          }
+        }
+      }
+    },
     "action.settings.customizeMenus": {
       "extractionState": "manual",
       "localizations": {
@@ -115834,6 +118594,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux Remote：結束螢幕共享工作階段"
+          }
+        }
+      }
+    },
+    "argument.macScreen.scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوصول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス権"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근 권한"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取用權限"
+          }
+        }
+      }
+    },
+    "argument.value.macScreen.scope.view": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ansehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo ver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage seul"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo visualizzazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示のみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보기 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun visning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko podgląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente Visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только просмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Görüntüleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅檢視"
+          }
+        }
+      }
+    },
+    "argument.value.macScreen.scope.full": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحكم كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puna kontrola"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuld kontrol"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volle Kontrolle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Control"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôle total"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルコントロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការគ្រប់គ្រងពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 제어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full kontroll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pełna kontrola"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle Total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный контроль"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ควบคุมทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam Denetim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повний контроль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toàn quyền điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全控制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全控制"
           }
         }
       }

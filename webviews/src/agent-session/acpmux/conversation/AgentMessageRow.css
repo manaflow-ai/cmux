@@ -10,7 +10,7 @@
   margin: 0;
   gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -70,8 +70,8 @@
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
-  background: var(--ds-surface-inset);
+  color: var(--cv-chip-ink);
+  background: var(--cv-chip-bg);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
@@ -325,7 +325,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
 .acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
-.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], [data-popup-within]),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }
@@ -401,7 +401,7 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__bare {
   min-width: 0;
 }
-/* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
+/* A sender acpmux saw as a program (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */
 .cv-unverified {
   display: inline-flex;
@@ -524,7 +524,7 @@ button.cv-agentmsg__name:focus-visible {
   opacity: 0;
 }
 .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-.cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more,
 .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
   opacity: 1;
 }
@@ -533,7 +533,7 @@ button.cv-agentmsg__name:focus-visible {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-  .cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+  .cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {

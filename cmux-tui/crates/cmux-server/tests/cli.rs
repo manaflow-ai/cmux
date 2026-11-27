@@ -37,6 +37,19 @@ impl Env {
         );
         // launchd has no com.cmux.server loaded here.
         runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
+                ..Output::default()
+            },
+        );
         Env {
             tmp: tempfile::tempdir().unwrap(),
             runner,
@@ -58,6 +71,7 @@ impl Env {
             env: env_for(self.tmp.path()),
             now_ms: NOW_MS,
             self_exe: None,
+            terminal_socket: None,
         }
     }
 
@@ -239,4 +253,33 @@ fn up_and_down_switch_the_installed_service_and_keep_the_install() {
     let lines = env.runner.lines()[before..].join("\n");
     assert!(lines.contains("enable") && !lines.contains("disable"), "{lines}");
     assert_eq!(env.run("status").unwrap()["service"]["installed"], true);
+}
+
+/// `cmux server logs` takes the short flags the Rex docs use, `-n N` for
+/// `--lines N` and `-f` for `--follow`. Other verbs keep such words as
+/// positionals (a file may be named `-n`).
+#[test]
+fn logs_takes_n_and_f_as_short_flags() {
+    let args = parse(&words("server logs -n 50 -f")).unwrap();
+    assert_eq!(args.verb, vec!["logs".to_owned()]);
+    assert_eq!(args.value("lines"), Some("50"));
+    assert!(args.has("follow"));
+    assert!(args.positionals.is_empty());
+    let args = parse(&words("--json logs -f -n=7")).unwrap();
+    assert_eq!((args.value("lines"), args.has("follow"), args.json), (Some("7"), true, true));
+    assert!(parse(&words("logs -n")).is_err(), "-n needs a value");
+    assert!(parse(&words("status -n 5")).is_err(), "status has no -n");
+    // Before the verb, as the long forms may be.
+    let args = parse(&words("server -f -n 3 logs")).unwrap();
+    assert_eq!((args.value("lines"), args.has("follow")), (Some("3"), true));
+    // Read in order with the long forms: the last one wins, and a last
+    // one with no value is an error.
+    assert_eq!(parse(&words("logs -n 5 --lines 10")).unwrap().value("lines"), Some("10"));
+    assert_eq!(parse(&words("logs --lines 10 -n 5")).unwrap().value("lines"), Some("5"));
+    assert!(parse(&words("logs -n 5 --lines")).is_err());
+    // -n takes only the next word, as --lines does.
+    assert!(parse(&words("logs -n --json 5")).is_err());
+    // After `--` they are words, and logs takes none.
+    assert!(parse(&words("logs -- -f")).is_err());
+    assert!(parse(&words("logs -- -n 5")).is_err());
 }

@@ -296,7 +296,7 @@ final class HostView: NSView {
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,
@@ -328,7 +328,10 @@ extension FieldChrome {
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
     /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+    /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
+    /// placeholder reads on it as on the web field; nil keeps the clear system glass.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing
@@ -361,6 +364,8 @@ extension FieldChrome {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -373,6 +378,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var turnFailureAction: ((PartRef, HomeTurnFailureRowProvider.Action) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// Each app.links line this transcript logs for a link press (tests; nil in the app).
+    var linkNotes: ((String) -> Void)?
     /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
     /// that agent (its id, and the pill's frame in window coordinates); nil: the click opens and closes the row.
     var onAgentPill: ((String, CGRect) -> Void)?
@@ -492,6 +499,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
     /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
     weak var shownPictureViewer: NSView?
+    /// cmux: a click on a picture in the message box waits out the double-click interval (DraftPictureClick.swift).
+    let draftPictureClick = DraftPictureClick()
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -558,7 +567,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followKeyState()  // its own window's key state (cx-95476)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
+        // cmux: the "+" opens the host's + menu above the button (Files, the recent clipboard).
+        host.fieldChrome.onPlus = { [weak self] in
+            guard let self else { return }
+            self.intents?.plusClicked(anchor: self.host.fieldChrome.plus)
+        }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in
             self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
@@ -605,6 +618,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
         tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
+        // cmux: a click on a picture schedules its open; the field's next press (a double click's second) cancels it.
+        tv.view.onOpenDraftPicture = { [weak self, weak field = tv.view] id, rect, image in
+            guard let self else { return false }
+            self.draftPictureClick.schedule { [weak self, weak field] in
+                guard let self else { return }
+                let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
+                self.openDraftPicture(id, from: from)
+            }
+            return true
+        }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
         tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }
@@ -618,6 +641,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             self?.host.updateTopFadeScrollEdge()
             self?.scrolledForSaveHover()
             self?.intents?.scrolled()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
@@ -913,67 +937,89 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let pressed = approvalPress {
             approvalPress = nil
             if approvalTarget(at: p) == pressed { _ = approvalClicked(at: p) }
+            noteDroppedLinkClick(at: p, "an approval press")
             return
         }
         if linkDragTaken {
             linkDragTaken = false
             _ = selection.mouseUp()
+            noteDroppedLinkClick(at: p, "a link drag")
             return
         }
         if attachmentDragTaken {
             attachmentDragTaken = false
             _ = selection.mouseUp()
+            noteDroppedLinkClick(at: p, "an attachment drag")
             return
         }
         attachmentPress = nil
         let held = hold.fired
         hold.cancel()
-        if held || thread.swallowed(e) { return }
-        if selection.mouseUp() { return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
+        if held || thread.swallowed(e) { noteDroppedLinkClick(at: p, held ? "a press-and-hold" : "the thread"); return }
+        if selection.mouseUp() { noteDroppedLinkClick(at: p, "a text selection"); return }
+        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) } else { noteDroppedLinkClick(at: p, "click count \(e.clickCount)") }
     }
 
+    /// A single click at `p`. A click on a link that something before the link took logs what took it
+    /// (``clickTaker(_:)``, category app.links; goal agent-shortcut-found: run 45968907489's click on
+    /// "turn it on" opened nothing and logged nothing).
     func clicked(_ p: CGPoint) {
-        guard let demo else { return }
-        if picker != nil { closePicker(); return }
-        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); intents?.draftChanged(); return }
-        if thread.clicked(p) { return }
+        if let taker = clickTaker(p) { noteDroppedLinkClick(at: p, taker) }
+    }
+
+    /// Runs a single click at `p`; what took it when that ran before the link's turn (the picker, a
+    /// draft chip, the thread, the header or the field's edge, the status line, a long message's band,
+    /// an approval, a turn failure, a Not Delivered mark), nil when the link (or what is under the click
+    /// past the link's turn) took it. Only a click over a link logs the name (noteDroppedLinkClick).
+    func clickTaker(_ p: CGPoint) -> String? {
+        guard let demo else { return "no transcript" }
+        if picker != nil { closePicker(); return "the tapback picker" }
+        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); intents?.draftChanged(); return "a draft chip" }
+        if thread.clicked(p) { return "the thread" }
         // cmux: a click on the header strip or the field's edge gives the field the keyboard too.
-        guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
+        guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else {
+            focusCompose()
+            return p.y > host.titlebarHeight ? "the message field's edge" : "the header strip"
+        }
         // cmux: the Chief's status line opens its turn's details.
-        if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
+        if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return "the status line" }
         // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
         // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
-        if demo.longTextBandHit(p) { return }
-        if approvalClicked(at: p) { return }
-        if turnFailureClicked(at: p) { return }
+        if demo.longTextBandHit(p) { return "a long message's band" }
+        if approvalClicked(at: p) { return "an approval" }
+        if turnFailureClicked(at: p) { return "a turn failure" }
         // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
-        if failedMarkClicked(at: p) { return }
-        if let hit = demo.hit(p) {
+        if failedMarkClicked(at: p) { return "a Not Delivered mark" }
+        guard let hit = demo.hit(p) else {
+            // cmux: a click on empty transcript space gives the field the keyboard.
+            focusCompose()
+            return "no bubble under the click"
+        }
+        do {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
-            if openLink(hit, at: p) { return }
+            if openLink(hit, at: p) { return nil }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
-            if quoteClicked(hit, at: p) { return }
+            if quoteClicked(hit, at: p) { return nil }
             // cmux: a click on an agent's pill opens its chat in the host's agent pane.
             if let onAgentPill, case let .custom(custom) = hit.row.part,
                let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
                                                         width: hit.body.width) {
                 onAgentPill(pill.peer, host.convert(pill.rect.offsetBy(dx: hit.body.minX, dy: hit.body.minY), to: nil))
-                return
+                return nil
             }
             // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
             // (the user, 2026-11-05: "i want to be able to expand and annotate").
             if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
                openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width,
                                 body: hit.body.origin) {
-                return
+                return nil
             }
             // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
-            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
+            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return nil }
             // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
             if let url = intents?.feedRowURL(hit.row.ref.messageId) {
                 if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
-                return
+                return nil
             }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
@@ -993,10 +1039,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
             default: focusCompose()
             }
-            return
+            return nil
         }
-        // cmux: a click on empty transcript space gives the field the keyboard.
-        focusCompose()
     }
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects

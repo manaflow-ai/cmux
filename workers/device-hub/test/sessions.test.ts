@@ -48,7 +48,7 @@ describe("session flow", () => {
     const { host, viewer } = await setup();
     await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
-    expect(res.json.session).toMatchObject({ state: "pending", scope: "full" });
+    expect(res.json.session).toMatchObject({ state: "pending", scope: "full", hubApproval: "requested" });
     const sid = res.json.session.id;
     const req = await host.user!.next((f) => f.type === "session.request");
     expect(req.session).toEqual({ id: sid, viewerId: viewer.id, viewerName: "Laptop", viewerKeyFingerprint: await keyFingerprint(viewer.signingKey), scope: "full" });
@@ -116,7 +116,7 @@ describe("session flow", () => {
     const free = await setup();
     const f = await approvedSession(free.host, free.viewer);
     expect(f.vt.ice).toEqual([]);
-    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [] });
+    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [], relay: "free" });
 
     const paidSub = `pro-${crypto.randomUUID()}`;
     billingPlans.set(paidSub, { subscriptionPlanId: "pro" });
@@ -159,6 +159,19 @@ describe("session flow", () => {
     const hostPayload = JSON.parse(atob(hostTicket.ticket.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
     expect(hostPayload).toMatchObject({ sid, role: "host", dev: host.id, peer: viewer.id, scope: "view", reattach: true });
     expect(hostPayload.exp - hostPayload.iat).toBe(30);
+  });
+
+  it("re-admits a viewer the host allowed once under ask", async () => {
+    const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
+    const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+    const sid = res.json.session.id;
+    expect((await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once" })).json.session.state).toBe("approved");
+    const reattached = await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {});
+    expect(reattached.status).toBe(200);
+    expect(reattached.json.session).toMatchObject({ id: sid, scope: "view" });
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "none" });
+    expect((await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {})).json.error.code).toBe("session_not_active");
   });
 
   it("does not re-admit another device or an ended session", async () => {

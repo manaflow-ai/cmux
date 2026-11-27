@@ -158,6 +158,38 @@ fn apps_list_names_the_watched_local_folder() {
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
 
+/// Sets `local/spy`'s `contributes.menus` to one workspace-row row titled `title`.
+fn save_spy_menu(state: &Path, version: &str, title: &str) {
+    let path = state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!(version);
+    manifest["contributes"] = json!({ "menus": [{ "id": "go", "target": "workspace", "title": title, "op": "local.spy.go" }] });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// A save that adds or retitles a `contributes.menus` row reaches the apps
+/// list with `apps-changed`, which the Mac's right-click menus read on their
+/// next open: no relaunch (base red: the schema had no `menus`, so the save
+/// was refused and the app left the list).
+#[test]
+fn a_save_that_changes_a_menu_row_lists_it_on_apps_changed() {
+    let f = fixture();
+    let mut prints = f.supervisor.reload_local_apps(&Default::default());
+    for (version, title) in [("1.0.1", "Copy Branch"), ("1.0.2", "Copy Branch Name")] {
+        save_spy_menu(&f.state, version, title);
+        prints = f.supervisor.reload_local_apps(&prints);
+        f.wait("apps-changed for the save", |e| {
+            e["event"] == "apps-changed"
+                && e["app"] == "local/spy"
+                && e["transaction"] == "local-reload"
+        });
+        let spy = app_entry(&f.supervisor.list(), "local/spy");
+        assert_eq!(spy["version"], version, "{spy}");
+        assert_eq!(spy["manifest"]["contributes"]["menus"][0]["title"], title, "{spy}");
+    }
+}
+
 /// An app in a `CMUX_APPS_DIRS` folder (`Sources::extra`: a person's own
 /// checkout of an extension, or a fork of a first-party app) reloads on a
 /// save like a local app, and its open view is mounted again with the saved
@@ -532,4 +564,43 @@ fn a_save_redraws_an_open_pane() {
 fn a_customize_section_save_redraws_each_time() {
     let ms = ten_saves_redraw_the_open_view("cmux.section/1");
     eprintln!("section save to scene ms: {ms:?}");
+}
+
+/// Scene state (`cmux.state`) survives a hot reload: the restarted host is
+/// sent the values the old one kept as `init.state`, and an over-cap object
+/// (the VM is untrusted, so the supervisor checks again) is refused with a
+/// warn line while the last kept values stay.
+#[test]
+fn a_save_hands_the_kept_scene_state_to_the_restarted_host() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount(
+        "m1",
+        "local/spy",
+        "cmux.section/1",
+        json!({ "keep": { "scroll": 120, "open": ["row-2"] } }),
+    );
+    let many: serde_json::Map<String, Value> =
+        (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
+    f.mount("m2", "local/spy", "cmux.section/1", json!({ "keep": Value::Object(many) }));
+    let messages = |f: &Fixture| -> Vec<String> {
+        f.supervisor.logs(CLIENT, "local/spy", false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l["message"].as_str().map(String::from))
+            .collect()
+    };
+    assert!(messages(&f).iter().any(|m| m.contains("256 key cap")), "{:?}", messages(&f));
+    save_spy_version(&f.state, "1.0.1");
+    f.supervisor.reload_local_apps(&prints);
+    f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    let lines = messages(&f);
+    let line =
+        lines.iter().find(|m| m.starts_with("init-state ")).unwrap_or_else(|| panic!("{lines:?}"));
+    let kept: Value = serde_json::from_str(line.trim_start_matches("init-state ")).unwrap();
+    assert_eq!(kept, json!({ "scroll": 120, "open": ["row-2"] }), "{line}");
 }

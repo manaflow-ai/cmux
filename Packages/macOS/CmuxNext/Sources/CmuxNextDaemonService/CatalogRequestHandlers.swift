@@ -244,20 +244,21 @@ public struct CatalogRequestHandlers {
 struct CatalogRequestStrings {
     static var remote: String {
         String(localized: "catalogRequest.remote", defaultValue: "this action does not run from another device",
-               table: "CatalogRequests", bundle: .module)
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var notConnected: String {
         String(localized: "catalogRequest.notConnected", defaultValue: "the service this action needs is not connected",
-               table: "CatalogRequests", bundle: .module)
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var noPane: String {
-        String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .module)
+        // retry-prompt-ok: refuses the person's own request until they pick a tab (their choice, no button)
+        String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var destructiveBody: String {
         String(localized: "catalogRequest.destructiveBody", defaultValue: "This can't be undone.",
-               table: "CatalogRequests", bundle: .module)
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 }
