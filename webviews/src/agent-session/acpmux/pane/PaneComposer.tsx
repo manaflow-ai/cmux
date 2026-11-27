@@ -1328,9 +1328,10 @@ export function drawPaneComposer({
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch, as
+                        // does a chat the pane left (its store draws it there, never this composer);
                         // a shown prompt is acpmux's, and one given back is the composer's.
-                        if (outcome === "failed") return;
+                        if (outcome === "failed" || outcome === "away") return;
                         sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
                         if (outcome === "shown") return promptLanded.current();
                         giveBack();
