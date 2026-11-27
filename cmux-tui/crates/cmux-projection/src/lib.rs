@@ -11,6 +11,7 @@
 //! listing and writes no files.
 
 pub mod away;
+pub mod cdc;
 pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
