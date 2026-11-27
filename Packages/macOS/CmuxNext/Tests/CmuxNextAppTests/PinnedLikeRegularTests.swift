@@ -13,7 +13,7 @@ import Testing
 /// close a pinned tab? no good reason for these limitations." Pinning only moves an item to the top: a pinned row in
 /// the sidebar (a Pinned block's workspace tile, a pinned workspace drawn as a list row) and a pinned tab in a pane's
 /// tab strip keep the x an unpinned one shows on hover, the ⋮ keeps its regular place and opens the regular workspace
-/// menu, Unpin sits where Pin sits, and nothing leads the row but its own icon. A pinned group header has no pin mark.
+/// menu, and Unpin sits where Pin sits. A pinned row and a pinned group header still lead with their pin (#63247).
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedLikeRegularTests {
     // MARK: Sidebar
 
@@ -100,19 +100,19 @@ import Testing
         PointerHover.setDebugPointer(nil, in: harness.window)
     }
 
-    /// A pinned tile leads as its list row does: no pin before its icon and title (Leo: "it puts a symbol at the left").
-    @Test func aPinnedTileDrawsNoLeadingPin() throws {
+    /// A pinned tile leads with its pin, before its icon and title (#63247): without it a pinned row reads as any row.
+    @Test func aPinnedTileDrawsItsLeadingPin() throws {
         let harness = SidebarHomePinnedDragHarness()
         defer { harness.close() }
         for pin in SidebarHomePinnedDragHarness.pins {
             let row = try harness.item(pin.id)
-            #expect(!row.info.leadingPin, "\(row.titleText): the pinned tile is configured with a leading pin")
-            #expect(row.pinSquareFrame == nil, "\(row.titleText): the pinned tile draws a pin at its left")
+            #expect(row.info.leadingPin, "\(row.titleText): the pinned tile is configured with no leading pin")
+            #expect(row.pinSquareFrame != nil, "\(row.titleText): the pinned tile draws no pin at its left")
         }
     }
 
-    /// A pinned group's header draws no pin before its name, and its name starts where an unpinned group's does.
-    @Test func aPinnedGroupHeaderLeadsAsAnUnpinnedOne() throws {
+    /// A pinned group's header draws its pin before its name (#63247), and its name starts after it.
+    @Test func aPinnedGroupHeaderLeadsWithItsPin() throws {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let pinnedID = GroupID("g-like-pinned"), plainID = GroupID("g-like-plain")
@@ -136,9 +136,9 @@ import Testing
         list.rowViews.values.forEach { $0.needsLayout = true; $0.layoutSubtreeIfNeeded() }
         let pinned = try #require(list.rowViews[.group(pinnedID)] as? GroupHeaderRowView, "no pinned group header")
         let plain = try #require(list.rowViews[.group(plainID)] as? GroupHeaderRowView, "no unpinned group header")
-        #expect(pinned.pinSquareFrame == nil, "the pinned group header draws a pin at its left")
-        let pinnedName = list.convert(pinned.name.frame, from: pinned).minX, plainName = list.convert(plain.name.frame, from: plain).minX
-        #expect(abs(pinnedName - plainName) <= 0.5, "the pinned group's name starts at \(pinnedName), an unpinned one's at \(plainName)")
+        let pin = try #require(pinned.pinSquareFrame, "the pinned group header draws no pin at its left")
+        #expect(pinned.name.frame.minX >= pin.maxX, "the pinned group's name at \(pinned.name.frame) overlaps its pin at \(pin)")
+        #expect(plain.pinSquareFrame == nil, "an unpinned group header draws a pin")
     }
 
     @Test func aHoveredUnpinnedRowStillShowsItsClose() throws {
