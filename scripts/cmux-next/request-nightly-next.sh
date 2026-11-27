@@ -37,6 +37,14 @@
 # a published tree is built at the tip, by its own workflow, with its own
 # daemon. Main's promote job ignores a request that does not move forward.
 #
+# An older tree (Leo, 2026-11-26: "man the tui thing is always so flakey / cant we just accept the nightly
+# using an older tui version"): a commit whose own tree is a confirmed 404, with no run building it, is still
+# promoted when scripts/cmux-next/older-tree-for-tip.sh finds the newest published tree within 24 h whose
+# daemon-capabilities.json matches, and the commit's nightly.yml carries NIGHTLY_NEXT_TREE_AT_INSTALL (main's
+# promote guard admits its missing marker on that line) and that script (its nightly builds its app with that
+# tree: scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh). The same question in both places, so
+# promotion never stalls on the tui publisher (2026-11-25: none published from about 21:24Z, 108 refused).
+#
 # Usage: request-nightly-next.sh --repo <owner/repo> (--sha <sha> --release-compile-green | --tree-ready <sha>)
 # Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write.
 # Exit 0 when a commit was requested or
@@ -142,11 +150,71 @@ strings_fresh() { # <sha>
 # waiting request, so a stale request would evict a newer one.
 # One read gives nightly-next and the commit its feed last published (the publish moves the
 # nightly-next tag to it, scripts/ci/update-release-tag.py): no second round trip.
-promoted="" promoted_unknown="" published=""
-if refs="$(git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+# origin_git <git args...>: one bounded read of origin (ls-remote or fetch).
+# The tick's checkout keeps no credentials, so these reads went to github.com
+# anonymously, and GitHub held anonymous smart-HTTP reads 50-107 s before its
+# first byte (measured 2026-11-25), while the same read with a token answered
+# in 2-5 s. Tick 45696501186 spent 29 minutes refusing 35 commits, with gaps
+# of 60-215 s, three such reads per commit. So GH_TOKEN goes along as an
+# Authorization header, through git's environment config (never argv), only to
+# https://github.com/ and only when the checkout has no header of its own.
+# A read with a token stalled too, once in eight (cut at 30 s, its retry took
+# 4 s), so each attempt is cut at CMUX_NIGHTLY_NEXT_GIT_SECONDS (default 15; a
+# fetch, CMUX_NIGHTLY_NEXT_FETCH_SECONDS, default 60) and a failed attempt is
+# tried again, three attempts in all (without the token after a failure that
+# was not the cut, in case the token is what failed).
+origin_git() {
+  local secs="${CMUX_NIGHTLY_NEXT_GIT_SECONDS:-15}" url auth="" _ rc=0 out
+  [[ "$1" == fetch ]] && secs="${CMUX_NIGHTLY_NEXT_FETCH_SECONDS:-60}"
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [[ -n "${GH_TOKEN:-}" && "$url" == https://github.com/* ]] \
+      && ! git config --get-regexp '^http\..*\.extraheader$' >/dev/null 2>&1; then
+    auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+  fi
+  local -a cut=()
+  command -v timeout >/dev/null 2>&1 && cut=(timeout -k 5 "$secs")
+  for _ in 1 2 3; do
+    rc=0
+    out="$(
+      export GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME="$secs"
+      if [[ -n "$auth" ]]; then
+        n="${GIT_CONFIG_COUNT:-0}"
+        export GIT_CONFIG_COUNT=$((n + 1)) "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader" "GIT_CONFIG_VALUE_$n=$auth"
+      fi
+      ${cut[@]+"${cut[@]}"} git "$@"
+    )" || rc=$?
+    if (( rc == 0 )); then
+      [[ -z "$out" ]] || printf '%s\n' "$out"
+      return 0
+    fi
+    (( rc == 124 || rc == 137 )) || auth=""
+  done
+  return "$rc"
+}
+# origin_refs: nightly-next (branch and tag) and the feat-cmux-next tip in one
+# read. The tick (GH_TICK_CACHE set) walks up to 120 commits, each a call of
+# this script: the first call's read is kept for the whole tick, so a walk over
+# many commits reads origin once, not three times a commit. A failed read is
+# never kept. The tick decides in minutes, and a branch that moves meanwhile is
+# the next tick's (the tick also reads the branch once, when it checks it out).
+origin_refs() {
+  local file="" out
+  if [[ -n "${GH_TICK_CACHE:-}" ]]; then
+    file="$GH_TICK_CACHE/origin-refs"
+    [[ -s "$file" ]] && { cat "$file"; return 0; }
+  fi
+  out="$(origin_git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' refs/heads/feat-cmux-next 2>/dev/null)" || return 1
+  if [[ -n "$file" && -n "$out" ]] && mkdir -p "$GH_TICK_CACHE" 2>/dev/null; then
+    printf '%s\n' "$out" > "$file.$$" && mv "$file.$$" "$file"
+  fi
+  printf '%s\n' "$out"
+}
+promoted="" promoted_unknown="" published="" origin_tip=""
+if refs="$(origin_refs)"; then
   while read -r oid ref; do
     [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || continue
     case "$ref" in
+      refs/heads/feat-cmux-next) origin_tip="$oid" ;;
       refs/heads/nightly-next) promoted="$oid" ;;
       refs/tags/nightly-next) [[ -n "$published" ]] || published="$oid" ;;
       'refs/tags/nightly-next^{}') published="$oid" ;;  # an annotated tag's commit
@@ -220,21 +288,54 @@ app_unchanged() { # <sha>
 #          nothing that reaches the app changed since (same_app: the nightly's input classifier and
 #          the cmux-tui tree key), so the same app compiled;
 #   red    that verdict failed;
-#   none   no verdict yet (queued, superseded by a newer tip, never checked): an older commit is tried,
-#          and the next tick tries this one again;
+#   covered  its record is superseded (the controller checked a newer push tip instead, and that check
+#          covers this push's commits) and the first checked tip after it passed. Most feat-cmux-next
+#          commits are superseded, and the tree publisher also keeps only one push per window, so
+#          requiring both on the same commit left the dedicated Macs idle for hours with commits waiting
+#          (11-25: 77, 132 and 100+ minute gaps, every tick "N refused"; Leo, 2026-11-25: "Just keep
+#          the train going like 24/7, constantly"). A commit between it and that tip could have fixed
+#          its compile; then its nightly fails at the Mac build, which the next commit replaces;
+#   none   no verdict yet (queued, never checked, or superseded by a tip not checked yet or red): an
+#          older commit is tried, and the next tick tries this one again;
 #   down   the results service did not answer: promoted as before, with a warning (the feed must not
 #          stop on an outage of a cache).
 # NIGHTLY_NEXT_PRECHECK=0 turns it off. CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors are read
 # at most; each verdict is read once a tick (the tick runs this script once per commit it walks).
+# In the tick (GH_TICK_CACHE) every answer is kept for the walk, not only a verdict: a commit's
+# none, pending or superseded answer, and the service being down, hold for the tick (its cache
+# dies with it), or CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL seconds when that is set. A 300 s window
+# re-read every commit about 5 times in a 25-minute walk, so the default is the tick. The walk calls
+# this script once per commit, and each call read its candidates and the same run of ancestors with
+# no verdict again (up to 30 each; a search over k same-tree candidates, k times that), and with
+# the service down each call spent its own 20 s timeout: tick 45858069814 (2026-11-26) took 14
+# minutes to refuse its commits. Now a walk reads each commit at most once, an outage once.
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
-# fleet_verdict <sha>: pass, fail, pending, none (no usable record) or down.
+# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
+# usable record) or down.
 fleet_verdict() { # <sha>
-  local cache="" body code word
+  local cache="" body code word curl_rc=0 tick="" ttl now at held
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
     cache="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-next-precheck-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
     mkdir -p "$cache" 2>/dev/null || cache=""
     if [[ -n "$cache" && -s "$cache/$1" ]]; then cat "$cache/$1"; return 0; fi
+  fi
+  if [[ -n "${GH_TICK_CACHE:-}" ]]; then
+    tick="$GH_TICK_CACHE/precheck"
+    mkdir -p "$tick" 2>/dev/null || tick=""
+  fi
+  if [[ -n "$tick" ]]; then
+    ttl="${CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL:-}"
+    [[ "$ttl" =~ ^[0-9]+$ ]] || ttl=""
+    now="$(date +%s)"
+    # The outage first: one read that got no answer stands for every read in the window.
+    for held in "$tick/.down" "$tick/$1"; do
+      [[ -s "$held" ]] && read -r at word < "$held" && [[ "$at" =~ ^[0-9]+$ ]] || continue
+      [[ -z "$ttl" ]] || (( now - at < ttl )) || continue
+      [[ "$held" != "$tick/.down" ]] \
+        || echo "nightly-next precheck: the results service did not answer $((now - at)) s ago; ${1:0:12} is not read again this tick" >&2
+      echo "$word"; return 0
+    done
   fi
   body="$(mktemp "${TMPDIR:-/tmp}/nightly-next-precheck.XXXXXX")"
   # The default read only: a phase= read submits a build (cmuxterm-hq handbook, scheme-debug).
@@ -243,7 +344,7 @@ fleet_verdict() { # <sha>
   # scripts/ci/fleet_compile_result.py so a valid verdict is not mistaken for
   # an outage and an unchecked nightly is not promoted.
   code="$(curl -sS -A 'cmux-ci-fleet-compile-result/1' -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
-    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || code="${code:-000}"
+    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || { curl_rc=$?; code="${code:-000}"; }
   case "$code" in
     200) word="$(python3 -I -c '
 import json, sys
@@ -258,6 +359,8 @@ elif r.get("state") in ("pass", "fail"):
     print(r["state"])
 elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
+elif r.get("state") == "superseded":
+    print("superseded")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
@@ -266,11 +369,18 @@ else:
     # this tick. Wait for the next tick instead of treating them as a cache
     # outage and promoting an unchecked commit.
     429|503) word=pending ;;
-    *) word=down ;;
+    # Named in the log so a refusal (a 403 from the CDN) is told from an outage (curl exit 6, 7 or 28).
+    *) word=down
+       echo "nightly-next precheck: the results read for ${1:0:12} answered HTTP $code (curl exit $curl_rc)" >&2 ;;
   esac
   rm -f "$body"
-  # Only a verdict is kept: a pending or missing one may be there on the next read.
+  # Only a verdict is kept for the run: a pending or missing one may be there on the next read.
   [[ -z "$cache" || ! "$word" =~ ^(pass|fail)$ ]] || printf '%s\n' "$word" > "$cache/$1"
+  # The tick keeps every answer for its window (above), the outage as one entry.
+  if [[ -n "$tick" ]]; then
+    if [[ "$word" == down ]]; then held="$tick/.down"; else held="$tick/$1"; fi
+    printf '%s %s\n' "$now" "$word" > "$held.$$" && mv "$held.$$" "$held"
+  fi
   echo "$word"
 }
 # precheck <sha>: 0 = pass (or down, or off), 1 = red, 3 = no verdict yet. Sets precheck_reason.
@@ -287,6 +397,20 @@ precheck() { # <sha>
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
       return 0 ;;
+    superseded)
+      # The check that covers it is the first checked push tip after it on feat-cmux-next.
+      local later
+      while read -r later; do
+        [[ "$later" =~ ^[0-9a-f]{40}$ ]] || continue
+        word="$(fleet_verdict "$later")"
+        case "$word" in
+          pass)
+            precheck_reason="its push was superseded by ${later:0:12}, whose Release compile on the build fleet covers it and passed"
+            return 0 ;;
+          fail|pending|down) break ;;
+        esac
+      done < <(git rev-list --first-parent --ancestry-path --reverse "$1..${tip:-$1}" 2>/dev/null | head -n "$depth")
+      ;;
   esac
   # No verdict of its own: the nearest ancestor with one stands for it when the app is the same.
   while read -r ancestor; do
@@ -354,6 +478,8 @@ request() { # <sha>
   local marker_rc=0
   if [[ "${tree_pending_request:-}" == "$1" ]]; then
     echo "${1:0:12}: its tree is still building; its nightly.yml waits for it at install (NIGHTLY_NEXT_TREE_AT_INSTALL)"
+  elif [[ "${tree_older_request:-}" == "$1" ]]; then
+    echo "${1:0:12}: its tree is not published; its nightly builds its app with the older tree ${older_key:0:12} of ${older_from:0:12} (no marker of its own: NIGHTLY_NEXT_TREE_AT_INSTALL)"
   else
     bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
   fi
@@ -375,6 +501,8 @@ request() { # <sha>
   fi
   if [[ "${tree_pending_request:-}" == "$1" ]]; then
     echo "requested nightly-next promotion of $1 (its cmux-tui tree is building; its nightly compiles the app now and installs the tree's client)"
+  elif [[ "${tree_older_request:-}" == "$1" ]]; then
+    echo "requested nightly-next promotion of $1 (its cmux-tui tree is not published; its nightly builds its app with the older published tree ${older_key:0:12} of ${older_from:0:12}, same daemon-capabilities.json)"
   else
     echo "requested nightly-next promotion of $1 (published, verified cmux-tui tree; its nightly compiles it)"
   fi
@@ -418,9 +546,9 @@ starved_runs() { # <commit>
 # key) is requested at once: its nightly compiles the app while the tree builds.
 # Returns request()'s codes, or 1 when it does not apply.
 request_tree_pending() {
-  local tip_line tip_key verify=0 commit runs active=""
-  tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" || return 1
-  [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] || return 1
+  local tip_key verify=0 commit runs active=""
+  # The tip from origin_refs: empty when that read failed, as before.
+  [[ -n "$origin_tip" && "$origin_tip" == "$sha" ]] || return 1
   # The whole file first: `git show | grep -q` fails under pipefail on an early match.
   local workflow
   workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
@@ -447,6 +575,28 @@ request_tree_pending() {
   return "$rc"
 }
 
+# request_older_tree: <sha> with an older published tree (the header's "An older tree"). Returns request()'s
+# codes, or 1 when it does not apply: the commit's nightly.yml lacks the line or the script, or no tree matches.
+tree_older_request="" older_key="" older_from=""
+request_older_tree() {
+  local workflow older
+  # A tip whose tree is building already had its request (request_tree_pending).
+  [[ -z "${tree_pending_request:-}" ]] || return 1
+  git cat-file -e "$sha:scripts/cmux-next/older-tree-for-tip.sh" 2>/dev/null || return 1
+  # The whole file first: `git show | grep -q` fails under pipefail on an early match.
+  workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  grep -qxE '[[:space:]]*NIGHTLY_NEXT_TREE_AT_INSTALL: v1[[:space:]]*' <<<"$workflow" || return 1
+  older="$(bash "$script_dir/older-tree-for-tip.sh")" || return 1
+  older_key="$(sed -n 's/^key=//p' <<<"$older" | head -1)"
+  older_from="$(sed -n 's/^tree_from=//p' <<<"$older" | head -1)"
+  echo "${sha:0:12}: its own tree is not published; older tree $older_key of ${older_from:0:12} (commits, hours behind: ${older_from#* }) has its daemon-capabilities.json"
+  older_from="${older_from%% *}"
+  tree_older_request="$sha"
+  local rc=0
+  request "$sha" || rc=$?
+  return "$rc"
+}
+
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
@@ -466,16 +616,15 @@ backfill() { # <reason>
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  local state count dispatch_tip tip_line
+  local state count dispatch_tip
   # This function also repairs older candidates' markers, but the dispatch
   # always builds feat-cmux-next. Bind the duplicate check to that source,
   # rather than the candidate or every publisher on the branch.
-  if ! tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" \
-      || ! [[ "${tip_line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+  if ! [[ "$origin_tip" =~ ^[0-9a-f]{40}$ ]]; then
     echo "backfill: could not read the feat-cmux-next tip; not dispatching ($1)"
     return 0
   fi
-  dispatch_tip="${tip_line%%[[:space:]]*}"
+  dispatch_tip="$origin_tip"
   active=0
   # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
   # (a run held behind its concurrency group).
@@ -492,6 +641,33 @@ backfill() { # <reason>
   if (( active > 0 )); then
     echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
+  fi
+  # One backfill per 25 minutes, at most (ci-min-per-pr-14, Leo: "de facto, im asking for 99% fewer minutes of
+  # ci time, period."). 25, not 60: the tick runs every 30 minutes (:07, :37) and Leo asked for "a NIGHTLY at
+  # most every 30 min" (goals/nightly-30min.md). base-coalesce lets one feat-cmux-next push per hour build its
+  # tree, so a tip pushed after the window's first push has no tree until this backfill builds it; with a
+  # 60-minute gap every other tick could not recover it and the feed fell an hour or more behind (2026-11-26
+  # 23:50Z: 38 candidates refused for a missing tree, the tip's run coalesced). 25 lets each tick recover,
+  # at most about 2 dispatches an hour, and only while the tip has no tree. Every tick, Release compile and
+  # artifacts completion calls this, each from its own job, so the per-job stamp never held: 51 dispatches on feat-cmux-next in 31 h (2026-11-24 10:10Z to
+  # 2026-11-25 17:12Z), often 4-6 min apart, about 80 runner-min each (three target builds plus daemon
+  # tests), for a tip that moved by a few commits. The next tick after the gap dispatches the newest tip,
+  # which marks every commit the skipped ones would have. NIGHTLY_NEXT_BACKFILL_GAP_MIN=0 turns it off.
+  local gap_min="${NIGHTLY_NEXT_BACKFILL_GAP_MIN:-25}" last_dispatch last_s age_min
+  if [[ "$gap_min" =~ ^[0-9]+$ ]] && (( gap_min > 0 )); then
+    if ! last_dispatch="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=workflow_dispatch&per_page=1" \
+        --jq '.workflow_runs[0].created_at // ""' 2>/dev/null)"; then
+      echo "backfill: could not read the last cmux-tui-artifacts dispatch; not dispatching ($1)"
+      return 0
+    fi
+    if [[ -n "$last_dispatch" ]] && last_s="$(date -u -d "$last_dispatch" +%s 2>/dev/null \
+        || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_dispatch" +%s 2>/dev/null)"; then
+      age_min=$(( ($(date -u +%s) - last_s) / 60 ))
+      if (( age_min < gap_min )); then
+        echo "backfill: the last cmux-tui-artifacts dispatch on feat-cmux-next was ${age_min} min ago (gap ${gap_min} min); not dispatching ($1)"
+        return 0
+      fi
+    fi
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
     : > "$stamp"
@@ -512,6 +688,12 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
     0) exit 0 ;;
     2) exit 1 ;;
   esac
+  older_rc=0
+  request_older_tree || older_rc=$?
+  case "$older_rc" in
+    0) exit 0 ;;
+    2) exit 1 ;;
+  esac
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
   # started none, such as a GITHUB_TOKEN push) gets one, and so does a tip whose
@@ -528,7 +710,7 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   # if it published nothing, re-dispatching it every tick would not help.
   # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
   # exit 1), never on a read failure.
-  if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
+  if [[ -n "$origin_tip" && "$origin_tip" == "$sha" ]] \
       && tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)"; then
     tip_verify=0
     bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
@@ -567,9 +749,18 @@ key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 # local feat-cmux-next branch, else <sha> alone, is the history.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
-tip=""
-if git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null; then
+# In the tick (GH_TICK_CACHE) the first fetch's tip is kept: the walk's later
+# calls share the repository it deepened, so they fetch nothing again.
+tip="" fetched_file=""
+[[ -n "${GH_TICK_CACHE:-}" ]] && fetched_file="$GH_TICK_CACHE/feat-cmux-next-fetched"
+if [[ -n "$fetched_file" && -s "$fetched_file" ]] && tip="$(cat "$fetched_file")" \
+    && [[ "$tip" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$tip^{commit}" 2>/dev/null; then
+  :
+elif tip="" && origin_git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null; then
   tip="$(git rev-parse FETCH_HEAD)"
+  if [[ -n "$fetched_file" ]] && mkdir -p "$GH_TICK_CACHE" 2>/dev/null; then
+    printf '%s\n' "$tip" > "$fetched_file.$$" && mv "$fetched_file.$$" "$fetched_file"
+  fi
 else
   echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
   tip="$(git rev-parse --verify -q refs/heads/feat-cmux-next^{commit} 2>/dev/null || true)"

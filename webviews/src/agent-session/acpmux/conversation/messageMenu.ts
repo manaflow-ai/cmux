@@ -17,6 +17,7 @@ import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
 import { onVisualViewport } from "../../../ui/visualViewportBox";
+import { markPopupWithin } from "../../../ui/popupWithin";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -357,11 +358,23 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
-let openPopup: { id: string; anchor: Element } | undefined;
+/// The open menu's opener: lit (`data-popup-open`), its row marked (ui/popupWithin.ts) until the host reports the close.
+let openPopup: { id: string; anchor: Element; unmark: () => void } | undefined;
 
 function clearMessagePopup() {
   openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup?.unmark();
   openPopup = undefined;
+}
+
+/// A ref for a message menu's opener (More, Fork): when the opener unmounts while its menu is open, its
+/// row lets go of the open menu's mark at once, as the `:has([data-popup-open])` it replaces did. A
+/// stable function, so React calls it only at mount and unmount.
+export function releaseMessagePopupOnUnmount(anchor: Element | null) {
+  if (!anchor) return;
+  return () => {
+    if (openPopup?.anchor === anchor) clearMessagePopup();
+  };
 }
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
@@ -380,8 +393,8 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
   if (anchor && popupId) {
-    openPopup = { id: popupId, anchor };
     anchor.setAttribute("data-popup-open", "");
+    openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   }
   try {
     handler.postMessage({
@@ -409,8 +422,8 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
-  openPopup = { id: popupId, anchor };
   anchor.setAttribute("data-popup-open", "");
+  openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   try {
     handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
   } catch {

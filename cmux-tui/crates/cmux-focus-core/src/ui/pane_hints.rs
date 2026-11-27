@@ -81,9 +81,9 @@ pub fn chips(plan: &Plan) -> Vec<Chip> {
     let index = order.iter().position(|pane| *pane == plan.focused);
     for (id, step) in ACTIONS {
         let target = match step {
-            Move::Previous | Move::Next => index.filter(|_| count > 1).map(|i| {
+            Move::Previous | Move::Next => index.filter(|_| count > 1).and_then(|i| {
                 let i = if step == Move::Next { (i + 1) % count } else { (i + count - 1) % count };
-                order[i].as_str()
+                order.get(i).map(String::as_str)
             }),
             Move::Left => plan.neighbors.left.as_deref(),
             Move::Right => plan.neighbors.right.as_deref(),
