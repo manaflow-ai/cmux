@@ -4400,7 +4400,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     return undefined;
   }, [snapshot.rows]);
-  const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  // A Cloud chat, or a chat on an own machine (joined by sign-in or over ssh): the app sends each the
+  // new dev servers of its own machine (OwnMachinePortWatch), and Open reaches that machine's localhost.
+  const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || chatElsewhere;
   const cloudPreviewPortList = useCloudPreviewPorts();
   // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
   // take the composer's room below the transcript and shorten it.

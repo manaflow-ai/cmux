@@ -426,9 +426,15 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
             ("ss", &["-H", "-ltnp"]),
             ("netstat", &["-ltnp"]),
         ];
-        // netstat's -p means protocol on BSD/macOS.
+        // A Mac has no `ss`, and its netstat takes no -l: `lsof` names the
+        // person's own listeners with their programs, `netstat -anp tcp` (-p
+        // is the protocol there) every listener without them.
         #[cfg(not(target_os = "linux"))]
-        let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
+        let candidates: &[(&str, &[&str])] = &[
+            ("ss", &["-H", "-ltnp"]),
+            ("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN"]),
+            ("netstat", &["-anp", "tcp"]),
+        ];
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
             let output = match std::process::Command::new(program).args(arguments).output() {
@@ -448,7 +454,10 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
             }
             let stdout = String::from_utf8(output.stdout)
                 .context("machine listening TCP inventory was not UTF-8")?;
-            return Ok(json!({ "stdout": stdout }));
+            // `ports`: the dev servers the table names, by the rule in
+            // `machine_ports.rs`; `stdout` stays for clients that parse it.
+            let ports = super::machine_ports::offered(&stdout);
+            return Ok(json!({ "stdout": stdout, "ports": ports }));
         }
         let detail = if failures.is_empty() {
             "neither ss nor netstat is installed".to_string()

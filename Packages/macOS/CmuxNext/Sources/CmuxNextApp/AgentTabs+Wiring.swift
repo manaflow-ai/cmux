@@ -177,7 +177,7 @@ extension AgentTabStore {
         }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
-        tabs.cloudMachines.wire(services)
+        tabs.cloudMachines.wire(services); tabs.ownMachinePorts.wire(deliver: { [weak services] in services?.cloud.portChanged($0) }, machineIDs: { [weak tabs] in tabs.map { t in t.views.keys.compactMap { t.remoteMachineID(of: $0.key, machine: $0.machine) }.filter { !MachineRegistry.isCloudMachineID($0) } } ?? [] }, daemon: { [weak services] in services?.machines.anyDaemon(machine: $0)?.connection }) // its own machines' new dev servers (OwnMachinePortWatch)
         services.cloud.portChanged = { [weak tabs] change in
             guard let tabs, change.isBrowserPreview else { return }
             for (key, view) in tabs.views where tabs.remoteMachineID(of: key.key, machine: key.machine) == change.machineID {
