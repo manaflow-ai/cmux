@@ -37,7 +37,7 @@ const TEXT: Record<string, string> = {
 };
 
 /// An inbox notice as acpmux sends it (hub/inbox.rs `render`): one thread per sender.
-function notice(senders: Sender[], minutes: number) {
+function notice(senders: Sender[], minutes: number, continues = false) {
   const threads = senders.map((sender, index) => ({
     threadId: `from:${sender.name}`,
     label: "",
@@ -59,8 +59,8 @@ function notice(senders: Sender[], minutes: number) {
     _meta: { provenance: { kind: "inbox_notice", noticeId: `notice-received-${minutes}`, threads } },
   });
   return incoming?.kind === "inbox"
-    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true })
-    : user(text, minutes);
+    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true, continues })
+    : user(text, minutes, { continues });
 }
 
 /// Another agent's message that came in while the turn ran (a steer into it).
@@ -89,7 +89,9 @@ function snapshot() {
       notice(SENDERS.slice(0, 3), 6),
       received(SENDERS[3]!, 5.5),
       received(SENDERS[4]!, 5),
-      notice(SENDERS.slice(5), 4),
+      // Came in while the same turn ran, as in Leo's screenshot: a notice opening a turn of its own
+      // ends the turn before on its row (#49465), and then reads as a second row.
+      notice(SENDERS.slice(5), 4, true),
       assistant("The nightly is back on 6d9ae71 and base is green; #2210 and #2214 are next.", 3.5),
       summary(3.4, { status: "completed", durationMs: 30_000, toolCount: 0 }),
     ],
@@ -108,9 +110,18 @@ function snapshot() {
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
-/// Opens the "Received N messages" row (level 1).
-const openRow: Play = async (ctx) => {
+/// Opens the finished turn's "Worked for": another agent's message in a finished turn folds there
+/// like work (turns.ts `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws inside it.
+const openWorked: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"), { capMs: 10_000 });
+  const closed = ".cv-worked[aria-expanded='false']";
+  if (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(HEAD), { capMs: 10_000 });
+};
+
+/// Opens the turn's Worked for, then its "Received N messages" row (level 1).
+const openRow: Play = async (ctx) => {
+  await openWorked(ctx);
   if (ctx.document.querySelector(HEAD)?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: HEAD });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-lane-batch__body .cv-received").length >= 7, {
     capMs: 10_000,
@@ -185,7 +196,7 @@ const hoverRow: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
-    note: 'Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
+    note: "Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, \"Received 7 messages\", closed, inside the finished turn's Worked for (closed here; the other variants open it). No session names at rest; the senders' short names are its hover.",
     snapshot: snapshot(),
   },
   "level-1": {

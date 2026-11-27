@@ -2443,8 +2443,8 @@ pub fn reset(snapshot: &Snapshot) {
         self.assertIn("unwrap", output)
 
     def move_old_to_the_app(self, extra=""):
-        """`git mv` Old.swift (its base try!) into the CmuxNextApp module, plus EXTRA lines in its struct."""
-        moved = f"{PKG}/Sources/CmuxNextApp/Old.swift"
+        """`git mv` Old.swift (its base try!) within the Kit module, plus EXTRA lines in its struct."""
+        moved = f"{PKG}/Sources/CmuxNextKit/Renamed.swift"
         self.git("mv", f"{PKG}/Sources/CmuxNextKit/Old.swift", moved)
         if extra:
             self.write(moved, OLD.replace('    func name()', extra + '    func name()'))
@@ -2452,8 +2452,8 @@ pub fn reset(snapshot: &Snapshot) {
         return moved
 
     def test_a_renamed_file_keeps_its_existing_findings(self):
-        # 2026-11-27: a695910bf8bb moved SleepySceneView.swift to another module with its two raw font sizes, and
-        # the ast-grep layer read them as new: the base run never scanned the old path, the head's keyed the new one.
+        # 2026-11-27: a695910bf8bb moved SleepySceneView.swift with its two raw font sizes, and the ast-grep layer
+        # read them as new: the base run never scanned the old path, the head's keyed the new one.
         self.move_old_to_the_app()
 
         result = self.push()
