@@ -36,6 +36,7 @@ cmux-tasks-core = { path = "../cmux-tasks-core" }
 # The VNC client's rules (src/vnc.rs: `vnc_*`).
 cmux-vnc = { path = "../cmux-vnc" }
 cmux-window-rules = { path = "../cmux-window-rules" }
+cmux-workspace-naming = { path = "../cmux-workspace-naming" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
