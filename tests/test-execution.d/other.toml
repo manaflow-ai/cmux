@@ -143,10 +143,6 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cas_acpmux_update_replay.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cas_derived_data_replay.py"
 lane = "linux-guard"
 
@@ -221,8 +217,7 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_daemon_wire_types_plugin_python.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_daemon_wire_types_plugin_python.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -270,10 +265,6 @@ lane = "linux-guard"
 path = "tests/test_egress_new_sites.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_egress_new_sites.py"
-
-[[test]]
-path = "tests/test_egress_seeded.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
@@ -368,10 +359,6 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_git_mirror_bundle.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_github_git_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -934,8 +921,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_rivals_restart.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rivals_restart.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_checks_concurrently.py"
@@ -1061,10 +1047,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_sparse_checkout_keeps_gitmodules.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1227,10 +1209,6 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_unittest_shard.py"
 lane = "manual"
 reason = "Run by the lane that changes tests/unittest_shard.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 -I tests/test_unittest_shard.py; needs only python3."
-
-[[test]]
-path = "tests/test_update_release_tag.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
