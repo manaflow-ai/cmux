@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "build": "4605751670101",
+  "notes": "notes/4605751670101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 62374,
+      "title": "Classic shortcut import test: Toggle Sidebar fixture on a free hyper key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62181,
+      "title": "acpmux sweep: measure pages at a fixed 150 rows, not a byte cap's count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62609,
+      "title": "ci: repair reused checkouts before keeping the tested channel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 61534,
+      "title": "Recycle idle agent-chat renderers (on by default); move Sleepy Mode scene to CmuxNextFloating",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 58361,
+      "title": "ci: darwin cross leg makes its own room on a pool host before it builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62517,
+      "title": "nightly pr build: a full source depot is no verdict, not a PR failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62380,
+      "title": "cu-driver-bench: boot the guest a second time before voiding the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62371,
+      "title": "acpmux: act on the supervisor decision behind ACPMUX_SUPERVISOR_ACT (RFD 0177 row 6)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/62371/hv-faa231717cec-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 62343,
+      "title": "acpmux: cmux-rd pin 0.2.9, the crate's release (image roll bake gate red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62033,
+      "title": "ci: nightly app compile cancels the other arch, and its fleet step, on a red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 60978,
+      "title": "benches: page the mock session list as acpmux does in every bench that lists many",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/60978/hv-d4b5818b7ef7-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 62190,
+      "title": "cmux-tui: terminal warm compaction is opt-in, as for chats (compacted after ~5 min)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/62190/hv-bccae414c7d5-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 61784,
+      "title": "acpmux: a tool call's wait cap never passes to the daemon, its agents or background tasks",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/61784/hv-8fc13aaeef6f-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 60965,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-f0f0135cc2acbdc78f40fd6fd5ce59e199d88b3b",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 60532,
+      "title": "acpmux: send direct to the target machine while the hub is down (RFD 0086)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/60532/hv-b8cb371194da-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 60110,
+      "title": "ci: repair base workflow guard routing and coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62496,
+      "title": "rivals: add ChatGPT desktop; generic User-Agent on vendor downloads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62271,
+      "title": "screen-share-vs-pair: run the viewer's peer-serve inside the launcher app, check Local Network first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62529,
+      "title": "Measure coordinator renderer CPU with twenty live subagents",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62477,
+      "title": "ci(next): fast tier reads past Swift Build's failed-task head to the compiler's diagnostic",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62166,
+      "title": "CmuxNext tests: guard DEBUG-only API users so release tests compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62092,
+      "title": "cloud journey: the scroll step's detail names what the probe saw",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62425,
+      "title": "ci: keep the tested channel moving during active publishers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62150,
+      "title": "cmux-host updater: carrier session reads out of role.rs (101.0 KB -> 93.6 KB)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
