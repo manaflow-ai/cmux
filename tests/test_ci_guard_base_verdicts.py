@@ -278,7 +278,7 @@ class MergeTests(unittest.TestCase):
 class UnreachableTests(unittest.TestCase):
     def test_everything_reason_reuses_nothing(self) -> None:
         self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
-                                               [f"f{i}" for i in range(1000)]), set())
+                                               [f"f{i}" for i in range(gbv.ANCESTOR_MAX_CHANGED + 1)]), set())
 
     def test_docs_only_diff_reaches_few_steps(self) -> None:
         import guard_step_inputs
@@ -286,6 +286,51 @@ class UnreachableTests(unittest.TestCase):
         unreached = gbv.unreachable_steps(ROOT, names + ["not a ci-guards step"], ["docs/nothing-reads-this.txt"])
         self.assertNotIn("not a ci-guards step", unreached)
         self.assertTrue(unreached <= set(names))
+
+    def test_runner_change_reuses_nothing(self) -> None:
+        self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
+                                               ["docs/x.txt", "scripts/ci/run_ci_guards.py"]), set())
+
+    def _workflow_change(self, edit) -> set[str]:
+        import guard_step_inputs
+        import run_ci_guards
+        names = [s[0] for s in guard_step_inputs.guard_steps(ROOT)]
+        older = run_ci_guards.load_yaml(ROOT / gbv.WORKFLOW_PATH)
+        edit(older)
+        original = gbv.workflow_at
+        gbv.workflow_at = lambda git_root, sha: older
+        try:
+            return gbv.unreachable_steps(ROOT, names, ["docs/nothing-reads-this.txt", gbv.WORKFLOW_PATH],
+                                         ROOT, "ancestor")
+        finally:
+            gbv.workflow_at = original
+
+    def test_workflow_change_elsewhere_still_reuses(self) -> None:
+        # A step the diff's ci-guards.yml edit did not touch keeps its ancestor verdict, unless it reads the workflow.
+        unreached = self._workflow_change(lambda wf: None)
+        self.assertTrue(unreached)
+
+    def test_changed_step_definition_is_not_reused(self) -> None:
+        import guard_step_inputs
+        unchanged = self._workflow_change(lambda wf: None)
+        target = sorted(unchanged)[0]
+
+        def edit(wf: dict) -> None:
+            for job in wf["jobs"].values():
+                for step in job.get("steps") or []:
+                    if step.get("name") == target:
+                        step["run"] = str(step.get("run")) + "\ntrue"
+        self.assertNotIn(target, self._workflow_change(edit))
+        self.assertIn(target, {s[0] for s in guard_step_inputs.guard_steps(ROOT)})
+
+    def test_changed_job_env_reuses_none_of_its_steps(self) -> None:
+        def edit(wf: dict) -> None:
+            wf["env"] = dict(wf.get("env") or {}, CMUX_TEST_ONLY="1")
+        self.assertEqual(self._workflow_change(edit), set())
+
+    def test_unreadable_ancestor_workflow_reuses_nothing(self) -> None:
+        self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
+                                               [gbv.WORKFLOW_PATH], ROOT, "0" * 40), set())
 
 
 if __name__ == "__main__":
