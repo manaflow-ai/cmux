@@ -343,7 +343,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIn("'glaeda-trusted-next-signing'", str(job.get("runs-on")))
         env = job.get("env") or {}
         self.assertEqual(env.get("CMUX_CI_XCODE_APP"), "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
-        self.assertEqual(env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"), "26")
+        # The SDK major follows the pinned Xcode, so a 27.2 pin requires SDK 27.
+        self.assertEqual(
+            env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"),
+            "${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}",
+        )
         self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
         self.assertNotIn("nightly-next-deltas", str(jobs["wake-nightly-next-tick"].get("needs")))
         steps = job.get("steps") or []

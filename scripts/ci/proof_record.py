@@ -31,6 +31,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Iterable
 
@@ -155,6 +156,29 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
     return out
 
 
+def read_error(error: Exception) -> str:
+    """Log only diagnostic metadata: never response bodies, URL credentials or query strings."""
+    kind = type(error).__name__
+    details = {"error": kind}
+    if isinstance(error, urllib.error.HTTPError):
+        details["status"] = error.code
+        kind += f" {error.code}"
+        path = urllib.parse.urlsplit(error.url).path
+        if re.fullmatch(r"/repos/[\w.-]+/[\w.-]+/(?:pulls/\d+|issues/\d+/comments)", path):
+            details["endpoint"] = path
+        headers = error.headers or {}
+        for header, field, pattern in (
+                ("X-GitHub-Request-Id", "request_id", r"[A-Za-z0-9:-]{1,128}"),
+                ("X-RateLimit-Remaining", "rate_remaining", r"\d{1,20}"),
+                ("X-RateLimit-Reset", "rate_reset", r"\d{1,20}"),
+                ("Retry-After", "retry_after", r"\d{1,20}")):
+            value = headers.get(header, "")
+            if re.fullmatch(pattern, value):
+                details[field] = value
+    print(json.dumps(details, sort_keys=True), file=sys.stderr)
+    return kind
+
+
 def read_tokens() -> list[str]:
     """GH_TOKEN first, then the post's TOKENS (the pool tokens): one token refused must not leave the gate unread."""
     out: list[str] = []
@@ -172,20 +196,21 @@ TOKEN_REFUSED = (401, 403, 429)
 
 
 def gate_with(tokens: list[str], read, what: str = "UI proof") -> tuple[str, str]:
-    """read(token) with each token in turn while GitHub refuses the token; unread is an error, never a pass."""
+    """read(token) with each token in turn while GitHub refuses the token; unread is an error, never a pass. Each
+    refusal logs read_error's metadata line; the description names the last code and, past one, the token count."""
     last = ""
     for token in tokens:
         try:
             return read(token)
         except urllib.error.HTTPError as e:
-            last = f"HTTPError {e.code}"
-            print(f"{what}: read refused ({last})", file=sys.stderr)
+            last = read_error(e)
             if e.code not in TOKEN_REFUSED:
                 break
         except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
-            last = type(e).__name__
+            last = read_error(e)
             break
-    return "error", f"{what} not read ({last}, {len(tokens)} token{'s' if len(tokens) != 1 else ''}): rerun this job"
+    walked = f", {len(tokens)} tokens" if len(tokens) > 1 else ""
+    return "error", f"{what} not read ({last}{walked}): see job log"
 
 
 def main(argv: list[str] | None = None) -> int:
