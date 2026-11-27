@@ -68,6 +68,7 @@ struct CopyMachines {
     parent: PathBuf,
     disks: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
     deleted: Mutex<Vec<String>>,
+    sizes: Mutex<Vec<Option<String>>>,
     refuse: bool,
 }
 
@@ -77,6 +78,7 @@ impl CopyMachines {
             parent: parent.to_owned(),
             disks: Default::default(),
             deleted: Default::default(),
+            sizes: Default::default(),
             refuse: false,
         }
     }
@@ -96,6 +98,15 @@ impl Machines for CopyMachines {
     async fn delete(&self, machine: &str) -> Result<(), String> {
         self.deleted.lock().unwrap().push(machine.to_owned());
         Ok(())
+    }
+    async fn fork_sized(
+        &self,
+        machine: &str,
+        key: &str,
+        size: Option<&str>,
+    ) -> Result<String, String> {
+        self.sizes.lock().unwrap().push(size.map(str::to_owned));
+        self.fork(machine, key).await
     }
 }
 
@@ -158,7 +169,7 @@ async fn run_with<L: ForkLink>(
     let mut out = |fd: u8, data: &[u8]| {
         if fd == 2 { &mut got.err } else { &mut got.out }.extend_from_slice(data)
     };
-    let call = Call { class: "a test run", command, cwd, env, merged };
+    let call = Call { class: "a test run", command, cwd, env, merged, size: None };
     let ran = on_fork(machines, link, "vm_a", &call, &mut out).await;
     (ran, got)
 }
@@ -301,4 +312,65 @@ chmod 600 secret.txt && rmdir gone";
     assert_eq!(mode("secret.txt"), 0o600);
     assert_eq!(std::fs::read(p.join("secret.txt")).unwrap(), b"s");
     assert!(!p.join("gone").exists(), "a removed empty folder goes here too");
+}
+
+fn predicted(runs: usize, vcpu: f64, mem_gib: f64) -> Predicted {
+    use crate::placement::command_shadow::{Shape, Source};
+    Predicted {
+        source: if runs == 0 { Source::ClassDefault } else { Source::History },
+        runs,
+        wall_s: None,
+        need: Some(Shape { vcpu, mem_gib }),
+        listens: false,
+        outlives: false,
+        third_party: false,
+    }
+}
+
+#[test]
+fn a_run_vm_starts_at_the_smallest_size_that_covers_its_prediction() {
+    // At or under the source's own `sm`: no size asked.
+    assert_eq!(sizing(&predicted(3, 1.4, 3.0)), None);
+    let s = sizing(&predicted(3, 5.2, 6.0)).unwrap();
+    assert_eq!((s.size, s.vcpu, s.mem_gib, s.runs), ("lg", 8.0, 16.0, 3));
+    // Memory alone can push it up a step.
+    assert_eq!(sizing(&predicted(2, 3.0, 20.0)).unwrap().size, "xl");
+    // Past the ladder: the largest size there is.
+    assert_eq!(sizing(&predicted(5, 60.0, 90.0)).unwrap().size, "2xl");
+    // Nothing known: no size.
+    let mut none = predicted(0, 1.0, 1.0);
+    none.need = None;
+    assert_eq!(sizing(&none), None);
+}
+
+#[test]
+fn the_notice_row_says_what_it_runs_on_and_why() {
+    let s = sizing(&predicted(4, 12.0, 10.0)).unwrap();
+    assert_eq!(
+        sizing_notice("a Rust test run", &s),
+        "[run-vm] a Rust test run: running on a 16 vCPU, 32 GiB run VM, sized from its last 4 runs here"
+    );
+    let s = sizing(&predicted(0, 6.0, 4.0)).unwrap();
+    assert!(sizing_notice("a Rust build", &s).ends_with("sized from the usual need of the class"));
+}
+
+#[tokio::test]
+async fn the_asked_size_reaches_the_fork_and_its_row() {
+    let parent = checkout();
+    let p = parent.path();
+    let machines = Arc::new(CopyMachines::new(p));
+    let link = shell_link(&machines, p);
+    let mut out = |_: u8, _: &[u8]| {};
+    let call = Call {
+        class: "a test run",
+        command: "true",
+        cwd: p,
+        env: std::env::vars_os().collect(),
+        merged: false,
+        size: Some("xl"),
+    };
+    let ran = on_fork(machines.clone(), &link, "vm_a", &call, &mut out).await;
+    let Ran::Done { row, .. } = ran else { panic!("ran here: {ran:?}") };
+    assert_eq!(row.size.as_deref(), Some("xl"));
+    assert_eq!(*machines.sizes.lock().unwrap(), vec![Some("xl".to_owned())]);
 }

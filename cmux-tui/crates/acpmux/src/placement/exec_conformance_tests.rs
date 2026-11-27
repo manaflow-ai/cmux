@@ -102,7 +102,7 @@ impl Runner for FakeRunner {
         let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
         env.extend(case.env.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))));
         let call =
-            Call { class: "a conformance case", command: case.command, cwd: dir, env, merged };
+            Call { class: "a conformance case", command: case.command, cwd: dir, env, merged, size: None };
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let mut out = |fd: u8, data: &[u8]| {
             if fd == 2 && !merged { &mut stderr } else { &mut stdout }.extend_from_slice(data)

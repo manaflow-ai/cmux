@@ -34,6 +34,7 @@
 //! `$ACPMUX_HOME/run-vm.jsonl` (where it ran, fork and first-output times, files back, exit,
 //! the fallback's cause), which is what the RFD's thresholds are re-measured from.
 
+use super::command_shadow::{Predicted, workload_shape};
 use super::sub_fork::{self, ForkGuard, Machines};
 use super::sub_fork_run::{ForkLink, Frame, Job};
 use super::sub_fork_wire::B64;
@@ -166,6 +167,51 @@ pub use super::run_vm_rows::{
 };
 pub use super::run_vm_shell::{ShellHarness, exit_code};
 
+/// The fork sizes a run VM can start at, smallest first: (name, vCPU, GiB), the platform's chat
+/// ladder (cmux-platform `Sizes.ts`). A fork never starts smaller than its source.
+const LADDER: &[(&str, f64, f64)] = &[
+    ("sm", 2.0, 4.0),
+    ("md", 4.0, 8.0),
+    ("lg", 8.0, 16.0),
+    ("xl", 16.0, 32.0),
+    ("2xl", 32.0, 64.0),
+];
+
+/// The size a run VM starts at (RFD 0144 piece 8): the smallest ladder size that covers the
+/// predicted shape, the largest when none does, or none when the source's `sm` already covers it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sizing {
+    pub size: &'static str,
+    pub vcpu: f64,
+    pub mem_gib: f64,
+    /// How many of this repository's past runs predicted it; 0 is the class default.
+    pub runs: usize,
+}
+
+/// The run VM's size for what the rows file predicts, when it is above the smallest.
+pub fn sizing(predicted: &Predicted) -> Option<Sizing> {
+    let need = workload_shape(predicted.need?);
+    let (size, vcpu, mem_gib) = LADDER
+        .iter()
+        .find(|(_, vcpu, mem)| *vcpu >= need.vcpu && *mem >= need.mem_gib)
+        .or(LADDER.last())
+        .copied()?;
+    (size != LADDER[0].0).then_some(Sizing { size, vcpu, mem_gib, runs: predicted.runs })
+}
+
+/// The notice row for a sized run VM: what it starts at and why, in place of an ask.
+pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
+    let from = match sizing.runs {
+        0 => "the usual need of the class".to_owned(),
+        1 => "its last run here".to_owned(),
+        n => format!("its last {n} runs here"),
+    };
+    format!(
+        "[run-vm] {class}: running on a {} vCPU, {} GiB run VM, sized from {from}",
+        sizing.vcpu, sizing.mem_gib
+    )
+}
+
 /// How a run on a fork ended.
 #[derive(Debug)]
 pub enum Ran {
@@ -185,6 +231,8 @@ pub struct Call<'a> {
     pub env: Vec<(OsString, OsString)>,
     /// The caller's stdout and stderr are one file ([`super::run_vm_shell::same_file`]).
     pub merged: bool,
+    /// The ladder size to start the run VM at ([`sizing`]); None is the source's size.
+    pub size: Option<&'a str>,
 }
 
 /// What a run's output is handed to: the fd it belongs on (1 or 2) and its raw bytes.
@@ -203,6 +251,7 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     let began = Instant::now();
     let mut row = Row {
         class: call.class.to_owned(),
+        size: call.size.map(str::to_owned),
         ran: "here",
         via: None,
         program: program_of(command),
@@ -222,7 +271,7 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     };
     let key = format!("run-vm-{}-{}", std::process::id(), began.elapsed().as_nanos());
     let fork_began = Instant::now();
-    let fork = match machines.fork(machine, &key).await {
+    let fork = match machines.fork_sized(machine, &key, call.size).await {
         Ok(id) => id,
         Err(e) => return here(row, format!("fork: {e}")),
     };
@@ -402,7 +451,21 @@ pub async fn fork_or_here(
     };
     let link = super::sub_fork_run::CloudLink::new(machines.request.clone());
     let cwd = std::env::current_dir()?;
-    eprintln!("[run-vm] {class}: running on a fork of this machine");
+    // AutoCloud sizes the run VM from the shadow table; without it, the source's size.
+    let sized = super::auto_cloud_on()
+        .then(|| {
+            let repo = cwd.to_string_lossy();
+            sizing(&super::command_sampler::predict_from_file(
+                &super::command_sampler::file_path(),
+                &repo,
+                command,
+            ))
+        })
+        .flatten();
+    match &sized {
+        Some(s) => eprintln!("{}", sizing_notice(class, s)),
+        None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
+    }
     let (mut stdout, mut stderr) = (tokio::io::stdout(), tokio::io::stderr());
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(u8, Vec<u8>)>();
     let mut push = move |fd: u8, data: &[u8]| {
@@ -414,6 +477,7 @@ pub async fn fork_or_here(
         cwd: &cwd,
         env: std::env::vars_os().collect(),
         merged: super::run_vm_shell::stdio_merged(),
+        size: sized.map(|s| s.size),
     };
     let run = on_fork(machines, &link, machine, &call, &mut push);
     tokio::pin!(run);

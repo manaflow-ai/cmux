@@ -13,8 +13,14 @@ A pull request is cleared only when all hold:
   - it is open, into feat-cmux-next, from this repository, on a `lane/` branch (an agent lane's): a person's own
     `full-ci` is their opt-in and stays;
   - it does not carry `ready-to-land` (its land may be live; the land tier runs either way then);
-  - its newest commit that is not a base merge, and its newest `full-ci` add, are both IDLE_HOURS (default 6) old.
-    A base merge is not activity: update-branch heads land every few hours on an open pull request.
+  - and either: its newest commit that is not a base merge, and its newest `full-ci` add, are both IDLE_HOURS
+    (default 6) old (a base merge is not activity: update-branch heads land every few hours on an open pull request);
+    or its newest `full-ci` add is older than its newest commit, base merges included (stale head): the add ran the
+    full tier at the head it was added on, and every later head inherits it. That is what a lane's add means since
+    the broker and tools/gh_full_ci_pulse.py make it a pulse (off, on, off; no later head inherits it); a label from
+    before the pulse stayed on busy lanes the idle rule never reaches. 2026-11-26 21:50Z: 52 open pull requests
+    carried full-ci, 30 of them lane pull requests updated in the last 6 h. When no add of the label was read, only
+    the idle rule applies.
 
 Removing a label with the workflow token starts no workflow, and the routers skip `unlabeled` events anyway.
 Dry run unless --apply. Capped by --max a run (default 100), --pace seconds apart.
@@ -73,6 +79,14 @@ def last_activity(pr: Dict) -> Optional[float]:
     return max(times, default=0.0)
 
 
+def stale_head(pr: Dict) -> bool:
+    """The newest read add of LABEL is older than the newest read commit (base merges count: each runs the tier)."""
+    adds = [parse_time(str(e["createdAt"])) for e in pr.get("labelAdds") or []
+            if e.get("createdAt") and e.get("label") == LABEL]
+    commits = [parse_time(str(c["committedDate"])) for c in pr.get("commits") or [] if c.get("committedDate")]
+    return bool(adds) and bool(commits) and max(commits) > max(adds)
+
+
 def select(prs: List[Dict], now: float, idle_hours: float) -> List[Dict]:
     keep = []
     for pr in prs:
@@ -84,7 +98,8 @@ def select(prs: List[Dict], now: float, idle_hours: float) -> List[Dict]:
         if not str(pr.get("headRefName") or "").startswith("lane/"):
             continue
         last = last_activity(pr)
-        if last is None or now - last < idle_hours * 3600:
+        idle = last is not None and now - last >= idle_hours * 3600
+        if not idle and not stale_head(pr):
             continue
         keep.append(pr)
     return keep
@@ -143,7 +158,7 @@ def main(argv: Optional[List[str]] = None, run: Callable = gh, now: Optional[flo
     prs = read_prs(a.repo, run)
     picked = select(prs, time.time() if now is None else now, a.idle_hours)
     print("full_ci_idle_sweep: %s: %d open pull requests into %s carry %s; %d are lane pull requests without %s, "
-          "idle >= %g h by their last non-base-merge commit or label add%s"
+          "idle >= %g h by their last non-base-merge commit or label add, or with a commit after the label add%s"
           % (a.repo, len(prs), BASE, LABEL, len(picked), LAND, a.idle_hours, "" if a.apply else " (dry run)"))
     for pr in picked:
         print("  #%d %s" % (pr["number"], pr["headRefName"]))

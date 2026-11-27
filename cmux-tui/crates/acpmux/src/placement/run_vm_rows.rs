@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     pub class: String,
+    /// The ladder size the run VM was asked for, when above the source's (RFD 0144 piece 8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
     /// `fork` when it ran on a run VM, `here` when it fell back.
     pub ran: &'static str,
     /// What sent it: `hook` (Claude Code's Bash call), `shim` (a PATH shim, any process), `cli`.

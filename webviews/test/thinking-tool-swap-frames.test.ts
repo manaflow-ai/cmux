@@ -19,6 +19,7 @@ import {
   movedPx,
   overlapPx,
   recordSwap,
+  SWAP_ARM_QUERY,
   SWAP_PAGE,
   swapFrameGate,
 } from "./support/thinkingToolSwap";
@@ -58,7 +59,9 @@ await requireBrowserLane("thinking-tool-swap-frames.test.ts", async () => {
     try {
       const page = await browser.newPage({ viewport: { width: 760, height: 640 } });
       await page.addInitScript(swapFrameGate);
-      await page.goto(`http://127.0.0.1:${port}${SWAP_PAGE}?clock=frames&rows=1${look ? `&liveSwap=${look}` : ""}`);
+      await page.goto(
+        `http://127.0.0.1:${port}${SWAP_PAGE}?clock=frames&rows=1${SWAP_ARM_QUERY}${look ? `&liveSwap=${look}` : ""}`,
+      );
       const { frames, landed } = await recordSwap(page);
       expect(landed).toBeGreaterThan(0);
       const arriving = arrivingRows(frames, landed);

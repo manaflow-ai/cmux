@@ -3,6 +3,8 @@
 change can fail, and every group when it cannot tell (fails open)."""
 
 import json
+import fnmatch
+import re
 import subprocess
 import sys
 import tempfile
@@ -49,6 +51,13 @@ class Reach(unittest.TestCase):
             self.assertEqual(out["groups"], self.all, f)
             self.assertEqual(out["listed"], "*", f)
 
+    def test_suite_helpers_route_the_workflow_and_every_group(self):
+        routing = json.loads((ROOT / 'scripts/ci/pr_router.json').read_text())['callees']['swift-linux-packages.yml']
+        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
+            self.assertEqual(reach.reach([helper])['groups'], self.all)
+            for selection in ('paths', 'affects'):
+                self.assertTrue(any(fnmatch.fnmatchcase(helper, pattern) for pattern in routing[selection]))
+
     def test_the_list_runs_every_row(self):
         out = reach.reach([reach.LIST])
         self.assertEqual(out["listed"], "*")
@@ -63,6 +72,120 @@ class Reach(unittest.TestCase):
         self.assertNotIn("Packages/macOS/CmuxNext", out["listed"].split())
         out = reach.reach(["Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/x.swift"])
         self.assertIn("Packages/macOS/CmuxNext", out["listed"].split())
+
+    def test_every_cmuxnext_linux_target_reaches_its_row(self):
+        # Before 2026-11-26 the reach list was a copy that named 3 of the 16 targets, so a change to Focus,
+        # CLIInstall, Compat, CopyMode, TerminalFind or TerminalGeometry skipped the Linux CmuxNext row.
+        names = reach.linux_target_names(ROOT, "Packages/macOS/CmuxNext")
+        self.assertIn("CmuxNextFocus", names)
+        for name in names:
+            top = "Tests" if name.endswith("Tests") else "Sources"
+            out = reach.reach([f"Packages/macOS/CmuxNext/{top}/{name}/x.swift"])
+            self.assertIn("Packages/macOS/CmuxNext", out["listed"].split(), name)
+
+    def test_app_ffi_inputs_reach_the_cmuxnext_row(self):
+        for f in ("cmux-tui/crates/cmux-app-ffi/src/lib.rs", "cmux-tui/Cargo.lock", "scripts/ci/app_ffi_linux.py",
+                  "scripts/cmux-next/build-app-ffi.sh", "Packages/macOS/CmuxNext/LinuxAppFFI/x"):
+            self.assertEqual(reach.reach([f])["listed"], "Packages/macOS/CmuxNext", f)
+        self.assertEqual(reach.reach(["cmux-tui/README.md"])["listed"], "")
+
+    def test_extra_inputs_reach_the_kit_row_and_group(self):
+        for pkg, prefixes in reach.EXTRA_INPUTS.items():
+            for prefix in prefixes:
+                f = prefix + "x.json" if prefix.endswith("/") else prefix
+                out = reach.reach([f])
+                self.assertIn(pkg, out["listed"].split(), f)
+                self.assertIn("ios-kit", out["groups"], f)
+        self.assertEqual(reach.reach(["cmux-next-ios/rust/crates/cmux-mobile-link-ffi/src/lib.rs"])["groups"], [])
+
+    def test_every_file_a_listed_kit_test_reads_outside_the_kit_is_an_extra_input(self):
+        """The detector: a listed CmuxMobileKit test target that reads a file outside the kit through `#filePath`
+        (a string literal naming a path that exists from one of the test file's ancestors) must name it in
+        EXTRA_INPUTS, or a change to that file alone runs none of the Swift tests that read it."""
+        kit = "cmux-next-ios/CmuxMobileKit"
+        row = next(line.split() for line in (ROOT / reach.LIST).read_text().splitlines()
+                   if line.split() and line.split()[0].rstrip("/") == kit)
+        targets = row[1].split(",")
+        literal = re.compile(r'"((?:[^"\\]|\\.)*)"')
+        found = {}
+        for target in targets:
+            for f in sorted((ROOT / kit / "Tests" / target).rglob("*.swift")):
+                text = f.read_text(errors="replace")
+                if "#filePath" not in text:
+                    continue
+                for m in literal.finditer(text):
+                    s = m.group(1)
+                    if "\\(" in s:  # an interpolated name: its directory is the input
+                        s = s.split("\\(")[0].rsplit("/", 1)[0] + "/"
+                    if "/" not in s or s.startswith(("/", "http")) or " " in s:
+                        continue
+                    for up in f.parents:
+                        if up == ROOT.parent:
+                            break
+                        if (up / s).exists():
+                            rel = (up / s).resolve().relative_to(ROOT).as_posix()
+                            if not rel.startswith(kit + "/"):
+                                found.setdefault(rel, f.relative_to(ROOT).as_posix())
+                            break
+        self.assertIn("cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json", found)
+        prefixes = reach.EXTRA_INPUTS[kit]
+        for rel, by in found.items():
+            self.assertTrue(rel.startswith(prefixes) or rel + "/" in prefixes,
+                            f"{by} reads {rel}; name it in swift_linux_reach.py EXTRA_INPUTS")
+
+    def test_push_paths_and_router_name_every_extra_input(self):
+        router = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())
+
+        def find(o):
+            if isinstance(o, dict):
+                entry = o.get("swift-linux-packages.yml")
+                if isinstance(entry, dict) and "affects" in entry:
+                    return entry
+                for v in o.values():
+                    hit = find(v)
+                    if hit is not None:
+                        return hit
+            return None
+
+        entry = find(router)
+        push = WORKFLOW.read_text().split("  workflow_dispatch:")[0]
+        for prefixes in reach.EXTRA_INPUTS.values():
+            for prefix in prefixes:
+                want = prefix + "**" if prefix.endswith("/") else prefix
+                self.assertIn(want, entry["affects"], f"pr_router.json affects misses {want}")
+                self.assertIn(want, entry["paths"], f"pr_router.json paths misses {want}")
+                self.assertIn(f"      - {want}\n", push, f"{WORKFLOW.name} push paths miss {want}")
+
+    def test_a_lost_target_list_fails_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            pkg = Path(d) / "Packages/macOS/CmuxNext"
+            pkg.mkdir(parents=True)
+            (pkg / "Package.swift").write_text("let other = 1\n")
+            with self.assertRaises(ValueError):
+                reach.narrow(Path(d))
+            (pkg / "Package.swift").write_text('let linuxTargetNames: Set<String> = [\n    "CmuxNextGone",\n]\n')
+            with self.assertRaises(ValueError):
+                reach.narrow(Path(d))
+
+    def test_router_affects_names_every_reaching_path(self):
+        router = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())
+
+        def find(o):
+            if isinstance(o, dict):
+                if "swift-linux-packages.yml" in o and isinstance(o["swift-linux-packages.yml"], dict) \
+                        and "affects" in o["swift-linux-packages.yml"]:
+                    return o["swift-linux-packages.yml"]["affects"]
+                for v in o.values():
+                    hit = find(v)
+                    if hit is not None:
+                        return hit
+            return None
+
+        globs = find(router)
+        self.assertIsNotNone(globs)
+        for prefix in reach.narrow(ROOT)["Packages/macOS/CmuxNext"]:
+            want = prefix + "**" if prefix.endswith("/") else prefix
+            self.assertIn(want, globs, f"pr_router.json swift-linux-packages.yml affects misses {want}")
 
     def test_cli_fails_open_and_writes_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
