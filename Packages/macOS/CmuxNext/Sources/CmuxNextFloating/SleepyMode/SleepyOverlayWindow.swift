@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// One screen's borderless Sleepy Mode window, above everything at screensaver
 /// level. Any key or click wakes (it is deliberately not a lock).
