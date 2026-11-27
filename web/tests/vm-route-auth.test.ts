@@ -2847,6 +2847,74 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("ssh-endpoint answers a typed unsupported error, not a bare 404", async () => {
+    // `cmux vm ssh-info` and `vm ssh --ssh` call POST /api/vm/:id/ssh-endpoint.
+    // With no route there, every machine answered the Next.js 404 page, which
+    // the CLI shows as an unreadable "HTTP 404" and never falls back from.
+    getUser.mockResolvedValue(authedStackUser());
+    const sshEndpointRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+    const response = await sshEndpointRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/ssh-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ id: "provider-vm-1" }) },
+    );
+
+    expect(response.status).toBe(501);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_attach_transport_unsupported",
+      retryable: false,
+      details: { requestedTransport: "ssh", supportedTransports: ["cmux-remote"] },
+    });
+    expect(payload.action).toContain("cmux vm ssh provider-vm-1");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("ssh-endpoint still requires a signed-in caller", async () => {
+    getUser.mockResolvedValue(null);
+    const sshEndpointRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+    const response = await sshEndpointRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/ssh-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{}",
+      }),
+      { params: Promise.resolve({ id: "provider-vm-1" }) },
+    );
+    expect(response.status).toBe(401);
+  });
+
+  test("measures the command as Freestyle receives it, after quoting", async () => {
+    // A 20 KB command of single quotes grows to about 80 KB once the driver
+    // quotes it into its home-normalizing wrapper. Freestyle refuses that with
+    // BAD_REQUEST "command cannot exceed 64 KiB", which used to come back as a
+    // retryable 502 vm_cloud_service_unavailable the client kept retrying.
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const response = await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: `printf %s ${"'".repeat(20_000)}` }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(413);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_command_too_large",
+      retryable: false,
+      details: { maxCommandBytes: 64 * 1024 },
+    });
+    expect(payload.details.providerCommandBytes).toBeGreaterThan(64 * 1024);
+    expect(payload.details.commandBytes).toBeLessThan(64 * 1024);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("does not echo unsupported VM service override values", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
