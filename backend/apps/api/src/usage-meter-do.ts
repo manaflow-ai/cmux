@@ -196,7 +196,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const state = this.bind(entity).currentState
     const now = Date.now()
     // `capSet`: the team spending cap applies (teamCapApplies, price set v2), checked in the reservation's transaction.
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime, capSet ? { set: capSet, admin_cap_usd: state.team_cap_usd, unpaid_max_pools: teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS) } : undefined)
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime, capSet ? { set: capSet, admin_cap_usd: adminCapOf(state), unpaid_max_pools: teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS) } : undefined)
     if (r.ok) this.scheduleAlarm()
     return r
   }
@@ -539,8 +539,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   async teamCap(entity: string, machineTime = false, set: UsagePriceSet = usagePriceSet(this.env)): Promise<TeamCap> {
     const now = Date.now()
     if (!this.isBound(entity)) return { state: "under", spent_usd: 0, cap_usd: null, period_end: nextMonthStart(now) }
-    const { state, spent_usd, cap_usd, period_end, raise_locked } = teamCapState(this.ctx.storage.sql, now, BILLABLE_GRACE_MS, machineTime, set, this.bind(entity).currentState.team_cap_usd, 0, teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS))
-    return { state, spent_usd, cap_usd, period_end, ...(raise_locked ? { raise_locked } : {}) }
+    const { state, spent_usd, cap_usd, period_end, raise_locked, included_usd, overage_usd } = teamCapState(this.ctx.storage.sql, now, BILLABLE_GRACE_MS, machineTime, set, adminCapOf(this.bind(entity).currentState), 0, teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS))
+    return { state, spent_usd, cap_usd, period_end, ...(raise_locked ? { raise_locked } : {}), ...(included_usd !== undefined ? { included_usd } : {}), ...(overage_usd !== undefined ? { overage_usd } : {}) }
   }
 
   protected override nextWakeAt(): number | null {
