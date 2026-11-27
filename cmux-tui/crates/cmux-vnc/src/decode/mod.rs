@@ -4,7 +4,7 @@
 
 mod hextile;
 mod tight;
-mod zrle;
+pub(crate) mod zrle;
 
 use std::io::Read;
 

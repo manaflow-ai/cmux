@@ -688,7 +688,14 @@ mod tests {
         let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
         let record = ended("ok1", &session, 0);
-        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        let writer = hub.config.write().await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            hub.bg_end_to_chat(&session, dir.path(), &record, None),
+        )
+        .await
+        .expect("an exit notice reaches the inbox while configuration is being written");
+        drop(writer);
         hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
         {
