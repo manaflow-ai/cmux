@@ -55,7 +55,7 @@ await requireBrowserLane("agent-pane-bottom-rebound-follow.test.ts", async () =>
       while (performance.now() - start < ms) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         worst = Math.max(worst, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
-        jump ||= !!document.querySelector(".acpmux-jump-latest[data-shown]");
+        jump ||= !!document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
       }
       return {
         worst: Math.round(worst),

@@ -8,7 +8,7 @@
 .cv-since,
 .acpmux-since-jump {
   --unread-accent: var(--cmux-app-accent, var(--agent-text));
-  --unread-on-accent: var(--cmux-app-on-accent, var(--agent-page-bg));
+  --unread-on-accent: var(--cmux-app-on-accent, var(--agent-on-accent, Canvas));
   --unread-accent-text: var(--cmux-app-accent-text, var(--unread-accent));
   --unread-wash: color-mix(in srgb, var(--agent-text) 6%, transparent);
   --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);
