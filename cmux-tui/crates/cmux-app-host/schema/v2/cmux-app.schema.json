@@ -741,6 +741,22 @@
     },
     "x-cmux-devOnly": {
       "type": "boolean"
+    },
+    "setting": {
+      "description": "First-party only: the boolean cmux setting this entry's enabled switch reads and writes (the App Store's Auto cleanup drives worktrees.autoCleanup).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "default"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9]*(\\.[a-zA-Z][a-zA-Z0-9]*)+$",
+          "maxLength": 128
+        },
+        "default": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "$defs": {
