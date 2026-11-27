@@ -2,7 +2,7 @@
 //! running daemon hold its systemd watchdog until the machine resumes (`daemon/watchdog.rs`).
 //! One JSON line: `{"held":true,"until_resume":true}`, or `held:false` when no systemd watchdog
 //! is armed (exit 0 both). A daemon from before the method, no daemon, or no answer within
-//! [`BOUND`] fails: the platform ignores a failure and pauses anyway.
+//! [`BOUND`] (1.5 s) fails: the platform ignores a failure and pauses anyway.
 
 use std::time::Duration;
 
@@ -11,8 +11,9 @@ use serde_json::{Value, json};
 
 use crate::rpc::method;
 
-/// Inside the platform's ~10 s bound for the command.
-pub(crate) const BOUND: Duration = Duration::from_secs(8);
+/// Inside the platform's 2 s `timeout` for the command (cmux-platform#2416), so a slow daemon
+/// ends in this command's own error, not a kill.
+pub(crate) const BOUND: Duration = Duration::from_millis(1_500);
 
 /// `acpmux daemon watchdog-hold [--json]`: the line is JSON either way, for the platform.
 pub async fn run() -> Result<()> {
@@ -22,7 +23,11 @@ pub async fn run() -> Result<()> {
     })
     .await
     .map_err(|_| {
-        anyhow!("the daemon did not answer `{}` in {}s", method::MUX_WATCHDOG_HOLD, BOUND.as_secs())
+        anyhow!(
+            "the daemon did not answer `{}` in {} ms",
+            method::MUX_WATCHDOG_HOLD,
+            BOUND.as_millis()
+        )
     })??;
     println!("{}", line(&answer)?);
     Ok(())
