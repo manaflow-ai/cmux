@@ -167,7 +167,10 @@ function drewLineRow(row: AcpmuxRow): void {
   flush?.();
 }
 
-const ROW_KEYS = new Set(["version", "items"]);
+/// What a call moves on its activity row (direct.ts): its calls, its version, whether one is still
+/// running and how many it holds. The row is shaped again with them, so the turn's other rows must
+/// still draw the same.
+const ROW_KEYS = new Set(["version", "items", "streaming", "toolCount"]);
 /// As deep as turns.ts `steadyRows` compares: rows equal to that depth draw the same.
 const COMPARE_DEPTH = 4;
 
@@ -187,7 +190,7 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
 /// A call whose start or end draws only on the live line.
 function quietCall(item: AcpmuxActivity | undefined): boolean {
   const tool = item?.tool;
-  return tool !== undefined && tool.kind !== undefined && QUIET_KINDS.has(tool.kind) && tool.background !== true;
+  return tool !== undefined && tool.kind !== undefined && QUIET_KINDS.has(tool.kind) && tool.background === undefined;
 }
 
 /// The running turn's line after the client's newest snapshot `next`, when it differs from the one
@@ -225,8 +228,7 @@ export function callOnly(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): { line
   // Every other row the same in each value, as `steadyRows` keeps a drawn row: a renderer may draw
   // from fields its version does not cover (transcript/RowFrame.tsx `RowContent`), so the same
   // version is not enough.
-  for (let row = 0; row < last; row += 1)
-    if (!sameShape(old[row], shaped[row], COMPARE_DEPTH)) return undefined;
+  for (let row = 0; row < last; row += 1) if (!sameShape(old[row], shaped[row], COMPARE_DEPTH)) return undefined;
   const line = shaped[last]!;
   if (line.id !== LIVE_THINKING || line.kind !== THINKING) return undefined;
   drawn = { shape: { ...shape, turn, shaped }, line: drawn.line, basis: next };

@@ -137,7 +137,11 @@ test("a stale drawn line redraws the pane", () => {
 test("a call the line does not draw alone (a shell, an edit) redraws the pane", () => {
   const first = snapshot([prompt, reply, work(1, [read("r1", "completed")])]);
   paneDraws(first);
-  const shell = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("s1", "in_progress", "execute")])], 2);
+  const shell = after(
+    first,
+    [prompt, reply, work(2, [read("r1", "completed"), read("s1", "in_progress", "execute")])],
+    2,
+  );
   expect(callOnly(first, shell)).toBeUndefined();
   const edit = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("e1", "in_progress", "edit")])], 2);
   expect(callOnly(first, edit)).toBeUndefined();
@@ -156,4 +160,22 @@ test("another bypass between calls moves the turn's rows on with it", () => {
   const start = callOnly(replied, started);
   expect(start).toBeDefined();
   expect(start!.line.doing).toBe(line(turnView(started.rows as AcpmuxRow[], new Set(), options))!.doing);
+});
+
+test("the activity row's own running flag and call count move with its calls, as the client sends them", () => {
+  const counted = (version: number, items: AcpmuxActivity[]): AcpmuxRow =>
+    ({
+      ...work(version, items),
+      toolCount: items.length,
+      streaming: items.some((item) => item.tool?.status !== "completed"),
+    }) as AcpmuxRow;
+  const first = snapshot([prompt, reply, counted(1, [read("r1", "completed")])]);
+  paneDraws(first);
+  const started = after(first, [prompt, reply, counted(2, [read("r1", "completed"), read("r2", "in_progress")])], 2);
+  const start = callOnly(first, started);
+  expect(start).toBeDefined();
+  expect(start!.line.doing).toBe(line(turnView(started.rows as AcpmuxRow[], new Set(), options))!.doing);
+  setLiveLine(start!.line);
+  const ended = after(started, [prompt, reply, counted(3, [read("r1", "completed"), read("r2", "completed")])], 2);
+  expect(callOnly(started, ended)).toBeDefined();
 });
