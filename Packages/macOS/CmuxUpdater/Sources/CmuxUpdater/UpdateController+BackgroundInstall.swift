@@ -10,8 +10,14 @@ extension UpdateController {
         get { driver.installsInBackground }
         set {
             driver.installsInBackground = newValue
-            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
-            log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+            guard newValue else { return }
+            if disablesSparkleSilentStagingPreference {
+                if disableSparkleSilentStagingIfNeeded() {
+                    log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+                }
+            } else if disableSparkleAutomaticDownloadsForThisUpdater() {
+                log.append("background install: disabled Sparkle automatic downloads on this updater; using the app-owned policy")
+            }
         }
     }
 

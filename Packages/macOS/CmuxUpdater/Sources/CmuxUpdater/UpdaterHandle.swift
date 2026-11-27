@@ -14,7 +14,7 @@ protocol UpdaterHandle: AnyObject {
     /// Whether Sparkle still owns an update-cycle session that must finish before another check.
     var sessionInProgress: Bool { get }
     var automaticallyChecksForUpdates: Bool { get set }
-    var automaticallyDownloadsUpdates: Bool { get }
+    var automaticallyDownloadsUpdates: Bool { get set }
     var updateCheckInterval: TimeInterval { get set }
     /// When Sparkle last checked (`SULastCheckTime`), or nil.
     var lastUpdateCheckDate: Date? { get }
