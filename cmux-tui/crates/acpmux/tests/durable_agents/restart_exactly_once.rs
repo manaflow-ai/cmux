@@ -216,6 +216,28 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
     }
 }
 
+/// A reconnecting CLI can win daemon startup, leaving `Daemon.child` as an exited
+/// startup helper. Stop the live owner of this test's private home, not that helper.
+fn stop_live_daemon(daemon: &mut Daemon) {
+    let owner: Value = serde_json::from_slice(
+        &std::fs::read(daemon.home.join("daemon.owner.json")).expect("test daemon owner"),
+    )
+    .unwrap();
+    let pid = u32::try_from(owner["pid"].as_u64().expect("owner pid")).unwrap();
+    let start = owner["startTime"].as_u64().expect("owner start time");
+    assert_eq!(acpmux::daemon::process_start(pid), Some(start), "test daemon owner changed");
+    assert!(pid > 1);
+    // SAFETY: the matching live owner of the private home created by this test.
+    assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGTERM) }, 0);
+    let status = daemon.child.take().expect("daemon startup child").wait().unwrap();
+    assert!(status.success(), "daemon startup child exited badly: {status}");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while acpmux::daemon::process_start(pid) == Some(start) && alive(i64::from(pid)) {
+        assert!(Instant::now() < deadline, "test daemon owner {pid} did not stop");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The coordinator path uses the real CLI as its waiting client.  Keep this larger than the
 /// unit-sized restart test above: every session is busy in a gated turn before its CLI send is
 /// queued, then the daemon is handed off five times while all twenty harnesses remain active.
@@ -233,7 +255,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     assert!(binary.is_absolute(), "ACPMUX_DURESS_BINARY must be an absolute path");
     // The override owns even the first start, so the fixed build cannot migrate the baseline store.
     let mut daemon = Daemon::with_executable("cli-duress", "approve-all", &[], &binary);
-    daemon.sigterm();
+    stop_live_daemon(&mut daemon);
     let log = daemon.home.join("wire.jsonl");
     let wire_env = format!("FAKE_WIRE_LOG={}", log.display());
     std::fs::write(
@@ -312,7 +334,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         // A count cursor prevents a historical adoption record from satisfying this cycle.
         let adopted_before: Vec<usize> =
             sessions.iter().map(|(session, ..)| adoptions(&daemon, session)).collect();
-        daemon.sigterm();
+        stop_live_daemon(&mut daemon);
         daemon.start();
         for ((session, ..), before) in sessions.iter().zip(adopted_before) {
             let deadline = Instant::now() + Duration::from_secs(30);
