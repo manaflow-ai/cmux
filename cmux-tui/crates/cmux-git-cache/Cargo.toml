@@ -30,4 +30,5 @@ tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "proce
 tokio-util = { workspace = true, features = ["io"] }
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 tempfile = "3"
