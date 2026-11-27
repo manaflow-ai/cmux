@@ -2036,6 +2036,11 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(cargo_size.get("size"), 16)
         self.assertNotIn("failover", cargo_size)
         self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        # On the owned GCP label it also asks for a cap only pool VMs register, so no fsr-* runner (which registers
+        # cmux-fleet-linux-x64 too) can start it: 255 of 387 fsr runs timed out on 2026-11-27 (note-206).
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 == 'cmux-fleet-linux-x64' && "
+                      "fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-has-netem\"]') || ", runs_on)
+        self.assertEqual(str(cargo["timeout-minutes"]), "30")  # the fix is the runner, not a longer timeout
         route_without_pools = re.sub(
             r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
         )
