@@ -44,10 +44,12 @@ export function NativeTranscript({ link, sessionId }: { link: () => Link | undef
       sessionId,
       font: `${style.fontSize || "13px"} ${style.fontFamily || "sans-serif"}`,
       lineHeight: Number.parseFloat(style.lineHeight) || 18,
+      // The canvas needs resolved colours, so read the theme's tokens as the scroller computes them.
       colors: {
-        text: style.color || "#ddd",
-        muted: "rgba(160,160,160,0.9)",
-        background: getComputedStyle(document.body).backgroundColor || "#1e1e1e",
+        text: style.getPropertyValue("--cmux-text").trim() || style.color,
+        muted: style.getPropertyValue("--cmux-text-secondary").trim() || style.color,
+        background:
+          style.getPropertyValue("--cmux-surface-background").trim() || getComputedStyle(document.body).backgroundColor,
       },
       tally: new URLSearchParams(location.hash.slice(1)).get("nativeTally") === "1",
     };
