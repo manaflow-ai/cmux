@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDaemonService
 import CmuxNextLayout
 import CmuxNextPages
 
@@ -18,8 +19,7 @@ extension NewTabSparePool {
 
     /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
     func fitParked() {
-        prefetchToken = nil
-        prefetchDeadline.cancel()
+        prefetcher.cancel()
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
         schedulePrepare()
@@ -36,14 +36,13 @@ extension NewTabSparePool {
     func paneLayoutDidChange(in window: NSWindow?) {
         guard let window, window === target, parking.superview != nil else { return }
         if services.windows.controllers.first(where: { $0.window === window })?.content?.layoutView.isInLayoutMotion == true {
-            prefetchToken = nil
-            prefetchDeadline.cancel()
+            prefetcher.cancel()
         }
         if targetIdentity != preparedFor { schedulePrepare() }
         services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
     }
     func snapshotParked(_ view: AgentPaneView) {
-        guard prefetchToken == nil else { return }
+        guard !prefetcher.active else { return }
         covers.capture(view, parked: { [weak self] page in page.superview === self?.parking && self?.slot.all.contains { $0 === page } == true }) { [weak self, weak view] in
             if let view { self?.prefetchSplits(view) }
         }
@@ -57,9 +56,17 @@ extension NewTabSparePool {
         return size
     }
 
+    /// Divider insertion uses its planned ratio instead of the ordinary half/even split.
+    static func dividerContentSize(in pane: PaneController, insertion: DividerInsertion) -> NSSize? {
+        guard let change = insertion.sizing.first,
+              let size = pane.workspace?.layoutView.newDividerPaneSize(splitting: change.split, ratio: change.ratio) else { return nil }
+        let full = newTabContentSize(in: pane)
+        return NSSize(width: size.width, height: max(0, size.height - (pane.view.bounds.height - full.height)))
+    }
+
     /// Native rendering glue: run Rust's exact-size plan on the ONE spare while parked, then restore it.
     func prefetchSplits(_ view: AgentPaneView) {
-        guard prefetchToken == nil, !refills.isOpening, view.superview === parking, view === slot.peek,
+        guard !prefetcher.active, !refills.isOpening, view.superview === parking, view === slot.peek,
               let pane = targetPane, pane.workspace?.layoutView.isInLayoutMotion != true, view.model.hasPainted else { return }
         let full = Self.newTabContentSize(in: pane), identity = targetIdentity
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
@@ -70,39 +77,34 @@ extension NewTabSparePool {
         let attempt: [AnyHashable] = [ObjectIdentifier(view), generation, full.width, full.height, appearance?.rawValue ?? ""] + (identity ?? []) + sizes.flatMap { [AnyHashable($0.width), AnyHashable($0.height)] }
         guard !plan.isEmpty, prefetchAttempt != attempt, frames.image(size: full, appearance: appearance) != nil else { return }
         prefetchAttempt = attempt
-        let token = UUID()
-        prefetchToken = token
-        // A lost compositor answer must not leave the Cmd-T spare at a split size indefinitely.
-        prefetchDeadline.schedule(after: .seconds(3)) { @MainActor [weak self] in
-            guard let self, self.prefetchToken == token else { return }
-            self.fitParked()
-        }
-        covers.forget(view)
-        func render(_ index: Int) {
-            guard self.prefetchToken == token, view.superview === self.parking, view === self.slot.peek else { return }
-            guard !self.refills.isOpening, self.targetIdentity == identity, self.targetPaneSize == full,
-                  frames.generation == generation, view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance,
-                  pane.workspace?.layoutView.isInLayoutMotion != true else {
-                self.prefetchToken = nil
-                self.prefetchDeadline.cancel()
+        prefetcher.start(
+            view: view,
+            parking: parking,
+            covers: covers,
+            frames: frames,
+            appearance: appearance,
+            generation: generation,
+            full: full,
+            plan: plan,
+            valid: { [weak self, weak view, weak pane] in
+                guard let self, let view, let pane else { return false }
+                return !self.refills.isOpening &&
+                    view === self.slot.peek &&
+                    view.superview === self.parking &&
+                    self.targetIdentity == identity &&
+                    self.targetPaneSize == full &&
+                    pane.workspace?.layoutView.isInLayoutMotion != true
+            },
+            finished: { [weak self, weak view] in
+                guard let self, let view else { return }
+                if view.superview === self.parking, view === self.slot.peek {
+                    self.snapshotParked(view)
+                }
+            },
+            invalidated: { [weak self] in
+                guard let self else { return }
                 self.paneLayoutDidChange(in: self.target)
-                return
-            }
-            guard index < plan.count else {
-                self.prefetchToken = nil
-                self.prefetchDeadline.cancel()
-                self.snapshotParked(view)
-                return
-            }
-            view.isHidden = false
-            // Register before layout, so Chromium answers only a frame at this exact size.
-            view.redraw.when(view) { [weak self, weak view] in
-                guard let self, let view, self.prefetchToken == token, view.superview === self.parking else { return }
-                view.redraw.rememberFrame(of: view, appearance: appearance) { render(index + 1) }
-            }
-            self.parking.fit(to: plan[index])
-        }
-        render(0)
+            })
     }
 
 }

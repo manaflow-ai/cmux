@@ -249,8 +249,7 @@ final class NewTabSparePool {
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
-        prefetchToken = nil
-        prefetchDeadline.cancel()
+        prefetcher.cancel()
         // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
@@ -272,9 +271,8 @@ final class NewTabSparePool {
     /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
     let covers = AgentPaneSpareCovers()
-    var prefetchToken: UUID?
+    let prefetcher = AgentPaneNewTabPrefetch()
     var prefetchAttempt: [AnyHashable]?
-    let prefetchDeadline = DemandTimer(owner: "NewTabSparePool.prefetch")
 
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -324,8 +322,7 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
-        prefetchToken = nil
-        prefetchDeadline.cancel()
+        prefetcher.cancel()
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
         awaitingPaint.removeAll()

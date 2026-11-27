@@ -60,7 +60,8 @@ extension NewTabPage {
         let split: SplitDirection? = placed != nil || !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Read the target before showing the split's ratio overrides. Its cached cover was rendered at this size.
-        let targetSize = insertion == nil ? split.flatMap { NewTabSparePool.splitContentSize(in: source, zone: $0 == .right ? .right : .bottom) } : nil
+        let targetSize = insertion.flatMap { NewTabSparePool.dividerContentSize(in: source, insertion: $0) }
+            ?? split.flatMap { NewTabSparePool.splitContentSize(in: source, zone: $0 == .right ? .right : .bottom) }
         let spare = split != nil && source.daemon.isLocal ? services.newTabSpares.take(for: source.view.window, size: targetSize)?.view : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { insertion?.sizing ?? source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
