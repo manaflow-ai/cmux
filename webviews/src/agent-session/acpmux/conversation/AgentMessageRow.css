@@ -128,6 +128,11 @@ button.cv-agentmsg__name:focus-visible {
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
+/* Squeezed under room for an ellipsis and a letter (AgentMessageRow.tsx), the first line goes and
+   the toggle reads as an empty one below, so the chevron stays right after its words. */
+.cv-agentmsg__preview[data-squeezed] {
+  display: none;
+}
 .cv-agentmsg__chevron {
   cursor: default;
 }
@@ -135,37 +140,49 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
+/* The chevron's ink stands --cv-chip-chevron-gap (the grid's 8px) from the chip's edge. The "rest"
+   tokens are where its ink sits with no margin: the flex gap, the sentence's space and the glyph's
+   own inset, measured in the gallery (test/transcript-chevron-after-label.test.ts); opened the
+   chip is whole and its line one space nearer. Opened it used to overlap the chip by 1.8px (Leo,
+   2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"). */
+:root {
+  --cv-chip-chevron-gap: var(--grid-gap);
+  --cv-chip-chevron-rest: 14.6px;
+  --cv-chip-chevron-rest-open: 12.2px;
+}
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
    takes back the line's gap before it, so the chevron sits right after what ends the sentence, as
    after any row's words (transcript-chevron-after-label), its ink the transcript's room after the
-   last letter (design/disclosure-chevron.md). Leo, 2026-11-27, on an opened sender chip and a
-   send's "· and 7 more commands" with the chevron on their last letter: "these chevrons are too
-   close dont we have any guidelines for these yet?". The pull used to assume a chip ended the
-   sentence and took its end padding as room too, so after bare words (a machine, "and 7 more
-   commands") it drew the chevron on them. Now bare words are the default, and only a link chip
-   that ends the sentence (its 4px end padding already room) takes one step more. */
-.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+   last letter (design/chevrons.md). Leo, 2026-11-27, on an opened sender chip and a send's
+   "· and 7 more commands" with the chevron on their last letter: "these chevrons are too close
+   dont we have any guidelines for these yet?". The pull used to assume a chip ended the sentence
+   and took its end padding as room too, so after bare words (a machine, "and 7 more commands") it
+   drew the chevron on them. Now bare words are the default; a first line squeezed out
+   ([data-squeezed], AgentMessageRow.tsx) counts as none. */
+.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   margin-inline-start: calc(-1 * var(--grid-gap));
 }
 /* Opened, the turned chevron's ink is wider and starts half a step sooner: half a step less pull. */
-.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   margin-inline-start: calc(-1 * var(--grid-gap) + 0.5 * var(--ds-space-1));
 }
+/* A link chip that ends the sentence: the chevron's ink stands --cv-chip-chevron-gap from the
+   chip's box, not its words (design/chevrons.md's 8px floor after a box). */
 .acpmux-row
   .cv-agentmsg:not([data-open])
   :is(button.cv-agent-tag.is-open, .cv-received__sender:not(:has(> .cv-received__host)):has(> button.cv-agent-tag.is-open))
-  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - var(--ds-space-1));
+  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest));
 }
 .acpmux-row
   .cv-agentmsg.cv-received[data-open]
   :is(button.cv-agent-tag.is-open, .cv-received__sender:not(:has(> .cv-received__host)):has(> button.cv-agent-tag.is-open))
-  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest-open));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */
-.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:empty) {
+.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:is(:empty, [data-squeezed])) {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 6px;

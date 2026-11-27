@@ -224,6 +224,12 @@ const openFirstSend: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more"));
 };
 
+/// A received line, opened by a click on its chevron (the line holds no first line to click).
+const openReceived: Play = async (ctx) => {
+  await ctx.click({ selector: '.cv-agentmsg[data-direction="received"] .cv-agentmsg__line' });
+  await ctx.waitFor(() => ctx.document.querySelector('.cv-agentmsg[data-direction="received"][data-open]'));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.message-line-look",
   title: "Message rows: line and first line",
@@ -274,6 +280,12 @@ export default agentPaneEntry({
       note: "The first send opened in the default one-line look: its message at the row's text column, Raw quiet under it at the same indent; the row has no Copy.",
       snapshot: coordinatorTurn(),
       play: openFirstSend,
+    },
+    "quiet-received-open": {
+      note: 'Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?" A received line with no first line on it (quiet look), opened: the sender\'s chip and its chevron keep the 8px floor (design/chevrons.md, test/chevron-after-chip.test.ts).',
+      theme: { messageLineLook: "quiet" },
+      snapshot: coordinatorTurn(),
+      play: openReceived,
     },
     quiet: {
       note: "Gallery version (theme messageLineLook quiet): the line alone, the first line only once the row opens.",

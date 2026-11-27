@@ -30,6 +30,12 @@ public final class ChiefTeleportChip: NSView {
     static let height: CGFloat = 20
     private static let dotSize: CGFloat = 6
     private static let gap: CGFloat = 4
+    /// The label's own side padding (its frame is wider than its ink by this on each side).
+    static let labelInset: CGFloat = 2
+    /// design/chevrons.md: a chevron starts at least this far (LayoutGrid.gap) from the last ink of the text it follows.
+    static let textToChevron: CGFloat = 8
+    /// The gap placed after the label's frame so the ink-to-chevron distance is `textToChevron`.
+    static var afterLabel: CGFloat { max(gap, textToChevron - labelInset) }
 
     /// - Parameters:
     ///   - model: The app's teleport state (or a playground's).
@@ -168,6 +174,7 @@ public final class ChiefTeleportChip: NSView {
         if style.showsText { parts.append(ceil(label.naturalSize.width)) }
         if style.showsChevron { parts.append(chevron.image?.size.width ?? 0) }
         width += parts.reduce(0, +) + Self.gap * CGFloat(max(parts.count - 1, 0))
+        if style.showsText, style.showsChevron { width += Self.afterLabel - Self.gap }
         return NSSize(width: ceil(width), height: chipHeight)
     }
 
@@ -177,13 +184,13 @@ public final class ChiefTeleportChip: NSView {
         let midY = bounds.midY
         func place(_ view: NSView, width: CGFloat, height: CGFloat) {
             view.frame = NSRect(x: x, y: (midY - height / 2).rounded(), width: width, height: height)
-            x += width + Self.gap
+            x += width + (view === label && style.showsChevron ? Self.afterLabel : Self.gap)
         }
         if style == .dot { place(dot, width: Self.dotSize, height: Self.dotSize) }
         if style.showsGlyph, let size = glyph.image?.size { place(glyph, width: size.width, height: size.height) }
         if style.showsText {
             let size = label.naturalSize  // the frame the text needs, its 2 pt side padding included
-            let chevronWidth = style.showsChevron ? (chevron.image?.size.width ?? 0) + Self.gap : 0
+            let chevronWidth = style.showsChevron ? (chevron.image?.size.width ?? 0) + Self.afterLabel : 0
             place(label, width: max(0, min(ceil(size.width), bounds.width - x - padding - chevronWidth)), height: ceil(size.height))
         }
         if style.showsChevron, let size = chevron.image?.size {
