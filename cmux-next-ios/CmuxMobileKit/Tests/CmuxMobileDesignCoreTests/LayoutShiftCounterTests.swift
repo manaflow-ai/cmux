@@ -42,6 +42,50 @@ struct LayoutShiftCounterTests {
         #expect(counter.shiftFrames == 1)
     }
 
+    private func streamed(_ y: CGFloat, h: CGFloat, _ revision: Int) -> LayoutShiftCounter.Row {
+        .init(CGRect(x: 0, y: y, width: 390, height: h), .window, content: revision)
+    }
+
+    /// A streamed answer at the bottom of a transcript that follows it (heavy duress plays one into
+    /// every chat): the answer grows with each token and the scroll keeps its bottom in view, so the
+    /// rows above ride the scroll. New content is not a shift; a resize at the same revision is.
+    @Test func aRowGrowingWithNewContentIsNotAShiftButTheSameRevisionResizingIs() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["q": streamed(300, h: 120, 1), "a": streamed(420, h: 49, 1)])
+        // Following: the answer's bottom holds, its top and the row above move up by 54.
+        counter.frame(["q": streamed(246, h: 120, 1), "a": streamed(366, h: 103, 2)])
+        #expect(counter.shiftFrames == 0)
+        // Not following: the answer grows downward, its top holds, nothing else moves.
+        counter.frame(["q": streamed(246, h: 120, 1), "a": streamed(366, h: 180, 3)])
+        #expect(counter.shiftFrames == 0)
+        // The revision landed a frame before its layout: still new content.
+        counter.frame(["q": streamed(246, h: 120, 1), "a": streamed(366, h: 180, 4)])
+        counter.frame(["q": streamed(246, h: 120, 1), "a": streamed(366, h: 220, 4)])
+        #expect(counter.shiftFrames == 0)
+        // The same revision measured again (an estimate corrected late) is a shift.
+        counter.frame(["q": streamed(246, h: 120, 1), "a": streamed(366, h: 260, 4)])
+        #expect(counter.shiftFrames == 1)
+    }
+
+    /// The rows a growing row pushes still count, and so does a growing row both of whose edges
+    /// moved against the scroll.
+    @Test func whatNewContentPushesStillCounts() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["a": streamed(100, h: 49, 1), "b": streamed(149, h: 60, 1)])
+        #expect(counter.frame(["a": streamed(100, h: 103, 2), "b": streamed(203, h: 60, 1)]) == 1)
+        #expect(counter.lastMoved == "b 149/60->203/60")
+        counter.frame(["a": streamed(80, h: 160, 3)])
+        #expect(counter.shiftFrames == 2)
+    }
+
+    /// Without a revision (a SwiftUI row, an older list) a resize counts as before.
+    @Test func aRowWithoutARevisionGrowingIsAShift() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["a": row(0, h: 49, .window)])
+        counter.frame(["a": row(0, h: 103, .window)])
+        #expect(counter.shiftFrames == 1)
+    }
+
     @Test func subPointJitterIsNotAShift() {
         var counter = LayoutShiftCounter()
         counter.frame(["a": row(0)])
