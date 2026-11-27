@@ -1407,7 +1407,7 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:one-material check:component-manifest; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -1495,7 +1495,10 @@ jobs:
       # files the change between the two heads cannot reach (Test webviews). Best effort: no list runs every file.
       - name: Download the files that passed at the previous head
         id: passed-before
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        # A full-ci head whose pick ran (react_class sampled or fast) runs the pick's files as any pull request does
+        # (Test webviews), so it reuses the same way: over 11-26 04Z to 11-27 05Z a full-ci branch's second and later
+        # heads ran 9,818 react-apps-check minutes with nothing reused.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.web-subarea-scope.outputs.react_class == 'sampled' || needs.web-subarea-scope.outputs.react_class == 'fast') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -1688,7 +1691,7 @@ jobs:
             export CMUX_WEB_TEST_PASSED_OUT="$passed/files"
             : > "$CMUX_WEB_TEST_PASSED_OUT"
             before="$(cat "$PASSED_BEFORE/commit" 2> /dev/null || true)"
-            if [ "$FULL_CI" != true ] && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
+            if { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; } && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
               { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-tags --depth=1 origin "$before"; }; then
               reach="$(python3 ../scripts/ci/webviews_affected.py --base "$before" --head HEAD)" || reach=""
               if [ -n "$reach" ]; then
@@ -1785,6 +1788,12 @@ jobs:
           # Warn-only: what the pull request's next head reuses, never this run's verdict.
           PASSED_BEFORE: ${{ steps.passed-before.outcome }}
           PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
+          # A pull request's test step keeps going on a red (react-apps-base-check judges it), but one stopped before it
+          # wrote its results (a runner's SIGTERM, exit 143) left the shard green: a failed-job rerun never retried it,
+          # and the base check failed on every attempt with "has no webviews-head-results.json" (cmux#49337, run
+          # 44955291325, 2026-11-21). That shard is red here, so the rerun takes it again.
+          WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}
+          HEAD_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           # Warn-only: the pick fails open (an error runs both git-hook suites), never this run's verdict.
           HOOK_SUITES: ${{ steps.hook-suites.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
@@ -1793,6 +1802,10 @@ jobs:
           STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$WEBVIEW_TESTS" = failure ] && [ ! -s "$HEAD_RESULTS" ]; then
+            echo "::error::Test webviews stopped before it wrote its results; this shard has no verdict to judge."
+            failed=1
+          fi
           if [ "$DURATIONS_UPLOAD" = failure ]; then
             echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
           fi
