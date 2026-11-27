@@ -97,10 +97,10 @@ import Testing
         #expect(box.runs == 0)
     }
 
-    // Its steps-only form (`CMUX_NEXT_CEF_PUMP_AT_STEP=steps`): with every page drawing each size, the timer ran Chromium's
-    // work between the steps too (about 36 passes a second in a corner drag), so a pointer event waited longer for its
-    // step (input age p50 10 ms with the timer alone, 18-27 ms with both). While a live resize steps, a timer pass now
-    // waits for the next step's start, at most 16 ms; the resize's end runs one it held.
+    // The pass at each step's start adds a pass; it never holds one back (the coordinator, 2026-11-27). Its steps-only
+    // form (`CMUX_NEXT_CEF_PUMP_AT_STEP=steps`) held a due timer pass for the next step's start, up to 16 ms, and the
+    // divider drag's acks waited longer for it: R - P 6.8 ms p50 without the lever, 10.9 ms with it (psr2b and psr3,
+    // Chromium traces). `steps` now means what `1` does: a due timer pass with no step running runs at once.
 
     /// A live resize: a step began, and CEF asked for work now 2 ms later (the clock at 100.002 s).
     static func stepping(_ rig: Rig) {
@@ -109,80 +109,35 @@ import Testing
         rig.pump.request(milliseconds: 0)
     }
 
-    @Test func inALiveResizeTheTimersPassWaitsForTheNextStep() throws {
+    @Test func inALiveResizeADueTimerPassRunsAtOnce() {
         let box = Box()
         let rig = Self.rig(box, onlyAtSteps: true)
         Self.stepping(rig)
         rig.timer.fire()
-        #expect(box.runs == 0, "the timer's pass waits for the next step's start")
-        #expect(abs(try #require(rig.timer.armed) - 0.016) < 1e-6, "at most 16 ms")
-        rig.clock.seconds += 0.005
-        #expect(rig.pump.runIfDueAtStep() == " ran=1 deferred_ms=5.0")
+        #expect(box.runs == 1, "no step runs, the pass is due: it runs now, not at the next step's start")
+        #expect(rig.pump.runIfDueAtStep() == nil, "the next step finds nothing left to do")
         #expect(box.runs == 1)
-        #expect(rig.pump.stats.stepDeferred == 1)
-        #expect(abs(rig.pump.stats.stepDeferredMs - 5) < 1e-6)
-        #expect(box.late.isEmpty)
     }
 
-    @Test func requestsWhileAPassWaitsKeepItsBound() throws {
+    @Test func aRequestInALiveResizeArmsTheTimerAtItsOwnDeadline() throws {
         let box = Box()
         let rig = Self.rig(box, onlyAtSteps: true)
         Self.stepping(rig)
+        #expect(try #require(rig.timer.armed) < 1e-6, "work for now: the timer is armed for now, not for a step's bound")
         rig.timer.fire()
-        rig.clock.seconds += 0.004
-        rig.pump.request(milliseconds: 0)
-        #expect(box.runs == 0)
-        #expect(abs(try #require(rig.timer.armed) - 0.012) < 1e-6, "a new request does not wake the timer before the bound")
-        #expect(rig.pump.stats.stepDeferred == 1, "one held pass")
+        rig.pump.request(milliseconds: 5)
+        #expect(abs(try #require(rig.timer.armed) - 0.005) < 1e-6, "a delayed request keeps its 5 ms")
     }
 
-    @Test func aHeldPassRunsAtItsBoundWhenNoStepComes() {
+    @Test func theStepsPassAddsToTheTimersPasses() {
         let box = Box()
         let rig = Self.rig(box, onlyAtSteps: true)
         Self.stepping(rig)
-        rig.timer.fire()
-        rig.clock.seconds += 0.016
-        rig.timer.fire()
-        #expect(box.runs == 1, "a paused pointer never starves the pages")
-        #expect(rig.pump.stats.stepDeferTimeouts == 1)
-        #expect(box.late == ["bound 16.0"])
-    }
-
-    @Test func theResizesEndRunsAHeldPassAtOnce() {
-        let box = Box()
-        let rig = Self.rig(box, onlyAtSteps: true)
-        Self.stepping(rig)
-        rig.timer.fire()
+        #expect(rig.pump.runIfDueAtStep() == " ran=1", "the next step's start runs the due work")
+        #expect(box.runs == 1)
         rig.clock.seconds += 0.003
-        rig.pump.resizeEnded()
-        #expect(box.runs == 1)
-        #expect(rig.pump.stats.stepDeferFlushes == 1)
-        #expect(box.late == ["end 3.0"])
-        rig.pump.resizeEnded()
-        #expect(box.runs == 1, "once")
         rig.pump.request(milliseconds: 0)
         rig.timer.fire()
-        #expect(box.runs == 2, "after the resize the timer runs at once")
-    }
-
-    @Test func afterAPauseInTheResizeTheTimerRunsAtOnce() {
-        let box = Box()
-        let rig = Self.rig(box, onlyAtSteps: true)
-        Self.stepping(rig)
-        rig.clock.seconds += 0.2
-        rig.timer.fire()
-        #expect(box.runs == 1, "no step for 100 ms: no live resize steps")
-        #expect(rig.pump.stats.stepDeferred == 0)
-    }
-
-    @Test func withoutTheStepsKnobTheTimerNeverWaits() {
-        let box = Box()
-        let rig = Self.rig(box)
-        Self.stepping(rig)
-        rig.timer.fire()
-        #expect(box.runs == 1)
-        rig.pump.resizeEnded()
-        #expect(box.runs == 1)
-        #expect(rig.pump.stats.stepDeferred == 0)
+        #expect(box.runs == 2, "and the timer still runs the work asked for after it")
     }
 }
