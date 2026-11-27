@@ -250,18 +250,23 @@ import Testing
         #expect(progress.isCancelled)
     }
 
+    /// The load runs 1.2 s in all, past one 1 s idle window, while each step
+    /// is 20 ms: a 50x margin, so a loaded simulator that stalls a step for
+    /// a few hundred ms still sees the load as advancing (a 30 ms step
+    /// against 150 ms threw .deadline on CI, job 140513387231).
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
-        let progress = Progress(totalUnitCount: 10)
+        let steps: Int64 = 60
+        let progress = Progress(totalUnitCount: steps)
         let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
             Task {
-                for step in 1...10 {
-                    try await Task.sleep(for: .milliseconds(30))
-                    progress.completedUnitCount = Int64(step)
+                for step in 1...steps {
+                    try await Task.sleep(for: .milliseconds(20))
+                    progress.completedUnitCount = step
                 }
                 finish(.success(42))
             }
             return progress
-        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5))
+        }, inactivityDeadline: .seconds(1), progressPoll: .milliseconds(5))
         #expect(value == 42)
         #expect(!progress.isCancelled)
     }
