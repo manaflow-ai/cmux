@@ -188,7 +188,7 @@ mod tests {
         assert!(drops_key(&facts));
         assert!(!drops_key(&KeyWindows { target: Some("w1".into()), ..facts.clone() }));
         assert!(!drops_key(&KeyWindows { same_window: true, ..facts.clone() }));
-        let foreign = KeyWindows { target: None, ..facts.clone() };
+        let foreign = KeyWindows { target: None, ..facts };
         assert!(!drops_key(&foreign), "a foreign key window with no held run takes the key");
         assert!(drops_key(&KeyWindows { held_run_key_window_is_key: Some(true), ..foreign }));
     }
