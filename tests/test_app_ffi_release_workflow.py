@@ -1983,6 +1983,55 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         m = self.rescue_module
         self.assertEqual(self.watch("pr-rescue", [[]]), (m.WAIT, []))
 
+    def blind_watch(self, errors: list) -> tuple[str, int, list]:
+        """(verdict, GET count, POSTs) of a watch whose reads raise ERRORS in order, then a queued build."""
+        import email.message
+        import urllib.error
+        m = self.rescue_module
+        calls, clock = [], [1000.0]
+
+        def refusal(code, **headers):
+            message = email.message.Message()
+            for key, value in headers.items():
+                message[key.replace("_", "-")] = str(value)
+            return urllib.error.HTTPError("u", code, "Forbidden", message, None)
+
+        def api(method, path, token, body=None):
+            calls.append(method)
+            gets = calls.count("GET")
+            if method == "GET" and gets <= len(errors):
+                code, headers = errors[gets - 1]
+                raise refusal(code, **{k: (v + clock[0] if k == "x_ratelimit_reset" else v)
+                                       for k, v in headers.items()})
+            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued"}]} if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": "pr-rescue"}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, calls.count("GET"), [c for c in calls if c == "POST"]
+
+    def test_a_watch_refused_by_a_rate_limit_ends_instead_of_holding_its_runner(self):
+        # 2026-11-26: watches held a Linux runner 18-42 min with every read a 403 and never dispatched.
+        m = self.rescue_module
+        spent = (403, {"x_ratelimit_remaining": "0", "x_ratelimit_reset": 1800})
+        self.assertEqual(self.blind_watch([spent]), (m.WAIT, 1, []))
+        self.assertEqual(self.blind_watch([(429, {"retry_after": "900"})]), (m.WAIT, 1, []))
+        # A reset before the next read is waited out, and the watch goes on to rescue.
+        soon = (403, {"x_ratelimit_remaining": "0", "x_ratelimit_reset": 30})
+        verdict, _gets, posts = self.blind_watch([soon])
+        self.assertEqual((verdict, len(posts)), (m.RESCUE, 2))
+
+    def test_a_watch_blind_for_three_reads_in_a_row_ends(self):
+        m = self.rescue_module
+        bare = (403, {})
+        self.assertEqual(self.blind_watch([bare] * 5), (m.WAIT, m.BLIND_READS, []))
+        # Two unread pages, then readable ones: the watch goes on and rescues.
+        verdict, _gets, posts = self.blind_watch([bare, bare])
+        self.assertEqual((verdict, len(posts)), (m.RESCUE, 2))
+
 
 class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
     """2026-11-17: vars.CI_BLACKSMITH_MACOS was unset (off) and the Blacksmith macOS labels had 0 of 267 runners
