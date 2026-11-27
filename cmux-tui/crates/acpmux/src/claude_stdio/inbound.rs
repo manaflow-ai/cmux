@@ -625,6 +625,14 @@ impl Translator {
                     {
                         self.dedupe_hook(&rid, req).await;
                     }
+                    // Harness magic: a directory's rules, the first time it is touched
+                    // (dir_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dir_rules::DIR_RULES_CALLBACK) =>
+                    {
+                        self.dir_rules_hook(&rid, req).await;
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -959,6 +967,8 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                let dir_rule_counts =
+                    Some(self.dir_rules.turn_ended()).filter(|_| dir_rules::enabled());
                 // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
                 // alarm is off (`hub/cache_alarm.rs`).
                 let cache_misses = self.cache.take_turn_misses().to_json();
@@ -994,6 +1004,9 @@ impl Translator {
                     let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
                         hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(rules) = dir_rule_counts {
+                        hm.insert("dirRules".into(), rules.to_json());
                     }
                     if let Some(misses) = cache_misses {
                         hm.insert("cacheAlarm".into(), misses);
@@ -1036,6 +1049,7 @@ impl Translator {
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // What was read before is in the summary at most (dedupe.rs).
                 self.dedupe.reset();
+                self.dir_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
