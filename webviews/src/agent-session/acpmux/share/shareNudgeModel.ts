@@ -46,30 +46,11 @@ export function firstReplyCompleted(rows: readonly AcpmuxRow[]): boolean {
   return only !== undefined && (only.status ?? "completed") === "completed" && !only.error && !only.failed;
 }
 
-/** What `shareRefused` reads of the pane's snapshot (AcpmuxSnapshot). */
-export type ShareableChat = {
+/** What the nudge reads of the pane's snapshot (AcpmuxSnapshot). */
+export type ShareNudgeChat = {
   sessionId?: string;
   origin?: AcpmuxSnapshot["origin"];
-  ownerCloud?: boolean;
   peerCopy?: unknown;
-};
-
-/** Why the app would refuse to share this chat, or undefined when it may. The app shares a chat on
- *  this Mac's daemon or on the person's own Cloud machine (AgentSharePaneOps `pane`: `isLocal ||
- *  cloudOwner`), and refuses every other machine's chat (`unavailable`) before the Share dialog can
- *  read a thing: a teammate's Cloud chat, a peer's reached over the app's wire, the Mac's copy of
- *  a peer chat. The ••• menu offers Share… only where this says nothing, and the nudge never shows
- *  where it does. */
-export function shareRefused(chat: ShareableChat): string | undefined {
-  if (!chat.sessionId) return "no-chat";
-  const elsewhere = chat.origin === "remote" || chat.origin === "peer";
-  if (elsewhere && chat.ownerCloud !== true) return "not-this-mac";
-  if (chat.peerCopy) return "peer";
-  return undefined;
-}
-
-/** What the nudge reads of the pane's snapshot (AcpmuxSnapshot). */
-export type ShareNudgeChat = ShareableChat & {
   listedSessions?: true;
   sessions: readonly AcpmuxSessionEntry[];
   rows: readonly AcpmuxRow[];
@@ -96,12 +77,10 @@ export function shareNudgeBlocked(chat: ShareNudgeChat, context: ShareNudgeConte
   if (!context.tipsOn) return "tips-off";
   if (context.quick) return "quick";
   if (context.subagentPane) return "subagent";
-  const refused = shareRefused(chat);
-  if (refused) return refused;
-  // The nudge is for this Mac's first chat: not the person's own Cloud chat either, which the
-  // menu's Share… still offers.
+  if (!chat.sessionId) return "no-chat";
   if (chat.origin !== "local") return "not-local";
   if (chat.summary?.watching) return "read-only";
+  if (chat.peerCopy) return "peer";
   if (chat.summary?.peer || chat.summary?.hostKind === "cloud") return "peer";
   // Only a list read from the daemon says how many chats there are.
   if (!chat.listedSessions) return "unlisted";

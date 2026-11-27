@@ -17,15 +17,6 @@ export interface ShareGuest {
   joined: boolean;
 }
 
-/** A signed-in account that opened the link without access and asked in (the daemon's pending
- * `requests` of a share, agent_session_shares.rs `AccessRequest`; a declined one is never listed). */
-export interface ShareAccessRequest {
-  account: string;
-  name: string;
-  avatarUrl: string | null;
-  requestedAt: number;
-}
-
 export interface ShareInvitee {
   account: string;
   role: ShareRole;
@@ -46,8 +37,6 @@ export interface ChatShare {
   usesLeft: number;
   guests: ShareGuest[];
   invitees: ShareInvitee[];
-  /** Pending access requests; missing from a host older than requests. */
-  requests?: ShareAccessRequest[];
 }
 
 /** A person with access, one row of the dialog. */
@@ -70,8 +59,6 @@ export interface ShareView {
   inviteUrl: string | null;
   /** Link guests in the chat now (not invitees). */
   guestsNow: number;
-  /** Accounts asking for access, oldest first, one row per account (above People with access). */
-  requests: ShareAccessRequest[];
 }
 
 const live = (share: ChatShare) => share.state === "active" || share.state === "provisioning";
@@ -100,15 +87,6 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
   const inviteShare = [...open]
     .filter((share) => share.invitees.some((invitee) => invitee.state === "invited"))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
-  // One row per account (it may have asked on two live shares of the chat; the host approves or
-  // declines every one), and none for an account that has access by now.
-  const requests = new Map<string, ShareAccessRequest>();
-  for (const share of open) {
-    for (const request of share.requests ?? []) {
-      if (people.has(request.account) || requests.has(request.account)) continue;
-      requests.set(request.account, request);
-    }
-  }
   const guestsNow = links.reduce((count, share) => count + share.guests.filter((guest) => guest.joined).length, 0);
   return {
     people: [...people.values()],
@@ -116,7 +94,6 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
     links,
     inviteUrl: inviteShare?.inviteUrl ?? null,
     guestsNow,
-    requests: [...requests.values()].sort((a, b) => a.requestedAt - b.requestedAt),
   };
 }
 
@@ -140,7 +117,7 @@ const RESTRICT_ROUNDS = 5;
 
 export function shareClient(sessionId: string, host: ShareCall = nativeShareCall) {
   // Every op names the chat it is for: the host refuses one whose tab shows another chat by now, so
-  // a step never lands on a chat the person did not share.
+  // a step (a role change's two calls included) never lands on a chat the person did not share.
   const call: ShareCall = (op, params = {}) => host(op, { ...params, session: sessionId });
   return {
     async state(): Promise<ShareView> {
@@ -149,9 +126,11 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
     },
     invite: (account: string, role: ShareRole) => call("invite", { account, role }),
     remove: (account: string) => call("uninvite", { account }),
-    /** A role change is the invite again with the new role: the daemon changes it in place, so a
-     * failed change leaves the person their access as it was. */
-    setRole: (account: string, role: ShareRole) => call("invite", { account, role }),
+    /** A role change is a remove, then an invite (the daemon refuses another role on an invited account). */
+    async setRole(account: string, role: ShareRole) {
+      await call("uninvite", { account });
+      await call("invite", { account, role });
+    },
     /** The viewer link Copy link hands out: the one this page made while it is live, else a new one. */
     async viewerLink(view: ShareView): Promise<string> {
       const kept = madeLinks.get(sessionId);
@@ -180,11 +159,6 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
       }
       throw new Error("share.restrict_raced");
     },
-    /** Approve: the account is invited as `role` on every share of this chat it asked on (the host's
-     * `agent-session-share-request-approve`). */
-    approve: (account: string, role: ShareRole) => call("approve", { account, role }),
-    /** Decline: silent; the account is not told and cannot ask again (`agent-session-share-request-decline`). */
-    decline: (account: string) => call("decline", { account }),
     manage: () => call("manage"),
   };
 }

@@ -29,7 +29,6 @@ import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
   canOpen,
-  ActorLabel,
   FilterLabel,
   groupTitle,
   GroupingLabel,
@@ -46,7 +45,7 @@ import {
   target,
 } from "./model";
 import type { HistoryStore } from "./store";
-import { HISTORY_ACTORS, HISTORY_RANGES, type HistoryEntry } from "./types";
+import { HISTORY_RANGES, type HistoryEntry } from "./types";
 import { focusRoute } from "../../ui/focusRoute";
 
 type OpenMenu = { session: number; x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
@@ -260,13 +259,6 @@ export function HistoryPage({
       run: () => store.setGrouping(grouping),
     }));
 
-  const actorItems = (): PageMenuItem[] =>
-    HISTORY_ACTORS.map((actor) => ({
-      id: actor,
-      label: t(ActorLabel[actor]),
-      run: () => store.setActor(actor),
-    }));
-
   const rangeItems = (): PageMenuItem[] =>
     HISTORY_RANGES.map((range) => ({
       id: range,
@@ -296,14 +288,6 @@ export function HistoryPage({
               onClick={(event) => headerMenu(event, rangeItems())}
             >
               {t(RangeLabel[snap.range])}
-            </button>
-            {/* Whose page visits show (RFD 0125 D5): the person's by default, agents' one choice away. */}
-            <button
-              type="button"
-              className={`history-menu-button history-actor${snap.actor === "mine" ? "" : " selected"}`}
-              onClick={(event) => headerMenu(event, actorItems())}
-            >
-              {t(ActorLabel[snap.actor])}
             </button>
             <button
               type="button"

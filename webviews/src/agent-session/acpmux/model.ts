@@ -14,7 +14,6 @@ import {
   MARK_FOOTER,
   MARK_FOOTER_ROW,
   MARK_LIVE_STEP,
-  MARK_LIVE_THOUGHT,
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
@@ -1915,14 +1914,6 @@ export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind ==
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
-/// The live line right under a step row that ends on a thought (transcriptGrid.ts MARK_LIVE_THOUGHT): it stands the
-/// run gap the reply that follows the thought stands, so the reply takes its place and nothing over it moves more than
-/// the reply's own lines.
-export const isLiveThought = (row: AcpmuxRow, prev: AcpmuxRow | undefined) => {
-  if (prev?.kind !== "activity" || !isLiveStep(row, prev)) return false;
-  const last = prev.items?.at(-1);
-  return last !== undefined && isThought(last);
-};
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
@@ -2044,9 +2035,7 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
       : isStepRow(row)
         ? MARK_STEP
         : isLiveStep(row, prev)
-          ? isLiveThought(row, prev)
-            ? MARK_LIVE_THOUGHT
-            : MARK_LIVE_STEP
+          ? MARK_LIVE_STEP
           : isStatusRow(row)
             ? MARK_STATUS
             : rowMark(row);

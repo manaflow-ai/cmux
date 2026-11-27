@@ -168,13 +168,6 @@ export class MockHistoryProvider implements PageClient {
       .filter((entry) => kinds.size === 0 || kinds.has(entry.kind))
       .filter((entry) => start === undefined || entry.at_ms >= start)
       .filter((entry) => {
-        // RFD 0125 D5: agent page visits sit one filter away from the person's.
-        if (entry.kind !== "page") return true;
-        const actor = params.actor ?? "mine";
-        if (actor === "all") return true;
-        return (entry.actor === "agent") === (actor === "agents");
-      })
-      .filter((entry) => {
         const haystack = fold(searchText(entry));
         return tokens.every((token) => haystack.includes(token));
       })

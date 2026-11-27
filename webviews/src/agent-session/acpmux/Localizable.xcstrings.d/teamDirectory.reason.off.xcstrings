@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Team messaging is off in cmux on this Mac."
+            "value" : "Team messaging is off on this Mac's acpmux."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "مراسلة الفريق متوقفة في cmux على هذا الـ Mac."
+            "state" : "translated",
+            "value" : "مراسلة الفريق متوقفة في acpmux على هذا الـ Mac."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Timske poruke su isključene u cmuxu na ovom Macu."
+            "state" : "translated",
+            "value" : "Timske poruke su isključene u acpmux na ovom Macu."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Teambeskeder er slået fra i cmux på denne Mac."
+            "state" : "translated",
+            "value" : "Teambeskeder er slået fra i denne Macs acpmux."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Team-Nachrichten sind in cmux auf diesem Mac aus."
+            "state" : "translated",
+            "value" : "Team-Nachrichten sind im acpmux dieses Macs aus."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "La mensajería de equipo está desactivada en cmux en este Mac."
+            "state" : "translated",
+            "value" : "La mensajería de equipo está desactivada en el acpmux de este Mac."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "La messagerie d'équipe est désactivée dans cmux sur ce Mac."
+            "state" : "translated",
+            "value" : "La messagerie d'équipe est désactivée dans l'acpmux de ce Mac."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "La messaggistica del team è disattivata in cmux su questo Mac."
+            "state" : "translated",
+            "value" : "La messaggistica del team è disattivata nell'acpmux di questo Mac."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "この Mac の cmux ではチームメッセージがオフです。"
+            "state" : "translated",
+            "value" : "この Mac の acpmux ではチームメッセージがオフです。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ការផ្ញើសារក្រុមត្រូវបានបិទនៅក្នុង cmux លើ Mac នេះ។"
+            "state" : "translated",
+            "value" : "ការផ្ញើសារក្រុមត្រូវបានបិទនៅលើ acpmux របស់ Mac នេះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "이 Mac의 cmux에서 팀 메시지가 꺼져 있습니다."
+            "state" : "translated",
+            "value" : "이 Mac의 acpmux에서 팀 메시지가 꺼져 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Teammeldinger er av i cmux på denne Macen."
+            "state" : "translated",
+            "value" : "Teammeldinger er av i denne Macens acpmux."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wiadomości zespołu są wyłączone w cmux na tym Macu."
+            "state" : "translated",
+            "value" : "Wiadomości zespołu są wyłączone w acpmux tego Maca."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "As mensagens de equipe estão desativadas no cmux deste Mac."
+            "state" : "translated",
+            "value" : "As mensagens de equipe estão desativadas no acpmux deste Mac."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Командные сообщения выключены в cmux на этом Mac."
+            "state" : "translated",
+            "value" : "Командные сообщения выключены в acpmux этого Mac."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "การส่งข้อความทีมปิดอยู่ใน cmux บน Mac เครื่องนี้"
+            "state" : "translated",
+            "value" : "การส่งข้อความทีมปิดอยู่ใน acpmux ของ Mac เครื่องนี้"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bu Mac'teki cmux'ta ekip mesajlaşması kapalı."
+            "state" : "translated",
+            "value" : "Bu Mac'in acpmux'unda ekip mesajlaşması kapalı."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Командні повідомлення вимкнено в cmux на цьому Mac."
+            "state" : "translated",
+            "value" : "Командні повідомлення вимкнено в acpmux цього Mac."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nhắn tin nhóm đang tắt trong cmux trên máy Mac này."
+            "state" : "translated",
+            "value" : "Nhắn tin nhóm đang tắt trong acpmux của máy Mac này."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "此 Mac 上的 cmux 已关闭团队消息。"
+            "state" : "translated",
+            "value" : "此 Mac 的 acpmux 已关闭团队消息。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "此 Mac 上的 cmux 已關閉團隊訊息。"
+            "state" : "translated",
+            "value" : "此 Mac 的 acpmux 已關閉團隊訊息。"
           }
         }
       }

@@ -2087,16 +2087,6 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
-/* The warning is the row's status, never the row: the machine's name keeps its room and a long
-   warning ("High load: 15/4 cores busy") shortens with an ellipsis instead of squeezing the name out. */
-.acpmux-env-row:has(> .acpmux-env-state[data-warning="true"]) > .acpmux-location-name { flex: 1 0 auto; max-width: 60%; }
-.acpmux-env-row .acpmux-env-state[data-warning="true"] {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
    list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
    while the group is open, as a Mac outline's disclosure does. */
@@ -2294,6 +2284,8 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
+/* Cloud's options, indented under it (Leo 2026-11-24: "Cloud's options are indented rows under Cloud"). */
+.acpmux-env-popover .acpmux-env-row[data-indent] > :first-child { margin-inline-start: 16px; }
 /* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
 .acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { PresenceStack } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
 import { ShareDialogHost, shareToasts } from "./ShareControl";
-import { shareView, type ChatShare, type ShareCall, type ShareRole } from "./shareState";
+import { shareView, type ChatShare, type ShareCall } from "./shareState";
 import "../header/header.css";
 
 export type ShareDemoProps = {
@@ -38,23 +38,6 @@ function fixtureHost(shares: ChatShare[], fail?: string, unread = false): ShareC
       return { shareId: made.shareId, url: "https://share.example.com/g/demo#secret", expiresAt: made.expiresAt };
     }
     if (op === "revoke") next = next.filter((share) => share.shareId !== params.shareId);
-    // Approve invites the account with the row's role; decline drops the row (the daemon keeps it
-    // declined, never listed).
-    if (op === "approve" || op === "decline") {
-      next = next.map((share) => {
-        const asked = share.requests?.some((request) => request.account === params.account);
-        if (!asked) return share;
-        const requests = share.requests?.filter((request) => request.account !== params.account);
-        const invitees =
-          op === "approve"
-            ? [
-                ...share.invitees,
-                { account: String(params.account), role: params.role as ShareRole, state: "invited", joined: false },
-              ]
-            : share.invitees;
-        return { ...share, requests, invitees };
-      });
-    }
     return {};
   };
 }

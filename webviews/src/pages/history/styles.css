@@ -342,7 +342,6 @@
 }
 
 /* A narrowed time range reads as on, like a selected chip. */
-.history-menu-button.history-range.selected,
-.history-menu-button.history-actor.selected {
+.history-menu-button.history-range.selected {
   color: var(--page-text);
 }

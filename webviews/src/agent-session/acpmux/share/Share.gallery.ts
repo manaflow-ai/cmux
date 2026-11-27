@@ -7,7 +7,7 @@
 import { componentEntry } from "../../../gallery/format";
 import { ANA, JORDAN, MEI, SAM } from "../multiplayer/people.fixtures";
 import type { ShareDemoProps } from "./ShareDemo";
-import type { ChatShare, ShareAccessRequest } from "./shareState";
+import type { ChatShare } from "./shareState";
 
 const link: ChatShare = {
   shareId: "link-1",
@@ -89,36 +89,6 @@ const crowd: ChatShare = {
     state: "invited",
     joined: index === 0,
   })),
-};
-
-// Access requests (RFD 0077 D5): signed-in accounts that opened the link without access asked in.
-const ask = (account: string, name: string, requestedAt: number): ShareAccessRequest => ({
-  account,
-  name,
-  avatarUrl: null,
-  requestedAt,
-});
-const oneAsk: ChatShare = { ...people, shareId: "ask-1", requests: [ask("mei@example.com", "Mei Chen", 10)] };
-const threeAsks: ChatShare = {
-  ...people,
-  shareId: "ask-3",
-  requests: [
-    ask("mei@example.com", "Mei Chen", 10),
-    ask("@jordan", "Jordan Lee", 11),
-    ask("riley@example.com", "Riley Park", 12),
-  ],
-};
-const longAsk: ChatShare = {
-  ...people,
-  shareId: "ask-long",
-  requests: [
-    ask(
-      "alexandria.montgomery-fitzgerald@engineering.verylongcompanyname.example.com",
-      "Alexandria Montgomery-Fitzgerald of the Platform Reliability Group",
-      10,
-    ),
-    ask("@sam-the-very-long-handle-name", "", 11),
-  ],
 };
 
 export default componentEntry<ShareDemoProps>({
@@ -232,22 +202,6 @@ export default componentEntry<ShareDemoProps>({
     "dialog-still-reading": {
       note: 'The daemon does not answer the dialog\'s read: no "Try again", it reads again on its own on the shared backoff (autoRetry.ts) and, once that has lasted (at once here), says only "Still reading who has access…" as the quiet status line. A failed share change (an invite, a role, a link) still says "That didn\'t finish. Try again.": that is a write the person chooses.',
       props: { viewing: [], shares: [people], open: true, unread: true },
-    },
-    "requests-one": {
-      note: "One account asked for access (RFD 0077 D5): its row sits above People with access, with a role picker that starts at Can view, Approve and Decline. The people band gives up the row's room, so the dialog keeps its height. Picking Can send puts what it means on the status line; Decline is silent.",
-      props: { viewing, shares: [oneAsk, link], open: true },
-    },
-    "requests-three": {
-      note: "Three requests: the band holds two rows and scrolls to the third, and the heading counts them, so the dialog never grows.",
-      props: { viewing, shares: [threeAsks, link], open: true },
-    },
-    "requests-narrow-long": {
-      note: "At 280 px (pick the narrow width) with a long name and address, and a handle with no name: each request takes two lines, the name and address ellipsize on the first, the role, Approve and an x on the second.",
-      props: { viewing, shares: [longAsk], open: true },
-    },
-    "requests-none": {
-      note: "No requests: no band and no heading; the dialog is as it was.",
-      props: { viewing, shares: [people], open: true },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",
