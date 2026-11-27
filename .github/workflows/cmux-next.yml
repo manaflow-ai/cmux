@@ -3570,11 +3570,12 @@ jobs:
       # Why: note-559
       FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
     steps:
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds and note-561
+      # Why: 2026-11-26-fast-tier-freestyle-link.md
       - name: Note when the checkout starts (Freestyle link check)
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: echo "FSR_CHECKOUT_T0=$(date +%s)" >> "$GITHUB_ENV"
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
