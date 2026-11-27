@@ -41,7 +41,27 @@ class PlanTests(unittest.TestCase):
 
     def test_the_design_system_shoots_every_scene(self):
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/X.swift"])["swift"],
-                         list(w.ALL_SWIFT_SCENES))
+                         list(w.SHELL_SCENES))
+
+    def test_a_heavy_module_shoots_its_own_hosts_scene_only(self):
+        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift",
+                    "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/X.swift"])
+        self.assertEqual(p["swift"], ["chief-teleport", "density-playground"])
+        self.assertEqual(p["needs_build"], [])
+
+    def test_a_hosts_own_sources_shoot_that_hosts_scenes(self):
+        src = "Prototypes/UiLayerHost/Sources/"
+        self.assertEqual(w.plan([src + "UiHomeHost/UiHomeHostMain.swift"])["swift"], ["chief-teleport"])
+        self.assertEqual(w.plan([src + "UiSettingsHost/UiSettingsHostMain.swift"])["swift"], ["density-playground"])
+        self.assertEqual(w.plan([src + "UiLayerHost/UiShellShoot.swift"])["swift"], list(w.SHELL_SCENES))
+        self.assertEqual(w.plan([src + "UiShellShootKit/UiShellShootKit.swift"])["swift"], list(w.SHELL_SCENES))
+
+    def test_every_heavy_host_is_a_product_of_the_shell_package(self):
+        manifest = (ROOT / w.SHELL_PACKAGE / "Package.swift").read_text()
+        for product in set(w.HEAVY_SCENES.values()):
+            self.assertIn(f'.executable(name: "{product}"', manifest)
+        for target in w.HEAVY_HOST_SOURCES:
+            self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target).is_dir(), target)
 
     def test_swift_outside_the_shell_needs_a_build(self):
         p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"])
@@ -138,6 +158,45 @@ class FakeWorker(w.Worker):
         for s in scenes:
             (out / f"{s}.png").write_bytes(b"png-" + self.checked_out.encode())
         return {s: f"{s}.png" for s in scenes}
+
+
+class HeavyHostTests(unittest.TestCase):
+    def worker(self, tmp, fail=()):
+        worker = w.Worker.__new__(w.Worker)
+        worker.built, worker.shot = [], []
+
+        def build_shell(cold=False, product=w.SHELL_PRODUCT):
+            if product in fail:
+                raise w.LookError("no build")
+            worker.built.append(product)
+
+        def shoot_product(product, scenes, out):
+            worker.shot.append((product, scenes))
+            out.mkdir(parents=True, exist_ok=True)
+            for scene in scenes:
+                (out / f"{scene}.png").write_bytes(b"png")
+            return {scene: f"{scene}.png" for scene in scenes}
+
+        worker.build_shell, worker.shoot_product = build_shell, shoot_product
+        return worker
+
+    def test_scenes_go_to_their_hosts_and_land_in_one_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker, out = self.worker(tmp), Path(tmp) / "out"
+            got = worker.shoot_shell(["tabs", "density-playground", "chief-teleport"], out)
+            self.assertEqual(got, {"tabs": "tabs.png", "density-playground": "density-playground.png",
+                                   "chief-teleport": "chief-teleport.png"})
+            self.assertTrue(all((out / f).is_file() for f in got.values()))
+            self.assertEqual(worker.built, ["cmux-ui-settings", "cmux-ui-home"])  # the leaf shell is the caller's
+            self.assertEqual(worker.shot, [("cmux-ui-layer", ["tabs"]), ("cmux-ui-settings", ["density-playground"]),
+                                           ("cmux-ui-home", ["chief-teleport"])])
+
+    def test_a_failed_host_keeps_the_other_shots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp, fail=("cmux-ui-home",))
+            self.assertEqual(worker.shoot_shell(["tabs", "chief-teleport"], Path(tmp) / "out"), {"tabs": "tabs.png"})
+            with self.assertRaises(w.LookError):
+                self.worker(tmp, fail=("cmux-ui-home",)).shoot_shell(["chief-teleport"], Path(tmp) / "out2")
 
 
 class LookTests(unittest.TestCase):

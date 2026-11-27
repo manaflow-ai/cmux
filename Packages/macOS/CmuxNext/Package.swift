@@ -243,6 +243,10 @@ let uiLayerPreviewProducts: [Product] = [
         "CmuxNextSidebar",
         "CmuxNextTabs",
     ]),
+    // The heavy modules' scene hosts (Prototypes/UiLayerHost cmux-ui-home, cmux-ui-settings): one module's closure
+    // each, never the app, so a push to HomeEngine or the Settings window rebuilds that module and its host.
+    .library(name: "CmuxNextUiHomeModules", targets: ["CmuxNextHomeEngine"]),
+    .library(name: "CmuxNextUiSettingsModules", targets: ["CmuxNextBrowser", "CmuxNextSettingsWindow"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.

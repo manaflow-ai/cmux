@@ -40,7 +40,9 @@ What stays warm under --state:
   cmux/          a blob-less clone of manaflow-ai/cmux; each look fetches only its head and base
   swift/         a worktree of it holding Prototypes/UiLayerHost's `.build` (the UI shell, cmux-ui-layer): a changed
                  file in a shell module is an incremental `swift build` (5.8 s in the ui-shell ceiling run), never
-                 the app
+                 the app; and the heavy modules' scene hosts (HEAVY_SCENES: cmux-ui-home for CmuxNextHomeEngine,
+                 cmux-ui-settings for CmuxNextSettingsWindow), each built only for a push to its module, in the
+                 same `.build`, so a heavy push is one module's rebuild too
   web/           a worktree of it with webviews' node_modules and the live gallery (`bun run gallery:dev`, vite with
                  hot reload) running over it: a checkout of another commit is picked up by the dev server's watcher,
                  so a web look is a checkout plus a headless shot (ui-preview-shoot.mjs), no gallery build
@@ -52,7 +54,7 @@ What stays warm under --state:
 
 Scenes come from the diff alone:
   - a Swift file under Packages/macOS/CmuxNext/Sources/<module>/ of a shell module: that module's playground windows
-    (SWIFT_SCENES); the UI shell's own sources (Prototypes/UiLayerHost) shoot every scene
+    (SWIFT_SCENES); the UI shell's own sources (Prototypes/UiLayerHost) shoot every scene of that host
   - a web file: the gallery entries webviews/scripts/gallery/touched.ts ranks first (WEB_CAP of them), each its
     default variant in dark at the gallery's narrow width
   - a Swift file outside the shell's modules, or a package manifest: no look, the receipt says the change needs an
@@ -105,13 +107,27 @@ SHELL_PRODUCT = "cmux-ui-layer"
 # The shell's scenes (UiShellShoot.swift scenes()) by the module whose views each draws. A module the scenes all
 # lean on (the design system, its tokens and icons) shoots them all. Other modules the shell links (Settings, Compat,
 # the preview leaf) draw in no scene: a change there has nothing to show here.
-ALL_SWIFT_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
+SHELL_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
+# Heavy modules' scenes, each in its own host product (Prototypes/UiLayerHost) so the leaf shell never links what it
+# shares (ui-preview-heavy-rebuild.sh, one-module rebuilds: a per-module build 7.0 s median for AgentPane against 90.7 s
+# for the warm app build), and a leaf push never builds them. AgentPane draws in WKWebView: its looks are the web
+# gallery's. CmuxNextApp stays needs_build: it has no view of its own to draw outside the app (a scene hook in it
+# would grow the App, the arch ratchet's app_lines row), and its one-module rebuild is 31 s either way.
+HEAVY_SCENES = {
+    "chief-teleport": "cmux-ui-home",  # CmuxNextHomeEngine: ChiefTeleportPlayground
+    "density-playground": "cmux-ui-settings",  # CmuxNextSettingsWindow: DensityPlaygroundWindow
+}
+# A host's own sources (Prototypes/UiLayerHost/Sources/<target>) shoot its scenes; any other shell source the leaf's.
+HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",), "UiSettingsHost": ("density-playground",)}
+ALL_SWIFT_SCENES = SHELL_SCENES + tuple(HEAVY_SCENES)
 SWIFT_SCENES = {
     "CmuxNextTabs": ("tabs",),
     "CmuxNextSidebar": ("sidebar-states",),
-    "CmuxNextDesign": ALL_SWIFT_SCENES,
-    "CmuxNextDesignTokens": ALL_SWIFT_SCENES,
-    "CmuxNextIcons": ALL_SWIFT_SCENES,
+    "CmuxNextDesign": SHELL_SCENES,
+    "CmuxNextDesignTokens": SHELL_SCENES,
+    "CmuxNextIcons": SHELL_SCENES,
+    "CmuxNextHomeEngine": ("chief-teleport",),
+    "CmuxNextSettingsWindow": ("density-playground",),
 }
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
@@ -286,7 +302,8 @@ def plan(files: list[str]) -> dict:
         if path.startswith(WEB_PREFIXES):
             web = True
         elif path.startswith(SHELL_PACKAGE + "/Sources/"):
-            swift.extend(ALL_SWIFT_SCENES)
+            target = path[len(SHELL_PACKAGE + "/Sources/"):].split("/", 1)[0]
+            swift.extend(HEAVY_HOST_SOURCES.get(target, SHELL_SCENES))
         elif path.startswith(SWIFT_ROOT):
             module = path[len(SWIFT_ROOT):].split("/", 1)[0]
             if module in SWIFT_SCENES:
@@ -708,34 +725,61 @@ class Worker:
         return bool(out.strip())
 
     # The Swift shell.
-    def shell_binary(self) -> Path:
+    def shell_binary(self, product: str = SHELL_PRODUCT) -> Path:
         pkg = self.swift_tree / SHELL_PACKAGE
-        out = run(["swift", "build", "--product", SHELL_PRODUCT, "--show-bin-path"], cwd=pkg, timeout=120,
+        out = run(["swift", "build", "--product", product, "--show-bin-path"], cwd=pkg, timeout=120,
                   what="swift build --show-bin-path")
-        return Path(out.strip().splitlines()[-1]) / SHELL_PRODUCT
+        return Path(out.strip().splitlines()[-1]) / product
 
-    def build_shell(self, cold: bool = False) -> None:
+    def build_shell(self, cold: bool = False, product: str = SHELL_PRODUCT) -> None:
+        """An incremental `swift build` of PRODUCT (the leaf shell, or a heavy module's host) in the warm `.build`."""
         pkg = self.swift_tree / SHELL_PACKAGE
         if not (pkg / "Package.swift").is_file():
             raise LookError(f"{SHELL_PACKAGE} is not at this commit")
-        run(["swift", "build", "--product", SHELL_PRODUCT], cwd=pkg,
-            timeout=COLD_BUILD_SECONDS if cold else BUILD_SECONDS, what="the shell's swift build")
+        if product != SHELL_PRODUCT and f'"{product}"' not in (pkg / "Package.swift").read_text():
+            raise LookError(f"{SHELL_PACKAGE} has no {product} at this commit")
+        run(["swift", "build", "--product", product], cwd=pkg,
+            timeout=COLD_BUILD_SECONDS if cold else BUILD_SECONDS, what=f"{product}'s swift build")
 
     def shoot_shell(self, scenes: list[str], out: Path) -> dict:
-        """The shell's --shoot of SCENES into OUT; {scene: file} for each scene that wrote a PNG."""
+        """--shoot of SCENES into OUT, each by its host (the leaf shell, built by the caller; a heavy module's host,
+        built here); {scene: file} for each scene that wrote a PNG. One host failing keeps the others' shots."""
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
+        by_product: dict[str, list[str]] = {}
+        for scene in scenes:
+            by_product.setdefault(HEAVY_SCENES.get(scene, SHELL_PRODUCT), []).append(scene)
+        shots: dict = {}
+        errors = []
+        for product, wanted in by_product.items():
+            try:
+                if product != SHELL_PRODUCT:
+                    self.build_shell(product=product)
+                shots.update(self.shoot_product(product, wanted, out / product))
+            except LookError as err:
+                errors.append(f"{product}: {err}")
+        for scene, file in list(shots.items()):
+            os.replace(out / HEAVY_SCENES.get(scene, SHELL_PRODUCT) / file, out / file)
+        if errors and not shots:
+            raise LookError("; ".join(errors))
+        for error in errors:
+            log(f"swift: {error}")
+        return shots
+
+    def shoot_product(self, product: str, scenes: list[str], out: Path) -> dict:
+        """PRODUCT's --shoot of SCENES into OUT; {scene: file} for each scene that wrote a PNG."""
+        out.mkdir(parents=True, exist_ok=True)
         pkg = self.swift_tree / SHELL_PACKAGE
-        binary = self.shell_binary()
+        binary = self.shell_binary(product)
         try:
             done = subprocess.run([str(binary), "--shoot", str(out), "--scene", ",".join(scenes)], cwd=pkg,
                                   capture_output=True, text=True, timeout=SHOOT_SECONDS)
         except subprocess.TimeoutExpired:
-            raise LookError(f"the shell's shoot ran past {SHOOT_SECONDS} s") from None
+            raise LookError(f"the shoot ran past {SHOOT_SECONDS} s") from None
         receipt_file = out / "receipt.json"
         if not receipt_file.is_file():
-            raise LookError(f"the shell's shoot exited {done.returncode} with no receipt.json: "
+            raise LookError(f"the shoot exited {done.returncode} with no receipt.json: "
                             f"{tail(done.stderr or done.stdout)}")
         shots = {}
         for shot in json.loads(receipt_file.read_text()).get("shots") or []:
@@ -756,7 +800,8 @@ class Worker:
                 shots = self.peer_shoot(sha, want, fresh, branch)
             else:
                 self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
-                self.build_shell()
+                if any(s not in HEAVY_SCENES for s in want):
+                    self.build_shell()
                 shots = self.shoot_shell(want, fresh)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
@@ -953,6 +998,13 @@ class Worker:
                     self.build_shell(cold=True)
             except LookError as err:
                 errors.append(f"swift: {err}")
+            for product in sorted(set(HEAVY_SCENES.values())):
+                # Each heavy host warm too, so a heavy push's first look is its module's rebuild, not a cold one.
+                try:
+                    with stages(f"swift_{product}"):
+                        self.build_shell(cold=True, product=product)
+                except LookError as err:
+                    errors.append(f"swift {product}: {err}")
         if web:
             try:
                 g = self.web
