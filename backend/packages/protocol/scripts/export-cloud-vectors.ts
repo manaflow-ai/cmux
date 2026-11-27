@@ -117,7 +117,7 @@ const AGENT_P = { kind: "install", agent: AGENT }
 /** A signed-in person (session). Money and destructive ops need one (decision: never the default install grants). */
 const SESSION_P = { kind: "session" }
 /** Ops that cost money or destroy data: a user principal, or later an install with a fresh origin.confirmation (ORIGIN). */
-const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.start", "cloud.machine.pause", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start"])
+const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.start", "cloud.machine.pause", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start", "cloud.allotment.set"])
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
@@ -432,6 +432,22 @@ const ALLOTMENT: Json = {
   names: { user_vec_1: "Ada", user_vec_2: "Sam" }
 }
 kase("allotment.get", "cloud.allotment.get", {}, [readOk("cloud.allotment.get", ALLOTMENT, "14")])
+// The team's hold for its people: a team admin sets 15 minutes, then clears it. The answer is the stored setting.
+const HELD_SETTING: Obj = { commit_micros: 300_000_000, mode: "ask", auto_max_micros: null, tiers: { user_vec_1: "plus" }, snoozed_until: null, changed_at: 1791600000000, changed_by: "user_vec_1" }
+kase(
+  "allotment.set.person_hold",
+  "cloud.allotment.set",
+  { person_hold_seconds: 900 },
+  [opOk("cloud.allotment.set", "key-allot-hold-1", { allotment: { ...HELD_SETTING, person_hold_seconds: 900 } }, "15")],
+  { key: "key-allot-hold-1" }
+)
+kase(
+  "allotment.set.person_hold_clear",
+  "cloud.allotment.set",
+  { person_hold_seconds: null },
+  [opOk("cloud.allotment.set", "key-allot-hold-clear", { allotment: HELD_SETTING }, "16")],
+  { key: "key-allot-hold-clear", note: "null clears the hold: the stored setting has no person_hold_seconds." }
+)
 // The team's usage this month, priced by the billing owner: 10 vCPU-hours, 20 GiB-hours awake, 30 GiB-days held.
 const USAGE = {
   period: "2026-11",

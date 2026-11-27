@@ -163,6 +163,12 @@ const enumType = (t: T, name: string, into: Array<Item>, inUnion: boolean): stri
     return `BoolLit<${values[0]}>`
   }
   if (values.length === 1 && typeof values[0] === "number" && Number.isSafeInteger(values[0])) return `IntLit<${values[0]}>`
+  // A choice of whole numbers (cloud.allotment.set person_hold_seconds: 300, 900 or 1800) is an i64: the caller
+  // checks the choice, as the backend does. In a union it would match any number, so it stays refused there.
+  if (values.length > 1 && values.every((v) => typeof v === "number" && Number.isSafeInteger(v))) {
+    if (inUnion) fail(`${name}: a multi-value integer enum as a union member is not supported`)
+    return "i64"
+  }
   if (!values.every((v) => typeof v === "string")) fail(`${name}: enum values must be strings, booleans or a single safe integer`)
   if (values.length === 1) return literal(values[0] as string)
   // An open enum would accept any string, so a union member must be a literal.
