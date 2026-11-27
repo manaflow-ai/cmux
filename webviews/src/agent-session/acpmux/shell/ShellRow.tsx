@@ -4,6 +4,7 @@
 // view), and "Open in terminal", which types the command into a new terminal tab in the same folder
 // without running it.
 import { useContext, useEffect, useLayoutEffect, useRef } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { OUTPUT_SCROLL_BOX } from "../conversation/blockPartsModel";
@@ -53,7 +54,7 @@ export function ShellRow({ row }: { row: AcpmuxRow; expanded?: boolean; onToggle
               <button type="button" className="acpmux-shell-block-stop" onClick={() => actions.stop(run.id)}>
                 <Spinner size={12} />
                 {t("shell.stop")}
-                <kbd>⌃C</kbd>
+                <KeyHint keys="⌃C" />
               </button>
             ) : (
               <Spinner size={12} />

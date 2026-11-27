@@ -93,7 +93,7 @@ extension SidebarDocument {
                                  undoable: undoable)
         else { return false }
         // A pin is the home daemon's document; the workspace's own daemon (any session) gets the flag too.
-        if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(bridge.services.machines).mirror(ids.map(\.rawValue), pinned: pinned) }
+        if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(owner: bridge.services.machines.workspace(id:)).mirror(ids.map(\.rawValue), pinned: pinned) }
         return true
     }
 }

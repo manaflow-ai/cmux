@@ -26,7 +26,7 @@ mod input;
 mod local_output;
 mod metadata;
 mod mirror_park;
-pub(crate) use mirror_park::TerminalMirror;
+pub(crate) use mirror_park::{MirrorGuard, ParkedLook, TerminalMirror};
 mod mouse_input;
 mod options;
 mod pending_bells;
@@ -310,6 +310,9 @@ pub struct AttachStream {
     /// left out (`replay_history_start`); `None` when the replay reaches the
     /// screen.
     pub history_rows_skipped: Option<u64>,
+    /// The terminal's output stream offset at the replay's cut: the offset of
+    /// the first byte `stream` delivers (`attach-frames-v1` OUTPUT frames).
+    pub stream_offset: u64,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
     /// Where the output stream stood at the replay (`terminal-resume-v1`).
@@ -862,10 +865,11 @@ impl Surface {
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
+                reader_detached: AtomicBool::new(false),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term)),
+                term: TerminalMirror::new(Box::new(term), opts.scrollback),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -1075,12 +1079,17 @@ impl Surface {
         }
     }
 
-    /// The terminal runs on the holder (its PTY master lives in the holder process).
-    #[cfg(test)]
+    /// The terminal runs on the holder (its PTY master lives in the holder process). The holder is unix-only.
+    #[cfg(all(test, unix))]
     pub(crate) fn runs_on_holder(&self) -> bool {
         self.as_pty().is_some_and(|pty| {
             let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+            #[cfg(unix)]
+            let on_holder = matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. });
+            // Windows has no holder process: its terminals run in the daemon or a host.
+            #[cfg(not(unix))]
+            let on_holder = false;
+            on_holder
         })
     }
 

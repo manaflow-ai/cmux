@@ -35,15 +35,19 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { requireBrowserLane, probeEngineOrSkip } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.transcript";
-  const launchers: [string, () => Promise<Browser>][] = [
-    ["chromium", () => chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] })],
-    ["webkit", () => webkit.launch({ headless: true })],
-  ];
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const launchers: [string, () => Promise<Browser>][] = [];
+  if (await probeEngineOrSkip("transcript-block-sideways-scrollbar.test.ts", "chromium", chromium))
+    launchers.push(["chromium", () => chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] })]);
+  if (await probeEngineOrSkip("transcript-block-sideways-scrollbar.test.ts", "webkit", webkit))
+    launchers.push(["webkit", () => webkit.launch({ headless: true })]);
+  if (launchers.length === 0) return;
   /// The thin scroller's tallest lane; WebKit's and Chromium's classic bars are 15 px.
   const THIN = 10;
   /// The cards' corner radius (12px) and a little more: the lane's right end a reading skips.
@@ -123,7 +127,10 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     await vite.listen();
     for (const [name, launch] of launchers) browsers.set(name, await launch());
     // One load compiles the entry's modules for every state of it.
-    await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant: blocks[0]!.variant } });
+    await warmGalleryFrame(vite, ENTRY, {
+      browser: browsers.values().next().value,
+      params: { variant: blocks[0]!.variant },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();

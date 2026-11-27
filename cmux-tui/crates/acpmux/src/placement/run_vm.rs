@@ -31,6 +31,7 @@
 //! `$ACPMUX_HOME/run-vm.jsonl` (where it ran, fork and first-output times, files back, exit,
 //! the fallback's cause), which is what the RFD's thresholds are re-measured from.
 
+use super::command_shadow::{Predicted, workload_shape};
 use super::sub_fork::{self, ForkGuard, Machines};
 use super::sub_fork_run::{ForkLink, Frame, Harness, Job};
 use base64::Engine as _;
@@ -203,11 +204,59 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
+/// The fork sizes a run VM can start at, smallest first: (name, vCPU, GiB), the platform's chat
+/// ladder (cmux-platform `Sizes.ts`). A fork never starts smaller than its source.
+const LADDER: &[(&str, f64, f64)] = &[
+    ("sm", 2.0, 4.0),
+    ("md", 4.0, 8.0),
+    ("lg", 8.0, 16.0),
+    ("xl", 16.0, 32.0),
+    ("2xl", 32.0, 64.0),
+];
+
+/// The size a run VM starts at (RFD 0144 piece 8): the smallest ladder size that covers the
+/// predicted shape, the largest when none does, or none when the source's `sm` already covers it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sizing {
+    pub size: &'static str,
+    pub vcpu: f64,
+    pub mem_gib: f64,
+    /// How many of this repository's past runs predicted it; 0 is the class default.
+    pub runs: usize,
+}
+
+/// The run VM's size for what the rows file predicts, when it is above the smallest.
+pub fn sizing(predicted: &Predicted) -> Option<Sizing> {
+    let need = workload_shape(predicted.need?);
+    let (size, vcpu, mem_gib) = LADDER
+        .iter()
+        .find(|(_, vcpu, mem)| *vcpu >= need.vcpu && *mem >= need.mem_gib)
+        .or(LADDER.last())
+        .copied()?;
+    (size != LADDER[0].0).then_some(Sizing { size, vcpu, mem_gib, runs: predicted.runs })
+}
+
+/// The notice row for a sized run VM: what it starts at and why, in place of an ask.
+pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
+    let from = match sizing.runs {
+        0 => "the usual need of the class".to_owned(),
+        1 => "its last run here".to_owned(),
+        n => format!("its last {n} runs here"),
+    };
+    format!(
+        "[run-vm] {class}: running on a {} vCPU, {} GiB run VM, sized from {from}",
+        sizing.vcpu, sizing.mem_gib
+    )
+}
+
 /// Where a run ended up, one row of `run-vm.jsonl`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     pub class: String,
+    /// The ladder size the run VM was asked for, when above the source's (RFD 0144 piece 8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
     /// `fork` when it ran on a run VM, `here` when it fell back.
     pub ran: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -251,11 +300,13 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     command: &str,
     cwd: &Path,
     path: Option<String>,
+    size: Option<&str>,
     out: &mut (dyn FnMut(&str) + Send),
 ) -> Ran {
     let began = Instant::now();
     let mut row = Row {
         class: class.to_owned(),
+        size: size.map(str::to_owned),
         ran: "here",
         fork: None,
         fork_ms: None,
@@ -281,7 +332,7 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     };
     let key = format!("run-vm-{}-{}", std::process::id(), began.elapsed().as_nanos());
     let fork_began = Instant::now();
-    let fork = match machines.fork(machine, &key).await {
+    let fork = match machines.fork_sized(machine, &key, size).await {
         Ok(id) => id,
         Err(e) => return here(row, format!("fork: {e}")),
     };
@@ -409,9 +460,9 @@ fn write_row(row: &Row) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }
@@ -422,6 +473,20 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     let machine = sub_fork::this_machine();
     let class = goes(run_vms_on(), machine.as_deref(), command);
     let (Some(machine), Some(class)) = (machine, class) else { return run_here(command).await };
+    // The fork backend (cmux-cloud-api) is unix-only: elsewhere every command runs here.
+    #[cfg(not(unix))]
+    {
+        let _ = (machine, class);
+        eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+        return run_here(command).await;
+    }
+    #[cfg(unix)]
+    on_cloud(command, machine, class).await
+}
+
+/// `main` once the command goes to a run VM: fork this machine on cmux Cloud and run it there.
+#[cfg(unix)]
+async fn on_cloud(command: &str, machine: String, class: &'static str) -> anyhow::Result<i32> {
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
@@ -431,7 +496,21 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     };
     let link = super::sub_fork_run::CloudLink::new(machines.request.clone());
     let cwd = std::env::current_dir()?;
-    eprintln!("[run-vm] {class}: running on a fork of this machine");
+    // AutoCloud sizes the run VM from the shadow table; without it, the source's size.
+    let sized = super::auto_cloud_on()
+        .then(|| {
+            let repo = cwd.to_string_lossy();
+            sizing(&super::command_sampler::predict_from_file(
+                &super::command_sampler::file_path(),
+                &repo,
+                command,
+            ))
+        })
+        .flatten();
+    match &sized {
+        Some(s) => eprintln!("{}", sizing_notice(class, s)),
+        None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
+    }
     let mut stdout = tokio::io::stdout();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let mut push = move |l: &str| {
@@ -445,6 +524,7 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
         command,
         &cwd,
         std::env::var("PATH").ok(),
+        sized.map(|s| s.size),
         &mut push,
     );
     tokio::pin!(run);
@@ -491,6 +571,7 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     Ok(exit_code(status))
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

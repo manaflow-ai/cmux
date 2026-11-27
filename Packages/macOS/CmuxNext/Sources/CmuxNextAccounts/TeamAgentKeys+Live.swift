@@ -9,7 +9,9 @@ extension TeamAgentKeys {
     /// and is never logged; a failure reports the API's error code, never the request.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> TeamAgentKeys {
         let owner = ownerAPICall(auth: auth, ownerAPI: ownerAPI, preview: preview)
-        return TeamAgentKeys(scope: owner.scope, call: owner.call)
+        let keys = TeamAgentKeys(scope: owner.scope, call: owner.call)
+        keys.signInBackend = auth.configuration.signInBackendLine
+        return keys
     }
 
     /// The active team's scope and its owner API call (`v1/read`, or `v1/ops` with a mutation key),

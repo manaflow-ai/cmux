@@ -273,34 +273,69 @@ json.dump({"host": sys.argv[2], "mode": sys.argv[3], "quality": sys.argv[4],
 PY
 }
 
+# locate_marker: with no presented-marker-origin=/presented-cell-size=, the scene's counter row (the topmost
+# 20-cell row) as Screen Sharing shows it on this display, in observe's capture pixels: marker-locate on a
+# capture of the main display. The remote first frame can lag the connect, so it tries
+# EVAL_APPLE_LOCATE_TRIES times (default 30), a second apart. Sets the caller's origin and cell.
+locate_marker() {
+  local tool="$EVAL_BIN/screen-eval-marker-locate" png="$EVAL_STATE/locate.png" err="$EVAL_STATE/locate.err"
+  local tries=${EVAL_APPLE_LOCATE_TRIES:-30} found="" why="no display capture" i
+  [[ "$tries" =~ ^[1-9][0-9]*$ ]] || tries=30
+  [[ "${EVAL_PRESENTED_DISPLAY:-main}" == main ]] || {
+    echo "apple-$mode: source readiness needs marker geometry for display ${EVAL_PRESENTED_DISPLAY}; next: pass presented-marker-origin= and presented-cell-size=" >&2
+    return 1
+  }
+  [[ -x "$tool" ]] || {
+    echo "apple-$mode: source readiness needs marker geometry: none given and no screen-eval-marker-locate in EVAL_BIN; next: build the target on the viewer, or pass presented-marker-origin= and presented-cell-size=" >&2
+    return 1
+  }
+  for ((i = 1; i <= tries; i++)); do
+    rm -f "$png"
+    if screencapture -x -D 1 "$png" 2>/dev/null && [[ -s "$png" ]]; then
+      if found=$("$tool" "$png" 2>"$err") && [[ "$found" =~ ^origin\ ([0-9]+),([0-9]+)\ cell\ ([0-9]+)\ at ]]; then
+        origin="${BASH_REMATCH[1]},${BASH_REMATCH[2]}" cell=${BASH_REMATCH[3]}
+        rm -f "$png" "$err"
+        return 0
+      fi
+      why=$(tail -1 "$err" 2>/dev/null)
+      [[ -n "$why" ]] || why="unreadable locate output: ${found:-none}"
+    fi
+    (( i < tries )) && sleep 1 # bounded: EVAL_APPLE_LOCATE_TRIES tries while the remote first frame arrives
+  done
+  rm -f "$png" "$err"
+  echo "apple-$mode: source readiness needs marker geometry: marker-locate found no marker in $tries tries ($why); next: check the Screen Sharing window shows the host's scene, or pass presented-marker-origin= and presented-cell-size=" >&2
+  return 1
+}
+
 verify_scene_ready() {
   local raw=$1 start="$EVAL_STATE/readiness-start"
   [[ "${EVAL_SCENE_NONCE:-}" =~ ^[0-9a-f]{32}$ ]] || {
     echo "apple-$mode: missing fresh source nonce; next: run the host half of screen-stream-eval.sh" >&2
     return 1
   }
-  # connect() already bound viewer_pid (the launched instance) and window_id.
-  for var in EVAL_PRESENTED_OBSERVER_BIN EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE; do
-    [[ -n "${!var:-}" ]] || {
-      echo "apple-$mode: source readiness requires $var; next: configure presented-observer=1 on the viewer" >&2
-      return 1
-    }
-  done
-  [[ -x "$EVAL_PRESENTED_OBSERVER_BIN" ]] || {
-    echo "apple-$mode: observer unavailable; next: supply prebuilt cmux-rd with nonce observation support" >&2
+  # connect() already bound viewer_pid (the launched instance) and window_id. presented-* geometry wins;
+  # without it the marker is found on this display (locate_marker) and observed by the built cmux-rd.
+  local observer=${EVAL_PRESENTED_OBSERVER_BIN:-$EVAL_BIN/cmux-rd}
+  local origin=${EVAL_PRESENTED_MARKER_ORIGIN:-} cell=${EVAL_PRESENTED_CELL_SIZE:-} geometry=presented
+  [[ -x "$observer" ]] || {
+    echo "apple-$mode: observer unavailable at $observer; next: build the target on the viewer (targets/rd.sh build) or supply prebuilt cmux-rd with nonce observation support" >&2
     return 1
   }
+  if [[ -z "$origin" || -z "$cell" ]]; then
+    locate_marker || return 1
+    geometry=marker-locate
+  fi
   : >"$start" || return 1
-  "$EVAL_PRESENTED_OBSERVER_BIN" observe --mode passive \
+  "$observer" observe --mode passive \
     --pid "$viewer_pid" --window "$window_id" --display "${EVAL_PRESENTED_DISPLAY:-main}" \
-    --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
+    --marker-origin "$origin" --cell-size "$cell" \
     --expected-nonce "$EVAL_SCENE_NONCE" --start-file "$start" --duration-s 1 --interval-ms 500 \
     >"$raw.readiness-observer.json" || {
       echo "apple-$mode: source readiness observer failed; next: verify the authorized remote scene and marker geometry" >&2
       return 1
     }
   python3 -I - "$raw.readiness-observer.json" "$raw.readiness.json" \
-    "$EVAL_SCENE_NONCE" "$viewer_pid" "$window_id" "$host" "$mode" <<'PY' || return 1
+    "$EVAL_SCENE_NONCE" "$viewer_pid" "$window_id" "$host" "$mode" "$origin" "$cell" "$geometry" <<'PY' || return 1
 import json, math, sys
 receipt = json.load(open(sys.argv[1]))
 changed = receipt.get("first_changed_marker_ms")
@@ -315,11 +350,14 @@ valid = (receipt.get("schema") == "cmux.presented-marker-series/2"
 if not valid:
     raise SystemExit("Apple source readiness was not proven; next: check the requested host, selected window, and fresh marker")
 json.dump({"requested_host": sys.argv[6], "quality_profile": sys.argv[7],
-           "expected_nonce": sys.argv[3], "observer": receipt}, open(sys.argv[2], "w"))
+           "expected_nonce": sys.argv[3], "observer": receipt,
+           "marker_geometry": {"origin": sys.argv[8], "cell_size": int(sys.argv[9]), "source": sys.argv[10]}},
+          open(sys.argv[2], "w"))
 PY
 }
 
 case "$verb" in
+  caps) echo viewer-grants ;;
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }
@@ -333,13 +371,18 @@ case "$verb" in
     else
       swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$EVAL_ROOT/scripts/measure/screen-stream-eval/window-id.swift"
     fi
-    if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]]; then
-      # Apple-only viewer steps otherwise never build/copy the rd executable.
+    # The viewer Mac (viewer-of=, or presented-observer=1) proves source readiness with cmux-rd observe,
+    # and without presented-* geometry finds the marker with marker-locate; apple-only viewer steps
+    # otherwise never build either. Another target's build may already have put cmux-rd there.
+    if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" || -n "${EVAL_VIEWER_OF:-}" ]]; then
       if [[ -n "${EVAL_PREBUILT:-}" ]]; then
         [[ -x "$EVAL_PREBUILT/cmux-rd" ]] || { echo "apple-$mode: prebuilt cmux-rd observer missing or not executable" >&2; exit 1; }
         cp "$EVAL_PREBUILT/cmux-rd" "$EVAL_BIN/cmux-rd"
+        [[ ! -x "$EVAL_PREBUILT/screen-eval-marker-locate" ]] || cp "$EVAL_PREBUILT/screen-eval-marker-locate" "$EVAL_BIN/"
       else
-        bash "$EVAL_ROOT/scripts/measure/screen-stream-eval/targets/rd.sh" build
+        [[ -x "$EVAL_BIN/cmux-rd" ]] || bash "$EVAL_ROOT/scripts/measure/screen-stream-eval/targets/rd.sh" build || exit 1
+        [[ -x "$EVAL_BIN/screen-eval-marker-locate" ]] ||
+          swiftc -O -o "$EVAL_BIN/screen-eval-marker-locate" "$EVAL_ROOT/scripts/measure/screen-stream-eval/marker-locate.swift" || exit 1
       fi
     fi
     ;;

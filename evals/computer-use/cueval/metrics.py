@@ -133,6 +133,7 @@ def trial_summary(calls: list[dict], turn_usage: list[dict]) -> dict:
         "no_effect": sum(1 for c in calls if c.get("no_effect")),
         "repeats": sum(1 for c in calls if c.get("repeat")),
         "tool_errors": sum(1 for c in calls if c.get("is_error")),
+        "not_offered": sum(1 for c in calls if c.get("not_offered")),
         "relooks_after_action": relooks,
         "fresh_input_tokens": fresh,
         "cache_read_tokens": sum(u.get("cache_read_input_tokens") or 0 for u in turn_usage),
@@ -158,6 +159,9 @@ def result_fields(body: str) -> dict:
     out["waited_ms"] = st.get("waited_ms")
     out["settle"] = st.get("settle")
     out["unchanged"] = st.get("unchanged", head.get("unchanged"))
+    timing = head.get("timing") if isinstance(head.get("timing"), dict) else {}
+    enc = timing.get("encode_ms", head.get("encode_ms"))
+    out["encode_ms"] = enc if isinstance(enc, (int, float)) else None
     if isinstance(head.get("results"), list):  # batch: the steps' own waits
         waits = [r.get("waited_ms") or (r.get("state") or {}).get("waited_ms") for r in head["results"]
                  if isinstance(r, dict)]

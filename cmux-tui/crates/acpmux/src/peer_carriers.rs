@@ -14,7 +14,9 @@
 //!   the remembered path at once, and the link moves to a direct path after its probes.
 
 use super::carrier::{DialError, connect_fail, fail_of_chain};
-use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
+use super::{
+    DIAL_TIMED_OUT, EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens,
+};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Heard, HeardStream};
 use crate::peer_paths::{PROBE_EVERY, Paths, Via};
@@ -489,11 +491,15 @@ impl Peer {
             (paths.dial_order(now), paths.dial_together(now))
         });
         let read = Box::pin(self.direct_tokens(&order)).shared();
+        // Whether a dial ran past its connect deadline: the link's end class (`link_timed_out`).
+        let timed_out = Arc::new(AtomicBool::new(false));
         let dials: Vec<_> = order
             .iter()
             .map(|via| {
                 let read = read.clone();
-                (*via, async move { self.open_via(*via, self.dial_tokens(*via, read).await).await })
+                let dial =
+                    async move { self.open_via(*via, self.dial_tokens(*via, read).await).await };
+                (*via, DIAL_TIMED_OUT.scope(timed_out.clone(), dial))
             })
             .collect();
         let mut stopped = self.stop_changed.subscribe();
@@ -507,6 +513,9 @@ impl Peer {
             Err(failed) => {
                 for (via, _) in &failed {
                     self.path_failed(*via);
+                }
+                if timed_out.load(Ordering::SeqCst) {
+                    self.link_timed_out.store(true, Ordering::SeqCst);
                 }
                 // Every path failed: the route is down, for the most telling of their kinds.
                 self.went_down(connect_fail(failed.iter().map(|(_, error)| error)));
@@ -706,6 +715,8 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
+            // A peer the person configured: a host they name.
+            cmux_egress::allow_named(&host);
             let tcp =
                 crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| DialError::io(&e))?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
@@ -791,9 +802,9 @@ impl Peer {
     ) -> Result<Opened, DialError> {
         let mut restarted = false;
         loop {
-            // A first connect with nothing read: the tunnel logs in while the read does, so the
-            // read costs no time of its own. A later one (a redial, a restarted remote that may
-            // not listen yet) opens its tunnel after the read, as one with kept tokens has none.
+            // A first connect with nothing read: the tunnel logs in first and the read rides its
+            // master (`peer_ssh_master.rs`). A later one (a redial, a restarted remote that may not
+            // listen yet) opens its tunnel after the read, as one with kept tokens has none.
             let reading = tokio::time::Instant::now();
             let mut early = if ssh_tokens.is_none()
                 && self.read_tokens.get().is_none()
@@ -894,6 +905,8 @@ impl Peer {
                 }
             }
             let reason = errors.finish().await;
+            // A WebSocket timeout can be specific to one remote daemon. OpenSSH's
+            // transport keepalives retire a dead master without ending healthy siblings.
             self.note_ssh_failure(reason);
             // ssh's own failure class says more than the upgrade's error over its tunnel.
             let fail = ssh_errors::dial_fail(reason).or(error.fail);
@@ -1139,7 +1152,7 @@ impl Peer {
                 let (token, peer_token) = self
                     .direct_credentials(None)
                     .ok_or_else(|| "no token for the peer yet".to_owned())?;
-                let (child, stream, remote_port, errors) = self.spawn_tunnel()?;
+                let (child, stream, remote_port, errors) = self.spawn_tunnel().await?;
                 let req = self.ws_request(
                     &format!("ws://127.0.0.1:{remote_port}"),
                     Some(&token),

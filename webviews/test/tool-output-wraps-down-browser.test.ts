@@ -12,12 +12,21 @@
 // CMUX_BROWSER_TESTS=1 bun test test/tool-output-wraps-down-browser.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { requireBrowserLane, probeEngineOrSkip } from "./support/requireBrowserLane";
 import { HUGE, LEO_LINE, UNBROKEN } from "../src/agent-session/acpmux/conversation/ToolOutputWrap.gallery";
 
 await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("tool-output-wraps-down-browser.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const ENTRY = "agent-pane.tool-output-wrap";
   setDefaultTimeout(240_000);
   const { createServer } = await import("vite");
@@ -31,9 +40,8 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
-    await warmGalleryFrame(vite, [ENTRY], { browser: browsers.get("chromium") });
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, [ENTRY], { browser: browsers.values().next().value });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -78,7 +86,7 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
       };
     }, name);
 
-  for (const engine of ["chromium", "webkit"])
+  for (const [engine] of engines)
     for (const colorScheme of ["light", "dark"]) {
       test(`${engine} ${colorScheme}: a call's long output line wraps down, with no sideways scroll`, async () => {
         const page = await open(engine, colorScheme);
