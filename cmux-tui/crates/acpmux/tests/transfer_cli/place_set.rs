@@ -166,11 +166,14 @@ sys.exit(2)
     path
 }
 
+/// The fake's calls, the daemon's `--json auth token` reads aside (`hosted_mcp.rs` asks for a
+/// token on its own schedule; it is not a step of the move).
 fn calls(dir: &Path) -> Vec<Vec<String>> {
     std::fs::read_to_string(dir.join("calls.log"))
         .unwrap_or_default()
         .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
+        .map(|l| serde_json::from_str::<Vec<String>>(l).unwrap())
+        .filter(|a| !(a.len() >= 2 && a[0] == "--json" && a[1] == "auth"))
         .collect()
 }
 
