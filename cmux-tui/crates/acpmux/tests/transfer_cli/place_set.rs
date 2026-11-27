@@ -170,7 +170,10 @@ fn calls(dir: &Path) -> Vec<Vec<String>> {
     std::fs::read_to_string(dir.join("calls.log"))
         .unwrap_or_default()
         .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
+        .map(|l| serde_json::from_str::<Vec<String>>(l).unwrap())
+        // The daemon's install sharing (`install_share::start`) reads the person's token with
+        // `cmux --json auth token` at any time; it is no step of a move.
+        .filter(|call| call.as_slice() != ["--json", "auth", "token"])
         .collect()
 }
 
