@@ -56,14 +56,15 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
         inputs = load()["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["join_channel", "model"])
+        self.assertEqual(sorted(inputs), ["acpmux_ref", "bench", "calls", "join_channel", "model", "name", "share", "share_install", "suite"])
         # The model stub by default; the team's login only on a model: real dispatch (the canary).
         self.assertEqual((inputs["model"]["default"], inputs["model"]["options"]), ("stub", ["stub", "real"]))
         self.assertEqual(inputs["join_channel"]["default"], "feat-cmux-next")
+        self.assertEqual((inputs["suite"]["default"], inputs["suite"]["options"]), ("machine-vault", ["billing", "machine-join", "machine-vault"]))
 
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
+        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-vault'")
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
@@ -80,7 +81,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertIn('"$got" != "$want"', cli["run"])
         self.assertIn("ahead", cli["run"])
         self.assertLess(names().index("Download the published cmux CLI"), names().index(RUN_STEP))
-        text = WORKFLOW.read_text(encoding="utf-8")
+        text = str(load()["jobs"]["e2e"])
         self.assertNotIn("cargo build", text)
         self.assertNotIn("setup-cmux-tui-rust", text)
 
@@ -91,13 +92,11 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotIn("permissions", job, name)
 
     def test_secrets_reach_one_step_through_env(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
-        self.assertEqual(workflow_jobs.secret_names(text),
+        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", str(load()["jobs"]["e2e"]))), 3)
+        self.assertEqual(workflow_jobs.secret_names(load()["jobs"]["e2e"]),
                          {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
-        for name, job in load()["jobs"].items():
-            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
-            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        selected = workflow_jobs.copy_job(load()["jobs"]["e2e"], {"steps": workflow_jobs.DROP})
+        self.assertEqual(workflow_jobs.secret_names(selected), set())
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
@@ -133,8 +132,20 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertIn('"the output holds the Claude login"', script)
 
     def test_one_run_at_a_time(self) -> None:
-        self.assertEqual(load()["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
+        self.assertNotIn("concurrency", load())
+        self.assertEqual(load()["jobs"]["e2e"]["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
         self.assertIn("is already in this account's vault", SCRIPT.read_text(encoding="utf-8"))
+
+    def test_suite_gates_are_disjoint(self) -> None:
+        jobs = load()["jobs"]
+        self.assertEqual(
+            {name: job["if"] for name, job in jobs.items()},
+            {
+                "e2e": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-vault'",
+                "billing": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'billing'",
+                "machine_join": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-join'",
+            },
+        )
 
     def test_no_xtrace(self) -> None:
         for s in steps():

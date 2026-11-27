@@ -121,7 +121,7 @@ PICKS: dict[str, int] = {
     "ios-testflight.yml": 2,
     "iroh-release-gate.yml": 1,
     "iroh-v2.yml": 2,
-    "machine-join-e2e.yml": 1,
+    "machine-vault-e2e.yml": 1,
     "macos-cross-parity.yml": 1,
     "merge-group-policy-checks.yml": 2,
     "pr-checks.yml": 4,

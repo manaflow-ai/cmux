@@ -25,7 +25,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 DISPATCH_ONLY = {"workflow_dispatch", "workflow_call"}
 
 REGISTERED = frozenset({
-    "acpmux-sim-sweep.yml", "auto-journey.yml", "billing-e2e.yml", "billing-nightly.yml",
+    "acpmux-sim-sweep.yml", "auto-journey.yml", "billing-nightly.yml",
     "build-ghosttykit.yml", "cloud-capture-provision.yml", "cloud-chat-proof.yml",
     "cloud-composer-journey.yml", "cloud-rd-link-readback.yml", "cloud-vm-dogfood.yml", "cloud-vm-image-bake.yml",
     "cloud-vm-image-promote.yml", "cloud-vm-migrate.yml", "cmux-actions.yml",
@@ -36,7 +36,7 @@ REGISTERED = frozenset({
     "cmux-tui-testbox-warmup.yml", "cmux-tui.yml", "fast-checks.yml",
     "first-user-journey-ios.yml", "first-user-journey-web.yml", "fixit-handoff.yml", "fleet-compile-check.yml",
     "fleet-test-compile.yml", "gallery-health.yml", "ios-app-store.yml", "ios-appstore-upload.yml",
-    "ios-screenshots.yml", "ios-streamed-validate.yml", "iroh-release-gate.yml", "machine-join-e2e.yml",
+    "ios-screenshots.yml", "ios-streamed-validate.yml", "iroh-release-gate.yml",
     "machine-vault-e2e.yml", "macos-cross-parity.yml", "main-compile-probe.yml", "nightly-next-rollback.yml",
     "nightly-next-train.yml", "nightly-next-verdict.yml", "nightly-tag-permission-probe.yml", "pr-status.yml",
     "presence.yml", "reload-build.yml", "repair-nightly-appcast-content-types.yml",
