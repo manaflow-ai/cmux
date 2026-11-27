@@ -10,7 +10,8 @@ use crate::ERR_INVALID;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    operation.starts_with(b"drop_")
+    // `drop_overlay_*` is `tab_drag_rules`' (the tab drag's overlay geometry).
+    operation.starts_with(b"drop_") && !operation.starts_with(b"drop_overlay_")
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
