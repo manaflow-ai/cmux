@@ -99,6 +99,7 @@ mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
+mod cloud_install_post;
 #[cfg(unix)]
 mod cloud_journey;
 #[cfg(unix)]
@@ -1208,6 +1209,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| cloud_install_post::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
