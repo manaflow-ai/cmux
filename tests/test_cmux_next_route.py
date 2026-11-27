@@ -374,6 +374,25 @@ class MacReleaseInputs(unittest.TestCase):
         source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
         self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
 
+    def test_full_ci_runs_it_only_when_the_diff_reaches_an_app_compile(self):
+        # ready-to-land adds full-ci; a daemon-Rust- or iOS-only head reaches no app compile, so the PR skips the
+        # Release compile and the feat-cmux-next push runs it. The other full-ci tiers stay.
+        for changed in (["cmux-tui/crates/acpmux/src/hub/queue.rs"],
+                        ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileKit/Placeholder.swift"]):
+            with self.subTest(changed=changed):
+                result = route(ROOT, "pull_request", changed, {"full-ci", "ready-to-land"})
+                values = outputs(result)
+                self.assertEqual((values["native"], values["mac_release"]), ("false", "false"))
+                self.assertEqual((values["full"], values["scheme"], values["swift"]), ("true", "true", "true"))
+                self.assertIn(cmux_next_route.FULL_CI_NO_APP_COMPILE_REASON, result.reasons)
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"], ["webviews/src/main.tsx"],
+                        ["scripts/ci/xcode-pins.txt"], ["unplaced/new-input.bin"]):
+            with self.subTest(changed=changed):
+                values = outputs(route(ROOT, "pull_request", changed, {"full-ci"}))
+                self.assertEqual((values["native"], values["mac_release"]), ("true", "true"))
+        self.assertEqual(outputs(route(ROOT, "push", ["cmux-tui/crates/acpmux/src/hub/queue.rs"], set()))["mac_release"],
+                         "true")
+
 
 class PullRequestTiers(unittest.TestCase):
     def test_changed_swift_suite_is_prioritized(self):
@@ -625,7 +644,10 @@ class PullRequestTiers(unittest.TestCase):
                          Loader=yaml.BaseLoader)["jobs"]
         clause = ("needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request'"
                   " || github.event.pull_request.base.ref != 'feat-cmux-next'"
-                  " || contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " || (contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " && (github.event.pull_request.base.ref != 'feat-cmux-next'"
+                  " || (github.event.action == 'labeled' && github.event.label.name == 'full-ci')"
+                  " || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))"
                   " || contains(github.event.pull_request.labels.*.name, 'dev-build')"
                   " || needs.path_route.outputs.mac_release == 'true'"
                   " || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready'"
