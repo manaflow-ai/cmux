@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.macScreen.onlyPersonStartsViewing.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عند التشغيل، تنتظر علامة تبويب مشاركة الشاشة التي يفتحها وكيل أو cmux CLI حتى تختار عرض فقط أو تحكم كامل. عند الإيقاف، تبدأ عرض أجهزتك فورًا وتوضح من بدأها. الجهاز الذي يملكه شخص آخر يطلب الإذن أولًا دائمًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kad je uključeno, kartica Dijeljenje ekrana koju otvori agent ili cmux CLI čeka dok ne odaberete Samo pregled ili Puna kontrola. Kad je isključeno, odmah počinje prikazivati vaše uređaje i navodi ko ju je pokrenuo. Uređaj čiji je vlasnik neko drugi uvijek prvo pita."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Til: En Skærmdeling-fane, som en agent eller cmux CLI åbner, venter, til du vælger Kun visning eller Fuld kontrol. Fra: Den begynder straks at vise dine egne enheder og viser, hvem der startede den. En enhed, som en anden ejer, spørger altid først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein: Ein Bildschirmfreigabe-Tab, den ein Agent oder die cmux CLI öffnet, wartet, bis du „Nur ansehen“ oder „Volle Kontrolle“ wählst. Aus: Er zeigt deine eigenen Geräte sofort an und nennt, wer ihn gestartet hat. Ein Gerät, das jemand anderem gehört, fragt immer zuerst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activado, una pestaña de Compartir pantalla que abre un agente o la CLI de cmux espera hasta que elijas Solo ver o Control total. Desactivado, empieza a mostrar tus propios dispositivos al instante e indica quién la inició. Un dispositivo de otra persona siempre pregunta primero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activé, un onglet Partage d’écran ouvert par un agent ou la CLI cmux attend que vous choisissiez Affichage seul ou Contrôle total. Désactivé, il affiche aussitôt vos propres appareils et indique qui l’a lancé. Un appareil qui appartient à quelqu’un d’autre demande toujours d’abord."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attivo: una scheda Condivisione schermo aperta da un agente o dalla CLI di cmux attende finché non scegli Solo visualizzazione o Controllo completo. Disattivo: inizia subito a mostrare i tuoi dispositivi e indica chi l’ha avviata. Un dispositivo di proprietà di altri chiede sempre prima."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにすると、エージェントや cmux CLI が開いた画面共有タブは、「表示のみ」か「フルコントロール」を選ぶまで待機します。オフにすると、自分のデバイスはすぐに表示が始まり、誰が開始したかが表示されます。他の人が所有するデバイスは常に先に確認を求めます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពេលបើក ផ្ទាំងការចែករំលែកអេក្រង់ដែលភ្នាក់ងារ ឬ cmux CLI បើក នឹងរង់ចាំរហូតដល់អ្នកជ្រើស មើលតែប៉ុណ្ណោះ ឬ ការគ្រប់គ្រងពេញលេញ។ ពេលបិទ វាចាប់ផ្ដើមមើលឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកភ្លាមៗ ហើយបង្ហាញថាអ្នកណាជាអ្នកចាប់ផ្ដើម។ ឧបករណ៍ដែលអ្នកផ្សេងជាម្ចាស់ តែងតែសួរមុនជានិច្ច។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "켜면 에이전트나 cmux CLI가 연 화면 공유 탭은 보기 전용 또는 전체 제어를 선택할 때까지 기다립니다. 끄면 내 기기는 바로 보기가 시작되고 누가 시작했는지 표시됩니다. 다른 사람이 소유한 기기는 항상 먼저 묻습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "På: En Skjermdeling-fane som en agent eller cmux CLI åpner, venter til du velger Kun visning eller Full kontroll. Av: Den begynner straks å vise dine egne enheter og viser hvem som startet den. En enhet som noen andre eier, spør alltid først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Włączone: karta Udostępnianie ekranu otwarta przez agenta lub cmux CLI czeka, aż wybierzesz Tylko podgląd lub Pełna kontrola. Wyłączone: od razu zaczyna pokazywać Twoje urządzenia i informuje, kto ją uruchomił. Urządzenie należące do kogoś innego zawsze najpierw pyta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ativado, uma aba de Compartilhamento de Tela aberta por um agente ou pela CLI do cmux espera até você escolher Somente Visualização ou Controle Total. Desativado, ela começa a mostrar seus próprios dispositivos na hora e diz quem a iniciou. Um dispositivo de outra pessoa sempre pergunta antes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если включено, вкладка «Общий экран», открытая агентом или cmux CLI, ждёт, пока вы не выберете «Только просмотр» или «Полный контроль». Если выключено, она сразу начинает показывать ваши устройства и сообщает, кто её запустил. Устройство другого владельца всегда сначала спрашивает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เมื่อเปิด แท็บการแชร์หน้าจอที่เอเจนต์หรือ cmux CLI เปิดจะรอจนกว่าคุณจะเลือก ดูเท่านั้น หรือ ควบคุมทั้งหมด เมื่อปิด แท็บจะเริ่มแสดงอุปกรณ์ของคุณเองทันทีและบอกว่าใครเป็นผู้เริ่ม อุปกรณ์ที่ผู้อื่นเป็นเจ้าของจะถามก่อนเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açıkken, bir ajanın veya cmux CLI’ın açtığı Ekran Paylaşma sekmesi siz Yalnızca Görüntüleme veya Tam Denetim’i seçene kadar bekler. Kapalıyken kendi aygıtlarınızı hemen göstermeye başlar ve kimin başlattığını belirtir. Başka birine ait bir aygıt her zaman önce sorar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Якщо ввімкнено, вкладка «Спільний екран», яку відкрив агент або cmux CLI, чекає, доки ви не виберете «Лише перегляд» або «Повний контроль». Якщо вимкнено, вона одразу починає показувати ваші пристрої й повідомляє, хто її запустив. Пристрій іншого власника завжди спершу питає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi bật, tab Chia sẻ màn hình do tác tử hoặc cmux CLI mở sẽ chờ đến khi bạn chọn Chỉ xem hoặc Toàn quyền điều khiển. Khi tắt, tab bắt đầu hiển thị thiết bị của chính bạn ngay và cho biết ai đã bắt đầu. Thiết bị của người khác luôn hỏi trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后，智能体或 cmux CLI 打开的屏幕共享标签页会等你选择“仅查看”或“完全控制”。关闭后，它会立即开始查看你自己的设备，并显示是谁发起的。他人拥有的设备始终会先询问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟後，代理或 cmux CLI 開啟的螢幕共享分頁會等你選擇「僅檢視」或「完全控制」。關閉後，它會立即開始檢視你自己的裝置，並顯示是誰發起的。他人擁有的裝置一律會先詢問。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -31,6 +31,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod observe;
+
 /// What a watcher knows about one dead session. Every field defaults, so a caller sends only
 /// what it read; a missing count reads 0 and a missing flag false.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]

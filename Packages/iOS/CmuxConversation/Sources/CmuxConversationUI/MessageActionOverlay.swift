@@ -297,7 +297,7 @@ final class MessageActionOverlay: UIView {
             if reaction == currentReaction { button.accessibilityTraits.insert(.selected) }
             button.accessibilityIdentifier = "conversation.tapback.\(reaction.rawValue)"
             button.addAction(UIAction { [weak self, weak button] _ in
-                UISelectionFeedbackGenerator().selectionChanged()
+                ConversationHaptics.selectionChanged()
                 // The pick turns blue at once, then the capsule folds away.
                 button?.backgroundColor = .systemBlue
                 self?.onReaction?(reaction)
@@ -336,7 +336,7 @@ final class MessageActionOverlay: UIView {
         thoughtClose.isHidden = true
         thoughtMidDot.isHidden = true
         emojiField.onEmoji = { [weak self] emoji in
-            UISelectionFeedbackGenerator().selectionChanged()
+            ConversationHaptics.selectionChanged()
             self?.onReaction?(.emoji(emoji))
         }
         addSubview(emojiField)
@@ -1078,6 +1078,7 @@ extension ConversationViewController {
             }, at: editIndex)
         }
         if model.message.delivery?.isFailed == true {
+            // retry-prompt-ok: re-sends a failed message
             items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
                 self?.store.retry(rowID: model.rowID)
             }, at: 1)

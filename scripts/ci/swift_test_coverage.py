@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every Swift test target a package declares is run by a pull request check, or says why not (hq#11644).
+"""Every Swift test target a package declares is run by a CI check, or says why not (hq#11644).
 
 A test target that compiles in CI is not a test that ran. cmux#43937 added CmuxNextAgentListTests (seven
 tests); every check was green, the fast tier built the target and printed its test plan, and no check ran
@@ -11,15 +11,19 @@ it. This script finds that class in two places:
            - a swift-linux-packages.yml group with whole packages and no test filter (Linux);
            - package-test-lane.sh's PACKAGES (ci-macos.yml swift-package-tests, owned Macs), which
              runs a package's whole `swift test` when the pull request changes one of its inputs;
-           - Packages/macOS/CmuxNext: a test target in ci-target-graph.json. The PR swift test runs
-             it with full-ci; a new one also needs the diff check below.
+           - Packages/macOS/CmuxNext: a test target in ci-target-graph.json. `cmux-next swift test` runs
+             it after merge: main's cmux-next-tip-swift-suite-dispatch.yml runs it on the feat-cmux-next tip
+             every 30 min when Swift changed (a post-merge runner satisfies coverage; since 2026-11-26 no
+             pull request into feat-cmux-next runs it, full-ci or not: 0 real catches in 30 days, cmuxterm-hq
+             docs/findings/2026-11-25-ci-value.md).
          A registry entry either names the workflow that runs the whole package on its pull requests
          (`run_by`, checked: it triggers on pull_request and runs `swift test --package-path DIR`
-         with no filter) or says why no PR check runs it (`not_run`).
+         with no filter, or with `--filter` naming only that target) or says why no PR check runs it
+         (`not_run`).
   diff   (--base REV) a CmuxNext test target the change adds that no fast-tier.json swift entry
-         covers fails unless the pull request carries full-ci: without one, the first run of its
-         tests is the tip suite on feat-cmux-next. A new test file in an existing CmuxNext target
-         that no fast-tier entry covers is a warning.
+         covers is a warning: its first run is the tip suite on feat-cmux-next after merge, whose red
+         base-red watch hands to the culprit. A new test file in an existing CmuxNext target that no
+         fast-tier entry covers is a warning too. (--full-ci is accepted and changes nothing.)
 
 Exit 0 when nothing failed, 1 when something did, 2 for a bad registry.
 """
@@ -41,6 +45,7 @@ PACKAGE_LANE = "scripts/ci/package-test-lane.sh"
 CMUXNEXT = "Packages/macOS/CmuxNext"
 GRAPH = f"{CMUXNEXT}/ci-target-graph.json"
 FAST_TIER = "scripts/cmux-next/fast-tier.json"
+LINUX_PACKAGES = "scripts/ci/swift-linux-packages.txt"
 
 # `.testTarget(` then its `name:` argument, comments allowed between them.
 TEST_TARGET = re.compile(r'\.testTarget\(\s*(?:(?://[^\n]*|/\*.*?\*/)\s*)*name:\s*"([^"]+)"', re.S)
@@ -155,8 +160,9 @@ def load_registry(root: Path) -> list[dict]:
     return entries
 
 
-def runs_whole_package_on_pr(root: Path, workflow: str, package: str) -> str | None:
-    """None when `workflow` runs `swift test --package-path PACKAGE` (no filter) on pull requests, else why not."""
+def runs_whole_package_on_pr(root: Path, workflow: str, package: str, target: str = "") -> str | None:
+    """None when `workflow` runs `swift test --package-path PACKAGE` on pull requests, with no filter or with
+    `--filter TARGET` (the package's other targets run elsewhere, such as Linux), else why not."""
     try:
         text = (root / workflow).read_text(encoding="utf-8")
     except OSError:
@@ -166,10 +172,12 @@ def runs_whole_package_on_pr(root: Path, workflow: str, package: str) -> str | N
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
             continue
-        if "swift test" in line and re.search(rf"--package-path\s+\"?{re.escape(package)}\"?(\s|$)", line) \
-                and "--filter" not in line:
-            return None
-    return f"{workflow} has no `swift test --package-path {package}` line without a --filter"
+        if "swift test" in line and re.search(rf"--package-path\s+\"?{re.escape(package)}\"?(\s|$)", line):
+            filters = re.findall(r"--filter\s+\"?([^\s\"]+)", line)
+            if not filters or (target and filters == [target]):
+                return None
+    return (f"{workflow} has no `swift test --package-path {package}` line without a --filter"
+            + (f" or with --filter {target}" if target else ""))
 
 
 def runners(root: Path) -> dict[Target, str]:
@@ -188,7 +196,7 @@ def runners(root: Path) -> dict[Target, str]:
         elif target.package.rsplit("/", 1)[-1] in lane:
             found[target] = "CI macOS swift-package-tests (package-test-lane.sh)"
         elif target.package == CMUXNEXT and target.name in graph:
-            found[target] = "cmux-next swift test (full-ci; a new target needs a fast-tier entry)"
+            found[target] = "cmux-next swift test (after merge: the tip suite dispatch)"
     return found
 
 
@@ -208,7 +216,7 @@ def check_tree(root: Path) -> list[str]:
             errors.append(f"{REGISTRY}: {target.package} {target.name} already runs in {covered[target]}:"
                           " remove the entry")
         elif entry.get("run_by"):
-            why = runs_whole_package_on_pr(root, entry["run_by"], target.package)
+            why = runs_whole_package_on_pr(root, entry["run_by"], target.package, target.name)
             if why:
                 errors.append(f"{REGISTRY}: {target.package} {target.name}: run_by {why}")
     for target in targets:
@@ -226,6 +234,20 @@ def fast_tier_filters(root: Path) -> list[str]:
     entries = json.loads((root / FAST_TIER).read_text(encoding="utf-8"))["entries"]
     return [str(e.get("filter") or "") for e in entries
             if e.get("kind") == "swift" and str(e.get("package") or "").rstrip("/") == CMUXNEXT]
+
+
+def linux_package_targets(root: Path) -> set[str]:
+    """CmuxNext test targets swift-linux-packages.txt lists: swift-linux-packages.yml runs them on pull requests."""
+    try:
+        text = (root / LINUX_PACKAGES).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    targets: set[str] = set()
+    for line in text.splitlines():
+        fields = line.split("#", 1)[0].split()
+        if len(fields) >= 2 and fields[0].rstrip("/") == CMUXNEXT:
+            targets |= {name for name in fields[1].split(",") if name}
+    return targets
 
 
 def suites_in(directory: Path) -> set[str]:
@@ -273,22 +295,19 @@ def check_diff(root: Path, base: str, full_ci: bool) -> tuple[list[str], list[st
     added = [name for name in manifest_targets(head_manifest) if name not in set(manifest_targets(base_manifest))]
     graph = graph_tests(root)
     filters = fast_tier_filters(root)
+    linux_targets = linux_package_targets(root)
     errors: list[str] = []
     warnings: list[str] = []
     for name in added:
         directory = target_directory(root, graph.get(name) or f"Tests/{name}")
-        if covered_by_fast_tier(name, suites_in(directory), filters):
+        if name in linux_targets or covered_by_fast_tier(name, suites_in(directory), filters):
             continue
         tests = count_tests(directory)
         what = f"{CMUXNEXT}: the new test target {name} ({tests} test{'s' if tests != 1 else ''})"
         entry = (f"a {FAST_TIER} swift entry for it (admitted with `fast-tier.py --only NAME --repeat 20`) runs it"
                  " on every pull request")
-        if full_ci:
-            warnings.append(f"{what} runs here only because of full-ci (`cmux-next swift test`): {entry}")
-        else:
-            errors.append(f"{what} is run by no pull request check (the fast tier builds it and runs only its"
-                          f" registry's filters): add {entry.removesuffix(' runs it on every pull request')}, or"
-                          " label the pull request full-ci and push again so `cmux-next swift test` runs it")
+        warnings.append(f"{what} first runs after merge (`cmux-next swift test`, the tip suite dispatch on"
+                        f" feat-cmux-next): {entry}")
     new_files = git(root, "diff", "--name-only", "--diff-filter=A", base, "HEAD", "--", f"{CMUXNEXT}/Tests") or ""
     prefixes = sorted(((name, target_directory(root, directory).relative_to(root).as_posix() + "/")
                        for name, directory in graph.items() if directory), key=lambda item: -len(item[1]))
@@ -299,10 +318,10 @@ def check_diff(root: Path, base: str, full_ci: bool) -> tuple[list[str], list[st
         if owner is None or owner in added:
             continue
         stem = Path(path).stem
-        if covered_by_fast_tier(owner, {stem}, filters) or full_ci:
+        if covered_by_fast_tier(owner, {stem}, filters):
             continue
-        warnings.append(f"{path}: a new test file in {owner}, which no fast-tier entry covers: its tests run only"
-                        " with full-ci (`cmux-next swift test`) or on feat-cmux-next after merge")
+        warnings.append(f"{path}: a new test file in {owner}, which no fast-tier entry covers: its tests run"
+                        " on feat-cmux-next after merge (`cmux-next swift test`, the tip suite dispatch)")
     return errors, warnings
 
 
@@ -310,7 +329,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
     parser.add_argument("--base", help="the pull request's base commit: also check the test targets it adds")
-    parser.add_argument("--full-ci", action="store_true", help="the pull request carries the full-ci label")
+    parser.add_argument("--full-ci", action="store_true", help="accepted for old callers; changes nothing (a post-merge runner satisfies coverage)")
     parser.add_argument("--list", action="store_true", help="print every test target and what runs it")
     args = parser.parse_args(argv)
     root = Path(args.root)

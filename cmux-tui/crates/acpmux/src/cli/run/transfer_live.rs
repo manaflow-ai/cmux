@@ -344,6 +344,23 @@ pub(crate) fn progress_text(r: &Value) -> String {
     line
 }
 
+/// `session info`'s `move:` line for a move whose target has not said whether it took the
+/// chat (`moveUndecided`): since when, and once the chat is offered back, how to take it.
+pub(crate) fn move_undecided_line(info: &Value, now_ms: u64) -> Option<String> {
+    let u = info.get("moveUndecided").filter(|u| u.is_object())?;
+    let since = u.get("since").and_then(Value::as_u64)?;
+    let ago = duration_text(now_ms.saturating_sub(since) as f64 / 1000.0);
+    let id = info.get("sessionId").and_then(Value::as_str).unwrap_or("CHAT");
+    Some(if u.get("offeredAt").and_then(Value::as_u64).is_some() {
+        format!(
+            "move:      undecided: its target has not answered for {ago}; take the chat back \
+             here with `acpmux session move --abort --take-back {id}`"
+        )
+    } else {
+        format!("move:      undecided: its target has not answered for {ago}; still asking")
+    })
+}
+
 /// `session info`'s `move:` line, while a move of the chat reports.
 pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
     let r = info.get("moveProgress").filter(|r| r.is_object())?;
@@ -351,23 +368,5 @@ pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn progress_reads_as_a_line() {
-        let r = json!({"phase": "pre-copy", "round": 1, "totalBytes": 6_800_000_000u64,
-                       "doneBytes": 120_300_000u64, "wireBytes": 12_100_000u64,
-                       "bytesPerSec": 1_000_000u64, "etaSecs": 6720u64,
-                       "target": "lane-vm-7"});
-        assert_eq!(
-            progress_text(&r),
-            "pre-copy round 1 to lane-vm-7: 120.3 MB of 6.80 GB (wire 12.1 MB, 1.0 MB/s), \
-             about 1h 52m left"
-        );
-        assert_eq!(move_progress_line(&json!({"moveProgress": null})), None);
-        assert!(move_progress_line(&json!({"moveProgress": r})).unwrap().starts_with("move:"));
-        assert_eq!(duration_text(9.0), "9s");
-        assert_eq!(duration_text(843.0), "14m 03s");
-    }
-}
+#[path = "transfer_live_tests.rs"]
+mod tests;

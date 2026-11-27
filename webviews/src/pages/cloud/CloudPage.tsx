@@ -1,7 +1,7 @@
 // The Cloud page (plans/cmux-next/cloud-app.md L7, cloud-parity.md "cmux-next UI mapping"). State
 // lives in `CloudStore`; this file only renders it and turns plain keys and clicks into intents.
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
-import { useState, useSyncExternalStore, useMemo } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
@@ -13,13 +13,18 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { shownSurge } from "./surge";
+import { SurgeCard } from "./SurgeCard";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
   const [capNearHidden, setCapNearHidden] = useState(false);
-  const capBannerProps = { hiddenNear: capNearHidden, onHideNear: () => setCapNearHidden(true) };
+  const capBannerProps = {
+    hiddenNear: capNearHidden,
+    onHideNear: () => setCapNearHidden(true),
+  };
   // One set of row callbacks for the store's life: the machine rows' memo compares them.
   const machineActions = useMemo(
     () => ({
@@ -32,18 +37,19 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     }),
     [store],
   );
-  // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // reads again on its own); then the disconnected state with Retry.
-  const down = snap.connection === "disconnected";
-  const failed = snap.connection === "failed";
-  const downLasting = useLasting(down);
   // Machines the page already shows (the kept list, or the owner's before the link dropped) stay on
   // screen through a drop or a failed read: the page says so in one line above them, never in their place.
   const known = !!snap.auth?.signedIn && snap.rows.length > 0;
   // The first read usually answers in well under a second: the page stays blank until then, and
-  // says Loading… only once it lasts (a failure still shows its own card at once).
+  // says Loading… only once it lasts.
   const loading = !snap.auth || (snap.loading && snap.rows.length === 0);
   const loadingShown = useLoadingShown(loading);
+  // A lost link or a failed page read is read again by the store on its own (store.ts
+  // `readAgainLater`), so there is nothing to press: the page shows nothing while it recovers (a
+  // launch, a daemon restart), and once that lasts the grace, one quiet line with no button. The
+  // stretch holds across the store's attempts (`recovering`), so the line does not flash.
+  const outage = snap.connection === "disconnected" || snap.connection === "failed" || (!!snap.recovering && loading);
+  const outageLasting = useLasting(outage);
   const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
   const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
@@ -58,30 +64,16 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       </button>
     ) : null;
   const body = () => {
-    if (down && !downLasting && !known) return null;
-    if (failed && !known)
-      return (
-        <div className="cloud-message cloud-failed" role="alert">
-          <p>{t(L.actionFailed)}</p>
-          {snap.error && <p className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</p>}
-          {store.canRetry && (
-            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
+    if (outage && !known)
+      return outageLasting ? (
+        // The last failure's words stay reachable on hover, not as a second line.
+        <div
+          className="cloud-message cloud-still-trying"
+          title={snap.error ? errorText(snap.error, snap.errorCode, t) : undefined}
+        >
+          <p>{t(L.stillTrying)}</p>
         </div>
-      );
-    if (down && !known)
-      return (
-        <div className="cloud-message cloud-disconnected">
-          <p>{t(L.disconnected)}</p>
-          {store.canRetry && (
-            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
-        </div>
-      );
+      ) : null;
     // `!snap.auth` again so the rest of the body reads it as set.
     if (!snap.auth || loading)
       return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
@@ -116,14 +108,12 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
       <>
-        {known && downLasting && (
-          <output className="cloud-error cloud-disconnected-line">
-            <span className="cloud-error-text">{t(L.disconnected)}</span>
-            {store.canRetry && (
-              <button type="button" className="cloud-link-button cloud-retry-button" onClick={() => void store.retry()}>
-                {t(L.retry)}
-              </button>
-            )}
+        {known && outageLasting && (
+          <output
+            className="cloud-error cloud-disconnected-line cloud-still-trying"
+            title={snap.error ? errorText(snap.error, snap.errorCode, t) : undefined}
+          >
+            <span className="cloud-error-text">{t(L.stillTrying)}</span>
           </output>
         )}
         <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
@@ -146,6 +136,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
                 {t(L.create)}
               </button>
             </div>
+            <SurgeCard surge={shownSurge(snap.surge, snap.machines)} strings={strings} />
             <MachineList
               rows={snap.rows}
               layout={snap.layout}
@@ -187,7 +178,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <h1 className="cloud-title">{t(L.title)}</h1>
         {viewSwitch}
       </header>
-      {snap.error && snap.connection !== "disconnected" && (snap.connection !== "failed" || known) && (
+      {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>

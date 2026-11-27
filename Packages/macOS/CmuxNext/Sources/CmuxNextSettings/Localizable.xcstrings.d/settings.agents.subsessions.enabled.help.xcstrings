@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.subsessions.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agents can start sessions that work in parallel, shown under theirs."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يمكن للوكلاء بدء جلسات تعمل بالتوازي، وتظهر تحت جلساتهم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenti mogu pokretati sesije koje rade paralelno, prikazane ispod njihove."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenter kan starte sessioner, der arbejder parallelt, vist under deres egen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenten können Sitzungen starten, die parallel arbeiten und unter ihrer eigenen erscheinen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los agentes pueden iniciar sesiones que trabajan en paralelo, mostradas bajo la suya."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les agents peuvent démarrer des sessions qui travaillent en parallèle, affichées sous la leur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli agenti possono avviare sessioni che lavorano in parallelo, mostrate sotto la loro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントは並行して作業するセッションを開始でき、それらは元のセッションの下に表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងារអាចចាប់ផ្ដើមវគ្គដែលធ្វើការស្របគ្នា ដែលបង្ហាញនៅក្រោមវគ្គរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 병렬로 작업하는 세션을 시작할 수 있으며, 해당 세션 아래에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenter kan starte økter som arbeider parallelt, vist under deres egen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenci mogą uruchamiać sesje pracujące równolegle, widoczne pod ich sesją."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os agentes podem iniciar sessões que trabalham em paralelo, mostradas sob a sessão deles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агенты могут запускать сеансы, работающие параллельно; они показываются под их сеансом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เอเจนต์เริ่มเซสชันที่ทำงานไปพร้อมกันได้ โดยแสดงใต้เซสชันของเอเจนต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanlar paralel çalışan, kendi oturumlarının altında görünen oturumlar başlatabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агенти можуть запускати сеанси, що працюють паралельно й показуються під їхніми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác tử có thể bắt đầu các phiên làm việc song song, hiện bên dưới phiên của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "智能体可以启动并行工作的会话，显示在其会话下方。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理程式可以啟動平行工作的工作階段，顯示在其工作階段下方。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

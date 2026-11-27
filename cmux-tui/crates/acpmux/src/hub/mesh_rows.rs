@@ -69,6 +69,12 @@ impl Hub {
                                     .map(|tag| tag.value.clone())
                             })
                             .flatten(),
+                        former_names: crate::mesh::heartbeat_former_names(
+                            &m.former_names,
+                            &m.succeeds,
+                        ),
+                        roles: crate::mesh::heartbeat_roles(&m.roles),
+                        updated_at: (m.updated_at > 0).then_some(m.updated_at),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
@@ -94,6 +100,21 @@ impl Hub {
         self.resolve(target).is_err_and(|e| e.code == RpcError::not_found("").code)
             && self.remote_matches(target) == 0
             && self.peer_down_for(target).is_none()
+    }
+
+    /// Whether `target` is `HOST/KEY` on a machine only the mesh hub reaches: neither a peer of
+    /// this daemon nor this machine, with nothing here or on a peer naming it
+    /// ([`Self::mesh_may_route`]). A chat that moved there over the hub is one: the outbox follows
+    /// its move to `HOST/ID` (`server/outbox.rs` `follow_move`), and this daemon's own lookup of
+    /// that key can only say "no session HOST/ID on" this machine.
+    pub fn mesh_only_host(&self, target: &str) -> bool {
+        target.split_once('/').is_some_and(|(host, key)| {
+            !host.is_empty()
+                && !key.is_empty()
+                && self.peer(host).is_none()
+                && !is_own_host(host)
+                && !super::own_host::is_own_machine_name(host)
+        }) && self.mesh_may_route(target)
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
@@ -182,40 +203,5 @@ pub(super) fn is_own_host(host: &str) -> bool {
 }
 
 #[cfg(test)]
-mod mesh_route_tests {
-    use super::*;
-    use crate::config::{Config, StoreMode};
-    use crate::session_identity::SessionReceipt;
-    use serde_json::json;
-
-    fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
-        RemoteSession {
-            peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}).into(),
-            receipt: SessionReceipt {
-                host_id: peer.into(),
-                mux_session_id: id.into(),
-                agent_session_id: None,
-                generation: 1,
-            },
-        }
-    }
-
-    /// A name two peers list is ambiguous: it is never sent to the hub to pick one.
-    #[tokio::test]
-    async fn a_name_one_or_several_peers_list_never_goes_to_the_mesh_hub() {
-        let mut config: Config = serde_json::from_value(json!({})).expect("config");
-        config.store.mode = StoreMode::Memory;
-        let store =
-            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).expect("store");
-        let hub = Hub::new(config, store);
-        assert!(hub.mesh_may_route("dep-land"));
-        hub.remote_sessions.write().insert("p1/s1".into(), row("p1", "s1", "dep-land"));
-        assert!(!hub.mesh_may_route("dep-land"), "one peer lists it");
-        hub.remote_sessions.write().insert("p2/s2".into(), row("p2", "s2", "dep-land"));
-        assert_eq!(hub.remote_matches("dep-land"), 2);
-        assert!(hub.resolve_remote("dep-land").is_none(), "ambiguous");
-        assert!(!hub.mesh_may_route("dep-land"), "two peers list it");
-        assert!(hub.mesh_may_route("other"));
-    }
-}
+#[path = "mesh_rows_mesh_route_tests.rs"]
+mod mesh_route_tests;

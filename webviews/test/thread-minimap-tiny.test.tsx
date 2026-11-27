@@ -9,6 +9,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -133,6 +134,7 @@ for (let height = 96; height <= 336; height += 16)
             />,
           ),
         );
+        await railFrame();
         const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
         const end = scroller.scrollTop;
         const stride = Math.max(7, Math.ceil(end / 120));
@@ -161,8 +163,8 @@ for (let height = 96; height <= 336; height += 16)
           const from = list.hasAttribute("data-fade-top") ? fade : 0;
           const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
-          const roomy = railHeight <= viewport - 18 - 18 - 8;
-          const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;
+          const roomy = railHeight <= viewport - 24 - 18 - 8;
+          const maskFrom = scroller.hasAttribute("data-fade-top") ? 24 : 0;
           const maskTo = viewport - (scroller.hasAttribute("data-fade-bottom") ? 18 : 0);
           for (const index of lit) {
             const y = index * railPitch() - list.scrollTop;

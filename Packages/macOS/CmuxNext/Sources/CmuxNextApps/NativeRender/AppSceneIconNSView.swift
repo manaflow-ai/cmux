@@ -24,6 +24,10 @@ final class AppSceneIconNSView: AppSceneNodeNSView {
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
+        // With an `animation`, a new symbol or color crossfades in place.
+        if let motion = changeMotion, ["symbol", "color", "symbolRendering", "symbolColors"].contains(where: { previousNode?.props[$0] != node.props[$0] }) {
+            Motion.appScenes.sceneCrossfade(motion, on: image.layer, in: window)
+        }
         drawnSymbol = nil
         colorMode = node.string("symbolRendering").flatMap { mode in
             guard ["hierarchical", "palette", "multicolor"].contains(mode), let name = node.string("symbol"),

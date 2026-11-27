@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefPet.about.fox-arctic" : {
+      "comment" : "Chief pet character Arctic Fox (the fox in silver-blue): one-line description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A snow-white fox that keeps a cool head when builds break."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ثعلب أبيض كالثلج يحافظ على هدوئه حين تتعطل عمليات البناء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Snježnobijela lisica koja ostaje hladne glave kad buildovi puknu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En snehvid ræv, der bevarer roen, når builds fejler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein schneeweißer Fuchs, der kühlen Kopf bewahrt, wenn Builds scheitern."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un zorro blanco como la nieve que mantiene la calma cuando fallan las compilaciones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un renard blanc comme neige qui garde la tête froide quand les builds cassent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una volpe bianca come la neve che resta calma quando le build si rompono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ビルドが壊れても冷静さを失わない、雪のように白いキツネ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កញ្ជ្រោងសដូចព្រិល ដែលនៅតែស្ងប់ស្ងាត់ពេល build បរាជ័យ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "빌드가 깨져도 침착함을 잃지 않는 눈처럼 하얀 여우."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En snøhvit rev som holder hodet kaldt når bygg feiler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Śnieżnobiały lis, który zachowuje zimną krew, gdy buildy się sypią."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma raposa branca como a neve que mantém a calma quando os builds quebram."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Белоснежная лиса, которая сохраняет хладнокровие, когда сборки падают."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จิ้งจอกขาวราวหิมะ ที่ใจเย็นเสมอแม้บิลด์จะพัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Derlemeler bozulduğunda soğukkanlılığını koruyan kar beyazı bir tilki."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Білосніжна лисиця, що зберігає холодну голову, коли збірки падають."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chú cáo trắng như tuyết luôn bình tĩnh khi bản dựng hỏng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "雪白的狐狸，构建出错时依然冷静。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "雪白的狐狸，建置出錯時依然冷靜。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

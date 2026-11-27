@@ -52,6 +52,19 @@ extension AgentShareActions {
             case .uninvite(let account):
                 _ = try await uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection)
                 return .value(["account": account])
+            case .approve(let account, let role):
+                let connection = try connected(chat.connection)
+                let asked = try await askedShares(account, chat: chat, connection: connection)
+                for share in asked {
+                    _ = try await connection.request(AgentSessionShareRequestApproveRequest(shareId: share, account: account, role: role))
+                }
+                return .value(["account": account, "role": role])
+            case .decline(let account):
+                let connection = try connected(chat.connection)
+                for share in try await askedShares(account, chat: chat, connection: connection) {
+                    _ = try await connection.request(AgentSessionShareRequestDeclineRequest(shareId: share, account: account))
+                }
+                return .value(["account": account])
             case .revoke(let shareID):
                 let connection = try connected(chat.connection)
                 let listed = try await connection.request(AgentSessionShareListRequest(surface: chat.surface))
@@ -71,11 +84,34 @@ extension AgentShareActions {
     }
 }
 
+extension AgentShareActions {
+    /// This chat's live shares on which `account` has a pending request; `share.unknown` when none
+    /// (the page's row was stale).
+    static func askedShares(_ account: String, chat: AgentShareChat, connection: DaemonConnection) async throws -> [String] {
+        let listed = try await connection.request(AgentSessionShareListRequest(surface: chat.surface))
+        let asked = AgentSharePaneState.sharesAsked(by: account, of: chat.session, in: listed.shares)
+        guard !asked.isEmpty else { throw AgentShareRequestGone() }
+        return asked
+    }
+}
+
+/// An approve or decline whose account has no pending request on this chat any more.
+struct AgentShareRequestGone: Error {}
+
 /// What the dialog's `state` answers: this chat's shares in the page's camelCase keys (the link's
 /// secret is never kept, so `url` is always null).
 enum AgentSharePaneState {
     static func isShare(_ shareID: String, of session: String, in shares: [AgentSessionShare]) -> Bool {
         shares.contains { $0.shareId == shareID && $0.session == session }
+    }
+
+    /// The live shares of `session` on which `account` (compared as the daemon keeps it: trimmed,
+    /// lowercased) has a pending request.
+    static func sharesAsked(by account: String, of session: String, in shares: [AgentSessionShare]) -> [String] {
+        let wanted = account.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return shares.filter { share in
+            share.session == session && share.isLive && share.requests.contains { $0.account == wanted && $0.state == "pending" }
+        }.map(\.shareId)
     }
 
     static func shares(of session: String, in shares: [AgentSessionShare]) -> [[String: Any]] {
@@ -91,6 +127,10 @@ enum AgentSharePaneState {
                 },
                 "invitees": share.invitees.map { invitee -> [String: Any] in
                     ["account": invitee.account, "role": invitee.role, "state": invitee.state, "joined": joined.contains(invitee.account)]
+                },
+                "requests": share.requests.filter { $0.state == "pending" }.map { request -> [String: Any] in
+                    ["account": request.account, "name": request.name, "avatarUrl": request.avatarUrl ?? NSNull(),
+                     "requestedAt": Int(clamping: request.requestedAt)]
                 },
             ]
         }

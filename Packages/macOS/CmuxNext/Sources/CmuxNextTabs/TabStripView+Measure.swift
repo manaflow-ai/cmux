@@ -20,6 +20,36 @@ extension TabStripView {
 
     /// The width the tabs may fill.
     public var tabAvailableWidth: Double { Double(result.availableWidth) }
+
+    /// The empty strip space a press there treats as empty (`titlebarHit` `.empty`: where a pane drag starts), in
+    /// this view's coordinates: from the end of the tabs, chips and + buttons to the strip's trailing edge; nil when
+    /// the run fills the strip. The split-move bench presses here (scripts/cmux-next/split-scale-bench.py).
+    public var emptyStripSpace: CGRect? {
+        let start = mouseRects().map(\.maxX).max() ?? 0
+        guard bounds.maxX - start > 0.5 else { return nil }
+        return CGRect(x: start, y: bounds.minY, width: bounds.maxX - start, height: bounds.height)
+    }
+
+    /// The narrowest strip at which no tab shrinks: its end gaps, the window controls it keeps clear of, the pinned tabs,
+    /// chips and every other tab at its full width, and the + controls. A row gives its accessories only what is past
+    /// this (``TabRowAccessoryFit``, #53314); infinite for a tab that fills the strip (Full Width Tab).
+    public var naturalWidth: CGFloat {
+        if case .fullWidth = result.share { return .infinity }
+        let padding = metrics.endGap(scale: window?.backingScaleFactor ?? 2)
+        let share = TabLayoutEngine.rowShare(count: result.flexibleCount, available: .greatestFiniteMagnitude, style: model.style, metrics: metrics)
+        let tabs = (0..<result.flexibleCount).reduce(result.reservedWidth) { $0 + share.width(at: $1) }
+        return 2 * padding + windowControlsInset + tabs + (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0)
+    }
+
+    /// Lays the superview (the pane) out again when the layout just made changed ``naturalWidth`` (a tab opened or
+    /// closed, a group collapsed, Full Width Tab): the room a chat's summary gets in the row follows it (#53314). Only
+    /// then, never on a title or a badge.
+    func noteNaturalWidth() {
+        let width = naturalWidth
+        guard width != reportedNaturalWidth else { return }
+        reportedNaturalWidth = width
+        superview?.needsLayout = true
+    }
 }
 
 // `debug.top_alignment`: the strip and its first pill (the topmost strip is the top row's).

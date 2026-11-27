@@ -752,19 +752,21 @@ store's files or an export) into an empty memory.
 
 **Backup** (decision 2026-10-06). After the commit, the export's history is
 pushed to a private `manaflow-ai/chief-memory-<home id>` repository, which
-`gh repo create --private` makes on the first push; never forced, so a
-remote with other history fails the push and stays as it is. Before each
-push the lines added since the last pushed commit are scanned (gitleaks when
-it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS, Slack,
-Stripe, Google and npm tokens, private keys). A hit holds the backup:
+`gh repo create --private` makes on the first push. If another Chief moves the
+branch, the persister fetches it and merges append-only `main/` and `tree/`
+JSONL lines before retrying, so neither writer's memory is replaced. Before
+each push the lines added since the last pushed commit are scanned (gitleaks
+when it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS,
+Slack, Stripe, Google and npm tokens, private keys). A hit holds the backup:
 nothing is pushed, `optchat/backup.json` says `(backup held: possible secret
 in message N)`, a `backup_held` trace event is written, host.log says how to
 release it (the message id or summary name on a line of
-`optchat/backup-allow.txt`). A failed push is retried by the persister
-thread after 30 s, doubling to 30 min; a turn never waits on it. On by
-default when `gh auth status` succeeds, except for tagged dev homes
-(`.../tags/<tag>`), which would each make their own repository; set
-`OPTCHAT_BACKUP_REMOTE` or `settings.json` to choose.
+`optchat/backup-allow.txt`). A failed push is retried by the persister thread
+with bounded jittered backoff and becomes a visible `blocked` status after its
+retry window; a turn never waits on it. On by default when `gh auth status`
+succeeds, except for tagged dev homes (`.../tags/<tag>`), which would each
+make their own repository; set `OPTCHAT_BACKUP_REMOTE` or `settings.json` to
+choose.
 
 **Migration.** On the first start with an old home (day files in `chat/`,
 an empty database), the host copies them into
@@ -1581,8 +1583,8 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `room`, `sizeCheck(tries, room)` measures against the room, and
   `finishLine(cut, line)` adds the prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
-  is built by `claude-sonnet-5` (fewer safeguard categories) instead of
-  being retried forever. On the acpmux route a refusal arrives as acpmux
+  keeps its input, cut to the room, as its line instead of being retried
+  forever; no other model builds it unless `Config::fallback_model` names one. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
   or an overload is not a refusal and is retried. Other failures retry with

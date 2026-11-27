@@ -28,6 +28,8 @@ struct FakeDaemon {
     open: Arc<AtomicUsize>,
     remote_hellos: Arc<AtomicUsize>,
     screen_reads: Arc<Mutex<HashMap<u64, usize>>>,
+    /// Surfaces whose `read-screen` fails (a hibernated terminal).
+    unreadable: Arc<Mutex<HashSet<u64>>>,
     /// Bumped by [`FakeDaemon::restart`]: every open connection ends.
     run: watch::Sender<u64>,
 }
@@ -47,6 +49,7 @@ impl FakeDaemon {
             open: Arc::default(),
             remote_hellos: Arc::default(),
             screen_reads: Arc::default(),
+            unreadable: Arc::default(),
             run: watch::channel(0).0,
         };
         let run = daemon.run.clone();
@@ -57,6 +60,7 @@ impl FakeDaemon {
             Arc::clone(&daemon.remote_hellos),
             Arc::clone(&daemon.screen_reads),
         );
+        let unreadable = Arc::clone(&daemon.unreadable);
         tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
@@ -68,6 +72,7 @@ impl FakeDaemon {
                     Arc::clone(&remote),
                     Arc::clone(&reads),
                 );
+                let unreadable = Arc::clone(&unreadable);
                 open.fetch_add(1, Ordering::SeqCst);
                 tokio::spawn(async move {
                     let (read, mut write) = stream.into_split();
@@ -90,6 +95,11 @@ impl FakeDaemon {
                                         subscribed = true;
                                         json!({"id": id, "ok": true})
                                     }
+                                    // One process: a restart is a new generation.
+                                    "identify" => {
+                                        let generation = *run.borrow();
+                                        json!({"id": id, "ok": true, "data": {"pid": 4242, "registry_id": "main", "generation": generation}})
+                                    }
                                     "list-workspaces" => {
                                         json!({"id": id, "ok": true, "data": tree.lock().unwrap().clone()})
                                     }
@@ -101,7 +111,11 @@ impl FakeDaemon {
                                             *n += 1;
                                             *n
                                         };
-                                        json!({"id": id, "ok": true, "data": {"text": format!("screen {surface} #{n}")}})
+                                        if unreadable.lock().unwrap().contains(&surface) {
+                                            json!({"id": id, "ok": false, "error": {"code": "hibernated"}})
+                                        } else {
+                                            json!({"id": id, "ok": true, "data": {"text": format!("screen {surface} #{n}")}})
+                                        }
                                     }
                                     other => panic!("unexpected {other}"),
                                 };
@@ -355,6 +369,119 @@ async fn a_new_daemon_run_is_a_new_epoch_and_no_old_surface_survives() {
     assert_eq!(back.mirror.epoch(), epoch);
 }
 
+/// A phone that leaves and comes back while the daemon runs on finds every picture it had: the
+/// feeder stops with the last phone and connects again, which is not a new run of the daemon.
+/// Taken for one, every thumbnail went and nothing sent them again, so the grid's browser cards
+/// showed only the globe after any reconnect (Leo, 2026-11-24: "there are too many empty
+/// previews in the safari grid thing").
+#[tokio::test]
+async fn a_phone_back_on_the_same_daemon_run_keeps_every_picture() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && m.rows()[1].thumb_hash.is_some()).await;
+    p.channel.close("eof", "").await;
+    drop(p);
+    eventually("the feeder stopped", || !tabs.feeder_running()).await;
+    eventually("its daemon connections closed", || daemon.open.load(Ordering::SeqCst) == 0).await;
+
+    let mut back = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    back.send(Message::Viewport(Viewport::default())).await;
+    back.until(|m| ids(m) == ["7", "8"]).await;
+    back.drain(Duration::from_millis(300)).await;
+    assert_eq!(tabs.feeds_started(), 2, "the feeder connected again");
+    assert_eq!(tabs.epoch(), "run-a", "the same run keeps its epoch");
+    assert_eq!(back.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb8")), "8 keeps its thumbnail");
+}
+
+fn keyed_tabs() -> Value {
+    json!([
+        {"surface": 7, "kind": "pty", "title": "zsh", "size": {"cols": 100, "rows": 30}, "tab_resource_id": "tab-zsh"},
+        {"surface": 8, "kind": "browser", "title": "Docs", "tab_resource_id": "tab-docs"},
+        {"surface": 9, "kind": "conversation", "title": "Chat", "tab_resource_id": "tab-chat"},
+    ])
+}
+
+/// A restart of the daemon that gives every tab back its id keeps the epoch: an open phone and
+/// one resuming from before the restart keep every card's picture and screen. A later run that
+/// numbers the tabs again starts a new epoch, and the browser's picture follows its durable id
+/// to the new surface, never onto the tab now holding the old id (Leo, 2026-11-22: "there
+/// should be no reason for there to be so many blank favicons and blank previews and blank
+/// pages").
+#[tokio::test]
+async fn a_restarted_daemon_keeps_each_tab_and_its_picture_by_its_durable_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), keyed_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb-docs".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8", "9"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    let keys: Vec<_> = p.mirror.rows().iter().map(|r| r.tab_key.clone()).collect();
+    assert_eq!(keys, ["tab-zsh", "tab-docs", "tab-chat"]);
+    let rev = tabs.rev();
+
+    // The same tabs under the same ids in a new run, which adds one; its
+    // terminal cannot be read yet (restored hibernated).
+    daemon.unreadable.lock().unwrap().insert(7);
+    let mut next = keyed_tabs();
+    next.as_array_mut()
+        .unwrap()
+        .push(json!({"surface": 10, "kind": "browser", "title": "New", "tab_resource_id": "tab-new"}));
+    daemon.restart(next);
+    p.until(|m| ids(m) == ["7", "8", "9", "10"]).await;
+    assert_eq!(tabs.epoch(), "run-a", "every id still names its tab");
+    assert_eq!(p.mirror.epoch(), "run-a");
+    assert!(tabs.has_delta_since(rev), "the phone took a delta across the restart");
+    assert_eq!(p.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb-docs")));
+    assert_eq!(p.mirror.rows()[0].screen_hash, Some(BlobHash::of(b"screen 7 #1")), "the last screen stays");
+    // A phone that connects now gets them too.
+    let mut fresh = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    fresh.send(Message::Viewport(Viewport::default())).await;
+    fresh.until(|m| ids(m) == ["7", "8", "9", "10"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    assert_eq!(fresh.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb-docs")));
+
+    // A run that numbers them again: the page is surface 3, and 8 is a new terminal.
+    daemon.restart(json!([
+        {"surface": 3, "kind": "browser", "title": "Docs", "tab_resource_id": "tab-docs"},
+        {"surface": 8, "kind": "pty", "title": "bash", "tab_resource_id": "tab-bash"},
+    ]));
+    p.until(|m| m.epoch() != "run-a" && ids(m) == ["3", "8"]).await;
+    let (page, bash) = (&p.mirror.rows()[0], &p.mirror.rows()[1]);
+    assert_eq!((page.tab_key.as_str(), page.thumb_hash), ("tab-docs", Some(BlobHash::of(b"thumb-docs"))));
+    assert_eq!(
+        (bash.tab_key.as_str(), bash.thumb_hash),
+        ("tab-bash", None),
+        "8's old picture is not the new tab's"
+    );
+}
+
+/// A terminal's row carries its screen text with no phone ever having opened the terminal, and
+/// keeps the last one it read when the daemon can no longer read it (a hibernated terminal).
+#[tokio::test]
+async fn a_terminal_row_carries_its_last_screen_with_no_phone_having_opened_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), keyed_tabs());
+    let tabs = Arc::new(Tabs::new("run"));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8", "9"] && m.rows()[0].screen_hash.is_some() && filled(m)).await;
+    let terminal = &p.mirror.rows()[0];
+    assert_eq!((terminal.kind.as_str(), terminal.screen_cols, terminal.screen_rows), ("terminal", 100, 30));
+    assert!(p.mirror.holds(&BlobHash::of(b"screen 7 #1")));
+    daemon.unreadable.lock().unwrap().insert(7);
+    daemon.emit(json!({"event": "surface-output", "surface": 7}));
+    eventually("the feeder tried the screen again", || {
+        daemon.screen_reads.lock().unwrap().get(&7) == Some(&2)
+    })
+    .await;
+    p.drain(Duration::from_millis(200)).await;
+    assert_eq!(p.mirror.rows()[0].screen_hash, Some(BlobHash::of(b"screen 7 #1")));
+}
+
 fn config(dir: &Path) -> Arc<ServiceConfig> {
     Arc::new(ServiceConfig {
         tui_socket_dir: dir.to_owned(),
@@ -368,6 +495,7 @@ fn config(dir: &Path) -> Arc<ServiceConfig> {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     })
 }
 
@@ -390,6 +518,7 @@ async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_lea
                 video: None,
                 session_exposure: None,
                 path: None,
+                viewport: None,
                 route: None,
             };
             tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));

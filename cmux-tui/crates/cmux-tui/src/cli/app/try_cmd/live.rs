@@ -23,7 +23,7 @@ pub(super) const SCHEMA: u64 = 1;
 pub(super) const TARGET: &str = "aarch64-apple-darwin";
 /// Overrides `https://files.cmux.com/cmux-tui/` (a test's `file://` folder, a mirror).
 pub(super) const BASE_ENV: &str = "CMUX_APP_TRY_FILES_BASE";
-/// Overrides `~/Library/Application Support/cmux/app-try`.
+/// Overrides `~/Library/Application Support/cmux-next/app-try`.
 pub(super) const STATE_ENV: &str = "CMUX_APP_TRY_STATE";
 /// Overrides the signed forward-only channel pointer (an isolated fixture can
 /// use `file://`; the default is the public nightly-live channel).
@@ -112,6 +112,10 @@ pub(super) struct LivePayload {
     /// field) and leaves the app's helper as it is, where a new name in `targets` would refuse.
     #[serde(default)]
     pub screen_sharing_helper: Option<super::helper::HelperFile>,
+    /// The commit's source tree key (`cmux_tui_tree_key.py --version v2`). A Team-signed app takes
+    /// these binaries from the tree's Team-signed set ([`team_signed`]), never the ad-hoc bytes.
+    #[serde(default)]
+    pub tree_key: Option<String>,
 }
 
 /// The forward-only pointer published beside the per-commit files.  It uses
@@ -131,6 +135,9 @@ pub(super) struct ChannelPayload {
     pub live_from: Vec<String>,
     #[serde(default)]
     pub daemon_from: Vec<String>,
+    /// As [`LivePayload::tree_key`]: the daemon updater of a Team-signed app waits for a pointer naming it.
+    #[serde(default)]
+    pub tree_key: Option<String>,
 }
 
 /// The payload of `body` when a `keys` signature covers it, it is a Mac live
@@ -301,6 +308,69 @@ pub(super) fn wanted(payload: &LivePayload, base: &str) -> Result<Vec<Wanted>, S
     Ok(out)
 }
 
+// ------------------------------------------------------------------ the Team-signed set
+
+/// `cmux-tui/tree/<key>/team-signed/completion.json` (scripts/ci/cmux_tui_team_sign.py): the tree's
+/// bin files signed with the app's Team ID, each named by the sha256 of its ad-hoc build.
+pub(super) fn team_signed_url(base: &str, tree_key: &str) -> String {
+    format!("{base}tree/{tree_key}/team-signed/completion.json")
+}
+
+/// The pointer's tree key, when it names a well-formed one.
+pub(super) fn tree_key(tree_key: Option<&str>) -> Option<&str> {
+    tree_key.filter(|key| channel::lower_hex(key, 40))
+}
+
+/// `files` (the signed payload's ad-hoc build) mapped onto the tree's Team-signed set in
+/// `completion`: each file is the Team-signed one whose `unsigned_sha256` is the payload's sha256,
+/// so the signed payload still names the build file by file. A Team-signed app runs only
+/// Team-signed bin files (Cloud, the peer check): an ad-hoc `bin/cmux` there breaks both
+/// (cmuxterm-hq#11364). Any file the set lacks, or holds for other bytes, refuses the whole set.
+pub(super) fn team_signed(
+    files: Vec<Wanted>,
+    tree_key: &str,
+    completion: &Value,
+    base: &str,
+) -> Result<Vec<Wanted>, String> {
+    if completion.get("schema").and_then(Value::as_u64) != Some(1)
+        || completion.get("key").and_then(Value::as_str) != Some(tree_key)
+        || completion.get("target").and_then(Value::as_str) != Some(TARGET)
+    {
+        return Err(format!("the Team-signed set of tree {tree_key} is not its {TARGET} set"));
+    }
+    let set = completion.get("files").and_then(Value::as_object);
+    files
+        .into_iter()
+        .map(|wanted| {
+            let Some(binary) = &wanted.binary else { return Ok(wanted) };
+            let entry = set.and_then(|set| set.get(&wanted.file)).filter(|entry| !entry.is_null());
+            let field = |name: &str| entry.and_then(|entry| entry.get(name));
+            if field("unsigned_sha256").and_then(Value::as_str) != Some(binary.sha256.as_str()) {
+                return Err(format!(
+                    "{}: the Team-signed set of tree {tree_key} has no signed copy of this build",
+                    wanted.file
+                ));
+            }
+            let sha256 = field("sha256").and_then(Value::as_str).unwrap_or_default();
+            let size = field("size").and_then(Value::as_u64).unwrap_or(0);
+            if !channel::lower_hex(sha256, 64) || size == 0 || size > channel::BINARY_MAX_BYTES {
+                return Err(format!("{}: the Team-signed entry is malformed", wanted.file));
+            }
+            let url = format!(
+                "{}tree/{tree_key}/team-signed/{sha256}/{}",
+                channel::FILES_PREFIX,
+                wanted.file
+            );
+            let fetch_url = url.replacen(channel::FILES_PREFIX, base, 1);
+            Ok(Wanted {
+                file: wanted.file,
+                binary: Some(Binary { url, sha256: sha256.to_owned(), size }),
+                fetch_url: Some(fetch_url),
+            })
+        })
+        .collect()
+}
+
 // ------------------------------------------------------------------ reading files
 
 /// A small file at `url`: `None` when there is none (404, or 403 as the bucket
@@ -379,7 +449,7 @@ pub(super) fn sha256_file(path: &Path) -> Result<String, String> {
 
 // ------------------------------------------------------------------ the store
 
-/// `~/Library/Application Support/cmux/app-try`: every file a try put in or
+/// `~/Library/Application Support/cmux-next/app-try`: every file a try put in or
 /// took out, by sha256 (`builds/<sha256>/<file>`), and the receipts
 /// (`last.json`, `history.jsonl`).
 pub(super) struct Store {
@@ -395,7 +465,10 @@ impl Store {
             return Some(PathBuf::from(path));
         }
         let home = std::env::var_os("HOME").filter(|value| !value.is_empty())?;
-        let shared = PathBuf::from(home).join("Library").join("Application Support").join("cmux");
+        let shared = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(cmux_config::NEXT_DIR);
         let build = app.and_then(|app| {
             let cli = app.join(BIN).join("cmux");
             crate::app_identity::AppIdentity::detect(|_| None, Some(&cli))

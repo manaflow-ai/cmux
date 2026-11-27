@@ -23,25 +23,21 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     }
 
     /// The menu, laid out as the Codex app's account menu (``ProfileMenuSpec``): the current profile's row (its
-    /// `avatar`, a chevron to its options and Accounts…), then Show Chief, Show Chief Pet or Hide Chief Pet
-    /// (`chiefPetShown`, the `home.chiefPetEnabled` that applies now; nil leaves the row out), Cloud, Settings… and
-    /// Check for Updates…, then Help. ``addAccountRows(to:who:avatar:)`` swaps the profile's row for the signed-in
-    /// person's and ends the menu with Sign Out or Sign In.
-    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
-                     spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    /// `avatar`, a chevron to its options and Accounts…), New Workspace and New Window with their shortcuts, then
+    /// Extensions ›, History ›, Cloud, Settings… and Check for Updates…, then Help. ``addAccountRows(to:who:avatar:)``
+    /// swaps the profile's row for the signed-in person's and ends the menu with Sign Out or Sign In.
+    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
         menu.addItem(profileRow(profile, avatar: avatar, actions: spec.profileActions, accounts: spec.accounts))
-        menu.addItem(.separator())
-        if let chief = row(spec.chief) {
-            chief.identifier = NSUserInterfaceItemIdentifier("profileMenu.showChief")
-            menu.addItem(chief)
-        }
-        if let chiefPetShown, let pet = chiefPetRow(shown: chiefPetShown) { menu.addItem(pet) }
-        [spec.cloud, spec.settings, spec.updates].compactMap(row).forEach(menu.addItem)
-        if let help = helpRow(spec.help) {
+        let sections: [[NSMenuItem]] = [
+            spec.creation.compactMap(row),
+            spec.submenus.compactMap(submenuRow) + [spec.cloud, spec.settings, spec.updates].compactMap(row),
+            helpRow(spec.help).map { [$0] } ?? [],
+        ]
+        for section in sections where !section.isEmpty {
             menu.addItem(.separator())
-            menu.addItem(help)
+            section.forEach(menu.addItem)
         }
         Self.keepOneTextColumn(menu)
         return menu
@@ -56,14 +52,23 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// greyed email: "but does this not mean it's already connected?"). The teams are Switch Active Team's own values
     /// (`openTeamPicker`'s `cloudTeams`), each with its icon (a person for the person's own team, people for a shared
     /// one), the active one checked, so the team in effect reads as a choice (Leo, 2026-11-09).
-    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) {
+    ///
+    /// `signInBackend` is what Sign In signs in to ("Signs in to cmux.com"): Sign In's second line where
+    /// the system draws one (macOS 14.4), else a line of its own under it.
+    /// `accountFirst` (`sidebar.profileMenu.style: "account"`): the menu becomes ``makeAccount(who:avatar:spec:signInBackend:)``'s.
+    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
+                               signInBackend: String? = nil, accountFirst: Bool = false) {
+        if accountFirst {
+            menu.removeAllItems()
+            Self.takeRows(of: makeAccount(who: who, avatar: avatar, spec: spec, signInBackend: signInBackend)).forEach(menu.addItem)
+            return
+        }
         defer { Self.keepOneTextColumn(menu) }
-        let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
-        if let item = registry.makeMenuItem(for: auth) {
-            item.image = registry.descriptor(for: auth).flatMap { Self.symbol($0.symbol, label: item.title) ?? registry.rowIcon($0.symbol) }
+        if let item = authRow(signedIn: who != nil) {
             // In Help's section, as the Codex menu's Log out; else a section of its own.
             if let last = menu.items.last, last.identifier?.rawValue != "profileMenu.help" { menu.addItem(.separator()) }
             menu.addItem(item)
+            if who == nil, let signInBackend { Self.addBackendLine(signInBackend, to: item, in: menu) }
         }
         guard let who, let name = who.first else { return }
         // The profile's own options move into who it is's submenu, under the teams: one account row.
@@ -74,6 +79,70 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         let person = personRow(name: name, email: who.count > 1 ? who[1] : nil, avatar: avatar, options: options, accounts: spec.accounts)
         menu.insertItem(person, at: 0)
+    }
+
+    /// The account menu (`sidebar.profileMenu.style: "account"`, Leo, ask-aad661801e: "make customization for codex,
+    /// t3code, claude code app (everything)"): the person first, as the Claude Code and Codex apps' account menus.
+    /// Signed in (`who` is the name, then the email), the first row is who it is: their picture, the name with the
+    /// email under it, opening Accounts… (every signed-in account, add one, switch). Under it, every team the
+    /// account may work in, the active one checked, a click switching to it (`teamRows`). Then Settings… and Usage,
+    /// then Help ›, then Sign Out. Signed out, the first row is Accounts… and the menu ends with Sign In. The app
+    /// rows (New Workspace, Extensions, History, Cloud, Check for Updates) stay in the app menu, the default.
+    public func makeAccount(who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
+                            signInBackend: String? = nil) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = true
+        let person = row(spec.accounts)
+        if let person, let who, let name = who.first {
+            person.title = name
+            if let avatar { person.image = avatar }
+            person.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
+            if #available(macOS 14.4, *), who.count > 1 { person.subtitle = who[1] }
+        }
+        let auth = authRow(signedIn: who != nil)
+        let sections: [[NSMenuItem]] = [
+            person.map { [$0] } ?? [],
+            who == nil ? [] : teamRows(),
+            [spec.settings, spec.usage].compactMap(availableRow),
+            helpRow(spec.help).map { [$0] } ?? [],
+            auth.map { [$0] } ?? [],
+        ]
+        for section in sections where !section.isEmpty {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            section.forEach(menu.addItem)
+        }
+        if who == nil, let signInBackend, let auth {
+            Self.addBackendLine(signInBackend, to: auth, in: menu)
+        }
+        Self.keepOneTextColumn(menu)
+        return menu
+    }
+
+    /// Sign In (signed out) or Sign Out, with the action's symbol; nil while the build does not bind it.
+    private func authRow(signedIn: Bool) -> NSMenuItem? {
+        let auth: ActionID = signedIn ? "palette.auth.signOut" : "palette.auth.signIn"
+        guard let item = registry.makeMenuItem(for: auth) else { return nil }
+        item.image = registry.descriptor(for: auth).flatMap { Self.symbol($0.symbol, label: item.title) ?? registry.rowIcon($0.symbol) }
+        return item
+    }
+
+    /// `row(_:)` for an action this build can run now: a feature the build lacks (Usage without a local Chief) is
+    /// left out, not drawn disabled.
+    private func availableRow(_ spec: ProfileMenuSpec.Row) -> NSMenuItem? {
+        guard registry.unavailableReason(for: spec.action) == nil else { return nil }
+        return row(spec)
+    }
+
+    /// Sign In's backend line: its subtitle on macOS 14.4, else a disabled row under it.
+    private static func addBackendLine(_ line: String, to item: NSMenuItem, in menu: NSMenu) {
+        if #available(macOS 14.4, *) {
+            item.subtitle = line
+            return
+        }
+        let row = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+        row.isEnabled = false
+        row.identifier = NSUserInterfaceItemIdentifier("profileMenu.signInBackend")
+        menu.addItem(row)
     }
 
     /// Who is signed in: one row, the email as its second line where the system draws one (macOS 14.4), opening the
@@ -165,20 +234,16 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return item
     }
 
-    /// Show Chief Pet / Hide Chief Pet (Leo 2026-10-20, as Codex's profile menu toggles its floating
-    /// window; named for the pet since Show Chief opens the Chief, David Beyer Nov 20): flips `home.chiefPetEnabled` to the other value through the one setting path,
-    /// `palette.toggleSetting`, as the palette and `cmux settings toggle-setting` do.
-    private func chiefPetRow(shown: Bool) -> NSMenuItem? {
-        let toggle: ActionID = "palette.toggleSetting"
-        guard let item = boundMenuItem(toggle) else { return nil }
-        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChiefPet", "Hide Chief Pet")
-            : ProfileMenuSpec.text("menu.profile.showChiefPet", "Show Chief Pet")
-        item.keyEquivalent = ""
-        item.keyEquivalentModifierMask = []
-        item.image = Self.symbol(shown ? "eye.slash" : "eye", label: item.title)
-        item.identifier = NSUserInterfaceItemIdentifier("profileMenu.chiefPet")
-        item.representedObject = ActionMenuPayload(id: toggle, target: nil,
-                                                   arguments: ["setting": .string(ProfileMenuSpec.chiefPetSetting), "on": .bool(!shown)])
+    /// One "Extensions ›" row: the submenu's actions this build binds; nil with none.
+    private func submenuRow(_ submenu: ProfileMenuSpec.Submenu) -> NSMenuItem? {
+        let rows = submenu.actions.compactMap(boundMenuItem)
+        guard !rows.isEmpty else { return nil }
+        let item = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
+        item.image = Self.symbol(submenu.symbol, label: submenu.title)
+        let sub = NSMenu(title: submenu.title)
+        sub.autoenablesItems = true
+        rows.forEach(sub.addItem)
+        item.submenu = sub
         return item
     }
 

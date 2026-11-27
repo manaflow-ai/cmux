@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "prompt.failure.tooLarge" : {
+      "comment" : "Agent pane: under a prompt refused because it was larger than one message can carry (inline attachments); Retry is not offered, Edit is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not sent: too large. Remove an attachment with Edit, or send attachments separately."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يُرسل: كبير جدًا. أزل مرفقًا عبر «تعديل»، أو أرسل المرفقات منفصلة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nije poslano: prevelik. Uklonite prilog pomoću Uredi ili pošaljite priloge zasebno."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke sendt: for stor. Fjern en vedhæftning med Rediger, eller send vedhæftninger separat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht gesendet: zu groß. Entferne einen Anhang mit Bearbeiten oder sende Anhänge einzeln."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No enviado: demasiado grande. Quita un adjunto con Editar o envía los adjuntos por separado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non envoyé : trop volumineux. Retirez une pièce jointe avec Modifier, ou envoyez les pièces jointes séparément."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non inviato: troppo grande. Rimuovi un allegato con Modifica o invia gli allegati separatamente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送信されませんでした: 大きすぎます。「編集」で添付を外すか、添付を別に送ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនបានផ្ញើ៖ ធំពេក។ ដកឯកសារភ្ជាប់មួយចេញដោយ កែ ឬផ្ញើឯកសារភ្ជាប់ដាច់ដោយឡែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "보내지 않음: 너무 큽니다. 편집으로 첨부를 제거하거나 첨부를 따로 보내세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke sendt: for stor. Fjern et vedlegg med Rediger, eller send vedlegg separat."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie wysłano: za duże. Usuń załącznik przez Edytuj albo wyślij załączniki osobno."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não enviado: grande demais. Remova um anexo com Editar ou envie os anexos separadamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отправлено: слишком большое. Удалите вложение через «Изменить» или отправьте вложения отдельно."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่ได้ส่ง: ใหญ่เกินไป ลบไฟล์แนบด้วย แก้ไข หรือส่งไฟล์แนบแยกกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gönderilmedi: çok büyük. Düzenle ile bir eki kaldırın ya da ekleri ayrı gönderin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не надіслано: завелике. Видаліть вкладення через «Редагувати» або надішліть вкладення окремо."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chưa gửi: quá lớn. Gỡ một tệp đính kèm bằng Sửa, hoặc gửi tệp đính kèm riêng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未发送：太大。用“编辑”移除一个附件，或单独发送附件。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未傳送：太大。用「編輯」移除一個附件，或單獨傳送附件。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

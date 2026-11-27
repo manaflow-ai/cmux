@@ -26,7 +26,10 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::signal::unix::{SignalKind, signal};
 
-use super::{REMOTE_VALUE_OPTIONS, parse_connect_flags, start_connected, tokio_runtime};
+use super::{
+    REMOTE_VALUE_OPTIONS, credential_free_route_hint, parse_connect_flags, start_connected,
+    tokio_runtime,
+};
 use crate::localization::catalog;
 
 /// The daemon's per-request bound on process input (`MAX_PROCESS_WRITE_BYTES`).
@@ -294,16 +297,56 @@ async fn remote_stat(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     path: &str,
+    host: &str,
 ) -> anyhow::Result<FileStat> {
     let request = WorkspaceRequest::Stat {
         workspace: workspace.clone(),
         path: workspace_relative(path),
         follow_symlinks: true,
     };
-    match client.request(request).await? {
-        WorkspaceResponse::Stat { stat } => Ok(stat),
-        _ => Err(unexpected("stat")),
+    match client.request(request).await {
+        Ok(WorkspaceResponse::Stat { stat }) => Ok(stat),
+        Ok(_) => Err(unexpected("stat")),
+        Err(error) => Err(remote_path_error(error, host, path)),
     }
+}
+
+/// A daemon refusal about remote `path`, said as which side and which file:
+/// `not-found` becomes "remote file not found on HOST: PATH" instead of the
+/// daemon's own "resolve RELATIVE: os error 2".
+pub(super) fn remote_path_error(
+    error: cmux_remote_protocol::RpcError,
+    host: &str,
+    path: &str,
+) -> anyhow::Error {
+    if error.code == "not-found" {
+        return anyhow!(catalog().remote_client.cp_remote_not_found(host, path));
+    }
+    error.into()
+}
+
+/// The machine a route names, for messages: its host when it has one
+/// (`ssh://leo@box:22` is `box`), else the route without credentials.
+pub(super) fn route_host(route: &str) -> String {
+    match url::Url::parse(route) {
+        Ok(url) => match url.host_str() {
+            Some(host) if !host.is_empty() => host.to_owned(),
+            _ => credential_free_route_hint(route).unwrap_or_else(|_| url.scheme().to_owned()),
+        },
+        Err(_) => catalog().remote_client.cp_remote_machine.to_owned(),
+    }
+}
+
+/// The local source's metadata; a missing file says it is the local side.
+pub(super) fn local_source_metadata(local: &Path) -> anyhow::Result<std::fs::Metadata> {
+    let name = local.display().to_string();
+    std::fs::metadata(local).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            anyhow!(catalog().remote_client.cp_local_not_found(&name))
+        } else {
+            anyhow::Error::new(error).context(format!("could not read {name}"))
+        }
+    })
 }
 
 // ---------------------------------------------------------------- exec
@@ -656,13 +699,14 @@ pub(super) fn run_cp(args: &[String]) -> anyhow::Result<()> {
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
         let workspace = open_root(&client).await?;
+        let host = route_host(&connected.route);
         let started = Instant::now();
         let bytes = match (&parsed.source, &parsed.destination) {
             (CopyEndpoint::Remote(remote), CopyEndpoint::Local(local)) => {
-                download(&client, &workspace, remote, local).await?
+                download(&client, &workspace, remote, local, &host).await?
             }
             (CopyEndpoint::Local(local), CopyEndpoint::Remote(remote)) => {
-                upload(&client, &workspace, local, remote).await?
+                upload(&client, &workspace, local, remote, &host).await?
             }
             _ => return Err(anyhow!(catalog().remote_client.cp_one_remote)),
         };
@@ -721,9 +765,10 @@ async fn download(
     workspace: &WorkspaceId,
     remote: &str,
     local: &Path,
+    host: &str,
 ) -> anyhow::Result<u64> {
     let messages = &catalog().remote_client;
-    let stat = remote_stat(client, workspace, remote).await?;
+    let stat = remote_stat(client, workspace, remote, host).await?;
     match stat.kind {
         FileKind::File => {}
         FileKind::Directory => return Err(anyhow!(messages.cp_directory(remote))),
@@ -818,11 +863,11 @@ async fn upload(
     workspace: &WorkspaceId,
     local: &Path,
     remote: &str,
+    host: &str,
 ) -> anyhow::Result<u64> {
     let messages = &catalog().remote_client;
     let local_name = local.display().to_string();
-    let metadata =
-        std::fs::metadata(local).with_context(|| format!("could not read {local_name}"))?;
+    let metadata = local_source_metadata(local)?;
     if metadata.is_dir() {
         return Err(anyhow!(messages.cp_directory(&local_name)));
     }
@@ -830,7 +875,7 @@ async fn upload(
         return Err(anyhow!(messages.cp_not_a_file(&local_name)));
     }
     let into_directory = remote.ends_with('/')
-        || remote_stat(client, workspace, remote)
+        || remote_stat(client, workspace, remote, host)
             .await
             .is_ok_and(|stat| stat.kind == FileKind::Directory);
     let remote = if into_directory {

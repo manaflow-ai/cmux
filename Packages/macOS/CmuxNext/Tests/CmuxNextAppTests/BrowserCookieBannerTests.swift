@@ -115,7 +115,7 @@ import Testing
         let text = card.shownText
         #expect(text.first?.localizedCaseInsensitiveContains("sign-ins") == true, "the title offers sign-ins: \(text)")
         #expect(text.first?.contains("Google Chrome") == true, "and names the browser: \(text)")
-        #expect(text.contains(BrowserImportOfferStrings.dontShowAgain), "Don't Show Again is one of the answers: \(text)")
+        #expect(text.contains(BrowserImportOfferStrings.never(browser: "Chrome")), "Never for Chrome is one of the answers: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.importData))
         #expect(text.contains(BrowserImportOfferStrings.notNow))
     }
@@ -182,12 +182,20 @@ import Testing
         let card = try #require(page.chrome.currentCookieImportCard)
         Self.measure(card)
         #expect(page.chrome.showsCookieImportOffer && card.wasSeen, "shown on its focused tab: seen")
+        // `browser.import_offer` (every build) reads the same: a NIGHTLY read-back needs no DEBUG build.
+        let readout = try #require(page.chrome.cookieImportCardReadout)
+        #expect(readout.showing && readout.seen && !readout.waitsForFocus)
 
-        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)  // a terminal has the keyboard
-        #expect(page.chrome.currentCookieImportCard == nil, "seen, then the tab lost the keyboard: it closed")
-        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
-        #expect(!page.chrome.showsCookieImportOffer, "refocus does not bring it back")
-        #expect(page.chrome.currentCookieImportCard == nil)
+        // Three blur and refocus rounds: the card never comes back (it counts 0 reappearances).
+        var reappeared = 0
+        for _ in 0..<3 {
+            entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)  // a terminal has the keyboard
+            #expect(page.chrome.currentCookieImportCard == nil, "seen, then the tab lost the keyboard: it closed")
+            #expect(page.chrome.cookieImportCardReadout == nil)
+            entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+            if page.chrome.showsCookieImportOffer || page.chrome.cookieImportCardReadout != nil { reappeared += 1 }
+        }
+        #expect(reappeared == 0, "refocus does not bring it back")
     }
 
     /// The card shows by itself at most once on a browser profile, answered or not: never on a later launch,
@@ -402,7 +410,7 @@ import Testing
         #expect(!(await p.waitForCard(within: .seconds(2))), "a newsletter field is not a sign-in page")
     }
 
-    @Test func dontShowAgainTurnsTheSettingOffInCmuxJSON() async throws {
+    @Test func permanentDismissalTurnsTheSettingOffInCmuxJSON() async throws {
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.browserImportOffer.answer(.never)

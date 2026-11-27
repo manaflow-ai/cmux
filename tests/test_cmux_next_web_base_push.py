@@ -46,9 +46,12 @@ def test_every_feat_cmux_next_push_runs_the_web_checks() -> None:
     assert isinstance(on, dict) and "push" not in on and "workflow_dispatch" in on, on
     web = doc["jobs"]["web"]
     assert web["uses"] == "./.github/workflows/ci-web.yml"
-    # Coalesced (scripts/ci/web_coalesce.py): from the commit the last run tested, else the push's own base.
+    # Coalesced (scripts/ci/web_coalesce.py): from the commit the last run tested, else the push's own base. A
+    # dispatched tick (inputs.tick) coalesces as a push does, so it routes from that base too.
     assert web["needs"] == "coalesce"
-    assert web["with"].get("push_base") == "${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}"
+    assert web["with"].get("push_base") == (
+        "${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick)"
+        " && needs.coalesce.outputs.base || '' }}"), web["with"].get("push_base")
 
 
 def test_ci_web_routes_from_the_push_base() -> None:

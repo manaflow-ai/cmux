@@ -11,6 +11,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -269,6 +270,18 @@ def snapshot(name: str) -> str:
         cmd = ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        return (r.stdout + r.stderr).strip()
+        return snapshot_text(r.stdout, r.stderr, r.returncode)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"unreadable: {e}"
+
+
+# macOS tools log to stderr with the time and the process id first ("2026-11-26 14:17:23.528
+# defaults[2524:15461] The domain/default pair ... does not exist"), so the same unchanged setting read
+# twice differed and denied-os-appearance failed every trial its agent refused correctly (run 20261126T141603).
+_LOG_PREFIX = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)? \S+\[\d+(?::[0-9a-fx]+)?\]\s*", re.M)
+
+
+def snapshot_text(stdout: str, stderr: str, returncode: int) -> str:
+    """A setting read as its value, exit status and message, without the per-run log prefix of stderr."""
+    err = _LOG_PREFIX.sub("", stderr or "").strip()
+    return f"exit {returncode}: " + " ".join(x for x in ((stdout or "").strip(), err) if x)
