@@ -68,7 +68,7 @@ pub fn top_level_anchor(
     let section = target.section.clone();
     if target.before.is_some()
         && let Some(start) = staying.iter().position(|id| *id == anchor)
-        && let Some(next) = staying[start..].iter().find(|id| !nested.contains(**id))
+        && let Some(next) = staying.iter().skip(start).find(|id| !nested.contains(**id))
     {
         return Target { section, before: Some((*next).clone()), ..Target::default() };
     }
@@ -143,7 +143,8 @@ pub fn keyboard_move(
     let set: BTreeSet<&String> = moving.iter().collect();
     let first = visible.iter().position(|row| set.contains(&row.id))?;
     let last = visible.iter().rposition(|row| set.contains(&row.id))?;
-    let neighbour = if up { visible[..first].last() } else { visible[last + 1..].first() }?;
+    let neighbour = if up { first.checked_sub(1) } else { last.checked_add(1) }
+        .and_then(|at| visible.get(at))?;
     let section = neighbour.section.clone()?;
     let anchor = neighbour.item.clone()?;
     let items: Vec<String> = items.iter().flatten().cloned().collect();

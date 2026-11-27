@@ -33,6 +33,7 @@ async fn a_lease_never_takes_a_saved_peers_name() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let e = hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap_err();
@@ -250,6 +251,7 @@ async fn wedge_a_lease_is_classified_before_its_lease_registry_entry() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
     let mut leases = hub.peer_leases.lock().unwrap();
     let (generation, _) = hub.spawn_peer("vm", &pc, false, true);

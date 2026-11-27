@@ -55,8 +55,13 @@ pub mod caps {
     /// viewers, the bench): an H.264 host encodes that profile for this session instead of
     /// High. A viewer that does not offer it (VideoToolbox) gets the host's profile.
     pub const H264_BASELINE: &str = "h264.baseline";
+    /// The viewer's person asked for sharper text over a faster encode (Settings >
+    /// Customize, `remoteDesktop.sharpLinuxText`): a Linux OpenH264 host codes the session in
+    /// its switching screen usage, not camera usage. A viewer that does not offer it gets the
+    /// host's shipped usage. `CMUX_RD_OPENH264_USAGE` on the host still wins.
+    pub const SHARP_TEXT: &str = "video.sharp_text";
     /// Every named cap.
-    pub const ALL: [&str; 13] = [
+    pub const ALL: [&str; 14] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -70,6 +75,7 @@ pub mod caps {
         LEDGER,
         CLIPBOARD_TEXT,
         H264_BASELINE,
+        SHARP_TEXT,
     ];
 }
 

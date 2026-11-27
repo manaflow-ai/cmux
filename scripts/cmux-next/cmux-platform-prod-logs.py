@@ -49,7 +49,9 @@ _spec.loader.exec_module(base)
 # and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
 # team, so a cmux-vm service reads only `window`.
 VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
-SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
+# cmux-platform-development lives in the same account: its never_bound and bind_late lines (bind_probe) are the guest
+# facts a Cloud lane reads after a fresh create, and cmux-platform's worker-log-read.yml gets 403 on it too.
+SERVICES = ("cmux-platform-production", "cmux-platform-staging", "cmux-platform-development") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
@@ -161,6 +163,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.spend_cap.warning",
     # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
     "cloud.submit.cut_off",
+    # A chat's work VM (cmux-platform src/server/cloud/WorkMachine.ts workMachineLog, CloudDO.ts): whether one started,
+    # its size and pause policy, and why not. Kept only as work_machine()'s typed projection (RFD agent-work-placement).
+    "cloud.work_machine.failed",
+    "cloud.work_machine.not_ready",
+    "cloud.work_machine.ready",
+    "cloud.work_machine.skipped",
+    "cloud.work_machine.started",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",
@@ -307,7 +316,8 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN, "attempt": INT, "total_ms": INT}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
+                 "paused_for_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -322,6 +332,27 @@ TRACE_STEPS = frozenset({
     "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
     "stale_submit", "submit",
 })
+
+
+# machines.spare.claim and machines.spare.finish (cmux-platform Scaler.ts claimSpare): `skipped`, each fixed reason a
+# claim passed a spare over for (warming, paused, gateway_rule, generation, lost_*, ...) with its count, and `ms`, the
+# cumulative ms per fixed step. Without them a claim that saw a spare and still created reads only `spares: 1`
+# (production 2026-11-26 16:09Z and 16:46Z, hq#29939, hq#29940). A key that is not a plain token, or a count that is
+# not an int, is dropped; an id-like key is hashed (base.typed TOKEN).
+SPARE_COUNT_MSGS = frozenset({"machines.spare.claim", "machines.spare.finish"})
+SPARE_COUNTS_MAX = 24
+
+
+def token_counts(counts):
+    """{token: int} from a dict of fixed words to counts or ms; anything else is dropped. None when nothing is left."""
+    if not isinstance(counts, dict):
+        return None
+    out = {}
+    for k, v in counts.items():
+        key, n = base.typed(TOKEN, k), base.typed(INT, v)
+        if key is not None and n is not None and len(out) < SPARE_COUNTS_MAX:
+            out[key] = n
+    return dict(sorted(out.items())) or None
 
 
 def trace_steps(steps):
@@ -437,15 +468,93 @@ def idle_kept(j):
     return out
 
 
+# cloud.work_machine.*'s typed fields (CloudDO.ts): `work` is the work VM's id; the rest are sizes and timings.
+WORK_MACHINE_FIELDS = {"team": ID, "machine": ID, "work": ID, "cpu": INT, "memory_mb": INT, "ms": INT,
+                       "create_ms": INT, "history": INT}
+# A skip's reasons; a failure's `why` is the create answer's code, kept as a token. Anything else prints as "other".
+WORK_MACHINE_SKIPPED = frozenset({"no_plan", "agent_is_enough", "max_active", "max_machines", "rate", "budget"})
+# PausePolicy.ts PAUSE_POLICY_NAMES, plus "deployment" when the policy write was refused.
+WORK_MACHINE_POLICIES = frozenset({"current", "aggressive", "turn_end", "deployment"})
+
+
+def work_machine(j):
+    """cloud.work_machine.*'s typed projection: ids hashed, sizes and timings as ints, a fixed why and pause policy."""
+    msg = j["msg"]
+    out = {"msg": msg}
+    for k, kind in WORK_MACHINE_FIELDS.items():
+        v = base.typed(kind, j.get(k)) if k in j else None
+        if v is not None:
+            out[k] = v
+    why = j.get("why")
+    if isinstance(why, str):
+        if msg == "cloud.work_machine.skipped":
+            out["why"] = why if why in WORK_MACHINE_SKIPPED else "other"
+        else:
+            out["why"] = base.typed(TOKEN, why) or "other"
+    p = j.get("pause_policy")
+    if isinstance(p, str):
+        out["pause_policy"] = p if p in WORK_MACHINE_POLICIES else "other"
+    return out
+
+
+# cmux-vm's timed JSON lines (workers/cmux-vm src/lib/timing.ts logTimedEvent: `{"event": ..., ...phases}`), one per
+# create that reached the provider (handlers/vms.ts vmCreateLine). A kept line keeps its event, its booleans, its
+# phases' ms and providerTimingsMs's {fixed word: ms}; the VM's id and the mesh's id are dropped. Without it a
+# snapshot boot that stalled at the provider read as no line at all (cmux-platform live-fork create_overdue,
+# cmuxterm-hq run 45883744191: 3076 cmux-vm events scanned, the copy's create invisible).
+VM_EVENTS = frozenset({"vm_create"})
+VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
+               "providerTotalMs", "totalMs")
+VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+
+
+def vm_event(j):
+    """The kept fields of a VM_EVENTS line: only fixed names, booleans and ints."""
+    out = {"event": j["event"]}
+    for k in VM_EVENT_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    for k in VM_EVENT_MS:
+        v = base.typed(INT, j.get(k))
+        if v is not None:
+            out[k] = v
+    variant = j.get("imageVariant")
+    if variant in ("large", "base", "unlisted"):
+        out["imageVariant"] = variant
+    timings = token_counts(j.get("providerTimingsMs"))
+    if timings is not None:
+        out["providerTimingsMs"] = timings
+    return out
+
+
+def vm_event_line(e):
+    """The event's cmux-vm timed JSON line (`{"event": ...}`, no `msg`), if it has one: base.console_line reads only
+    lines with a `msg`, so these were neither kept nor counted as dropped."""
+    for cand in (base.dig(e, "$metadata", "message"), base.dig(e, "message"), base.dig(e, "source")):
+        j = cand
+        if isinstance(cand, str):
+            try:
+                j = json.loads(cand)
+            except ValueError:
+                continue
+        if isinstance(j, dict) and "msg" not in j and isinstance(j.get("event"), str):
+            return j
+    return None
+
+
 def public_log(j):
-    """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
+    """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
         return None, "tenant"
+    if "msg" not in j and j.get("event") in VM_EVENTS:
+        return vm_event(j), None
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
     if msg == "cloud.idle.kept":
         return idle_kept(j), None
+    if msg.startswith("cloud.work_machine."):
+        return work_machine(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -462,6 +571,11 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+    if msg in SPARE_COUNT_MSGS:
+        for k in ("skipped", "ms"):
+            counts = token_counts(j.get(k))
+            if counts is not None:
+                out[k] = counts
     if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
@@ -568,6 +682,8 @@ def line(e, counts=None):
     if status is not None:
         rec["status"] = status
     j = base.console_line(e)
+    if j is None:
+        j = vm_event_line(e)
     text = vm_text_line(e) if j is None else None
     if j is not None or text is not None:
         log, why = public_log(j) if j is not None else vm_log(text)
@@ -659,7 +775,8 @@ def window_totals(events, needles):
             key["version"] = base.tag(version)
         log = rec.get("log")
         if log is not None:
-            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+            key["log"] = {k: v for k, v in log.items()
+                          if PUBLIC_FIELDS.get(k) != ID and WORK_MACHINE_FIELDS.get(k) != ID}
         k = json.dumps(key, sort_keys=True)
         totals[k] = totals.get(k, 0) + 1
     rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]
@@ -673,7 +790,7 @@ def window_needle(needles):
     """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
     a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
     The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
-    return needles[0] if len(needles) == 1 and needles[0] in PLATFORM_MSGS else None
+    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS) else None
 
 
 def query(token, service, frm, to, offset=None, needle=None):

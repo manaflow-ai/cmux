@@ -1068,6 +1068,11 @@ impl Session {
     pub(crate) fn waits_below(&self) -> bool {
         self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
     }
+    /// How many permissions wait on an answer: the summary's `pendingPermissions`, read
+    /// without building the row.
+    pub(crate) fn pending_permission_count(&self) -> usize {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.len()
+    }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
     }
