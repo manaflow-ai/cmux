@@ -327,6 +327,20 @@ def public_runs(runs: list[dict]) -> list[dict]:
     return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
 
 
+def scrub_hosts(body: str, hosts: list[str]) -> str:
+    """BODY with every fleet host in HOSTS (and its short name) said as `a fleet worker`. The posted proof is PR text,
+    and a public repo's PR text names no fleet host (public-body-guard refused it on cmux#61688, #57488, #57672): this
+    covers any field a host reaches, not only the run worker public_runs drops. The gate reads no host."""
+    names = {n for h in hosts if h for n in (h, h.split(".")[0]) if len(n) >= 3}
+    for n in sorted(names, key=len, reverse=True):
+        body = re.sub(rf"(?<![\w.-]){re.escape(n)}(?![\w-])", "a fleet worker", body)
+    return body
+
+
+def tool_digest() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
@@ -367,7 +381,15 @@ def main(argv: list[str] | None = None) -> int:
         git("fetch", "-q", "origin", view["baseRefName"], check=False)
         head = view["headRefOid"]
     else:
+        tool_before = tool_digest()
         head, merged = merge_base_first(view)
+        if merged and tool_digest() != tool_before:
+            # The base brought a newer ios_verify.py: run it, not the PR's stale copy already loaded here (#57488 and
+            # #57672 ran an old copy whose step keys collided and whose proof named fleet hosts).
+            print("ios verify: the base changed this tool; running the merged copy", file=sys.stderr)
+            sys.stdout.flush()
+            os.execv(sys.executable, [sys.executable, "-I", __file__, *(argv if argv is not None else sys.argv[1:]),
+                                      "--no-merge-base"])
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
@@ -413,7 +435,9 @@ def main(argv: list[str] | None = None) -> int:
     for r in runs:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
-    body = proof_record.render(record, summary_md(record))
+    body = scrub_hosts(proof_record.render(record, summary_md(record)),
+                       [*workers, *DEFAULT_WORKERS.split(","), *FORBIDDEN_WORKERS, os.uname().nodename,
+                        *(r.get("worker", "") for r in runs)])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:

@@ -216,6 +216,19 @@ class Plan(unittest.TestCase):
         self.assertEqual(rec["runs"][0]["step"], "abc12345")
         self.assertEqual(pr.problems(rec), [])
 
+    def test_posted_body_scrubs_every_host_it_knows(self):
+        # #57488, #57672: a host in any field (a tail, a note, a script name) still got the proof refused.
+        rec = dict(RECORD, runs=[{"name": "script: x on huge-blue", "result": "pass", "step": "abc12345",
+                                  "note": "moved off cmux22 to aws-m4pro-7.local"}], timing={"push_to_proof_s": 212})
+        body = ios_verify.scrub_hosts(pr.render(rec, ios_verify.summary_md(rec)),
+                                      ["cmux22", "huge-blue", "aws-m4pro-7.local", "cmux2"])
+        for host in ("cmux22", "huge-blue", "aws-m4pro-7"):
+            self.assertNotIn(host, body)
+        got = pr.parse(body)
+        self.assertEqual(got["runs"][0]["note"], "moved off a fleet worker to a fleet worker")
+        self.assertEqual((got["head_sha"], got["repo"], got["verdict"]), (HEAD, "manaflow-ai/cmux", "pass"))
+        self.assertEqual(pr.problems(got), [])
+
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
         body = pr.render(rec)
