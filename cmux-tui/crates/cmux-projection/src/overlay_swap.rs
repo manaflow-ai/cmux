@@ -1,4 +1,4 @@
-//! A top-level lower folder replaced by a link to a folder on the machine's disk, in one rename
+//! A lower folder replaced by a link to a folder on the machine's disk, in one rename
 //! (RFD 0007, seed bundles: a projected `.git` switching to the machine's own fetch,
 //! [`crate::git_swap`]).
 //!
@@ -71,15 +71,18 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
 }
 
 impl Overlay {
-    /// Replaces the lower folder at top-level `name` with a link naming `target`, atomically for
-    /// every lookup through the mount. Returns the folder's old number; the caller then tells the
-    /// kernel to drop what it cached of `name` ([`crate::mount::Mounted::forget_entry`]).
+    /// Replaces the lower folder at `name` (a path, `/`-separated) with a link naming `target`,
+    /// atomically for every lookup through the mount; the folders above it are copied up first
+    /// (folders only, never a file's bytes). Returns the folder's old number; the caller then
+    /// tells the kernel to drop what it cached of `name` in its folder
+    /// ([`crate::mount::Mounted::forget_entry`], that folder's number from [`Self::folder_ino`]).
     pub fn swap_to_link(&self, name: &str, target: &Path) -> Result<u64, i32> {
-        if name.is_empty() || name.contains('/') {
+        if name.is_empty() || name.split('/').any(|part| matches!(part, "" | "." | "..")) {
             return Err(super::EINVAL);
         }
         let mutation = self.mutation.replace_pristine()?;
         let _swap = self.swap.write().unwrap_or_else(PoisonError::into_inner);
+        self.upper_folder(Self::parent_of(name))?;
         let index = self.lower(name).ok_or(ENOENT)?;
         if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::Dir) {
             return Err(ENOTDIR);
@@ -111,6 +114,22 @@ impl Overlay {
             Self::retire(&mut inner, name, old, index, self.manifest.head_len() as u64);
         }
         Ok(old)
+    }
+
+    /// The number of the folder at `path` (`""` the root), as a lookup answers it; None when there
+    /// is no folder there.
+    pub fn folder_ino(&self, path: &str) -> Option<u64> {
+        if path.is_empty() {
+            return Some(self.root());
+        }
+        let node = self.node(path)?;
+        let is_dir = match &node {
+            Node::Upper(stat) => stat.is_dir(),
+            Node::Lower(index) => {
+                self.manifest.entry(*index).is_some_and(|entry| entry.kind == Kind::Dir)
+            }
+        };
+        is_dir.then(|| self.ino_of(path, &node))
     }
 
     fn retire(inner: &mut Inner, name: &str, old: u64, index: u32, manifest_len: u64) {

@@ -8,6 +8,12 @@
 //! (`cmux_tui_core::projection::fsname_for`). Its edits stay on the machine, over the Mac's
 //! files, until the person brings them back; empty or not, git or not. Anything else is the
 //! machine's own folder.
+//!
+//! The git repositories in a projected folder (its own, or clones in folders below it) are named
+//! with their branch and last commit ([`checkouts`]): each is the person's own checkout as it is
+//! on the Mac now, so an old commit is their old checkout, never a stale copy (issue 57201: an
+//! agent on a folder of clones read one on a two-month-old branch as "a stale mirror" and cloned
+//! the repository again).
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -26,6 +32,21 @@ pub fn describe(path: &str) -> Value {
 /// [`describe`] over a mount table and the folder's git root, as read.
 fn describe_with(path: &Path, mountinfo: &str, git: Option<PathBuf>) -> Value {
     let projection = projection_of(path, mountinfo);
+    let found = match (&projection, &git) {
+        (Some(_), Some(root)) => checkouts(root),
+        (Some(_), None) => checkouts(path),
+        (None, _) => Vec::new(),
+    };
+    describe_found(path, projection, git, &found)
+}
+
+/// [`describe_with`] once the projection and the checkouts in it are read.
+fn describe_found(
+    path: &Path,
+    projection: Option<(PathBuf, Option<String>)>,
+    git: Option<PathBuf>,
+    found: &[Checkout],
+) -> Value {
     let git_root = git.map(|root| root.to_string_lossy().into_owned());
     let mut answer = json!({
         "path": path,
@@ -74,8 +95,119 @@ fn describe_with(path: &Path, mountinfo: &str, git: Option<PathBuf>) -> Value {
             )
         }
     };
+    let mut summary = summary;
+    if projection.is_some() && !found.is_empty() {
+        answer["repositories"] = json!(found.iter().map(Checkout::to_json).collect::<Vec<_>>());
+        let listed: Vec<String> = found.iter().map(Checkout::line).collect();
+        summary.push_str(&format!(
+            " Its git {}: {}. Each is the person's own checkout exactly as it is on their Mac now, \
+             not a cached or out-of-date copy: an old branch or commit date means they have not \
+             updated that checkout, not that this folder is stale. To work on newer code, fetch \
+             or check out a branch in that repository (or ask the person), instead of cloning it \
+             again.",
+            if found.len() == 1 { "repository" } else { "repositories" },
+            listed.join("; "),
+        ));
+    }
     answer["summary"] = json!(summary);
     answer
+}
+
+/// The most repositories [`checkouts`] names.
+const MAX_CHECKOUTS: usize = 16;
+/// How deep below the folder [`checkouts`] looks (as the machine's swap does).
+const MAX_DEPTH: usize = 3;
+/// Folders [`checkouts`] never looks in: build output and package caches.
+const NOT_CLONES: [&str; 6] = ["node_modules", "target", ".build", "DerivedData", "Pods", "vendor"];
+
+/// One git repository of a projected folder: where, its branch, its last commit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Checkout {
+    path: PathBuf,
+    /// None when detached.
+    branch: Option<String>,
+    /// The commit's committer date, `YYYY-MM-DD`; None on a branch with no commit.
+    date: Option<String>,
+    /// The commit's short id.
+    commit: Option<String>,
+}
+
+impl Checkout {
+    fn line(&self) -> String {
+        let branch =
+            self.branch.as_deref().map_or("detached HEAD".to_owned(), |b| format!("branch {b}"));
+        match (&self.commit, &self.date) {
+            (Some(commit), Some(date)) => {
+                format!("{} on {branch}, last commit {commit} of {date}", self.path.display())
+            }
+            _ => format!("{} on {branch}, no commit yet", self.path.display()),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({"path": self.path, "branch": self.branch, "commit": self.commit,
+               "commit_date": self.date, "mac_checkout": true})
+    }
+}
+
+/// The git repositories at or below `root`: `root` itself when it is one, else every folder
+/// holding a `.git` at most [`MAX_DEPTH`] down, never inside one, a hidden folder or one of
+/// [`NOT_CLONES`]; at most [`MAX_CHECKOUTS`], shallowest first.
+fn checkouts(root: &Path) -> Vec<Checkout> {
+    repository_paths(root).into_iter().map(|path| read_checkout(&path)).collect()
+}
+
+fn repository_paths(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut level = vec![root.to_path_buf()];
+    for depth in 0..=MAX_DEPTH {
+        let mut next = Vec::new();
+        for dir in level {
+            if dir.join(".git").exists() {
+                found.push(dir);
+                if found.len() == MAX_CHECKOUTS {
+                    return found;
+                }
+                continue;
+            }
+            if depth == MAX_DEPTH {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            let mut names: Vec<String> = entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| !name.starts_with('.') && !NOT_CLONES.contains(&name.as_str()))
+                .collect();
+            names.sort();
+            next.extend(names.into_iter().map(|name| dir.join(name)));
+        }
+        level = next;
+    }
+    found
+}
+
+fn read_checkout(path: &Path) -> Checkout {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    let branch = git(&["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    let (commit, date) = git(&["log", "-1", "--format=%h %cs"])
+        .and_then(|line| line.split_once(' ').map(|(c, d)| (c.to_owned(), d.to_owned())))
+        .map_or((None, None), |(c, d)| (Some(c), Some(d)));
+    Checkout { path: path.to_path_buf(), branch, date, commit }
 }
 
 /// The projection mount holding `path` (the deepest mount at or above it), and the Mac folder

@@ -165,8 +165,11 @@ fn mark_once(
         walk(&upper, "", &mut hash, metadata)?;
         // Writes after the swap bypass FUSE and land in this owned repository. Include
         // them so Bring Back cannot free commits made after it took its transfer mark.
-        if let Some(git) = crate::git_swap::swapped_repository(state)? {
-            walk(&git, "/.git", &mut hash, metadata)?;
+        // The nested repositories' too (issue 57201).
+        for (repo, git) in crate::git_swap::swapped_repositories(state)? {
+            let relative =
+                if repo.is_empty() { "/.git".to_owned() } else { format!("/{repo}/.git") };
+            walk(&git, &relative, &mut hash, metadata)?;
         }
     }
     match fs::read(state.join("whiteouts")) {
