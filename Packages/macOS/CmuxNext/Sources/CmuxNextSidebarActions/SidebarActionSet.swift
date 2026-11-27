@@ -4,7 +4,7 @@ public import CmuxNextSettings
 public import CmuxNextSidebar
 
 /// Every action this package binds, from one call at the composition root (AppActions): archive,
-/// auto-archive, a group's Sort, the compact workspace list toggle, Reveal Workspace in Sidebar, the Sidebar States Playground and the Sidebar Row Tuner.
+/// auto-archive, Archive Settled Chats, a group's Sort, the compact workspace list toggle, Reveal Workspace in Sidebar, the Sidebar States Playground and the Sidebar Row Tuner.
 @MainActor
 public struct SidebarActionSet {
     private let host: any SidebarArchiveHost
@@ -41,6 +41,7 @@ public struct SidebarActionSet {
         SidebarCompactListToggle(settings: settings).bind(into: registry)
         let host = host
         SidebarRevealActions(workspace: { try? host.archiveWorkspace($0) }, sidebar: sidebar).bind(into: registry)
+        SidebarArchiveSettledAction(coordinator: autoArchive, sidebar: sidebar).bind(into: registry)
         SidebarStatesPlaygroundAction(themeColors: themeColors, sections: playgroundSections).bind(into: registry)
         SidebarRowTunerAction().bind(into: registry)
     }

@@ -10,13 +10,15 @@ struct ScreenKitTests {
         #expect(old.showStats)
         #expect(old.quality == .auto)
         #expect(old.showTrackpad, "the trackpad is up by default, also for preferences saved before it existed")
+        #expect(old.maxKbps == nil, "no bitrate cap unless one was chosen")
+        #expect(old.showCursorInStream, "the stream shows the cursor unless turned off")
         let unknownQuality = try JSONDecoder().decode(ScreenPreferences.self, from: Data(#"{"quality":"ultra"}"#.utf8))
         #expect(unknownQuality.quality == .auto)
     }
 
     @Test func preferencesRoundTrip() throws {
         let preferences = ScreenPreferences(localCursor: false, showStats: false, fitToDisplay: false, quality: .medium,
-                                            showTrackpad: false)
+                                            showTrackpad: false, maxKbps: 5_000, showCursorInStream: false)
         let decoded = try JSONDecoder().decode(ScreenPreferences.self, from: JSONEncoder().encode(preferences))
         #expect(decoded == preferences)
         #expect(decoded.showTrackpad == false, "a tucked-away trackpad stays tucked away")

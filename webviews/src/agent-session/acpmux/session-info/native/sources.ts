@@ -26,6 +26,7 @@ export type SourcesInput = {
   cwd?: string;
   onOpenFile?: (path: string) => unknown;
   onOpenBeside?: (url: string) => void;
+  onRemoveFolder?: (folder: string) => Promise<unknown> | unknown;
   failures?: Readonly<Record<string, string>>;
   /// Every source shows (`sessionInfoState.sourcesAll`).
   expanded: boolean;
@@ -39,18 +40,32 @@ export function sourcesSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange } = input;
+  const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange, onRemoveFolder } = input;
   const openUrl = nativeExternalUrl(onOpenBeside);
   const folders = input.folders ?? [];
   if (sources.length + folders.length === 0) return undefined;
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
-  const folderRows = folders.map((folder): NativeInfoRow => ({
-    id: `folder:${folder}`,
-    symbol: "folder",
-    title: extraFolderName(folder),
-    help: folder,
-  }));
+  const folderRows = folders.map((folder): NativeInfoRow => {
+    const name = extraFolderName(folder);
+    return {
+      id: `folder:${folder}`,
+      symbol: "folder",
+      title: name,
+      help: folder,
+      ...(onRemoveFolder
+        ? {
+            buttons: [
+              {
+                label: t("composer.removeFolder", { name }),
+                symbol: "xmark",
+                action: actions.add(`sources.removeFolder:${folder}`, () => onRemoveFolder(folder)),
+              },
+            ],
+          }
+        : {}),
+    };
+  });
   const labels = sourceLabels(t, sources);
   const sourceRows = shown.map((source, index): NativeInfoRow => {
     const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;

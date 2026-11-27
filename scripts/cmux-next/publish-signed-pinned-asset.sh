@@ -5,10 +5,11 @@
 # content-addressed (<prefix>/<sha256>/<asset>), the upload is write-once
 # (If-None-Match: *), the object is always read back and its sha256 checked,
 # credentials go to curl on stdin, and one line is appended to the publish log.
-# Only the prefix cua-helper-dev/ (the store's historical name for cmux Remote) is allowed. Never
+# Only two prefixes are allowed: cua-helper-dev/ (the store's historical name for cmux Remote) and
+# files-host-dev/ (cmux Files (dev), docs/cmux-files-host.md). Never
 # publish keys, certificates or provisioning profiles.
 #
-#   publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev \
+#   publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev|files-host-dev \
 #       --pin PIN.json [--field KEY=VALUE ...] [--dry-run]
 #
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
@@ -19,7 +20,7 @@
 set -euo pipefail
 
 file=""; prefix=""; pin=""; dry=0; fields=()
-usage() { echo "usage: publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev --pin PIN [--field K=V ...] [--dry-run]" >&2; exit 2; }
+usage() { echo "usage: publish-signed-pinned-asset.sh --file PATH --prefix cua-helper-dev|files-host-dev --pin PIN [--field K=V ...] [--dry-run]" >&2; exit 2; }
 while (( $# )); do
   case "$1" in
     --file) file="${2:?}"; shift 2 ;;
@@ -31,7 +32,7 @@ while (( $# )); do
   esac
 done
 [[ -f "$file" && -n "$pin" ]] || usage
-case "$prefix" in cua-helper-dev) ;; *) echo "error: prefix must be cua-helper-dev" >&2; exit 2 ;; esac
+case "$prefix" in cua-helper-dev|files-host-dev) ;; *) echo "error: prefix must be cua-helper-dev or files-host-dev" >&2; exit 2 ;; esac
 case "$(basename "$file")" in
   *.p12|*.pem|*.key|*.cer|*.mobileprovision|*.provisionprofile|*.env) echo "error: refusing to publish a credential-like file" >&2; exit 2 ;;
 esac

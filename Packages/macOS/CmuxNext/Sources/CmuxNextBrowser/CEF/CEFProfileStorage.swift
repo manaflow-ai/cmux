@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Chromium storage paths, keyed by the daemon's profile id
@@ -16,14 +17,16 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         self.root = root
     }
 
-    /// Storage for the running app. Tagged DEV builds have distinct bundle
-    /// ids, so their data never mixes with release data.
+    /// Storage for the running app: `<Application Support>/<folder>/Chromium`, the folder the bundle id's
+    /// (``BuildIdentity/stateFolderName(for:)`` of `build`, this process's by default), so a DEV build's
+    /// cookies and logins never mix with release data or another copy's.
     public static func forApplication(
         bundleIdentifier: String?,
+        build: BuildIdentity = BuildStatePaths.current.build,
         applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     ) -> CEFProfileStorage {
         let support = applicationSupport ?? URL(filePath: NSTemporaryDirectory())
-        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
+        let bundle = build.stateFolderName(for: bundleIdentifier) ?? "com.cmuxterm.app.next"
         return CEFProfileStorage(root: support.appending(path: bundle).appending(path: "Chromium"))
     }
 

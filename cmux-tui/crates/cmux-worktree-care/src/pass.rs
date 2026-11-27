@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::archive;
 use crate::disk::{self, Usage};
-use crate::inventory::{self, now_ms};
+use crate::inventory::{self, Guarded, now_ms};
 use crate::policy::{self, Action, Pressure, Session, Settings, Verdict};
 use crate::procs::{Open, Uses};
 use crate::store::Store;
@@ -39,6 +39,9 @@ pub struct Options {
     pub only: Vec<PathBuf>,
     /// Measure the bytes each worktree a pass would act on takes.
     pub measure: bool,
+    /// Folders a pass never reads or acts on (`inventory::Guarded`): the
+    /// privacy-protected ones, where a git run raises a prompt nobody asked for.
+    pub guarded: Arc<Guarded>,
 }
 
 /// One worktree's line in a report.
@@ -103,7 +106,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     // No process list, no action: a worktree some program uses could go.
     let processes = (options.uses)()?;
     let session_dirs: Vec<PathBuf> = options.sessions.iter().map(|s| s.cwd.clone()).collect();
-    let repositories = inventory::repositories(&options.roots, &session_dirs);
+    let repositories = inventory::repositories(&options.roots, &session_dirs, &*options.guarded);
     let disk = options.roots.first().and_then(|root| disk::usage(root));
     let pressure = options
         .pressure
@@ -121,16 +124,21 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     let now = now_ms();
     let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
     for common in repositories {
-        let repo = match inventory::scan_with_memo(&common, &[], Arc::clone(&finished)) {
-            Ok(repo) => repo,
-            Err(error) => {
-                report.errors.push(format!("{}: {error}", common.display()));
-                continue;
-            }
-        };
+        let repo =
+            match inventory::scan_guarded(&common, &[], Arc::clone(&finished), &*options.guarded) {
+                Ok(repo) => repo,
+                Err(error) => {
+                    report.errors.push(format!("{}: {error}", common.display()));
+                    continue;
+                }
+            };
         let mut pruned = false;
         for worktree in &repo.worktrees {
             if !options.only.is_empty() && !options.only.iter().any(|p| p == &worktree.path) {
+                continue;
+            }
+            // A parked checkout can contain writes made during or after its move.
+            if worktree.path.starts_with(store.dir.join("parked")) {
                 continue;
             }
             if worktree.prunable {
@@ -216,7 +224,7 @@ fn act(
     match verdict.action {
         Action::Keep => Ok((0, None)),
         Action::Trim => archive::trim(&fresh, facts, &*options.uses).map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive => archive::reclaim(
+        Action::Reclaim | Action::Archive | Action::Park => archive::reclaim(
             repo,
             &fresh,
             facts,
@@ -237,6 +245,9 @@ fn measure(
     action: Action,
     facts: Option<&inventory::Facts>,
 ) -> u64 {
+    if action == Action::Park {
+        return 0;
+    }
     let deadline = std::time::Instant::now() + MEASURE;
     let parts: Vec<PathBuf> = facts
         .map(|f| f.build_output.iter().map(|p| PathBuf::from(p.trim_end_matches('/'))).collect())

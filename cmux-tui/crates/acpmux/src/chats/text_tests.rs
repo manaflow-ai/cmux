@@ -245,6 +245,19 @@ fn the_text_is_saved_private_and_read_back_and_chats_off_empty_it() {
 }
 
 #[test]
+fn a_stamp_only_change_does_not_rewrite_the_saved_text() {
+    let text = index();
+    let turns = vec![turn("x", "same searchable content")];
+    text.update(&[chat("a", 1)], &|_| Some(turns.clone()));
+    let saved = text.saves();
+
+    // The chat index stamp moved, but the transcript content did not.
+    text.update(&[chat("a", 2)], &|_| Some(turns.clone()));
+    assert_eq!(text.saves(), saved, "a metadata-only stamp update rewrote the text index");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
 fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled() {
     let text = index();
     assert!(!text.filled(), "nothing read yet");
@@ -483,4 +496,146 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
             assert_eq!(kept.unwrap(), "old", "an interrupted save changed the old copy");
         },
     );
+}
+
+/// Past [`PAR_MIN_BYTES`] a pass is split across cores; the answer is the one a single thread
+/// gives, every hit and its newest message, at any split.
+#[test]
+fn a_pass_split_across_cores_finds_what_one_thread_finds() {
+    let line = "lorem ipsum dolor sit amet ".repeat(400);
+    let docs: Vec<(String, Arc<Doc>)> = (0..400)
+        .map(|i| {
+            let said =
+                if i % 37 == 0 { format!("{line} the deploy failed {i}") } else { line.clone() };
+            let doc = Doc::new(Stamp { updated_ms: i, messages: None }, &[turn("x", &said)]);
+            (format!("codex:{i}"), Arc::new(doc))
+        })
+        .collect();
+    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
+    assert!(bytes > PAR_MIN_BYTES, "{bytes} bytes: the split path");
+    let words = needle("DEPLOY fail");
+    let matcher = Matcher::new(&words);
+    let search = |key: &String, doc: &Arc<Doc>| {
+        let matched = doc.find(&words, &matcher)?;
+        Some((key.clone(), Found { doc: doc.clone(), matched }))
+    };
+    let one: HashMap<String, Found> =
+        docs.iter().filter_map(|(key, doc)| search(key, doc)).collect();
+    let refs: Vec<(&String, &Arc<Doc>)> = docs.iter().map(|(key, doc)| (key, doc)).collect();
+    let split: HashMap<String, Found> =
+        par_filter_map(&refs, |&(key, doc)| search(key, doc)).into_iter().collect();
+    let mut keys: Vec<&String> = split.keys().collect();
+    keys.sort();
+    let mut want: Vec<&String> = one.keys().collect();
+    want.sort();
+    assert_eq!(keys, want);
+    assert_eq!(keys.len(), 11);
+    for (key, found) in &split {
+        assert_eq!(found.matched, one[key].matched);
+    }
+    // Under the bound, or one chat: one thread, the same answer.
+    assert_eq!(par_filter_map(&refs[..1], |&(key, doc)| search(key, doc)).len(), 1);
+}
+
+#[test]
+fn a_pass_over_much_text_on_many_threads_finds_what_one_thread_finds() {
+    // Past PAR_MIN_BYTES so the pass takes threads; docs of uneven size so chunks finish apart.
+    let filler = "lorem ipsum dolor sit amet ".repeat(1_000);
+    let docs: Vec<(String, Arc<Doc>)> = (0..400)
+        .map(|n| {
+            let mut turns = vec![turn("start", &filler[..(n % 7 + 1) * 3_000])];
+            if n % 13 == 0 {
+                turns.push(turn("needle here", &format!("planted Zebrafinch {n}")));
+            }
+            turns.push(turn("end", &filler[..(n % 5 + 1) * 2_000]));
+            (
+                format!("chat-{n}"),
+                Arc::new(Doc::new(Stamp { updated_ms: 0, messages: None }, &turns)),
+            )
+        })
+        .collect();
+    let refs: Vec<(&String, &Arc<Doc>)> = docs.iter().map(|(k, d)| (k, d)).collect();
+    let bytes: usize = refs.iter().map(|(_, d)| d.text.len()).sum();
+    assert!(bytes >= PAR_MIN_BYTES, "{bytes} bytes take one thread");
+    let words = needle("zebrafinch planted");
+    let matcher = Matcher::new(&words);
+    let find =
+        |&(key, doc): &(&String, &Arc<Doc>)| doc.find(&words, &matcher).map(|m| (key.clone(), m));
+    let mut many = par_filter_map(&refs, find);
+    let mut one: Vec<_> = refs.iter().filter_map(find).collect();
+    many.sort_by(|a, b| a.0.cmp(&b.0));
+    one.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(many.len(), 400_usize.div_ceil(13));
+    assert_eq!(many, one);
+    // Below the bound the pass stays on this thread and still finds every doc.
+    assert_eq!(par_filter_map(&refs[..26], find).len(), 2);
+}
+
+#[test]
+fn the_trigram_set_never_drops_a_hit_and_a_word_no_chat_says_reads_no_text() {
+    let mut seed = 11_u64;
+    let vocabulary: Vec<String> = (0..400)
+        .map(|i| {
+            let len = 2 + i % 9;
+            (0..len).map(|j| char::from(b'a' + ((i * 7 + j * 3) % 26) as u8)).collect::<String>()
+        })
+        .collect();
+    let chats: Vec<IndexedChat> = (0..60).map(|n| chat(&format!("c{n}"), n)).collect();
+    // Uneven sizes, mixed case: a short chat, and long ones past the set's most bits.
+    let said: HashMap<String, Vec<Turn>> = (0..60)
+        .map(|n| {
+            let mut s = seed.wrapping_add(n as u64);
+            let count = [5, 60, 2_000, 30_000][n % 4];
+            let mut text = words(&mut s, count, &vocabulary);
+            if n % 3 == 0 {
+                text = text.to_uppercase();
+            }
+            (format!("c{n}"), vec![turn("q", &text)])
+        })
+        .collect();
+    let text = index();
+    text.update(&chats, &|entry| said.get(&entry.session_id).cloned());
+    let plain = |query: &str| {
+        let words = needle(query);
+        let unfiltered = Matcher { trigrams: Vec::new(), ..Matcher::new(&words) };
+        let mut keys: Vec<String> = lock(&text.inner)
+            .docs
+            .iter()
+            .filter(|(_, doc)| doc.find(&words, &unfiltered).is_some())
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.sort();
+        keys
+    };
+    for _ in 0..300 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let a = &vocabulary[(seed >> 33) as usize % vocabulary.len()];
+        let b = &vocabulary[(seed >> 13) as usize % vocabulary.len()];
+        // A word, two words, and a piece of a word across a word's end.
+        for query in [a.clone(), format!("{a} {b}"), format!("{} {}", &a[1..], &b[..2])] {
+            let mut found: Vec<String> = text.search(&needle(&query)).keys().cloned().collect();
+            found.sort();
+            assert_eq!(found, plain(&query), "{query}");
+        }
+    }
+    let (scanned, read) = (text.scanned(), text.read());
+    assert!(text.search(&needle("zqxjvw")).is_empty());
+    assert_eq!(text.scanned() - scanned, 60, "every chat is asked");
+    assert_eq!(text.read() - read, 0, "no chat's text is read for a word none says");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
+fn an_edited_doc_keeps_finding_old_and_added_words_through_its_trigram_set() {
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let mut doc = Doc::new(stamp, &[turn("first", "Alpha")]);
+    // Grow past the set's first size, so it is read again off the whole text.
+    let long = "filler words here ".repeat(200);
+    doc.edit(1, &[turn(&long, "Bravo"), turn("x", "charlie")], 0);
+    for word in ["alpha", "BRAVO", "Charlie", "filler"] {
+        let words = needle(word);
+        assert!(doc.find(&words, &Matcher::new(&words)).is_some(), "{word}");
+    }
+    let words = needle("zqxjvw");
+    assert!(!doc.may_hold(&Matcher::new(&words)));
 }

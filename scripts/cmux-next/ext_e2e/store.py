@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import sys
 import time
 import urllib.request
 
@@ -11,6 +12,39 @@ from .collector import Collector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIST = os.path.join(os.path.dirname(HERE), "ext-store", "extensions.json")
+
+sys.path.insert(0, os.path.dirname(HERE))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
+LOADED_JS = "document.readyState === 'complete'"
+
+
+def target_list(port):
+    """Every CDP target as sorted (type, url) pairs: what an extension's install adds (workers, welcome tabs)."""
+    return sorted((t.get("type") or "", t.get("url") or "") for t in cdp.targets(port))
+
+
+def has_content_scripts(entry):
+    return bool(entry.get("manifest", {}).get("content_scripts"))
+
+
+def extension_world(session, extension_id):
+    """Whether the page has a content-script world of `extension_id`: Runtime.enable reports every existing
+    execution context (an isolated world's origin is its chrome-extension:// URL) before it answers."""
+    request_id = session.next_id
+    session.next_id += 1
+    session._send(json.dumps({"id": request_id, "method": "Runtime.enable", "params": {}}))
+    session.sock.settimeout(15)
+    found = False
+    while True:
+        message = session._recv()
+        if message.get("id") == request_id:
+            break
+        context = (message.get("params") or {}).get("context") or {}
+        if message.get("method") == "Runtime.executionContextCreated" and extension_id in (context.get("origin") or ""):
+            found = True
+    session.call("Runtime.disable")
+    return found
 
 EXTENSIONS_INFO_JS = """
 new Promise((resolve) => chrome.developerPrivate.getExtensionsInfo({includeDisabled: true}, (items) =>
@@ -108,7 +142,15 @@ class StoreRun:
             app.open_chromium(collector.url + "/home.html")
             if not cdp.wait_target(app.cdp_port, lambda t: "/home.html" in t.get("url", ""), 90):
                 raise RuntimeError("Chromium did not start within 90 s")
-            time.sleep(6)  # let workers finish onInstalled before reading errors
+            # Workers run onInstalled before errors are read: each extension's own target (worker, background
+            # page) is up, then the target list holds still for 2 s (the welcome tabs onInstalled opens are in).
+            ids = [e["id"] for e in group if e["manifest"].get("background")]
+            if wait_until(lambda: all(any(url.startswith(f"chrome-extension://{i}/") for _, url in target_list(app.cdp_port))
+                                      for i in ids), "every extension's background target", timeout=30,
+                          interval=0.25, raise_on_timeout=False) is None:
+                self.log(f"note: not every background target showed in 30 s: {target_list(app.cdp_port)}")
+            wait_stable(lambda: target_list(app.cdp_port), "the Chromium targets after install", timeout=30,
+                        interval=0.25, reads=8, raise_on_timeout=False)
             info = self.retry(lambda: self.extension_info(app), 3)
             for entry in group:
                 try:
@@ -152,7 +194,8 @@ class StoreRun:
             target = opened["id"]
             page = cdp.wait_target(app.cdp_port, lambda t: t.get("id") == target, 10)
             session = cdp.Session(page["webSocketDebuggerUrl"])
-            time.sleep(1)
+            wait_until(lambda: session.evaluate(LOADED_JS + " && !!(window.chrome && chrome.developerPrivate)"),
+                       "chrome://extensions to load with chrome.developerPrivate", timeout=15, interval=0.1)
             items = session.evaluate(EXTENSIONS_INFO_JS) or []
             session.close()
             browser.call("Target.closeTarget", {"targetId": target})
@@ -310,7 +353,10 @@ class StoreRun:
     def check_vimium(self, app, collector, entry, info, _):
         session = self.open_page(app, collector, "/links.html")
         try:
-            time.sleep(1.5)
+            # Vimium listens for "f" once its content script runs in the page.
+            wait_until(lambda: session.evaluate(LOADED_JS), "/links.html to load", timeout=15, interval=0.1)
+            wait_until(lambda: extension_world(session, entry["id"]), "Vimium's content script in /links.html",
+                       timeout=10, interval=0.2, raise_on_timeout=False)
             session.call("Emulation.setFocusEmulationEnabled", {"enabled": True})
             for kind in ("keyDown", "keyUp"):
                 session.call("Input.dispatchKeyEvent", {"type": kind, "key": "f", "code": "KeyF", "text": "f" if kind == "keyDown" else "",
@@ -338,9 +384,14 @@ class StoreRun:
         try:
             # Content scripts an extension registers at install miss a page
             # that loaded first (Chrome too); reload once, as a user would.
-            time.sleep(2)
+            wait_until(lambda: session.evaluate(LOADED_JS), f"{page} to load", timeout=15, interval=0.1)
+            session.evaluate("window.__cmuxBeforeReload = true")
             session.call("Page.reload")
-            time.sleep(3)
+            wait_until(lambda: session.evaluate("!window.__cmuxBeforeReload && " + LOADED_JS),
+                       f"{page} to load again after the reload", timeout=20, interval=0.1)
+            if has_content_scripts(entry):
+                wait_until(lambda: extension_world(session, entry["id"]), f"{entry['name']}'s content script in {page}",
+                           timeout=10, interval=0.2, raise_on_timeout=False)
         finally:
             session.close()
         app.action("browser toggle-developer-tools")

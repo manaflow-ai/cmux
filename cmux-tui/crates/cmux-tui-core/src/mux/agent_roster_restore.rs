@@ -94,6 +94,10 @@ pub(super) struct AgentRosterReplay {
     skipped: Vec<SkippedJournalRange>,
     problems: Vec<String>,
     limits: RosterFoldLimits,
+    /// The cursor the start's fold began at, while the start owns the fold:
+    /// each page advances `identify`'s restore progress. The background
+    /// replay reports none, since the owner is already serving.
+    progress_from: Option<u64>,
 }
 
 /// How a slice of the replay ended.
@@ -248,6 +252,8 @@ pub(super) fn restore_agent_roster_within(
     budget: Option<Duration>,
 ) -> anyhow::Result<RestoredAgentRoster> {
     use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    crate::restore_progress::enter(crate::restore_progress::RestorePhase::AgentRoster);
+    crate::restore_progress::test_delay();
     let mut problems = Vec::new();
     let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|_| {
         eprintln!("cmux-tui: agent roster snapshot is unreadable; rebuilding it from the journal");
@@ -340,10 +346,12 @@ pub(super) fn restore_agent_roster_within(
         skipped: Vec::new(),
         problems,
         limits,
+        progress_from: Some(host.cursor),
     };
     let rebuild = rebuild_from.is_some();
     let deadline = budget.map(|budget| Instant::now() + budget);
     let progress = replay.fold(registry, &mut &mut host, deadline)?;
+    replay.progress_from = None;
     Ok(match progress {
         ReplayProgress::Done { diagnostic } => {
             RestoredAgentRoster { host, diagnostic, replay: None, rebuild, unmarked_from }
@@ -389,6 +397,14 @@ impl AgentRosterReplay {
         let limits = self.limits;
         loop {
             let cursor = target.with(|host| host.cursor);
+            // Journal rows the start's fold covers, for `identify` while the
+            // owner restores (a reducer version change folds the whole journal).
+            if let Some(from) = self.progress_from {
+                crate::restore_progress::advance(
+                    cursor.saturating_sub(from),
+                    Some(self.through.saturating_sub(from)),
+                );
+            }
             if cursor >= self.through {
                 break;
             }
@@ -552,23 +568,5 @@ pub(super) fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String 
 }
 
 #[cfg(test)]
-mod test_support {
-    use super::{AgentRosterReplay, RosterFoldLimits};
-
-    impl AgentRosterReplay {
-        /// Test seam: a replay through `through` from no saved state.
-        pub(in crate::mux) fn for_test(through: u64, limits: RosterFoldLimits) -> Self {
-            Self {
-                through,
-                saved_at: 0,
-                pages: 0,
-                needs_repair: false,
-                finish_rebuild: false,
-                save_as: crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                skipped: Vec::new(),
-                problems: Vec::new(),
-                limits,
-            }
-        }
-    }
-}
+#[path = "agent_roster_restore_test_support_tests.rs"]
+mod test_support;

@@ -403,9 +403,21 @@ struct CloudCreationFlow {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
                 if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
+                // A creation no window shows (a CLI's, an agent's) has nobody to Retry or Dismiss it: `cloud
+                // list-machines` shows it failed, with why, for a while, then it ends, so a failed create never
+                // lingers as `creating`. Its own run's answer already carried the failure. Retry, Dismiss or
+                // the machine's removal cancel this wait.
+                guard creation.windowID == nil else { return }
+                // wakeup-allow: one bounded wait before a windowless failed creation's row ends
+                try? await Task.sleep(for: Self.failedRowLingers)
+                guard !Task.isCancelled, case .failed = creation.phase else { return }
+                creations.end(creation)
             }
         }
     }
+
+    /// How long a failed creation no window shows stays listed (as failed, with its reason) before it ends.
+    static let failedRowLingers: Duration = .seconds(300)
 
     /// Waits for the ready stage (a failure in between may recover: the
     /// daemon keeps retrying). False when cancelled.

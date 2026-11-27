@@ -59,7 +59,7 @@ public final class ImportSuggestionsCenter {
 
     /// `Application Support/cmux-next/<bundle id>/import-jobs.json`.
     public nonisolated static var defaultLedgerURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        NextSupport.applicationSupportDirectory()
             .appending(path: "cmux-next", directoryHint: .isDirectory)
             .appending(path: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
             .appending(path: "import-jobs.json")
@@ -151,8 +151,8 @@ public final class ImportSuggestionsCenter {
         let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
-        // Classic's saved workspaces not open here yet, read and planned by the daemon.
-        let classic = await host.classicWorkspaces()
+        // The daemon checks for Classic files without opening them.
+        let classic = await host.classicAvailability()
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
@@ -160,7 +160,7 @@ public final class ImportSuggestionsCenter {
         return await withTaskCancellationHandler {
             await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+                              importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet }).scan()
             }.value
         } onCancel: {
             stop.set()

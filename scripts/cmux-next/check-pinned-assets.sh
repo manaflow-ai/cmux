@@ -39,7 +39,7 @@ verify_pin() {
       CMUX_NEXT_RB_HOST_CACHE_DIR="$CACHE_ROOT/remote-browser-host" \
         "$SCRIPT_DIR/ensure-remote-browser-host.sh" >/dev/null
       ;;
-    scripts/cmux-next/cmux-remote-dev.pin.json)
+    scripts/cmux-next/cmux-remote-dev.pin.json|scripts/cmux-next/files-host-dev.pin.json)
       echo "Checking $relative in the controller/R2 store"
       CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/cua" \
         "$SCRIPT_DIR/ensure-signed-pinned-asset.sh" "$ROOT/$relative" >/dev/null

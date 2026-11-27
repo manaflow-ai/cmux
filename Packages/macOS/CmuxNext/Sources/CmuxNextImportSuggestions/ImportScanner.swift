@@ -2,6 +2,11 @@ public import CmuxNextBrowserImport
 import CmuxNextCompat
 public import Foundation
 
+/// What Classic's file metadata and NEXT's migration ledger establish before consent.
+public nonisolated enum ClassicImportAvailability: Sendable {
+    case unavailable, available, alreadyImported
+}
+
 /// Finds what this Mac has that cmux can bring over, cheaply and without
 /// asking: folder listings and file existence for browsers and agents, one
 /// small property list for iTerm2. It never opens a browser's databases,
@@ -16,9 +21,8 @@ public nonisolated struct ImportScanner: Sendable {
     public var variables: [String: String]
     /// Browser profiles imported before (`<browser>/<profile folder>`, `ImportSourceRecord.sourceKey`): left out.
     public var importedProfiles: Set<String>
-    /// cmux Classic's saved workspaces on this Mac that are not here yet: nil when Classic has no
-    /// saved session, 0 when all of it already came over (Settings › Import still offers it again).
-    public var classicWorkspaces: @Sendable () -> Int?
+    /// The daemon's metadata-only probe for Classic.
+    public var classicAvailability: ClassicImportAvailability
     /// Opens a file to learn whether it can be read (Safari's privacy-protected folder).
     public var probe: @Sendable (URL) -> FileAccess
     /// Asked before each browser and each other source: true ends the scan there, with what it found
@@ -31,14 +35,14 @@ public nonisolated struct ImportScanner: Sendable {
     public static let maximumPreferencesBytes = 16 * 1024 * 1024
 
     public init(home: URL, environment: ImportEnvironment, variables: [String: String] = [:],
-                importedProfiles: Set<String> = [], classicWorkspaces: @escaping @Sendable () -> Int? = { nil },
+                importedProfiles: Set<String> = [], classicAvailability: ClassicImportAvailability = .unavailable,
                 probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe,
                 shouldStop: @escaping @Sendable () -> Bool = { false }) {
         self.home = home
         self.environment = environment
         self.variables = variables
         self.importedProfiles = importedProfiles
-        self.classicWorkspaces = classicWorkspaces
+        self.classicAvailability = classicAvailability
         self.probe = probe
         self.shouldStop = shouldStop
     }
@@ -68,10 +72,11 @@ public nonisolated struct ImportScanner: Sendable {
         return candidates.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.compactMap { _, browser in
             guard !shouldStop() else { return nil }
             // Another app's container: even a look there can ask the person for "data from other
-            // apps", so a registry folder in one is never checked (Safari's is its own grant).
+            // apps", so a registry folder in one is never checked (Safari's is its own grant, except in a
+            // `cmux app try` copy, a new identity each try: ``OtherAppContainers``).
             let folders = (browser.dataDirectories.isEmpty ? [browser.dataDirectory] : browser.dataDirectories)
                 .map { environment.homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
-                .filter { browser.family == .safari || !Self.isContainer($0) }
+                .filter { (browser.family == .safari && OtherAppContainers.mayRead) || !Self.isContainer($0) }
             guard let directory = folders.first(where: exists) ?? folders.first else { return nil }
             // Two registry rows on one folder (Zen and Zen Twilight) count once.
             guard seenFolders.insert(directory.standardizedFileURL.path).inserted else { return nil }
@@ -190,8 +195,9 @@ public nonisolated struct ImportScanner: Sendable {
     // MARK: Terminals and cmux Classic
 
     func classic() -> ImportFinding? {
-        guard let workspaces = classicWorkspaces() else { return nil }
-        return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: workspaces)
+        guard classicAvailability != .unavailable else { return nil }
+        return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic",
+                             count: classicAvailability == .alreadyImported ? 0 : nil)
     }
 
     /// Conductor's workspaces, one folder each under `~/conductor/workspaces/<repo>`, when its

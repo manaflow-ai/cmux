@@ -69,7 +69,9 @@ impl Hub {
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
         if !now {
             let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
-            if self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(peer) {
+            // Fixed before registry publication, including the window before lease_peer
+            // records the generation. Never wait on a lease writer on the notice path.
+            if p.leased {
                 return;
             }
             // Publish the notice sequence before deciding whether this notice is throttled. The
@@ -124,6 +126,10 @@ impl Hub {
     /// per-peer writer makes queued snapshots land in order, and a final `now` save waits behind
     /// them before taking its own current snapshot.
     pub(super) fn save_peer_cache_now(&self, peer: &str, generation: u64, now: bool) {
+        let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+        if p.leased {
+            return;
+        }
         let writer = self.peer_cache_writer(peer);
         let mut on_disk = writer.lock().unwrap_or_else(|e| e.into_inner());
         // A leased peer leaves nothing on disk (`peer_lease.rs`). This check is intentionally
@@ -212,7 +218,17 @@ impl Hub {
         if map.has_peer(&peer.name) {
             return;
         }
-        for mut summary in saved.sessions {
+        // A chat that was working or asking when this daemon stopped is read ahead now: its
+        // peer dials at once instead of waiting to be used (`peer_demand.rs`).
+        if saved.sessions.iter().any(super::peer_idle::live) {
+            peer.want();
+        }
+        // Its closed rows past the bound stay out (`peer_closed_bound.rs`).
+        let past = super::peer_closed_bound::summaries_past_bound(&saved.sessions);
+        for (n, mut summary) in saved.sessions.into_iter().enumerate() {
+            if past.contains(&n) {
+                continue;
+            }
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
             // An older build saved rows with a peer's own display line.
@@ -248,9 +264,20 @@ impl Hub {
     /// attachments before it went: what a server test sends to while the peer is unreachable.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        self.seed_down_peer_at(name, "ws://127.0.0.1:9", rows)
+    }
+
+    /// [`Self::seed_down_peer`] at `url` (an `ssh://` one for the ssh carrier's tests).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn seed_down_peer_at(
+        &self,
+        name: &str,
+        url: &str,
+        rows: Vec<Value>,
+    ) -> Arc<crate::peer::Peer> {
         use crate::peer::PeerNotice;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        let peer = crate::peer::Peer::new(name, url, None, None, tx);
         peer.seed_send_attach(true);
         self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
         self.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(rows));

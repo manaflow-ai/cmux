@@ -2,7 +2,8 @@
 // sends the whole order, Add a Connection sends a pasted key once and keeps it nowhere after, a member
 // reads the organization's policy without switches to change it, and a ChatGPT sign-in waits with Cancel.
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { mockModels, runMockModels } from "./mockModels";
+import { act } from "react";
+import { advanceMockClaudeToken, mockModels, runMockModels } from "./mockModels";
 import type { ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -129,7 +130,9 @@ test("Continue with ChatGPT waits on the browser with Cancel, and Cancel stops i
   await click(sheet()!.querySelector('[data-models-choice="chatgpt"]')!);
   await click(action(sheet()!, "connectChatGPT")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
-  expect(sheet()!.querySelector('[data-chatgpt="pending"]')?.textContent).toContain("Waiting for you to finish");
+  expect(sheet()!.querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
+    "Waiting for you to sign in to ChatGPT",
+  );
   await click(action(sheet()!, "cancelChatGPT")!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
   expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();
@@ -153,13 +156,53 @@ test("Mac logins that Cloud threads cannot use say This Mac only, with Set Up fo
   );
 });
 
-test("Claude Code opens a terminal for setup-token, then adds the pasted token once", async () => {
+test("Connect Claude is one click: its progress line follows the host, then the sheet closes on the new row", async () => {
   const rendered = await render(mockModels.empty);
   await click(action(card(rendered), "add")!);
   await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
-  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
-  await click(action(form, "claudeSetupToken")!);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "claudeSetupToken" }]);
+  const form = () => sheet()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  expect(form().querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!.open).toBe(false);
+  await click(action(form(), "connectClaudeToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
+  expect(form().querySelector('[data-claude-token="starting"]')?.textContent).toContain(
+    "Opening the Claude sign-in page…",
+  );
+  expect(action(form(), "connectClaudeToken")).toBeNull();
+  const step = async () => {
+    const next = advanceMockClaudeToken(structuredClone(rendered.provider.models!));
+    await act(async () => rendered.provider.setModels(next));
+  };
+  await step();
+  expect(form().querySelector('[data-claude-token="signing_in"]')?.textContent).toContain(
+    "Waiting for you to sign in to Claude in the browser…",
+  );
+  await step();
+  expect(form().querySelector('[data-claude-token="saving"]')?.textContent).toContain("Saving…");
+  await step();
+  expect(sheet()).toBeNull();
+  expect(connectionIds(rendered)).toEqual(["claude-token"]);
+});
+
+test("Connect Claude's error shows the host's words and Try Again; Cancel withdraws a running one", async () => {
+  const rendered = await render(mockModels.claudeError);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = () => sheet()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  expect(form().querySelector('[role="alert"]')?.textContent).toContain("closed before you signed in");
+  await click(action(form(), "retryClaudeToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
+  await click(action(form(), "cancelClaudeToken")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelClaudeToken" });
+  expect(rendered.provider.models!.claudeToken).toEqual({ attempt: null, phase: null, error: null });
+});
+
+test("Paste a token instead stays collapsed and adds the pasted token once", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = sheet()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  const paste = form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!;
+  expect(paste.querySelector("summary")?.textContent).toBe("Paste a token instead");
   const field = form.querySelector<HTMLInputElement>('input[type="password"]')!;
   await changeValue(field, "sk-ant-api03 with spaces");
   expect(form.querySelector("[data-claude-token-invalid]")).not.toBeNull();
@@ -167,14 +210,30 @@ test("Claude Code opens a terminal for setup-token, then adds the pasted token o
   await changeValue(field, "sk-ant-oat01-secret0123456789");
   expect(form.querySelector("[data-claude-token-invalid]")).toBeNull();
   await click(action(form, "addClaudeToken")!);
-  expect(rendered.provider.modelRuns.at(-1)).toEqual({
-    action: "addClaudeToken",
-    token: "sk-ant-oat01-secret0123456789",
-  });
+  expect(rendered.provider.modelRuns).toEqual([{ action: "addClaudeToken", token: "sk-ant-oat01-secret0123456789" }]);
   expect(sheet()).toBeNull();
   expect(connectionIds(rendered)).toEqual(["claude-token"]);
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
   expect(JSON.stringify(rendered.store.getSnapshot().models)).not.toContain("sk-ant-oat01-secret");
+});
+
+test("the mock's one click steps through its phases, and a failure leaves its error", () => {
+  const begun = runMockModels(structuredClone(mockModels.empty), { action: "connectClaudeToken" });
+  expect(begun.claudeToken).toEqual({ attempt: "claude-mock", phase: "starting", error: null });
+  const failed = advanceMockClaudeToken(begun, true);
+  expect(failed.claudeToken?.phase).toBeNull();
+  expect(failed.claudeToken?.error).toBeTruthy();
+  expect(failed.personal.connections).toHaveLength(0);
+});
+
+test("a cancelled one click is not a save: the sheet stays open with Connect Claude", async () => {
+  const rendered = await render(mockModels.claudeSigningIn);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = () => sheet()?.querySelector<HTMLElement>("[data-models-claude-form]");
+  await click(action(form()!, "cancelClaudeToken")!);
+  expect(form()).toBeTruthy();
+  expect(action(form()!, "connectClaudeToken")).toBeTruthy();
 });
 
 test("the mock refuses what acpmux refuses and names new routes as acpmux does", () => {

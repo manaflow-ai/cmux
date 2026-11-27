@@ -3,8 +3,8 @@
 # (`acpmux uniichat-agent`, which speaks UniiChat's own protocol: streaming,
 # stop, images). Use this file only to point at another server, e.g. your own
 # `unii serve`: set UNII_URL below, or pass --url.
-# Sign in: install unii (curl -fsSL https://uniichat.com/install.sh | sh),
-# then `unii login` (or `unii login http://127.0.0.1:8788`).
+# Sign in: `cmux harness login unii` (no `unii` program needed; for your own
+# server, set UNII_URL below first). `unii login` writes the same sign-in.
 schema = 1
 id = "unii"
 name = "UniiChat"
@@ -21,5 +21,5 @@ args = ["uniichat-agent"]
 resume = true
 
 [auth]
-login = "unii login"
+login = "cmux harness login unii"
 docs = "https://github.com/VictorTaelin/UniiChat"

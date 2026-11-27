@@ -386,7 +386,9 @@ struct ThreadPreview: Hashable {
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
-            p.box = CGSize(width: min(300, (39 + w + 15).rounded()), height: 48.5)
+            // cmux: a card with no picture has no thumbnail square, so its text starts nearer its edge (HomeQuotePreview).
+            p.box = CGSize(width: min(HomeQuotePreview.maxCardWidth, (HomeQuotePreview.textInset(part) + w + HomeQuotePreview.trailingPad).rounded()),
+                           height: 48.5)
         }
         return p
     }
@@ -544,7 +546,7 @@ struct ThreadPreview: Hashable {
             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
         case let .location(_, _, title, _): return (title ?? Strings.location, "")
-        case let .custom(c): return (CustomRows.plainText(c), "")
+        case let .custom(c): return HomeQuotePreview.lines(c)  // cmux: its words, not its Markdown
         case nil: return ("…", "")
         }
     }
@@ -1224,7 +1226,9 @@ enum RowBuilder {
             } ?? false
             if let r = m.replyTo, !threadMode, connector == nil, !rootNearby, m.cmuxAside != true, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = rootMessage(r.messageId)
-                let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
+                // cmux: an agent's Markdown quotes as its words, not its syntax (HomeQuotePreview, Lawrence 2026-11-20).
+                let part = HomeQuotePreview.part(root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil },
+                                                 markdown: root?.isMarkdown == true)
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
                 // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
                 if group, !pv.outgoing {
@@ -1263,7 +1267,7 @@ enum RowBuilder {
                 // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
                 // with the sender's own bubbles, so rows that come, fold and open under them never move the avatar.
                 let aside = m.cmuxAside == true
-                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil, !aside {
+                if let name = sender?.displayName, !name.isEmpty, sender?.cmuxUnnamed != true, startsRun, connector == nil, !aside {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
                     if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
                         gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)

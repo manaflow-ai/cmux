@@ -36,6 +36,45 @@ public struct VoiceCallVoice: Hashable, Sendable, Identifiable {
         .map(VoiceCallVoice.init(id:))
 }
 
+/// Where a composer shows the voice mode button. Off by default (Leo,
+/// 2026-11-22: "im hiding this by default"): voice mode runs on the user's
+/// own OpenAI key, so a button shown to everyone is a button most people
+/// can't use. Turned on in Settings → Composer, never a dead button.
+public enum ComposerVoicePlacement: String, CaseIterable, Sendable, Identifiable {
+    /// No voice button (the default).
+    case off
+    /// With an empty draft the send circle is the voice button, send once
+    /// there is text (the ChatGPT composer). Takes no width of its own.
+    case sendButton
+    /// A waveform just left of send, inside the field's right end, and send
+    /// always shows: the arrangement of Claude's and ChatGPT's iOS composers,
+    /// which keep their voice controls beside send (Leo, 2026-11-23: "should
+    /// be maybe 4. side of the send button.").
+    case besideSend
+    /// Its own circle left of the field.
+    case leading
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .off: String(localized: "Off")
+        case .sendButton: String(localized: "In Send Button")
+        case .besideSend: String(localized: "Beside Send")
+        case .leading: String(localized: "Left of Field")
+        }
+    }
+
+    /// Whether the send circle is the voice button right now: only "In Send
+    /// Button", and only with nothing to send (or while voice mode runs).
+    public func sendCircleIsVoice(nothingToSend: Bool, voiceActive: Bool) -> Bool {
+        self == .sendButton && (nothingToSend || voiceActive)
+    }
+
+    /// Whether the voice button sits just left of send, which stays send.
+    public var voiceBesideSend: Bool { self == .besideSend }
+}
+
 /// This phone's choices for Chief calls: model and voice. Not secret, so
 /// they live in user defaults; the API key lives in the Keychain
 /// (``OpenAIKeyStore``).
@@ -50,6 +89,10 @@ public final class VoiceCallPreferences {
     public var voiceID: String {
         didSet { defaults.set(voiceID, forKey: Keys.voice) }
     }
+    /// The composers' voice mode button: off unless the user turns it on.
+    public var composerVoice: ComposerVoicePlacement {
+        didSet { defaults.set(composerVoice.rawValue, forKey: Keys.composerVoice) }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -60,6 +103,7 @@ public final class VoiceCallPreferences {
             : VoiceCallModelChoice.standard.id
         let voice = defaults.string(forKey: Keys.voice)
         voiceID = VoiceCallVoice.all.contains { $0.id == voice } ? voice ?? "marin" : "marin"
+        composerVoice = defaults.string(forKey: Keys.composerVoice).flatMap(ComposerVoicePlacement.init(rawValue:)) ?? .off
     }
 
     public var model: VoiceCallModelChoice {
@@ -69,5 +113,6 @@ public final class VoiceCallPreferences {
     private struct Keys {
         static let model = "chiefCall.model"
         static let voice = "chiefCall.voice"
+        static let composerVoice = "composer.voiceButton"
     }
 }

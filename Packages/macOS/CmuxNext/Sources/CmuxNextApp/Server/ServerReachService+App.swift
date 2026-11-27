@@ -76,7 +76,7 @@ extension PairInviteDialog {
                     failed: { RefusalStrings.format("refusal.server.inviteFailed", "Could not make a pairing code: %@", $0) },
                     unreachable: RefusalStrings.text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again."),
                     notMade: RefusalStrings.text("refusal.server.inviteNotMade", "cmux could not make a pairing code. Try again.")),
-                apiBaseURL: services.feed.apiBaseURL),
+                apiBaseURL: services.feed.apiBaseURL, buildSpace: services.cloud.configuration.buildSpace),
             approver: approver,
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },

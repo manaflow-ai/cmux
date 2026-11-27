@@ -6,8 +6,7 @@ const key = "appearance.metrics.chromeFontSize";
 function sizeVariant(size: number): SettingsPageVariant {
   return {
     // Appearance's slider rows (Interface Size, motion, color transition). Text Size itself is drawn by
-    // Personalization's density card, so a focus on it would open Personalization: the page sets the
-    // scale below instead.
+    // Appearance's density card, not as a row: the page sets the scale below instead.
     section: "appearance",
     options: { values: { [key]: size } },
     note: `Interface Size ${size}: labels stay readable beside or above their sliders in a narrow pane.`,

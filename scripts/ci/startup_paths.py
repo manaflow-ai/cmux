@@ -211,7 +211,7 @@ def install(smoke, dmg: Path, root: Path) -> tuple[Path, dict]:
     mount.mkdir()
     try:
         started = time.monotonic()
-        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
+        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-noautofsck", "-mountpoint", str(mount)],
                        check=True, stdout=subprocess.DEVNULL, timeout=600)
         info["mount_ms"] = round((time.monotonic() - started) * 1000)
         apps = sorted(mount.glob("*.app"))
@@ -423,7 +423,12 @@ class SyntheticLoad:
             ["/bin/sh", "-c", 'while :; do dd if=/dev/zero of="$1" bs=1048576 count=256 2>/dev/null; sync; rm -f "$1"; done',
              "load", str(target)], stdout=subprocess.DEVNULL, start_new_session=True))
         SyntheticLoad.running.append(self)
-        time.sleep(1.0)  # the load is on before the reopen
+        # The load is on before the reopen: the writer has its first file open and every worker is still running.
+        on_by = time.monotonic() + 10
+        while not (target.exists() and all(p.poll() is None for p in self.procs)):
+            if time.monotonic() > on_by:
+                raise RuntimeError(f"the synthetic load never started ({target} not written in 10 s, or a worker exited)")
+            time.sleep(0.05)
         return {"cpu_workers": workers, "cpus": cpus, "io": "256 MiB dd writes and a sync, in a loop",
                 "load1_at_reopen": round(os.getloadavg()[0], 2)}
 

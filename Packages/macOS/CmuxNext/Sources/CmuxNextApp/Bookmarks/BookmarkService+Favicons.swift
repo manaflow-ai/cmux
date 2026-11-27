@@ -16,7 +16,7 @@ extension BookmarkService {
         _ = services.favicons.revision
         guard let address = faviconAddress(of: node) else { return nil }
         let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
-        return fetching ? services.favicons.image(for: address, profile: engine) : services.favicons.cachedImage(for: address, profile: engine)
+        return services.favicons.face(for: address, profile: engine, origin: node.faviconKey ?? node.url.flatMap(BookmarkURL.faviconKey(for:)), fetching: fetching)
     }
 
     /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).

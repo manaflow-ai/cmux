@@ -4,12 +4,21 @@ import Foundation
 extension Strings {
     static func externalAppPrompt(origin: String, app: String) -> String {
         guard !origin.isEmpty else {
-            return String(localized: "browser.externalApp.prompt.thisPage", defaultValue: "This page wants to open “\(app)”.", bundle: .module)
+            return String(localized: "browser.externalApp.prompt.thisPage", defaultValue: "This page wants to open “\(app)”.", bundle: .localizedModule)
         }
-        return String(localized: "browser.externalApp.prompt", defaultValue: "\(origin) wants to open “\(app)”.", bundle: .module)
+        return String(localized: "browser.externalApp.prompt", defaultValue: "\(origin) wants to open “\(app)”.", bundle: .localizedModule)
     }
     static var externalAppAlwaysAllow: String {
-        String(localized: "browser.externalApp.alwaysAllow", defaultValue: "Always allow on this site", bundle: .module)
+        String(localized: "browser.externalApp.alwaysAllow", defaultValue: "Always allow on this site", bundle: .localizedModule)
     }
-    static var externalAppOpen: String { String(localized: "browser.externalApp.open", defaultValue: "Open", bundle: .module) }
+    /// A page's return to an app no app on this Mac opens (`BrowserPromptKind.noAppForScheme`).
+    static func externalAppNone(origin: String, scheme: String) -> String {
+        guard !origin.isEmpty else {
+            return String(localized: "browser.externalApp.none.thisPage",
+                          defaultValue: "This page tried to open a “\(scheme):” link, but no app on this Mac opens it.", bundle: .localizedModule)
+        }
+        return String(localized: "browser.externalApp.none",
+                      defaultValue: "\(origin) tried to open a “\(scheme):” link, but no app on this Mac opens it.", bundle: .localizedModule)
+    }
+    static var externalAppOpen: String { String(localized: "browser.externalApp.open", defaultValue: "Open", bundle: .localizedModule) }
 }

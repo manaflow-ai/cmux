@@ -16,12 +16,12 @@ public nonisolated struct FirstPartyPages {
     public static let shippedIDs: Set<String> = [
         "cmux.apps", "cmux.artifacts", "cmux.bookmarks", "cmux.changelog",
         "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud",
-        "cmux.cloud-progress", "cmux.coderouter", "cmux.debug-settings", "cmux.feed",
-        "cmux.files", "cmux.github", "cmux.glass-parity", "cmux.group-editor", "cmux.history",
-        "cmux.home-channels", "cmux.home-messages", "cmux.icon-picker", "cmux.import-history",
-        "cmux.keybindings", "cmux.machines", "cmux.mobile-pairing", "cmux.onboarding",
+        "cmux.cloud-progress", "cmux.debug-settings", "cmux.feed",
+        "cmux.files", "cmux.forum", "cmux.github", "cmux.glass-parity", "cmux.group-editor", "cmux.history",
+        "cmux.home-channels", "cmux.icon-picker",
+        "cmux.keybindings", "cmux.onboarding",
         "cmux.passwords", "cmux.server-cards", "cmux.settings", "cmux.setup-card",
-        "cmux.stash", "cmux.stats", "cmux.task-manager", "cmux.tasks",
+        "cmux.stash", "cmux.stats", "cmux.task-manager", "cmux.tasks", "cmux.terminal-history",
         "cmux.site-settings", "cmux.site-data", "cmux.certificate", "cmux.cookie-import",
         "cmux.sidebar-chats",
     ]
@@ -33,7 +33,7 @@ public nonisolated struct FirstPartyPages {
         "cmux.bookmarks",
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
         "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor", "cmux.chief-inspector", "cmux.debug-settings",
-        "cmux.home-channels", "cmux.home-messages", "cmux.changelog", "cmux.feed",
+        "cmux.home-channels", "cmux.changelog", "cmux.feed",
         "cmux.site-settings", "cmux.site-data", "cmux.certificate",
         "cmux.cookie-import",
     ]

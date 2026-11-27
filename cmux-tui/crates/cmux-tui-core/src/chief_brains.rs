@@ -261,7 +261,10 @@ pub fn brain_environment(
             put(key, value);
         }
     }
-    for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL"] {
+    // CMUX_BUILD_SPACE: the owner's cloud build space (cmux-build-space), as the app passed it,
+    // `unusable` included: the brain, its acpmux and the `cmux` its turns run then call cmux
+    // Cloud only in this build's space, never nightly's.
+    for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "CMUX_BUILD_SPACE"] {
         if let Some(value) = inherited(key) {
             put(key, value);
         }
@@ -1521,3 +1524,7 @@ mod lock_probe_tests {
         assert!(free, "the look left the brain lock held");
     }
 }
+
+#[cfg(test)]
+#[path = "chief_brains_brain_environment_tests.rs"]
+mod brain_environment_tests;

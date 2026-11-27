@@ -31,11 +31,11 @@ for (const olderHost of [false, true]) {
           .harnesses.find((harness) => harness.id === id)!
           .models.map((model) => model.id);
       };
-      expect(join()).not.toContain("gpt-6.1-terra");
+      // GPT-6.1 Luna has no feed row (identity-only); Terra joined the feed on 2026-11-19.
       expect(join()).not.toContain("gpt-6.1-luna");
-      expect(join(["gpt-6.1-terra"])).toContain("gpt-6.1-terra");
-      expect(join(undefined, true)).toContain("gpt-6.1-terra");
-      expect(join(undefined, false, "gpt-6.1-terra")).toContain("gpt-6.1-terra");
+      expect(join(["gpt-6.1-luna"])).toContain("gpt-6.1-luna");
+      expect(join(undefined, true)).toContain("gpt-6.1-luna");
+      expect(join(undefined, false, "gpt-6.1-luna")).toContain("gpt-6.1-luna");
     }
   });
 }
@@ -230,10 +230,65 @@ test("a harness acpmux marks pickerHidden (the cmux router fallback) is not a ch
   expect(picker.harnesses.filter((entry) => entry.pickable).map((entry) => entry.acpmuxHarness)).not.toContain("cmux");
 });
 
+test("the feed's cmux catalog entry (the router's model list) draws no tab of its own", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const acpmux = mergeModelCatalog(
+    {
+      harnesses: {
+        claude: { family: "claude", kind: "claude-stdio" },
+        cmux: { family: "claude", kind: "claude-stdio", pickerHidden: true },
+      },
+    },
+    { harnesses: [{ harness: "cmux", pickerHidden: true, models: [{ id: "deepseek/deepseek-v4-flash" }] }] },
+  );
+  // The served catalog lists the router as its own harness (brand cmux, family cmux), after DeepSeek.
+  const served = structuredClone(BUNDLED_MODEL_CATALOG);
+  served.harnesses.push({
+    id: "cmux",
+    name: "cmux",
+    brand: "cmux",
+    families: ["cmux"],
+    modelSource: "catalog",
+    models: [{ id: "deepseek/deepseek-v4-flash", name: "DeepSeek V4 Flash", shortName: "DeepSeek V4 Flash" }],
+  } as (typeof served.harnesses)[number]);
+  const ids = buildPickerCatalog({ catalog: served, acpmux }).harnesses.map((entry) => entry.id);
+  expect(ids).not.toContain("cmux");
+  expect(ids).toContain("claude");
+});
+
+test("an ACP harness that reported its menu lists only those catalog models; Claude Code keeps its catalog", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const codexCatalog = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "codex")!.models;
+  // Codex on a ChatGPT account reports every catalog model but one, which it refuses at start
+  // ("not supported when using Codex with a ChatGPT account").
+  const refused = codexCatalog.at(-1)!.id;
+  const reported = codexCatalog.filter((model) => model.id !== refused);
+  const claudeCatalog = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "claude")!.models;
+  const acpmux = mergeModelCatalog(
+    { harnesses: { codex: { family: "codex" }, claude: { family: "claude", kind: "claude-stdio" } } },
+    {
+      harnesses: [
+        {
+          harness: "codex",
+          topModels: reported.map((model) => model.id),
+          models: reported.map((model) => ({ id: model.id, name: model.name, curated: true })),
+        },
+        // Claude Code reports only its newest aliases; its older catalog releases still run.
+        { harness: "claude", topModels: [claudeCatalog[0]!.id], models: [{ id: claudeCatalog[0]!.id, curated: true }] },
+      ],
+    },
+  );
+  const picker = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux });
+  const ids = (id: string) => picker.harnesses.find((harness) => harness.id === id)!.models.map((model) => model.id);
+  expect(ids("codex")).not.toContain(refused);
+  expect(ids("codex")).toEqual(expect.arrayContaining(reported.map((model) => model.id)));
+  expect(ids("claude")).toEqual(expect.arrayContaining(claudeCatalog.map((model) => model.id)));
+});
+
 test("live releases absent from the bundled catalog reach the Claude Code picker", async () => {
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const live = [
-    { id: "claude-fable-5-2", name: "Fable 5.2" },
+    { id: "claude-fable-5-3", name: "Fable 5.3" },
     { id: "claude-opus-5-6", name: "Opus 5.6" },
     { id: "claude-new-family-1", name: "New Family 1" },
   ];
@@ -245,4 +300,28 @@ test("live releases absent from the bundled catalog reach the Claude Code picker
   const claude = result.harnesses.find(({ id }) => id === "claude")!;
   expect(claude.topModels).toEqual(live.map(({ id }) => id));
   for (const model of live) expect(claude.models).toContainEqual(expect.objectContaining(model));
+});
+
+test("Codex release additions stay disabled until the running provider reports them", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const model = "gpt-6.2-astra";
+  const available = { id: "gpt-6-astra", name: "Installed" };
+  const preview = { id: model, unavailable: "Included in Codex 0.171.0", codexUpdateVersion: "0.171.0" };
+  const picker = (offer?: typeof preview | { id: string }, current?: string) => {
+    const models = offer ? [available, offer] : [available];
+    const acpmux = mergeModelCatalog(
+      { harnesses: [{ id: "codex" }] },
+      {
+        harnesses: [{ harness: "codex", models, topModels: models.map((row) => row.id) }],
+      },
+    );
+    return buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux, session: { harness: "codex", model: current } })
+      .harnesses.find((h) => h.id === "codex")!
+      .models.find((m) => m.id === model);
+  };
+  expect(picker()).toBeUndefined();
+  expect(picker(preview)).toMatchObject(preview);
+  expect(picker(preview, model)?.unavailable).toBeUndefined();
+  expect(picker({ id: model })).toMatchObject({ id: model });
+  expect(picker({ id: model })?.unavailable).toBeUndefined();
 });

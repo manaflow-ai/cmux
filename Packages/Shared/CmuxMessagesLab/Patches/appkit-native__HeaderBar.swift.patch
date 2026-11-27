@@ -1,0 +1,20 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
+@@ -184,7 +184,7 @@
+             pill.title = self.title
+         }
+         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
+-        pill.toolTip = pill.accessibilityLabel()
++        pill.setHomeToolTip(pill.accessibilityLabel())  // cmux: the host's themed tooltip (HomeToolTip.swift)
+     }
+ 
+     func install(in window: NSWindow) {
+@@ -230,7 +230,7 @@
+             let item = NSToolbarItem(itemIdentifier: id)
+             item.image = NSImage(systemSymbolName: "video", accessibilityDescription: NativeStrings.video)
+             item.label = NativeStrings.video
+-            item.toolTip = NativeStrings.video
++            item.toolTip = NativeStrings.video  // cmux: tooltip-native-allow: a toolbar item, and cmux never installs HeaderBar's toolbar (PaneHeaderView)
+             item.isBordered = true
+             item.target = self
+             item.action = #selector(videoClicked)

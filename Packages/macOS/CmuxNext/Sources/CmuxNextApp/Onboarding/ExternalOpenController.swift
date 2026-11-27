@@ -128,6 +128,14 @@ final class ExternalOpenController {
         let onHome = { leavesHome && controller.showsHomeWorkspace }
         if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
         guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
+        // Routes parked for a pane run first, in order, once one can take them: a cold launch's open
+        // that missed the content flushes was otherwise parked for good (screenshot-into-chat "lost").
+        // Not from Home, where a parked non-link route would park again under a deep link.
+        if !pending.isEmpty, !controller.showsHomeWorkspace {
+            let routes = pending + [route]
+            pending = []
+            return routes.forEach(perform)
+        }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
@@ -160,19 +168,23 @@ final class ExternalOpenController {
         Task { [weak self] in
             do {
                 _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)
+                self?.creatingWorkspace = false
+                // The window may still show Home or not have mounted the workspace's pane: run the queue
+                // (it shows the made workspace; its first pane's mount runs the rest).
+                self?.flush()
             } catch {
                 logger.error("create workspace for an opened file failed: \(String(describing: error), privacy: .public)")
+                self?.creatingWorkspace = false
             }
-            self?.creatingWorkspace = false
         }
     }
 
-    /// A window installed its content: run what waited for one.
+    /// A window installed its content, or a workspace made for the queue was created: run what waited for one. No pane yet (Home shown as a top page)
+    /// shows the made workspace, whose first pane's mount runs it; else an open waited for the next door's `perform` (screenshot-into-chat "late").
     func flush() {
-        guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
-        let routes = pending
-        pending = []
-        routes.forEach(perform)
+        guard !pending.isEmpty, let controller = services.windows.active else { return }
+        guard controller.focusedPane != nil else { return _ = controller.showOpenableWorkspace() }
+        let routes = pending; pending = []; routes.forEach(perform)
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {
@@ -194,12 +206,12 @@ final class ExternalOpenController {
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
         case .attachImages(let urls, let source):
-            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat.
+            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat; a chat not made answers nil, so its files go with the next.
             let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
             let target = ([pane] + recent).lazy.compactMap { candidate in candidate.shownChat.map { (pane: candidate, view: $0) } }.first
             let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
             chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
-                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
+                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab(), then: { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }, failed: { made(nil) })
             }, show: { [weak shown, services] view in
                 // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
                 guard let shown, case let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,

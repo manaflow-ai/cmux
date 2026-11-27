@@ -81,6 +81,17 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("2 workspaces, 0 stale", result.stderr)
 
+    def test_optional_dependency_is_not_an_orphan(self):
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\n'
+                   'b = { path = "../core/b", optional = true }\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
     def test_a_manifest_change_in_one_workspace_fails_the_other_workspaces_lock(self):
         self.break_ffi()
 
@@ -99,6 +110,86 @@ class CargoLocksTests(unittest.TestCase):
         self.assertIn("fixed: ffi/Cargo.lock", fixed.stdout)
         self.assertEqual(self.git("status", "--porcelain").split(), ["M", "ffi/Cargo.lock"])
         self.assertEqual(self.locks("check").returncode, 0)
+
+    def drop_crate_b(self):
+        """b leaves core's workspace and its directory goes; core's lock still lists it (cmux#57348: cmux-coderouter
+        stayed in cmux-tui/Cargo.lock after its crate was deleted, and `cargo update --locked` passed)."""
+        self.write("core/Cargo.toml", '[workspace]\nmembers = ["a"]\nresolver = "2"\n')
+        self.git("rm", "-rq", "core/b")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "drop b")
+
+    def test_a_lock_entry_for_a_crate_no_manifest_names_is_stale(self):
+        self.drop_crate_b()
+        self.assertIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("stale: core/Cargo.lock: does not match its manifests (lists packages its manifests no "
+                      "longer resolve: b 0.1.0)", result.stdout)
+        self.assertNotIn("ffi/Cargo.lock", result.stdout)
+
+    def test_a_lock_entry_for_an_optional_dependency_behind_a_feature_is_not_stale(self):
+        """2026-11-27: cmux-tui's lock lists wasmtime and dhat, cmux-rd-host's rav1e, all optional dependencies behind
+        features no default turns on; `cargo metadata` without --all-features left them out of the resolve and every
+        lock that holds one was called stale, though `cargo update --workspace` keeps them (and fix could not)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\nb = { path = "../core/b", optional = true }\n\n'
+                   '[features]\nextra = ["dep:b"]\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.assertIn('name = "b"', (self.repo / "ffi/Cargo.lock").read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "ffi gains an optional b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
+    def test_fix_drops_the_orphaned_entry(self):
+        self.drop_crate_b()
+
+        fixed = self.locks("fix")
+
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("fixed: core/Cargo.lock", fixed.stdout)
+        self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+        self.assertEqual(self.locks("check").returncode, 0)
+
+    def test_an_optional_dependency_the_lock_lists_is_not_an_orphan(self):
+        """ffi takes a only behind a feature; the lock lists a (cargo locks every feature's dependencies), and
+        cargo metadata's default-feature resolve leaves it out. cmux#57506 called it an orphan and refused every push
+        into cmux-next-ios/rust (cmux-mobile-tailnet's `tsnet`) and cmux-tui (wasmtime, dhat)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a", optional = true }\n\n[features]\nwith-a = ["dep:a"]\n'
+                   '\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a behind a feature")
+        self.assertIn('name = "a"', (self.repo / "ffi/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("stale", result.stdout)
+
+    def test_a_deleted_crate_a_stale_lock_edge_still_lists_is_an_orphan(self):
+        """The lock from before cmux#57348's fix still had acpmux list cmux-coderouter; a walk through that edge
+        called the deleted crate reachable. b is gone from every manifest, a's lock entry still names it."""
+        self.drop_crate_b()
+        lock = self.repo / "core/Cargo.lock"
+        text = lock.read_text()
+        lock.write_text(text.replace('name = "a"\nversion = "0.1.0"\n', 'name = "a"\nversion = "0.1.0"\n'
+                                     'dependencies = [\n "b",\n]\n'))
+        self.assertIn('dependencies = [\n "b",', lock.read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a's lock entry still names b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lists packages its manifests no longer resolve: b 0.1.0", result.stdout)
 
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
@@ -225,7 +316,7 @@ class BusyFixture(unittest.TestCase):
                 self.most_running = max(self.most_running, self.running)
         try:
             if not offline:
-                time.sleep(0.02)
+                time.sleep(0.02)  # sleep-ok: a resolve that takes a moment, the window a parallel resolve would overlap in
             kind = self.behaviour[root]
             if kind == "stale-hang":
                 # Stale under --locked; the rewrite `fix` runs (no --locked) hangs for its whole limit.

@@ -22,6 +22,7 @@ import CmuxNextCompat
     /// their names ("next_pro" is "NEXT Pro").
     static func planName(_ id: String) -> String {
         switch id {
+        case "next_plus": "NEXT Plus"
         case "next_pro": "NEXT Pro"
         case "next_max": "NEXT Max"
         default: id.prefix(1).uppercased() + id.dropFirst()
@@ -46,12 +47,6 @@ import CmuxNextCompat
     public static func paneTeams(_ auth: CloudAuth) -> [AgentPaneCloudMachines.Team] {
         guard auth.isSignedIn else { return [] }
         return auth.activeTeam.rows.map { AgentPaneCloudMachines.Team(id: $0.id, name: $0.title, personal: $0.kind == .personal) }
-    }
-
-    /// The active team for the Machines section's snapshot (`MachineSectionPageProvider` `cloudTeam`); its Cloud
-    /// header says only Cloud for now (cmux issue 45695).
-    public static func machinesTeam(_ auth: CloudAuth) -> (name: String, personal: Bool)? {
-        paneTeam(auth).map { ($0.name, $0.personal) }
     }
 
     /// Follows the signed-in account's active team (who, which team, its name and kind): `changed`

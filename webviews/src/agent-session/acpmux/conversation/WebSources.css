@@ -16,7 +16,7 @@
   padding: 0 8px;
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: var(--cv-card-fill);
+  background: var(--ds-surface-card);
   color: inherit;
   font: inherit;
   text-decoration: none;
