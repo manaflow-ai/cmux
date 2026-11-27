@@ -212,7 +212,7 @@ public final class LocalhostForwarder {
 
     /// Stops named-host proxy routes no tab uses any longer.
     public func retain(proxies keep: Set<ProxyTarget>) {
-        for key in proxies.keys where !keep.contains(.init(target: key.target, macID: key.macID)) {
+        for key in Array(proxies.keys) where !keep.contains(.init(target: key.target, macID: key.macID)) {
             stopProxy(key)
         }
     }
