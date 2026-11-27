@@ -12,7 +12,9 @@ import Testing
 /// toolbar stayed over the window's backdrop, until the zooming pane reached them (the in-tree pages build, Nov 26).
 extension PaneCommitMotionTests {
     /// The first frame after the zoom key and each frame of the move: the panes that the zoom covers are still reported
-    /// visible. The frame that ends the motion hides them, and their content hears that they are hidden.
+    /// visible. The frame that ends the motion takes them off the screen, and their content hears it: they are reported
+    /// kept and not hidden, for a zoom keeps each pane that it covers for its unzoom (`keepAlivePanes`), so their
+    /// content stops its drawing and stays.
     @Test func aZoomsCoveredPanesStayVisibleToTheirContentUntilTheMotionEnds() throws {
         let zoom = try Self.zooming(frames: 0)
         defer { zoom.harness.window.closeAfterTest() }
@@ -37,7 +39,7 @@ extension PaneCommitMotionTests {
         }
         try #require(!Self.inFlight(screen), "SETUP: the zoom's move did not end in \(Commit.frames) frames")
         for pane in covered {
-            #expect(harness.provider.presence[pane] == .hidden,
+            #expect(harness.provider.presence[pane] == .keepAlive,
                     "after the motion's end \(pane), which the zoomed pane covers, is reported \(String(describing: harness.provider.presence[pane]))")
         }
     }
