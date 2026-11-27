@@ -328,7 +328,6 @@ export const ROW_LEVELS: {
     "agentPane.display.sessionInfo.sections.changes": "more",
     "agentPane.display.sessionInfo.sections.usage": "more",
     "agentPane.display.sessionInfo.sections.connectors": "more",
-    "agentPane.display.sessionInfo.sections.carried": "more",
     "agentPane.display.font.ui": "more",
     "agentPane.display.font.uiFamily": "more",
     "agentPane.display.font.proseFamily": "more",

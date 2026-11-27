@@ -1409,37 +1409,6 @@
           ]
         },
         {
-          "key": "agentPane.display.sessionInfo.sections.carried",
-          "name": "sessionInfoShowsCarried",
-          "note": "Whether Session Info (the chat's thread details) shows its Carried memory section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
-          "title": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried",
-            "text": "Session Info: Carried memory"
-          },
-          "help": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried.help",
-            "text": "The MCP servers and carried the chat has."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "agent",
-            "chat",
-            "acp",
-            "display",
-            "session",
-            "info",
-            "thread",
-            "details",
-            "section",
-            "show",
-            "hide",
-            "carried",
-            "memory",
-            "instructions"
-          ]
-        },
-        {
           "key": "agentPane.display.environment.placement",
           "name": "environmentPlacement",
           "note": "The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).",
