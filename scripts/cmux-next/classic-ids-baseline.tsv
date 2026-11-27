@@ -476,3 +476,4 @@ webviews/src/pages/settings/mockDoctor.ts	.config/cmux/	8	move	lane A: Classic-n
 webviews/src/pages/settings/mockDoctor.ts	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/mockProvider.ts	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/settings.gallery.ts	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+scripts/cmux-next/prepush-gate.py	com.cmuxterm.app	2	keep	gate code: names the Classic id prefix only to key baseline rows (scripts ship in no build)
