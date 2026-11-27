@@ -852,10 +852,27 @@ fn task_params(params: Option<&mut Value>) -> Value {
 
 impl Hub {
     /// The session's table, read from its log's copies the first time.
+    ///
+    /// The log is read with the table's lock let go: a read can wait minutes for the store
+    /// (`ForkView::dropping` behind a long read, a disk at its limit), and the lock is a std mutex
+    /// that `status` and every page's row take on runtime workers
+    /// ([`Self::running_processes_read`]). Held through the read, those waits parked every worker:
+    /// the daemon did not run for 5 min 22 s on a Mac at load 105, and no delivery went
+    /// (2026-11-27). Two first reads at once each read the log; the first to finish is kept, and
+    /// a table another caller loaded meanwhile (a rebuild) wins over this read.
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+        {
+            let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+            if table.loaded {
+                return table;
+            }
+        }
+        let mut read = self.read_processes(session);
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            // The preview watches started meanwhile still run: they stay the only ones.
+            read.watching = std::mem::take(&mut table.watching);
+            *table = read;
         }
         table
     }
