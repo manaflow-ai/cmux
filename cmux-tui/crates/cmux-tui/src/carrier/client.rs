@@ -51,7 +51,8 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    routes_line, routes_line_on,
 };
 use super::source::{
     CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
@@ -73,7 +74,29 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an established session tries to resume before it gives up.
 /// After that its streams end, and the next stream (`held`) or the
 /// caller's next dial opens a fresh session instead of resuming forever.
+/// A session with an ssh route behind its carrier has the longer
+/// [`SSH_FAILOVER_WINDOW`] ([`resume_window`]).
 pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
+/// The resume window of a session with an ssh route: one whole failover
+/// onto ssh fits in it, its carrier key's authorization
+/// (`ssh::AUTHORIZE_TIMEOUT`) and then the Noise handshake over the new
+/// `ssh` run ([`HANDSHAKE_TIMEOUT`]). A window of [`RESUME_DEADLINE`] alone
+/// was shorter than the authorization's own bound, so a failover whose key
+/// was not authorized yet was cut before ssh answered, and the session
+/// closed under the chat (`carrier_fault.resume_failed: ... connection is
+/// closed`, cloud-carrier-ssh-failover, 2026-11-26 run 45892981109).
+pub(super) const SSH_FAILOVER_WINDOW: Duration =
+    Duration::from_secs(super::ssh::AUTHORIZE_TIMEOUT.as_secs() + HANDSHAKE_TIMEOUT.as_secs());
+
+/// How long a session over `dialers` resumes before it gives up: long
+/// enough for one whole try on each of its routes.
+pub(super) fn resume_window(dialers: &[super::source::RouteDialer]) -> Duration {
+    if dialers.iter().any(super::source::RouteDialer::is_ssh) {
+        SSH_FAILOVER_WINDOW.max(RESUME_DEADLINE)
+    } else {
+        RESUME_DEADLINE
+    }
+}
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -320,7 +343,10 @@ pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
 
 /// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
 /// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
-/// at the park step with a new link ([`classify`]).
+/// at the park step with a new link ([`classify`]). Only the attempt's first link waits this
+/// long at most: the relay parks a link only until the machine's host registers, so the lanes
+/// opened after the first one is allocated wait until the dial's `deadline`, however near
+/// `PARK_REDIAL` the first allocation came.
 pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
     deadline.min(now + PARK_REDIAL)
 }
@@ -404,7 +430,8 @@ fn relay_provider(
     )
     .map(|provider| {
         provider
-            .with_allocation_deadline(park_until(deadline, Instant::now()))
+            .with_allocation_deadline(deadline)
+            .with_first_allocation_deadline(park_until(deadline, Instant::now()))
             .with_peer_join_wait(join_wait)
     })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
@@ -453,7 +480,7 @@ async fn attempt(
     );
     step.mark(|marks| marks.ssh = Some(ssh.as_ref().map_or_else(|absent| absent.code(), |_| "on")));
     let set = carrier_routes(&answer, provider, ssh.ok());
-    let mut route = RouteAttempt {
+    let route = RouteAttempt {
         plan,
         step,
         resume,
@@ -462,13 +489,13 @@ async fn attempt(
         grant,
         session,
         set: &set,
-        first: None,
+        first: std::sync::Mutex::new(None),
         handshake_wait: waits.handshake,
     };
     let selected =
-        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &mut route)
+        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &route)
             .await;
-    let first = route.first.take();
+    let first = route.first.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
     selected.map_err(|selection| {
         // Every route failed: the first route's step names the attempt (the
         // relay's, which the route line's words describe), every route's
@@ -497,7 +524,7 @@ struct RouteAttempt<'a> {
     session: SessionId,
     set: &'a RouteSet,
     /// The first route's failure, when it failed.
-    first: Option<Failure>,
+    first: std::sync::Mutex<Option<Failure>>,
     /// How long the daemon may take to answer the handshake ([`handshake_wait`]).
     handshake_wait: Duration,
 }
@@ -554,7 +581,7 @@ pub(super) enum RouteKind {
 #[async_trait]
 impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         _endpoint: &Url,
         _upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError<Failure>> {
@@ -565,7 +592,7 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     }
 
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<Dialed, InitialRouteAttemptError<Failure>> {
@@ -573,7 +600,8 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
         if let Err(failure) = &result
             && index == 0
         {
-            self.first = Some(failure.clone());
+            *self.first.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                Some(failure.clone());
         }
         let dialer = self.set.dialers.get(index);
         let kind = match dialer {
@@ -648,17 +676,34 @@ impl RouteAttempt<'_> {
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy {
                 attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
-                maximum_duration: Some(RESUME_DEADLINE),
+                maximum_duration: Some(resume_window(&self.set.dialers)),
                 ..ReconnectPolicy::default()
             },
         };
-        let carrier_routes = Arc::new(CarrierRoutes::new(
-            RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
-            index,
-            cached,
-            self.session,
-            self.current.clone(),
-        ));
+        let carrier_routes = Arc::new(
+            CarrierRoutes::new(
+                RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
+                index,
+                cached,
+                self.session,
+                self.current.clone(),
+            )
+            .reporting_discovery({
+                let (machine, phases) = (self.plan.machine.clone(), self.plan.phases.clone());
+                Arc::new(move |error: &ProviderError| {
+                    let detail = error.to_string();
+                    let line = routes_line(
+                        &machine,
+                        Phase::Discover,
+                        None,
+                        None,
+                        Some(Step::Relay),
+                        Some(&detail),
+                    );
+                    phases(line);
+                })
+            }),
+        );
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connecting =
             ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
@@ -677,6 +722,13 @@ impl RouteAttempt<'_> {
         };
         step.mark(|marks| marks.connected = Some(Instant::now()));
         connection.set_resume_hooks(self.resume.clone());
+        // A paused machine is woken by any byte: an idle session sends none
+        // while it reads asleep (cmux-platform#1849).
+        connection.set_sleep_gate(Arc::new(super::sleep_gate::MachineSleep {
+            source: plan.source.clone(),
+            machine: plan.machine.clone(),
+            look: super::sleep_gate::look_time(),
+        }));
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         // A grant that does not admit mux control is refused here, before the
         // reply line says ok.
@@ -869,9 +921,20 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        let detail = detail.as_deref();
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, detail));
+        // The route the session last moved to is the one this resume ran on.
+        let on = self.current.get();
+        let carrier = Some(on).filter(|_| outcome.is_none());
+        let tried = Some(on).filter(|_| outcome.is_some());
+        let line = routes_line_on(
+            &self.machine,
+            Phase::Resume,
+            None,
+            carrier,
+            tried,
+            outcome,
+            detail.as_deref(),
+        );
+        (self.phases)(line);
     }
 }
 

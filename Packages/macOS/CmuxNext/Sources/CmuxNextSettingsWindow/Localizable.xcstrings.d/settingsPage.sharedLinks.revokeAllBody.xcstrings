@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.sharedLinks.revokeAllBody" : {
+      "comment" : "Shared Links: Revoke All's confirmation body.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The links stop working and everyone in these chats leaves at once."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تتوقف الروابط عن العمل ويغادر الجميع هذه المحادثات فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkovi prestaju raditi i svi odmah napuštaju ove chatove."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linksene holder op med at virke, og alle i disse chats forlader dem med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Links funktionieren nicht mehr und alle verlassen diese Chats sofort."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los enlaces dejan de funcionar y todos salen de estos chats al instante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les liens cessent de fonctionner et tout le monde quitte ces discussions immédiatement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I link smettono di funzionare e tutti lasciano subito queste chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リンクは無効になり、これらのチャットの参加者は直ちに退出します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "តំណឈប់ដំណើរការ ហើយអ្នកទាំងអស់ចាកចេញពីការជជែកទាំងនេះភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "링크가 더 이상 작동하지 않으며 이 채팅의 모든 사람이 즉시 나갑니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lenkene slutter å virke, og alle i disse chattene forlater dem med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linki przestaną działać, a wszyscy od razu opuszczą te czaty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os links param de funcionar e todos saem desses chats na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ссылки перестанут работать, и все сразу покинут эти чаты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลิงก์จะใช้ไม่ได้ และทุกคนในแชตเหล่านี้จะออกทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantılar çalışmayı bırakır ve bu sohbetlerdeki herkes hemen ayrılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Посилання перестануть працювати, і всі одразу вийдуть із цих чатів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các liên kết ngừng hoạt động và mọi người rời các cuộc trò chuyện này ngay lập tức."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接将失效，这些聊天中的所有人会立即离开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結將失效，這些聊天中的所有人會立即離開。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,46 @@
+/* People (teamDirectory/TeamDirectoryScreen.tsx): a search over the team, then two columns: the
+   current team's spaces (or the search's hits) and, beside them, Send to and a session's links. One
+   column under 640px of pane. Borderless rows on flat tonal cards, as History > Costs (ledger.css). */
+.tdir{container:tdir/inline-size;flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--ds-space-3);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;color:var(--agent-text)}
+.tdir-controls{flex:none;display:flex;align-items:center;gap:var(--ds-space-3)}
+.tdir-search{flex:1;min-width:0}
+.tdir-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--ds-space-3);overflow:auto}
+@container tdir (width < 640px){.tdir-body{grid-template-columns:minmax(0,1fr)}}
+.tdir-main,.tdir-side{min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-3)}
+.tdir-fill{flex:1}
+.tdir-heading{margin:0;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);font-weight:var(--weight-emphasis);color:var(--agent-muted)}
+.tdir-section{display:flex;flex-direction:column;gap:var(--ds-space-1)}
+.tdir-card{display:flex;flex-direction:column;gap:var(--ds-space-2);padding:var(--ds-space-2);border-radius:calc(var(--ds-radius-control) + var(--ds-space-2));background:var(--ds-surface-card)}
+.tdir-card-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-1) var(--ds-space-2);min-width:0}
+.tdir-card-head>.tdir-heading{white-space:nowrap}
+.tdir-quiet,.tdir-status{margin:0;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);color:var(--agent-muted)}
+/* Teams: one pill per team the viewer is in, the current one filled. */
+.tdir-teams{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin:0;padding:0;list-style:none}
+.tdir-team{display:inline-flex;align-items:center;gap:var(--ds-space-1);padding:var(--ds-space-1) var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail)}
+.tdir-team:hover{background:var(--ds-surface-hover);color:var(--agent-text)}
+.tdir-team[aria-current]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent);color:var(--agent-text)}
+/* Spaces: title and counts, then who is live as chips. */
+.tdir-spaces,.tdir-rows{display:flex;flex-direction:column;gap:var(--ds-space-1);margin:0;padding:0;list-style:none}
+.tdir-space{display:flex;flex-direction:column;gap:var(--ds-space-1);padding:var(--ds-space-2) var(--ds-space-3);border-radius:var(--ds-radius-control);background:var(--ds-surface-card)}
+.tdir-space-head{display:flex;align-items:center;gap:var(--ds-space-2);min-width:0}
+.tdir-space-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body)}
+.tdir-count{flex:none;min-width:2ch;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing);font-variant-numeric:tabular-nums;text-align:center;color:var(--agent-muted);background:var(--ds-surface-hover)}
+.tdir-count[data-tone=unread]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 18%,transparent)}
+.tdir-chips{display:flex;flex-wrap:wrap;gap:var(--ds-space-1) var(--ds-space-2);margin:0;padding:0;list-style:none}
+.tdir-chip{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.tdir-more{color:var(--agent-muted)}
+.tdir-chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Presence: active green, idle hollow, away muted; working pulses its ring. */
+.tdir-dot{flex:none;width:7px;aspect-ratio:1;border-radius:50%;background:var(--agent-muted);opacity:.5}
+.tdir-dot[data-status=active]{background:var(--agent-status-success,var(--agent-text));opacity:1}
+.tdir-dot[data-status=idle]{background:transparent;box-shadow:inset 0 0 0 1.5px var(--agent-status-success,var(--agent-text));opacity:1}
+.tdir-dot[data-status=none]{opacity:.25}
+.tdir-dot[data-working]{box-shadow:0 0 0 2px color-mix(in srgb,var(--agent-status-success,var(--agent-text)) 35%,transparent)}
+/* Rows: a hit, a candidate or a link; the label takes the room, details and tags follow. */
+.tdir-row-button{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;min-width:0;padding:var(--ds-space-1) var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:inherit;font:inherit;text-align:left}
+button.tdir-row-button:hover{background:var(--ds-surface-hover)}
+.tdir-row-label{flex:1 1 0;min-width:5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body)}
+.tdir-row-detail{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);color:var(--agent-muted)}
+.tdir-tag{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing);color:var(--agent-muted);background:var(--ds-surface-hover)}
+.tdir-tag[data-mode=wake]{color:var(--agent-status-warning,var(--agent-text))}
+.tdir-ask{margin:0;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}

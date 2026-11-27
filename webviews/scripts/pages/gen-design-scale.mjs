@@ -100,6 +100,14 @@ function load() {
       data.glassInk.darkStatus <= data.glassInk.status,
     "a status word on glass keeps most of its hue, and no more hue in dark (dark glass passes more of a white page)",
   );
+  assert(
+    data.glassInk.chipStatus > 0 && data.glassInk.chipStatus <= data.glassInk.darkStatus,
+    "a status word in a tooltip keeps less hue than on other glass (the host fits the tooltip's tint to the text at 4.5:1)",
+  );
+  assert(
+    data.glassInk.keycap > data.glassInk.darkSecondary && data.glassInk.keycap < 100,
+    "a tooltip's shortcut hint sits between the secondary ink and the text",
+  );
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
     levels.join() === "chrome,popover,menu,chip",
@@ -373,6 +381,8 @@ function cssBlock(data, roles) {
   out.push(`  /* glass ink: ${data.glassInk.for} */`);
   out.push(`  --ds-glass-ink-secondary: ${data.glassInk.secondary}%;`);
   out.push(`  --ds-glass-ink-status: ${data.glassInk.status}%;`);
+  out.push(`  --ds-glass-ink-chip-status: ${data.glassInk.chipStatus}%;`);
+  out.push(`  --ds-glass-ink-keycap: ${data.glassInk.keycap}%;`);
   out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
   out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
@@ -471,7 +481,8 @@ function theme(data, type, motion) {
   for (const control of data.controls)
     out.push(`  --spacing-control-${control.name}: var(--ds-control-${control.name});`);
   for (const icon of data.icons) out.push(`  --spacing-icon-${icon.name}: var(--ds-icon-${icon.name});`);
-  for (const radius of [...data.radii, ...data.namedRadii])
+  // A radius marked `"tailwind": false` (full) leaves Tailwind's own utility of that name as it is.
+  for (const radius of [...data.radii, ...data.namedRadii].filter((entry) => entry.tailwind !== false))
     out.push(`  --radius-${radius.name}: var(--ds-radius-${radius.name});`);
   for (const step of [...type.steps.map((entry) => entry.name), ...TYPE_ALIASES]) {
     out.push(

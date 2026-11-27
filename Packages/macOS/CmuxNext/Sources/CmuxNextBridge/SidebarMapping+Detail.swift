@@ -17,8 +17,6 @@ extension SidebarMapping {
         detail.contextTokens = chat?.contextTokens
         detail.contextWindow = chat?.contextWindow
         detail.costUsd24h = chat?.costUsd24h
-        detail.summary = chat?.summary
-        detail.nextAction = chat?.nextAction
         // The task: the chat's running prompt, else the terminal agent's last prompt (memory
         // only in the daemon), else what a working program says it does (OSC 7501 title, msg).
         detail.task = chat?.prompt ?? agentTab?.agent?.lastPrompt ?? tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .working }
@@ -40,17 +38,6 @@ extension SidebarMapping {
             detail.commandsRunning += chat.commandsRunning
         }
         return detail
-    }
-
-    /// Who made the workspace, as the sidebar's automatic fold reads it (`created_by.kind`); nil without a
-    /// record or for a kind from a newer daemon, which always shows.
-    static func creator(_ creator: WorkspaceCreator?) -> SidebarCreator? {
-        switch creator?.kind {
-        case .person?: .person
-        case .agent?: .agent
-        case .script?: .script
-        case .other?, nil: nil
-        }
     }
 
     /// Who made the workspace, for its hover card: an agent's or a script's session, host and

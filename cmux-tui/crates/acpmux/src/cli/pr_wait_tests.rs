@@ -154,3 +154,115 @@ fn a_rate_limit_holds_the_next_poll_until_its_reset() {
     assert_eq!(shared.errors, 0, "a rate limit is no failure of the wait");
     assert!(shared.error.as_deref().unwrap_or_default().contains("rate limit"));
 }
+
+/// One run of a check as `gh pr view --json statusCheckRollup` gives it: its job in its
+/// `detailsUrl`, so a higher job is a newer run.
+fn run_of(name: &str, job: u64, status: &str, conclusion: &str) -> Value {
+    json!({
+        "__typename": "CheckRun", "name": name, "workflowName": "ci", "status": status,
+        "conclusion": conclusion, "startedAt": "2026-11-24T15:00:00Z",
+        "detailsUrl": format!("https://github.com/octo/app/actions/runs/{job}/job/{job}"),
+    })
+}
+
+/// manaflow-ai/cmux#54403: "risk evidence" cancelled in run 45437464016 and passed in
+/// 45437534352. pr-wait reported it failing; judged by its newest run it is green.
+#[test]
+fn judge_takes_each_check_by_its_newest_run_and_a_lone_cancel_is_cancelled() {
+    let rollup = |newer: Option<Value>| {
+        let mut runs = vec![run_of("risk evidence", 45437464016, "COMPLETED", "CANCELLED")];
+        runs.extend(newer);
+        runs.push(run_of("build", 45437464017, "COMPLETED", "SUCCESS"));
+        answer("OPEN", "abc123", Value::Array(runs))
+    };
+    // Cancelled, then a newer run passed: green.
+    let passed = rollup(Some(run_of("risk evidence", 45437534352, "COMPLETED", "SUCCESS")));
+    let Some(Outcome::Done { code: 0, structured, .. }) = judge(&passed, Until::Checks, None, 0)
+    else {
+        panic!("cancelled then pass should be green");
+    };
+    assert_eq!(structured["failingChecks"], json!([]));
+    assert_eq!(structured["cancelledChecks"], json!([]));
+    assert_eq!(structured["passedChecks"], 2);
+    // The newer run listed first changes nothing: the job id orders them, not the list.
+    let mut reversed = passed.clone();
+    reversed["statusCheckRollup"].as_array_mut().unwrap().reverse();
+    assert_eq!(code(judge(&reversed, Until::Checks, None, 0)), Some(0));
+    // Cancelled, then a newer run queued (no start time yet): still pending.
+    let mut queued = run_of("risk evidence", 45437534352, "QUEUED", "");
+    queued["startedAt"] = json!("0001-01-01T00:00:00Z");
+    assert_eq!(code(judge(&rollup(Some(queued)), Until::Checks, None, 0)), None);
+    let running = run_of("risk evidence", 45437534352, "IN_PROGRESS", "");
+    assert_eq!(code(judge(&rollup(Some(running)), Until::Checks, None, 0)), None);
+    // Cancelled with nothing newer: reported as cancelled, in its own list, not as failing.
+    let Some(Outcome::Done { code: 1, summary, structured }) =
+        judge(&rollup(None), Until::Checks, None, 0)
+    else {
+        panic!("a lone cancel ends the wait");
+    };
+    assert_eq!(structured["status"], "cancelled");
+    assert_eq!(structured["failingChecks"], json!([]));
+    assert_eq!(structured["cancelledChecks"], json!(["risk evidence"]));
+    assert!(summary.contains("1 cancelled check with no newer run (risk evidence)"), "{summary}");
+    assert!(!summary.contains("failing"), "{summary}");
+    // A newer run that failed is failing: a rerun never hides a red.
+    let red = rollup(Some(run_of("risk evidence", 45437534352, "COMPLETED", "FAILURE")));
+    let Some(Outcome::Done { code: 1, structured, .. }) = judge(&red, Until::Checks, None, 0)
+    else {
+        panic!("a newer red fails");
+    };
+    assert_eq!(structured["failingChecks"], json!(["risk evidence"]));
+    // An older pass does not hide a newer cancel.
+    let old_pass = answer(
+        "OPEN",
+        "abc123",
+        json!([
+            run_of("lint", 10, "COMPLETED", "SUCCESS"),
+            run_of("lint", 11, "COMPLETED", "CANCELLED"),
+        ]),
+    );
+    assert_eq!(code(judge(&old_pass, Until::Checks, None, 0)), Some(1));
+}
+
+/// The REST rollup the machine's poller builds (no detailsUrl): `databaseId` and `startedAt`
+/// order the runs, and with neither the list order does.
+#[test]
+fn newest_runs_orders_by_job_id_then_start_time_then_place() {
+    let by_id = json!([
+        {"__typename": "CheckRun", "name": "t", "status": "COMPLETED", "conclusion": "CANCELLED", "databaseId": 5},
+        {"__typename": "CheckRun", "name": "t", "status": "COMPLETED", "conclusion": "SUCCESS", "databaseId": 9},
+    ]);
+    let rollup = by_id.as_array().unwrap();
+    assert_eq!(pr::newest_runs(rollup), vec![&rollup[1]]);
+    let by_place = json!([run_check("COMPLETED", "CANCELLED"), run_check("COMPLETED", "SUCCESS")]);
+    let rollup = by_place.as_array().unwrap();
+    assert_eq!(pr::newest_runs(rollup), vec![&rollup[1]]);
+    // A cancel replaced by a newer same-named run of another workflow (a shared concurrency
+    // group, manaflow-ai/cmux#50693) is that run's.
+    let twin = json!([
+        {"__typename": "CheckRun", "name": "comment", "workflowName": "CI", "status": "COMPLETED", "conclusion": "CANCELLED", "databaseId": 5},
+        {"__typename": "CheckRun", "name": "comment", "workflowName": "pr-red-checks", "status": "COMPLETED", "conclusion": "SUCCESS", "databaseId": 9},
+    ]);
+    let rollup = twin.as_array().unwrap();
+    assert_eq!(pr::newest_runs(rollup), vec![&rollup[1]]);
+    // Same job name in two workflows: two checks, both judged.
+    let two = json!([
+        {"__typename": "CheckRun", "name": "build", "workflowName": "a", "status": "COMPLETED", "conclusion": "FAILURE"},
+        {"__typename": "CheckRun", "name": "build", "workflowName": "b", "status": "COMPLETED", "conclusion": "SUCCESS"},
+    ]);
+    assert_eq!(pr::newest_runs(two.as_array().unwrap()).len(), 2);
+}
+
+#[test]
+fn timeout_takes_seconds_or_a_duration() {
+    use super::timeout_secs;
+    assert_eq!(timeout_secs("3600"), Ok(3600));
+    assert_eq!(timeout_secs("90s"), Ok(90));
+    assert_eq!(timeout_secs("45m"), Ok(2700));
+    assert_eq!(timeout_secs("2h"), Ok(7200));
+    assert_eq!(timeout_secs("1h30m"), Ok(5400));
+    assert!(timeout_secs("").is_err());
+    assert!(timeout_secs("1x").is_err());
+    assert!(timeout_secs("m").is_err());
+    assert!(timeout_secs("30m5").is_err());
+}

@@ -23,7 +23,7 @@ extension TabStripView {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
             let changes = ObservationStream {
-                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.trailingButtons.value,
+                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.effectiveTrailingButtons,
                               groupLook: GroupChipGlass.current, cellLooks: CellLooks())
             }
             for await snapshot in changes {

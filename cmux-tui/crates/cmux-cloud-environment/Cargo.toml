@@ -17,6 +17,7 @@ default = ["fetch"]
 fetch = ["dep:reqwest", "dep:rustls"]
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-build-space.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,3 +27,5 @@ url.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }

@@ -421,6 +421,45 @@ fn export_writes_a_setup_repo_that_installs_on_another_machine() {
 }
 
 #[test]
+fn a_saved_profile_exports_as_a_setup_repo_with_only_that_profile() {
+    // The Share of a wrap-up card's Try it on for a profile (RFD 0150): the kept profile, not
+    // what else is live, and never a credential.
+    let home = Home::new();
+    home.write("cmux-next.json", "{ \"actions\": { \"hi\": { \"command\": \"echo hi\" } } }\n");
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let profile = json!({
+        "cmuxProfile": 1,
+        "name": "kept-night",
+        "settings": { "appearance.themeFile": "night" },
+        "files": {
+            "themes/night.json": "{ \"name\": \"night\", \"colors\": { \"background\": \"#000000\" } }\n",
+            "themes/leak.json": format!("{{ \"name\": \"leak\", \"token\": \"{token}\" }}\n"),
+        },
+    });
+    home.write("profiles/kept-night.json", &profile.to_string());
+    let customize = home.customize();
+    let out = home.dir.path().join("shared");
+    let header = ExportHeader {
+        id: "kept-night/kept-night".to_owned(),
+        name: "kept-night".to_owned(),
+        ..ExportHeader::default()
+    };
+    let exported = customize.export_profile_setup("kept-night", &out, &header).unwrap();
+    assert_eq!(exported.files, ["themes/night.json"]);
+    assert!(exported.actions.is_empty());
+    assert_eq!(exported.left_out.len(), 1, "{:?}", exported.left_out);
+    assert!(!out.join("themes/leak.json").exists());
+    assert!(customize.export_profile_setup("../x", &out, &header).is_err());
+
+    let there = Home::new();
+    let read = setup::read_dir(&out).unwrap();
+    there.customize().install_setup(&read, "setup kept-night", "cli", 20).unwrap();
+    assert_eq!(there.settings()["appearance"]["themeFile"], json!("night"));
+    assert!(there.read("themes/night.json").is_some());
+    assert_eq!(there.settings()["actions"].get("hi"), None);
+}
+
+#[test]
 fn a_setup_that_carries_a_credential_is_refused_whole() {
     let home = Home::new();
     let repo = sample_repo(home.dir.path());
@@ -543,6 +582,57 @@ fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
         customize.library().unwrap().entries.iter().any(|entry| entry.name == yours),
         "your entry is still in the library"
     );
+}
+
+/// A look keeps its thinking dots (a `cmux.particles/1` document) as a file beside its
+/// cmux-setup.json and names it with `{"$file": PATH}` (Leo, 2026-11-19: "i guess the particle
+/// systems could be an api as well... like the customizations thing?"). Reading the look, by a
+/// setup install or `cmux customize try PATH/cmux-setup.json`, puts the document in its place; a
+/// path out of the folder or a link is refused.
+#[test]
+fn a_setting_file_of_the_look_is_read_into_its_value() {
+    let home = Home::new();
+    let repo = home.dir.path().join("look");
+    fs::create_dir_all(repo.join("agent-pane")).unwrap();
+    let glyph = json!({
+        "$schema": "cmux.particles/1",
+        "particle": {"size": 3.3, "max": 1},
+        "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": [[0, 0, 0.7]]}]}}
+    });
+    fs::write(repo.join("agent-pane/thinking-glyph.json"), format!("// dots\n{glyph}")).unwrap();
+    let manifest = |path: &str| {
+        json!({
+            "cmuxSetup": 1, "cmuxProfile": 1, "id": "leo/dots", "name": "Dots",
+            "settings": {
+                "agentPane.display.thinking.glyph": {"$file": path},
+                "agentPane.display.thinking.glyphSize": 2.4
+            }
+        })
+        .to_string()
+    };
+    fs::write(repo.join(SETUP_FILE), manifest("agent-pane/thinking-glyph.json")).unwrap();
+    let read = setup::read_dir(&repo).unwrap();
+    assert_eq!(read.profile.settings["agentPane.display.thinking.glyph"], glyph);
+    assert_eq!(read.profile.settings["agentPane.display.thinking.glyphSize"], json!(2.4));
+    // The same file read as a profile (`cmux customize try PATH`).
+    let tried = home.customize().load_profile(repo.join(SETUP_FILE).to_str().unwrap()).unwrap();
+    assert_eq!(tried.settings["agentPane.display.thinking.glyph"], glyph);
+
+    fs::write(home.dir.path().join("outside.json"), glyph.to_string()).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(home.dir.path().join("outside.json"), repo.join("link.json"))
+        .unwrap();
+    for bad in [
+        "../outside.json",
+        "/etc/hosts",
+        "./agent-pane/thinking-glyph.json",
+        "missing.json",
+        "link.json",
+    ] {
+        fs::write(repo.join(SETUP_FILE), manifest(bad)).unwrap();
+        let Err(Error::Setup(why)) = setup::read_dir(&repo) else { panic!("{bad} is refused") };
+        assert!(why.starts_with("agentPane.display.thinking.glyph: "), "{why}");
+    }
 }
 
 /// A look: its own theme (selected), a stylesheet, and views

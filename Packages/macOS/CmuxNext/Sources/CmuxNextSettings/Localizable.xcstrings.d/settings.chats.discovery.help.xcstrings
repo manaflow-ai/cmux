@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.discovery.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find harness chat folders automatically. When off, only the listed folders are used."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "العثور على مجلدات محادثات أدوات الوكلاء تلقائيًا. عند إيقافه، تُستخدم المجلدات المدرجة فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatski pronađi fascikle razgovora alata za agente. Kada je isključeno, koriste se samo navedene fascikle."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find automatisk chatmapper fra agentværktøjer. Når det er slået fra, bruges kun de angivne mapper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chatordner von Agentenwerkzeugen automatisch finden. Wenn deaktiviert, werden nur die aufgelisteten Ordner verwendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Busca automáticamente carpetas de chats de herramientas de agentes. Si se desactiva, solo se usan las carpetas indicadas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Détecter automatiquement les dossiers de discussion des outils d’agent. Sinon, seuls les dossiers indiqués sont utilisés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trova automaticamente le cartelle delle chat degli strumenti agente. Se disattivato, usa solo le cartelle elencate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントツールのチャットフォルダを自動検出します。オフの場合、一覧のフォルダのみを使用します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្វែងរកថតការជជែករបស់ឧបករណ៍ភ្នាក់ងារដោយស្វ័យប្រវត្តិ។ ពេលបិទ ប្រើតែថតក្នុងបញ្ជីប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트 도구의 채팅 폴더를 자동으로 찾습니다. 끄면 목록에 있는 폴더만 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finn chatmapper fra agentverktøy automatisk. Når av, brukes bare de oppførte mappene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatycznie znajdź foldery czatów narzędzi agentowych. Po wyłączeniu używane są tylko wymienione foldery."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encontra automaticamente pastas de conversas de ferramentas de agentes. Quando desativado, usa apenas as pastas listadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически находить папки чатов инструментов агентов. Если выключено, используются только указанные папки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ค้นหาโฟลเดอร์แชตของเครื่องมือเอเจนต์โดยอัตโนมัติ เมื่อปิด จะใช้เฉพาะโฟลเดอร์ที่ระบุไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajan araçlarının sohbet klasörlerini otomatik bul. Kapalıyken yalnızca listelenen klasörler kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматично знаходити папки чатів інструментів агентів. Якщо вимкнено, використовуються лише вказані папки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tự động tìm thư mục trò chuyện của công cụ tác tử. Khi tắt, chỉ dùng các thư mục trong danh sách."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动查找代理工具的聊天文件夹。关闭后仅使用列出的文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動尋找代理工具的聊天資料夾。關閉後僅使用列出的資料夾。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

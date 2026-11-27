@@ -582,7 +582,11 @@ public final class MacScreenDevicesSettings {
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
                 if run.on == true { shareThisMac() }
-                else { try await hubHost.setSharing(false) }
+                else {
+                    // The person's switch in Settings: their off outranks the join default (Z4).
+                    CmuxRemoteShareConsent.recordDecline()
+                    try await hubHost.setSharing(false)
+                }
             case "setAgentsMayShare":
                 // The person's click on this switch is the consent; the hub audits it, the notice says it.
                 _ = try await CmuxRemoteActionEnvironment.setAgentsMayShare(run.on ?? false, hub: hub, window: nil)
@@ -611,14 +615,17 @@ public final class MacScreenDevicesSettings {
 
     /// What a failed gesture says (never a secret: hub errors carry codes and the server's message).
     static func message(_ error: any Error) -> String {
+        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
         guard let hubError = error as? DeviceHubError else { return L.t("devices.error.generic", "That didn’t work. Try again.") }
         switch hubError {
         case .notSignedIn, .notConfigured: return L.t("devices.error.signedOut", "Sign in to cmux first.")
+        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
         case .transport: return L.t("devices.error.network", "Couldn’t reach the device hub. Check your connection and try again.")
         default:
             if hubError.code == .deviceRemoved || hubError.code == .notFound {
                 return L.t("devices.error.gone", "That device is no longer in your devices.")
             }
+            // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
             return L.t("devices.error.generic", "That didn’t work. Try again.")
         }
     }

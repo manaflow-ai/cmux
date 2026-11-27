@@ -7,9 +7,10 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { setExperimentSwitches } from "../src/experiments/switches";
-import { installHoverLook, pageDrawsHover } from "../src/ui/hoverLook";
+import { installHoverLook, oneHoverSurface, pageDrawsHover } from "../src/ui/hoverLook";
 import {
   HOVER_LOOK_ATTRIBUTE,
+  HOVER_LOOK_ONE,
   HOVER_LOOK_SURFACES,
   HOVER_LOOK_SWITCH,
   hoverLook,
@@ -92,4 +93,59 @@ test("Reduce Transparency keeps the opaque tooltip: the ink inversion only appli
   expect(ink).toBeGreaterThan(0);
   expect(css.lastIndexOf("@media not (prefers-reduced-transparency: reduce)", ink)).toBeGreaterThanOrEqual(0);
   expect(css).not.toContain("!important");
+});
+
+// The One arm (Leo, 2026-11-22, softened: "multiple styles for hover previews plus bad-looking
+// translucency blur, unacceptable"): every hover surface is the tooltip's veil over the transient
+// frost at the tooltip's corner, and only it turns on one hover at a time. Off by default.
+test("the One arm: one material for every hover surface, and only it runs one hover at a time", () => {
+  expect(hoverLook.defaultArm).not.toBe(HOVER_LOOK_ONE);
+  expect(Object.keys(hoverLook.arms)).toContain(HOVER_LOOK_ONE);
+  const css = hoverCss().replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (selector: string) => {
+    const at = css.indexOf(selector);
+    expect(at, selector).toBeGreaterThanOrEqual(0);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  const all = rule(
+    ':root[data-hover-look][data-hover-look="one"]\n  :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass',
+  );
+  expect(all).toContain("--glass-tint: var(--tooltip-tint)");
+  expect(all).toContain("--glass-backdrop: blur(var(--ds-transient-web-blur))");
+  expect(rule(':root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass')).toContain(
+    "border-radius: calc(var(--role-tooltip-radius)",
+  );
+
+  const doc = new Window().document as unknown as Document;
+  const stop = installHoverLook(doc);
+  expect(oneHoverSurface(doc)).toBe(false);
+  setExperimentSwitches({ [HOVER_LOOK_SWITCH]: true });
+  expect(oneHoverSurface(doc)).toBe(false);
+  stop();
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { [hoverLook.id]: HOVER_LOOK_ONE };
+  const stopOne = installHoverLook(doc);
+  expect(oneHoverSurface(doc)).toBe(true);
+  setExperimentSwitches({});
+  expect(oneHoverSurface(doc)).toBe(false);
+  stopOne();
+});
+
+test("every arm defines the vars the shared ring and shadow read, so no arm's box-shadow goes invalid", () => {
+  // An arm that left --hover-look-ring, -lit or -card-shadow unset made the shared rule's
+  // box-shadow invalid at computed time: the One arm's hover card drew no ring and no shadow, and
+  // white glass over a light wallpaper vanished (the #59205 readback).
+  const css = hoverCss();
+  const all = css.match(/:root\[data-hover-look\]\s*\{([^}]*)\}/);
+  expect(all).not.toBeNull();
+  for (const name of [
+    "--hover-look-ring",
+    "--hover-look-lit",
+    "--hover-look-tooltip-shadow",
+    "--hover-look-card-shadow",
+  ]) {
+    expect(all?.[1]).toContain(`${name}:`);
+  }
+  // One's restored edge is light-only: dark keeps One's shipped look.
+  const one = css.match(/:root\[data-hover-look\]\[data-hover-look="one"\]\s*\{([^}]*)\}/)?.[1] ?? "";
+  expect(one).toMatch(/--hover-look-ring:\s*light-dark\([^;]*,\s*transparent\)/);
 });

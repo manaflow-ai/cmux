@@ -35,7 +35,10 @@ impl Hub {
 
     fn test_set_status(&self, id: &str, status: SessionStatus) {
         let session = self.resolve(id).unwrap();
-        self.set_status(&session, status);
+        match crate::hub::NotWaiting::of(status) {
+            Some(settled) => self.set_status(&session, settled),
+            None => self.set_waiting(&session, crate::store::WaitReason::Permission),
+        }
     }
 }
 

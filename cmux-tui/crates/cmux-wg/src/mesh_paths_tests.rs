@@ -219,7 +219,7 @@ fn address_churn_never_runs_out_of_path_ids() {
         let port = 1 + (round % 60_000) as u16;
         paths.advertised(&[SocketAddr::new([10, 0, 0, 1].into(), port)], &[], now);
     }
-    assert!(paths.next_id <= MAX_PATH_IDS);
+    assert!(paths.paths.next_id() <= MAX_PATH_IDS);
     assert_eq!(paths.views().len(), MAX_PATHS);
     assert!(paths.views().iter().any(|view| view.address == lan));
     // A new address is still taken after all that churn.
@@ -238,4 +238,44 @@ fn a_handshake_initiation_tries_every_named_address_before_any_answer() {
     paths.send_initiation(now, |address| sent.push(address));
     assert_eq!(sent, vec![down, up]);
     assert_eq!(targets(&mut paths, now), vec![down], "data still follows the route");
+}
+
+/// The failover number for RFD 0164 slice B4: a LAN path answering in 1 ms and a relay, the
+/// LAN cut, stepped every 10 ms. Prints when datagrams first go on every path and when the
+/// relay alone carries them, so the path-set refactor can be checked against the old code.
+#[test]
+fn a_cut_lan_fails_over_to_the_relay_on_time() {
+    let ms = std::time::Duration::from_millis;
+    let start = Instant::now();
+    let lan = addr("192.168.1.20:4101");
+    let relay = addr("203.0.113.5:4101");
+    let candidates = [
+        PeerCandidate { address: lan, kind: Some(PathKind::DirectLan) },
+        PeerCandidate { address: relay, kind: Some(PathKind::DoRelay) },
+    ];
+    let mut paths = MeshPaths::new(Some(lan), &candidates, &[], start);
+    let mut now = start;
+    while now < start + ms(2000) {
+        probe_round(&mut paths, &[lan, relay], now);
+        let _ = targets(&mut paths, now);
+        now += ms(10);
+    }
+    assert_eq!(targets(&mut paths, now), vec![lan]);
+    let cut = now;
+    let (mut sprayed, mut relayed) = (None, None);
+    while relayed.is_none() && now < cut + ms(10_000) {
+        now += ms(10);
+        probe_round(&mut paths, &[relay], now);
+        let sent = targets(&mut paths, now);
+        if sprayed.is_none() && sent.len() == 2 {
+            sprayed = Some(now - cut);
+        }
+        if sent == vec![relay] {
+            relayed = Some(now - cut);
+        }
+    }
+    let (sprayed, relayed) = (sprayed.expect("sprays"), relayed.expect("fails over"));
+    eprintln!("mesh failover: sprays after {sprayed:?}, relay alone after {relayed:?}");
+    assert!(sprayed <= ms(250), "sprays after {sprayed:?}");
+    assert!(relayed <= ms(5000), "relay alone after {relayed:?}");
 }

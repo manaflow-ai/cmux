@@ -26,7 +26,7 @@
 //   the spring, the follow's arrival step) or longer than the scale's ceiling (MOTION_MS.large); or a
 //   script animation that turns back on itself.
 // - `offscreen-start`: an animation (any: a CSS transition, a CSS animation, WAAPI, a FLIP) started on a row
-//   whose box does not meet the view. A motion no one can see plays for no one; seen later, it is a
+//   whose path (where it is drawn to where it lands; a container's: its rows') does not meet the view. A motion no one can see plays for no one; seen later, it is a
 //   half-state (cmuxterm-hq docs/design/transcript-animation-rules.md, rule 1).
 // - `scroll-start`: an animation started on a row while the reader scrolled (input in the last
 //   SCROLL_START_MS and the view moved), with no press or key on that row and no new data for it: a row
@@ -82,7 +82,7 @@ export type AnimationStart = {
   type: "waapi" | "transition" | "css-animation";
   /** The transition's property, the animation's name, or the keyframes' properties. */
   what: string;
-  /** The holder's top and bottom against the view's top, and the view's height (px). */
+  /** The span the motion covers against the view's top (see `startSpan`), and the view's height (px). */
   top: number;
   bottom: number;
   view: number;
@@ -112,7 +112,7 @@ export type MotionRecord = {
   starts?: AnimationStart[];
   /** Presses and keys, each with the tracked element it went to: [t, key]. */
   aimed?: [t: number, key: string][];
-  /** When each row's data first came, from the harness's steps (`rows(ids)`): key -> t. */
+  /** When each row's data last came or changed, from the harness's steps (`rows(list)`): key -> t. */
   arrived?: Record<string, number>;
 };
 
@@ -141,7 +141,7 @@ declare global {
       /** A step landed, or the reader's input (`input`, or `input:...`). */
       mark(label: string): void;
       /** The rows the chat has after a step (their ids), so a row's data arrival is known. */
-      rows?(ids: readonly string[]): void;
+      rows?(list: readonly (string | readonly [id: string, signature: string])[]): void;
       count(): number;
     };
   }
@@ -181,6 +181,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
   let starts: AnimationStart[] = [];
   let aimed: [number, string][] = [];
   let arrived: Record<string, number> = {};
+  const signatures = new Map<string, string>();
   /** Keys drawn last frame, and every key drawn in this recording. */
   let drawnLast = new Set<string>();
   let drawnEver = new Set<string>();
@@ -240,6 +241,41 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
   };
   for (const kind of ["wheel", "keydown", "pointerdown", "touchstart"])
     addEventListener(kind, onInput, { capture: true, passive: true });
+  /**
+   * The span a starting motion covers, in the page's coordinates, for the `offscreen-start` rule: where
+   * the moved boxes are drawn now and where they land, as one span (the rule tailGlide.ts `missesView`
+   * applies before it starts a glide). Two cases the element's own drawn box misjudged
+   * (transcript-fold-above-view-browser, run 45579324266):
+   * - a row gliding up from just below the view with the tail it moves with (drawn 794..838 of 772,
+   *   landing in it) is seen as it lands; only a path that misses the view plays for no one;
+   * - a container whose rows are placed absolutely under it (`.acpmux-thread`: its own box is its 32 px of
+   *   padding at the chat's top) moves its rows: its span is theirs, the mounted ones.
+   */
+  function startSpan(element: Element, box: DOMRect, rows: ArrayLike<Element>): { top: number; bottom: number } {
+    let top = box.top;
+    let bottom = box.bottom;
+    if (rows.length) {
+      top = Infinity;
+      bottom = -Infinity;
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index]!.getBoundingClientRect();
+        if (row.width === 0 && row.height === 0) continue;
+        top = Math.min(top, row.top);
+        bottom = Math.max(bottom, row.bottom);
+      }
+      if (top > bottom) return { top: box.top, bottom: box.bottom };
+    }
+    // Where it lands: drawn less its own `translate` (the glide's offset, composite add; a transform is
+    // not read: no transcript motion moves rows by one).
+    const value = element.ownerDocument.defaultView?.getComputedStyle(element).translate ?? "";
+    const y = value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") : 0;
+    if (Number.isFinite(y) && y !== 0) {
+      top = Math.min(top, top - y);
+      bottom = Math.max(bottom, bottom - y);
+    }
+    return { top, bottom };
+  }
+
   const round = (value: number) => Math.round(value * 10) / 10;
   /** Every animation that started since the last frame inside the scroller (any property, any kind). */
   const sampleStarts = (scroller: HTMLElement | null, view: DOMRect | undefined) => {
@@ -254,10 +290,13 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       const timing = effect.getComputedTiming();
       // An ambient loop (a spinner, a shimmer) and a zero-length step are no motion.
       if (timing.iterations === Infinity || !(Number(timing.activeDuration) > 0)) continue;
+      // The running line's shimmer sweeps once per cadence (shimmerCadence.ts), only while seen: ambient.
+      if (animation instanceof CSSAnimation && animation.animationName.startsWith("cmux-cadenced-shimmer")) continue;
       if (animation.playState === "finished") continue;
       const owner = target.matches(selectorAll) ? target : holder(target);
       const box = (owner ?? target).getBoundingClientRect();
       if (box.width === 0 && box.height === 0) continue;
+      const span = startSpan(owner ?? target, box, owner ? [] : target.querySelectorAll(selectorAll));
       const key = owner
         ? keyOf(owner)
         : `${target.tagName.toLowerCase()}.${[...target.classList].slice(0, 2).join(".")}`;
@@ -289,8 +328,8 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
         target: key,
         type,
         what,
-        top: round(box.top - view.top),
-        bottom: round(box.bottom - view.top),
+        top: round(span.top - view.top),
+        bottom: round(span.bottom - view.top),
         view: round(view.height),
         frame: frames.length,
         t: round(performance.now() - origin),
@@ -401,6 +440,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       starts = [];
       aimed = [];
       arrived = {};
+      signatures.clear();
       touched = new Set();
       marks = [];
       origin = performance.now();
@@ -430,10 +470,17 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       marks.push(label);
       if (label.startsWith("input")) inputs.push(performance.now() - origin);
     },
-    rows(ids: readonly string[]) {
+    rows(list: readonly (string | readonly [id: string, signature: string])[]) {
       if (!recording) return;
       const at = round(performance.now() - origin);
-      for (const id of ids) arrived[`row:${id}`] ??= at;
+      for (const entry of list) {
+        const [id, signature] = typeof entry === "string" ? [entry, ""] : entry;
+        const key = `row:${id}`;
+        // New data is a new row or a row whose content changed (a Thinking line's words, a tool done).
+        if (key in arrived && signatures.get(key) === signature) continue;
+        arrived[key] = at;
+        signatures.set(key, signature);
+      }
     },
     count: () => frames.length,
   };

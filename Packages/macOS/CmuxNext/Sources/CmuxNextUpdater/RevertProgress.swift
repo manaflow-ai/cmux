@@ -89,7 +89,7 @@ nonisolated public struct RevertNotice: Equatable, Sendable {
         detail = switch progress.step {
         case .checking: UpdaterStrings.revertChecking
         case .finding: UpdaterStrings.revertFinding
-        case .downloading: progress.fraction.map { UpdaterStrings.revertDownloading + " " + $0.formatted(.percent.precision(.fractionLength(0))) }
+        case .downloading: progress.fraction.map { UpdaterStrings.revertDownloading + " " + UpdateTransfer.percentText(fraction: $0) }
             ?? UpdaterStrings.revertDownloading
         case .verifying: UpdaterStrings.revertVerifying
         case .swapping: UpdaterStrings.revertSwapping

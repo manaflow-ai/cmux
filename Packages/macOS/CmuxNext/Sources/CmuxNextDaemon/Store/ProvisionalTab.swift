@@ -42,11 +42,17 @@ public struct ProvisionalTab: Sendable, Hashable {
     }
 
     /// The stand-in of a new browser tab on `url` in a split (`new-frontend-browser-tab {split}`,
-    /// `frontend-browser-tab-split-v1`): the strip names it at once, and it has no page (not
-    /// frontend-owned), so no page loads under the provisional id; the daemon's tab in the daemon's
-    /// pane replaces it and makes the one page.
-    public func browser(_ url: String) -> TabSnapshot {
-        TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: url, url: url)
+    /// `frontend-browser-tab-split-v1`): the strip names it at once. With an `engine` (this Mac's
+    /// daemon) it is app-rendered, as a new tab's stand-in (``browser(url:engine:profile:)``): its page
+    /// starts in the click's turn and moves to the daemon's tab when that tab first asks for one
+    /// (`DaemonCreations.standIn(replacedBy:)`), so the split never draws empty and one page loads
+    /// (Leo 2026-11-03: "we should be able to optimistically just have a "thing" open"). Without one
+    /// it has no page; the daemon's tab makes it.
+    public func browser(_ url: String, engine: String? = nil, profile: String? = nil) -> TabSnapshot {
+        var snapshot = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: url, url: url,
+                                   browserRenderer: engine == nil ? nil : "frontend", browserEngine: engine)
+        snapshot.browserProfileID = engine == nil ? nil : profile
+        return snapshot
     }
 
     /// The stand-in of a new terminal tab (`new-tab`, Ctrl-`) whose terminal host id the client

@@ -1177,7 +1177,8 @@ typedef struct CmuxSidebarFaceRow {
     uint8_t notice;
     uint8_t progress;
     uint8_t progress_error;
-    uint8_t reserved[2];
+    uint8_t agent_in_terminal; /* 1: the agent tab's agent runs in a terminal, not a chat */
+    uint8_t reserved[1];
     uint32_t listed_start;     /* index into reply->listed: one per tab of the workspace */
     uint32_t kept_entry_start; /* index into reply->kept_entries: the status block's entries */
     uint32_t kept_entry_count;
@@ -1370,5 +1371,69 @@ typedef void (*CmuxKeychainDone)(void *context, uint8_t answered, const uint8_t 
 typedef void (*CmuxKeychainRelease)(void *context);
 int32_t cmux_keychain_bounded(const uint8_t *request, size_t request_len, void *context, CmuxKeychainWork work,
                               CmuxKeychainDone done, CmuxKeychainRelease release);
+
+/* Pane drop zones (cmux-layout-reducer pane_drop_zones): where a dragged tab drops on a screen and what its
+ * preview fills. cmux_pane_drop_screen_new takes JSON {width, height, panes: [{rect: {x, y, width, height},
+ * fixed, header, footer}], gaps: [rect], docks: [{edge, frame, cover}], uncovered, stripMinX, style:
+ * {edgeFraction, edgeMinimum, edgeMaximum, hysteresis, dockBand, dockTopBand, panePadding, stripGap}}
+ * (flipped coordinates; panes in tie-break order) and returns null when it does not parse; free it with
+ * cmux_pane_drop_screen_free. Each move then crosses numbers only. A target's kind is a
+ * CMUX_PANE_DROP_KIND_*: a pane (index in panes, zone a CMUX_PANE_DROP_ZONE_*), a new column (index in
+ * gaps) or a new dock (zone a CMUX_TAB_DROP_EDGE_*); a previous pane of another screen is sent with an index
+ * past the panes. previous is nullable. Each query returns 1 and writes out, 0 for no answer, or
+ * CMUX_LAYOUT_REDUCER_ERR_NULL / ERR_PANIC with nothing written. */
+enum {
+    CMUX_PANE_DROP_KIND_NONE = 0,
+    CMUX_PANE_DROP_KIND_PANE = 1,
+    CMUX_PANE_DROP_KIND_COLUMN = 2,
+    CMUX_PANE_DROP_KIND_DOCK = 3,
+};
+
+typedef struct CmuxPaneDropTarget {
+    uint32_t index;
+    uint8_t kind;
+    uint8_t zone;
+    uint8_t reserved[2];
+} CmuxPaneDropTarget;
+
+typedef struct CmuxPaneDropRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxPaneDropRect;
+
+/* body (a pane's, below its tab bar) counts only when has_body is 1 */
+typedef struct CmuxPaneDropRects {
+    CmuxPaneDropRect highlight;
+    CmuxPaneDropRect region;
+    CmuxPaneDropRect body;
+    uint8_t has_body;
+    uint8_t reserved[7];
+} CmuxPaneDropRects;
+
+typedef struct CmuxPaneDropScreen CmuxPaneDropScreen;
+
+CmuxPaneDropScreen *cmux_pane_drop_screen_new(const uint8_t *request, size_t request_len);
+void cmux_pane_drop_screen_free(CmuxPaneDropScreen *screen);
+/* view point (x, y) with the strip scrolled to offset */
+int32_t cmux_pane_drop_target(const CmuxPaneDropScreen *screen, double x, double y, double offset,
+                              const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* content point (x, y): strip coordinates, no dock covers */
+int32_t cmux_pane_drop_target_in_content(const CmuxPaneDropScreen *screen, double x, double y,
+                                         const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the edge band opening a new dock, below a top_inset tab bar and above a bottom_inset one */
+int32_t cmux_pane_drop_dock(const CmuxPaneDropScreen *screen, double x, double y, double top_inset,
+                            double bottom_inset, const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the preview's rects in view space with the strip at offset */
+int32_t cmux_pane_drop_rects(const CmuxPaneDropScreen *screen, const CmuxPaneDropTarget *target, double offset,
+                             CmuxPaneDropRects *out);
+/* the zone of pane cell rect under (x, y) by the screen's style, below a header tab bar and above a footer one;
+ * previous is a CMUX_PANE_DROP_ZONE_* or any other value for none; out gets a CMUX_PANE_DROP_ZONE_* */
+int32_t cmux_pane_drop_zone(const CmuxPaneDropScreen *screen, double x, double y, CmuxPaneDropRect rect, double header,
+                            double footer, uint8_t previous, uint8_t *out);
+/* classic cmux's pane drop overlay inside body, inset padding */
+int32_t cmux_pane_drop_classic_highlight(CmuxPaneDropRect body, uint8_t zone, double padding,
+                                         CmuxPaneDropRect *out);
 
 #endif

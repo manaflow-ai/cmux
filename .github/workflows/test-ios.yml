@@ -13,7 +13,7 @@ on:
   # detect-ios-changes narrows pull-request work further (and decides the
   # conventions lint).
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "ios/**"
       - "Packages/**"
@@ -29,6 +29,7 @@ on:
       - "scripts/ci/crash-class-gate.sh"
       # The crash-class lint test_pr_scoped_lint_gates.py runs: check-concurrency.sh and what it loads.
       - "scripts/cmux-next/check-concurrency.sh"
+      - "scripts/cmux-next/check-closure-mutex.py"
       - "scripts/cmux-next/check-main-actor-work.py"
       - "scripts/cmux-next/swift_scope.py"
       - "scripts/cmux-next/caller_isolation.py"
@@ -36,6 +37,8 @@ on:
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
+      - "scripts/ci/ios_simulator_inputs.py"
+      - "scripts/cmux-next/notices/**"
       - ".github/workflows/test-ios.yml"
   merge_group:
   # Every push to feat-cmux-next (the cmux-next "main") builds the iOS app and
@@ -65,7 +68,6 @@ on:
           - CMUXMobileCore
           - CmuxMobilePairedMac
           - CmuxMobileShellModel
-          - CmuxHomeCore
       ios_version:
         description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
         required: false
@@ -112,15 +114,16 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
   # The package conventions lint (namespace types, free functions, singletons,
-  # ...) is a style guard. For pull requests and merge groups into
-  # feat-cmux-next it prints its findings as warnings and passes (Leo,
+  # ...) is a style guard. For pull requests and merge groups onto any base
+  # but main (feat-cmux-next, or a lane branch a stacked pull request sits on,
+  # #54185) it prints its findings as warnings and passes (Leo,
   # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
   # tests still fail the job, and so the ios-tests gate. One rule still fails a
   # pull request: a namespace type it adds that --namespace-fix rewrites
   # (scripts/ci/pr_added_namespace_types.py; label namespace-lint-override skips it).
-  # Everywhere else it still fails. Change `warn` to `fail` to make it block
-  # feat-cmux-next again.
-  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+  # main and release tags still fail. Same expression as
+  # CMUX_NEXT_STYLE_GUARDS_LEVEL in ci-web.yml (tests/test_style_guards_level.py).
+  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'main' || github.event.merge_group.base_ref == 'refs/heads/main' || (!github.base_ref && !github.event.merge_group && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) && 'fail' || 'warn' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -131,13 +134,51 @@ env:
 # would leave the branch with no iOS result at 30 pushes an hour), and GitHub
 # replaces the one waiting run with the newest push.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
+  # is only a base merge onto a head whose full run passed carries that run, so detect-ios-changes answers false and
+  # no iOS job starts. Its tier is "none" only then; any lookup error, an overlap with the change's own files, a merge with its
+  # own edits, or no full run at the parent leaves it empty and everything runs. vars.CI_FULL_CI_BASE_MERGE_CARRY ==
+  # '0' turns it off.
+  full-carry:
+    name: full-ci base merge carry
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    outputs:
+      tier: ${{ steps.carry.outputs.tier }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Full-ci base merge carry
+        id: carry
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
+
   runner:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    # Only ios-simulator-build reads this pool, and it runs only when
+    # detect-ios-changes says should_run: a pull request with no iOS-owned
+    # file skips the pool pick too.
+    needs: detect-ios-changes
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && needs.detect-ios-changes.outputs.should_run == 'true' }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    # The macOS pool mobile-core-package and ios-simulator-build run on.
+    # The macOS pool ios-simulator-build runs on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
     # per-family ios-simulator test jobs, which over-reserves until the
     # rewritten app's UI tests bring a simulator test job back. `auto` follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS. With
@@ -150,13 +191,12 @@ jobs:
     # glaeda-ios-sim entry leaves one simulator mini free per requested
     # device family. The build job then asks for
     # the pool label with glaeda-ios-sim, the label glaeda puts on minis with
-    # an iOS 26.x simulator runtime; mobile-core-package needs no simulator and
-    # takes the pool label alone. Otherwise, and for an ios_version run, the
+    # an iOS 26.x simulator runtime. Otherwise, and for an ios_version run, the
     # default holds. `owned` forces the owned pool for a proof run. A job an
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -173,8 +213,6 @@ jobs:
       # ios-simulator-build's own: glaeda's sim-first label alone when an owned run sees one of those runners
       # idle (glaeda#2057 admits the build there), else runs_on (ios_runner_pool.py, Build placement).
       build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
-      # mobile-core-package needs no simulator: the pool label alone.
-      package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       # The picker's own re-run route (Blacksmith), which a bot's re-run takes even on a cmux-next lane: the
       # owned-pool rescue re-runs a job past its owned wait bound as the bot (OWNED_WAIT_BOUND_SECONDS).
@@ -184,7 +222,7 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout pool helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
@@ -194,6 +232,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -233,6 +272,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -347,12 +388,14 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    needs: full-carry
+    if: ${{ (!cancelled() && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
-      should_run: ${{ steps.detect.outputs.should_run }}
-      should_lint: ${{ steps.detect.outputs.should_lint }}
+      should_run: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_run }}
+      should_lint: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_lint }}
+      should_build: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_build }}
       # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
       style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}
@@ -370,7 +413,7 @@ jobs:
           esac
 
       - name: Checkout workflow revision
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.ref }}
           # Manual dispatch only needs this workflow revision. A pull request
@@ -384,7 +427,14 @@ jobs:
           # checkout of a blobless clone lazily fetches every blob in the tree:
           # that took 2.5-5 minutes of this five-minute job on 2026-11-03 and
           # timed the job out on about half the pull requests.
-          sparse-checkout: .github/workflows/test-ios.yml
+          sparse-checkout: |
+            .github/workflows/test-ios.yml
+            scripts/ci/ios_simulator_inputs.py
+            ios/cmux-ios.xcodeproj/project.pbxproj
+            ios/CmuxiOS/Package.swift
+            Packages/*/*/Package.swift
+            vendor/stack-auth-swift-sdk-prerelease/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
           submodules: false
@@ -437,6 +487,7 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -445,6 +496,7 @@ jobs:
           if [ "$(git rev-parse HEAD^2 2>/dev/null)" != "$HEAD_SHA" ]; then
             echo "HEAD is not the merge of $HEAD_SHA; running iOS tests and lint."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -455,15 +507,30 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}" = "true" ]; then
+              ios_build=true
+              echo "Full-ci label present; retaining the simulator build."
+            else
+              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
+            fi
+            if [ -z "$ios_build" ]; then
+              echo "::warning::iOS simulator input classifier returned no verdict; running the build"
+              ios_build=true
+            fi
+            echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
+            python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
-          # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/cmux-next/caller_isolation\.py$|scripts/cmux-next/caller-isolated-blocking-pending\.json$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' "${RUNNER_TEMP}/changed-files.txt"; then
+          # covers every package, so it runs for any Packages/ change too. It
+          # scans only .swift files, so other files under ios/, Packages/ and
+          # vendor/ (resources, docs, project files) leave it skipped.
+          if grep -Eq '^((ios|Packages|vendor/stack-auth-swift-sdk-prerelease)/.*\.swift$|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-closure-mutex\.py$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/cmux-next/caller_isolation\.py$|scripts/cmux-next/caller-isolated-blocking-pending\.json$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -472,14 +539,17 @@ jobs:
 
   package-conventions-lint:
     needs: detect-ios-changes
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (needs.detect-ios-changes.outputs.should_lint == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # A pull request into feat-cmux-next runs ci/steps.toml's package-conventions-tests and
+    # package-conventions-gate steps in pr-pipeline.yml's linux job instead (warn-only there, as here); the
+    # iOS jobs below run on its skip because style_guards is warn.
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (needs.detect-ios-changes.outputs.should_lint == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The scan alone takes about 5 minutes on cmux-linux: at 5, a passing run
     # was cancelled after printing its pass (#52110, twice).
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           # A pull request's merge commit with its parents: the gate fails the
@@ -509,221 +579,78 @@ jobs:
           fi
           exit "$rc"
 
-  mobile-core-package:
-    needs: [runner, detect-ios-changes, package-conventions-lint]
-    if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
-      !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
-          && needs.detect-ios-changes.outputs.should_run == 'true'
-          && (needs.package-conventions-lint.result == 'success'
-              || needs.detect-ios-changes.outputs.style_guards == 'warn'
-              || (needs.package-conventions-lint.result == 'skipped'
-                  && needs.detect-ios-changes.outputs.should_lint == 'false'))
-          && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '')
-      ) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}
-    # Focused runs build the shell and its macros from a cold SwiftPM cache.
-    timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
-    env:
-      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
-      # pull-request lane's Xcode pin, so take that Xcode there, as
-      # compile admission does; a re-run on Blacksmith keeps it, so a product built
-      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
-      # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
-      SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
-      FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
-      # A hung test otherwise runs to the job ceiling, which GitHub reports as
-      # "cancelled" without naming it. Completed runs of this job on 2026-09-22
-      # and 2026-09-23 never went quiet for more than 45 s, and no single test
-      # took longer than 44 s; three hung runs went quiet for 353-1152 s.
-      TEST_SILENCE_SECONDS: "180"
-      # swift-packages-linux.yml runs CMUXMobileCore, CmuxMobilePairedMac
-      # and CmuxMobileShellModel on Linux for every
-      # feat-cmux-next pull request that touches Packages/, so such a pull
-      # request runs them here only with the full-ci label; pushes, dispatches
-      # and other bases still run them on the Mac.
-      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-    steps:
-      - name: Verify GitHub-hosted route
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_label || github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          # The self-hosted fleet also carries a macos-26 label, so a macos-*
-          # request must prove it landed on GitHub-hosted capacity before any
-          # checkout.
-          case "$REQUESTED_RUNNER" in
-            macos-*)
-              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
-                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
-                exit 1
-              fi
-              ;;
-          esac
-      - name: Validate package selection
-        env:
-          SELECTED_PACKAGE: ${{ inputs.swift_package }}
-        run: |
-          case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxMobilePairedMac|CmuxMobileShellModel|CmuxHomeCore) ;;
-            *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
-          esac
-
-      # Start from main's git objects, so checkout fetches only what changed
-      # since then instead of the whole tree and its submodules
-      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
-      # this commit over HTTPS because nothing is checked out yet. A miss, or a
-      # reused self-hosted workspace, leaves checkout to work as before.
-      - name: Restore git object seed
-        continue-on-error: true
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          script="$RUNNER_TEMP/git-seed.sh"
-          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
-            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
-          bash "$script" restore "$GITHUB_WORKSPACE"
-
-      - name: Clear stale git locks (self-hosted reused workspace)
+  # The pure-Swift logic suites, on Linux: no simulator and no Apple runtime. The rows of
+  # scripts/ci/swift-linux-packages.txt run through the same package-test-lane.sh suite the
+  # swift-linux-packages.yml receipt uses. A focused dispatch (swift_package, with an optional
+  # test_filter) runs here too, on that one package. The Mac job that once ran these
+  # (mobile-core-package) is gone: its full-ci cross-check, the Darwin-only tests among
+  # them (CoreImage's QR bitmap), runs as a step of ios-simulator-build, which full-ci always
+  # builds on a Mac anyway. Leo, 2026-11-25: "freeing up the Mac's from doing things that
+  # don't need Mac's asap".
+  mobile-core-linux:
+    needs: [detect-ios-changes]
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( !cancelled() && needs.detect-ios-changes.result == 'success' && needs.detect-ios-changes.outputs.should_run == 'true' && (inputs.swift_package != '' || inputs.test_filter == '') ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
         shell: bash
-        run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
-
-      - name: Checkout
-        id: checkout
-        continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: false
 
-      # A seeded repository that checkout cannot use must not fail the retry the same way.
-      - name: Discard the git object seed after a failed checkout
-        if: steps.checkout.outcome == 'failure'
-        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite.
+      - name: Install python3 and SQLite headers
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev
 
-      - name: Retry checkout without the git object seed
-        if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
-          persist-credentials: false
-          submodules: false
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # An owned Mac reuses its workspace, but checkout cleans it, so every job
-      # rebuilt the five packages and their dependencies from nothing (11-23 s
-      # per package, 70-100 s a job). Keep each package's .build outside the
-      # workspace on the mini, as swift-package-tests and the cmux-next fast
-      # tier do; a kept build recompiles only what the change touched.
-      # scripts/ci/owned_spm_scratch.py has the rules (fingerprint per Xcode,
-      # Swift, workspace path and bonsplit commit; least recently used pruning).
-      # Any failure leaves the packages to build cold as before. The runner slots
-      # share one SwiftPM artifact cache; seeding it first keeps two slots from
-      # downloading one new binary artifact at once ("already exists in file
-      # system"): scripts/ci/swiftpm_prefetch_binary_artifacts.py.
-      - name: Keep Swift package builds on this owned Mac
-        if: ${{ contains(runner.name, '-glaeda') }}
-        continue-on-error: true
-        run: |
-          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
-          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
-
-      - name: Run CMUXMobileCore package tests
-        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
+      - name: package-test-lane.sh suite, mobile-core packages
+        env:
+          FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
+          SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
-          args=(--package-path Packages/Shared/CMUXMobileCore)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
+          packages=(Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobilePairedMac Packages/iOS/CmuxMobileShellModel)
+          case "${FOCUSED_SWIFT_PACKAGE:-}" in
+            "") ;;
+            CMUXMobileCore) packages=(Packages/Shared/CMUXMobileCore) ;;
+            CmuxMobilePairedMac|CmuxMobileShellModel) packages=("Packages/iOS/$FOCUSED_SWIFT_PACKAGE") ;;
+            *) echo "::error::Unsupported Swift package: $FOCUSED_SWIFT_PACKAGE"; exit 1 ;;
+          esac
+          if [ -n "${SWIFT_TEST_FILTER:-}" ] && [ -z "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            echo "::error::test_filter for a Swift package needs swift_package"; exit 1
           fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CMUXMobileCore --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
-
-      - name: Run CmuxMobilePairedMac package tests
-        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobilePairedMac' }}
-        run: |
-          set -euo pipefail
-          args=(--package-path Packages/iOS/CmuxMobilePairedMac)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CmuxMobilePairedMac --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
-
-      - name: Run CmuxMobileShellModel package tests
-        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobileShellModel' }}
-        run: |
-          set -euo pipefail
-          # Pure shell-model queue and ordering regressions live in this package.
-          # Keep them beside the shell package gate so input framing stays covered.
-          args=(--package-path Packages/iOS/CmuxMobileShellModel)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
-
-
-      - name: Run CmuxHomeCore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxHomeCore' }}
-        run: |
-          set -euo pipefail
-          # The rewritten iOS app's home model (ios/CmuxiOS links it). Headless
-          # SwiftPM with no app-target dependency.
-          args=(--package-path Packages/Shared/CmuxHomeCore)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CmuxHomeCore-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CmuxHomeCore --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxHomeCore}"
+          status=0
+          for want in "${packages[@]}"; do
+            row="$(awk -v d="$want" '$1 == d' scripts/ci/swift-linux-packages.txt)"
+            if [ -z "$row" ]; then echo "::error::$want is not listed in scripts/ci/swift-linux-packages.txt"; status=1; continue; fi
+            read -r dir targets _ <<< "$row"
+            # A focused dispatch's filter replaces the row's targets; a filter that runs no test fails the suite.
+            targets="${SWIFT_TEST_FILTER:-$targets}"
+            echo "::group::$dir ($targets)"
+            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   ios-simulator-build:
     needs: [runner, detect-ios-changes, package-conventions-lint]
     # An unrelated lint lane may be skipped. Explicit status checks retain
     # that route while preventing a failed lint from buying a native build.
     if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
+      ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (
       !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
+          && needs.detect-ios-changes.outputs.should_build == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == ''
-      ) }}
+      ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
@@ -785,7 +712,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -799,7 +726,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -1035,9 +962,28 @@ jobs:
           FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
         run: python3 scripts/ci/owned_build_state.py keep "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$FINGERPRINT"
 
+      # full-ci's Mac cross-check of the mobile-core packages mobile-core-linux judges on Linux: the same
+      # `swift test` the deleted mobile-core-package job ran, here on the Mac this job already holds
+      # (full-ci always builds), so no second Mac job queues, checks out and selects Xcode for it. It
+      # also covers the Darwin-only tests Linux compiles out (CmxPairingQRBitmapTests, CoreImage).
+      - name: Mac cross-check of the mobile-core packages (full-ci)
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        timeout-minutes: 15
+        env:
+          TEST_SILENCE_SECONDS: "180"
+        run: |
+          set -euo pipefail
+          for dir in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobilePairedMac Packages/iOS/CmuxMobileShellModel; do
+            name="$(basename "$dir")"
+            log_path="$RUNNER_TEMP/$name-tests.log"
+            python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+              --label "$name" --log "$log_path" -- swift test --package-path "$dir"
+            ./scripts/ci/require_selected_test_execution.sh "$log_path" "$name"
+          done
+
       # The rewritten app's own unit tests (ios/CmuxiOS Tests/: Home UI model,
       # terminal input). They import UIKit, so they run on the simulator, not
-      # under `swift test` like mobile-core-package's suites. An owned Mac
+      # under `swift test` like the mobile-core packages' suites. An owned Mac
       # keeps this DerivedData per runner, so a push rebuilds only what changed.
       - name: Run CmuxiOS unit tests on the simulator
         if: ${{ steps.compile-product.outcome == 'success' && inputs.test_filter == '' }}
@@ -1151,12 +1097,12 @@ jobs:
       - runner
       - detect-ios-changes
       - package-conventions-lint
-      - mobile-core-package
+      - mobile-core-linux
       - ios-simulator-build
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled()) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

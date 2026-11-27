@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextApps
 import CmuxNextPages
 
 /// The agent page host's pieces that need no view state of their own: making the page and the
@@ -14,7 +15,12 @@ enum AgentPanePageHost {
         let chatRows = AgentPaneChatRows(model: chatModel)
         var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider),
                       PageRoute(prefix: AgentPaneChatRows.prefix, provider: chatRows)]
-        if let panelProvider { routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider)) }
+        // App panels add their mounts' visible slices (`cmux.page.visibleSlice`).
+        if let panels = panelProvider as? AppsPanelsPageProvider { routes += panels.routes } else if let panelProvider {
+            routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider))
+        }
+        // The Customize bar's verbs (`cmux.customize.run`): the bundled CLI's, on this Mac.
+        routes.append(PageRoute(prefix: CustomizeChatPage.namespace, provider: CustomizeChatPage.shared))
         // The app sections' bundle images (`__appbundle/`), for this page's own mounts.
         if let resources, let panels = panelProvider as? AppsPanelsPageProvider {
             resources.appBundles = panels
@@ -50,7 +56,6 @@ enum AgentPanePageHost {
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
         events.append(.liveTree(view.liveTree))
-        events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.experiments(view.model.experiments))
         events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))
