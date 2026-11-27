@@ -30,6 +30,7 @@ pub fn methods() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for head in arm_heads() {
         let pattern = head.split(" if ").next().unwrap_or_default();
+        let has_alternative = |token| pattern.split('|').any(|part| part.trim() == token);
         let mut found = constant_values(pattern, &constants);
         found.extend(literals(pattern));
         for (token, source, start) in [
@@ -50,13 +51,13 @@ pub fn methods() -> BTreeSet<String> {
             ("super::autocloud_enroll::METHOD", AUTO_ENROLL, "METHOD"),
             ("crate::peer::wg_learn::ADMIT", WIREGUARD, "ADMIT"),
         ] {
-            if pattern.trim() == token {
+            if has_alternative(token) {
                 let declaration = format!("const {name}: &str = ");
                 let line = source.lines().find(|line| line.contains(&declaration)).expect(token);
                 found.extend(literals(line));
             }
         }
-        if pattern.trim() == "super::controls::METHOD" {
+        if has_alternative("super::controls::METHOD") {
             let imports = CONTROLS
                 .split_once("use crate::rpc::method::{")
                 .and_then(|(_, rest)| rest.split_once("};"))
