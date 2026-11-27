@@ -86,10 +86,10 @@ case "$publisher" in
 esac
 if [[ -n "$why" ]]; then
   echo "tree_pending=false" >> "$GITHUB_OUTPUT"
-  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the newest commit whose tree is published"
+  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the tip with the newest published tree whose daemon-capabilities.json matches (older-tree-for-tip.sh), else the newest commit whose tree is published"
   {
     echo "### Nightly build commit"
-    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); building the newest published tree instead"
+    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); the resolver picks an older published tree"
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
@@ -116,8 +116,10 @@ fi
 # (exit 2: the commit's objects are not here and one fetch did not bring them) keeps the fallback.
 if [[ -n "$fallback" && "${fallback_source:-}" =~ ^[0-9a-f]{40}$ ]]; then
   began=$SECONDS
+  fallback_depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && fallback_depth=(--depth=1)
   git cat-file -e "$fallback_source^{commit}" 2>/dev/null \
-    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags --depth=1 origin "$fallback_source" 2>/dev/null || true
+    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags ${fallback_depth[@]+"${fallback_depth[@]}"} origin "$fallback_source" 2>/dev/null || true
   covers_rc=0
   covers="$(python3 scripts/ci/nightly_fallback_covers.py --app-commit "$TIP_SHA" --client-commit "$fallback_source" 2>/dev/null)" || covers_rc=$?
   missing="$(sed -n 's/^missing=//p' <<<"$covers" | head -1)"

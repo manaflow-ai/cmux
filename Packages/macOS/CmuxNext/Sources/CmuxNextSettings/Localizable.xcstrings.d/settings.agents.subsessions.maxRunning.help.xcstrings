@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.subsessions.maxRunning.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More wait their turn. Lowering it never stops running ones."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنتظر الجلسات الأخرى دورها. خفض العدد لا يوقف الجلسات العاملة أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ostale čekaju na red. Smanjivanje nikad ne zaustavlja pokrenute."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flere venter på tur. Kørende stoppes aldrig, når du sænker tallet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Weitere warten. Ein niedrigerer Wert stoppt nie laufende."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las demás esperan su turno. Bajarlo nunca detiene las que están en ejecución."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les autres attendent leur tour. Baisser ce nombre n’arrête jamais celles en cours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le altre aspettano il loro turno. Abbassarlo non ferma mai quelle in esecuzione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "それ以上は順番を待ちます。値を下げても実行中のものは停止しません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វគ្គផ្សេងទៀតរង់ចាំវេន។ ការបន្ថយវាមិនដែលបញ្ឈប់វគ្គដែលកំពុងដំណើរការទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "나머지는 차례를 기다립니다. 값을 낮춰도 실행 중인 세션은 멈추지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flere venter på tur. Kjørende stoppes aldri når du senker tallet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolejne czekają na swoją kolej. Zmniejszenie wartości nigdy nie zatrzymuje działających."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As demais aguardam a vez. Reduzir o valor nunca interrompe as que estão em execução."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Остальные ждут своей очереди. При уменьшении значения работающие не останавливаются."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่วนที่เกินจะรอคิว การลดค่านี้จะไม่หยุดเซสชันที่ทำงานอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fazlası sırasını bekler. Değeri düşürmek çalışanları asla durdurmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Решта чекають своєї черги. Зменшення значення не зупиняє запущені."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các phiên khác chờ đến lượt. Giảm giá trị này không bao giờ dừng các phiên đang chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "超出的子会话排队等待。调低此值不会停止正在运行的子会话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "超出的子工作階段排隊等候。調低此值不會停止正在執行的子工作階段。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -11,7 +11,7 @@ public struct ClickTraceControl {
     public static func method() -> ControlMethod {
         .mainActor(ClickTrace.controlMethod) { call in
             let report = ClickTrace.report(WindowOverlayHost.clickTraces, limit: call.params["limit"]?.intValue)
-            // main-actor-ok: one `cmux app clicks` read, on request: at most 200 presses a window.
+            // main-actor-ok: the report is at most ClickTrace.capacity (200) presses per window, fewer with `limit`.
             let json = try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(report))
             return .value(json ?? .null)
         }

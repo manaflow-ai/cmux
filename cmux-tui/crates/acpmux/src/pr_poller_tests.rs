@@ -266,3 +266,50 @@ fn include_output_parses() {
     assert_eq!(ok.body, b"{\"a\":1}");
     assert!(parse_include(b"unknown flag").is_none());
 }
+
+/// A lane VM's `gh` has no login (`gh auth login`): `pr_state` failed every call there (76 of 76
+/// in 48 h, cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md). Its reads go through
+/// the broker's `lane-gh call get` instead, whose answers carry no headers.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_lane_vms_reads_go_through_the_broker() {
+    assert!(no_login(
+        "gh api gave no HTTP answer: To get started with GitHub CLI, please run:  gh auth login"
+    ));
+    assert!(!no_login("gh api gave no HTTP answer: HTTP 502"));
+    let (repo, rest, query) =
+        broker_path("repos/o/r/commits/abc/check-runs?per_page=100&page=2").unwrap();
+    assert_eq!((repo.as_str(), rest.as_str()), ("o/r", "commits/abc/check-runs"));
+    assert_eq!((query["per_page"].as_str(), query["page"].as_str()), ("100", "2"));
+    assert!(broker_path("user").is_none());
+
+    let dir = std::env::temp_dir().join(format!("pr-poller-broker-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let program = dir.join("lane-gh");
+    // Answers as the broker does: the call's args echoed into data, a total_count of 250.
+    std::fs::write(
+        &program,
+        "#!/bin/sh\nprintf '{\"ok\":true,\"status\":200,\"data\":{\"total_count\":250,\"args\":\"%s %s %s\"}}' \"$1\" \"$2\" \"$3\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .unwrap();
+    let reply =
+        broker_get(&program, "repos/o/r/commits/abc/check-runs?per_page=100&page=1").await.unwrap();
+    assert_eq!((reply.status, reply.last_page), (200, Some(3)));
+    let body: Value = serde_json::from_slice(&reply.body).unwrap();
+    assert_eq!(body["args"], "call get o/r", "{body}");
+    // GitHub's own refusal through the broker is its status, as `gh api --include` gives it.
+    std::fs::write(&program, "#!/bin/sh\necho '{\"ok\":false,\"status\":404,\"data\":{\"message\":\"Not Found\"}}'; exit 1\n").unwrap();
+    assert_eq!(broker_get(&program, "repos/o/r/pulls/9").await.unwrap().status, 404);
+    // A broker that answers no status is the call's error, with its words.
+    std::fs::write(&program, "#!/bin/sh\necho '{\"ok\":false,\"error\":\"refused: lease\"}'\n")
+        .unwrap();
+    let e = broker_get(&program, "repos/o/r/pulls/9").await.unwrap_err();
+    assert!(e.contains("refused: lease"), "{e}");
+    // Once set, every read of the fetcher goes there.
+    let fetch = GhFetch::new();
+    fetch.broker.set(program.clone()).unwrap();
+    assert_eq!(fetch.get("repos/o/r/pulls/9", None).await.unwrap_err(), e);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

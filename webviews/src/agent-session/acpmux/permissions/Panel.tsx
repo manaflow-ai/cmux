@@ -4,7 +4,9 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { permissionDiffs, shellCommand } from "../direct";
+import { useAutoRetry } from "../autoRetry";
+import { permissionDiffs } from "../permissionMessage";
+import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
@@ -61,8 +63,9 @@ const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
 
-/// What one request asks, as its row names it: a verb and the command, path, address or pattern
-/// the call carries (in the code face), else the agent's title for it.
+/// What one request asks, as its row names it: what the call does in the agent's words when it
+/// says (acpmux's `summary`, a shell call's description), else a verb and the command, path,
+/// address or pattern the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
   const request = record(item.request);
   const subject = record(request?.subject);
@@ -75,7 +78,9 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
-  const command = kind === "execute" ? text(shellCommand(input)) : undefined;
+  // acpmux's copy drops the line it put before a subagent's command to name the caller.
+  const command = kind === "execute" ? (text(item.command) ?? text(shellCommand(input))) : undefined;
+  const summary = text(item.summary);
   const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
   const named =
     kind === "execute"
@@ -91,15 +96,16 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     tool,
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
-    verb: named !== undefined ? verbs[kind ?? ""] : undefined,
+    verb: summary === undefined && named !== undefined ? verbs[kind ?? ""] : undefined,
     subject:
+      summary ??
       named ??
       (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
       text(subjectCommand?.title) ??
       requestTitle ??
       text(tool?.title) ??
       fallback,
-    code: named !== undefined,
+    code: summary === undefined && named !== undefined,
     command,
     cwd: text(input?.cwd),
     scope:
@@ -353,10 +359,21 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   useEffect(() => {
     if (!working && answered) setEnded(answered);
   }, [working, answered]);
+  // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
+  // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
+  // the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
+  // and an answer in doubt keeps Check and retry, which sends the person's decision again.
+  const reading = state.supported && !state.ready && !state.uncertain && (!!state.error || state.loading);
+  const readFailed = reading && !!state.error;
+  const { stillTrying } = useAutoRetry(readFailed ? state.error : undefined, onRefresh, {
+    busy: state.loading || state.busy,
+  });
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  if (!pending.length && !receipt && !state.error) return null;
+  const still = reading && stillTrying;
+  if (!pending.length && !receipt && !still && (!state.error || readFailed)) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   // The group the keys answer (respondToPending): the first one waiting, whose answers list the
   // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
@@ -448,17 +465,25 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           ))}
         </details>
       )}
-      {state.error && (
-        <div className="acpmux-permission-error" role="alert">
-          <span>{state.error}</span>
-          <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
-            {withShortcut(
-              state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
-              state.uncertain ? retryShortcut : refreshShortcut,
-            )}
-          </button>
-        </div>
-      )}
+      {reading
+        ? still && (
+            <p className="acpmux-permission-coverage" data-still-trying="">
+              {t("permission.stillReading")}
+            </p>
+          )
+        : state.error && (
+            <div className="acpmux-permission-error" role="alert">
+              <span>{state.error}</span>
+              {/* retry-prompt-ok: Check and retry sends the person's permission decision again (it may run a
+                tool); Refresh follows a failed answer, which the person reviews before answering again. */}
+              <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
+                {withShortcut(
+                  state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
+                  state.uncertain ? retryShortcut : refreshShortcut,
+                )}
+              </button>
+            </div>
+          )}
     </section>
   );
 }

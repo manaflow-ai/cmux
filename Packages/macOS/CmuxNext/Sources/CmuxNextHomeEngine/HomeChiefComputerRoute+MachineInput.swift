@@ -49,7 +49,8 @@ print(json.dumps(a))'; cua_win() { j=$(cua list_windows '{"on_screen_only":true}
     }
 
     private static func json(_ value: [String: Any]) -> String {
-        // main-actor-ok: one input step's arguments (a click, drag, scroll or key): a few fields.
+        // main-actor-ok: one input's args (a point, a key chord or a typed text); the order is read: sorted keys
+        // write the same command bytes as Rust's desktop_step (serde_json's sorted map).
         (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 

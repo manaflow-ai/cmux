@@ -24,11 +24,30 @@ use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSn
 use crate::provider::{
     CMUX_IROH_ALPN, CarrierEvidence, ConnectRequest, IrohPathMode, LengthDelimitedLink, LinkGroup,
     LinkRequest, ProviderCapabilities, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
-    ROUTING_RELAY_URL, SupportedClientAuthModes, TransportProvider, sanitized_route,
+    ROUTING_RELAY_URL, ROUTING_STANDBY, SupportedClientAuthModes, TransportProvider,
+    sanitized_route,
 };
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const AUTO_RELAY_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// A standby hold, version 1. A client keeps a spare connection per peer to move to when its
+/// link dies, and that connection opens no cmux stream until then, so the listener's first-stream
+/// timeout would close it at 15 s and the client would have to redial it every few seconds. The
+/// client instead sends [`HOLD_REQUEST`] on one unidirectional stream; a listener that knows it
+/// lifts the first-stream timeout for that connection and answers on a unidirectional stream of
+/// its own with [`HOLD_GRANTED`] and the lease left, an 8-byte big-endian millisecond count: the
+/// connection's unauthenticated timeout, which still closes it. No cmux stream and no Noise
+/// handshake are involved, and the connection still holds its admission slot as before.
+///
+/// Lockstep: a listener older than this never accepts unidirectional streams, so the client hears
+/// nothing within [`HOLD_ANSWER_WAIT`] and redials its standby before 15 s as before. A client
+/// older than this never asks, and the listener behaves as before.
+pub(crate) const HOLD_REQUEST: &[u8] = b"cmux-standby-hold/1";
+pub(crate) const HOLD_GRANTED: &[u8] = b"cmux-standby-held/1";
+/// How long a client waits for [`HOLD_GRANTED`] and a listener for [`HOLD_REQUEST`]: both are one
+/// stream each way on a connection that is already up.
+pub(crate) const HOLD_ANSWER_WAIT: Duration = Duration::from_secs(3);
 
 /// Load a stable carrier key or create it with owner-only permissions. Noise
 /// remains the daemon identity, but a stable Iroh key keeps published route
@@ -419,6 +438,78 @@ fn try_pre_auth_admission(
 pub struct IrohProvider {
     config: IrohProviderConfig,
     endpoint: OnceCell<Endpoint>,
+    /// The second socket: warm standbys go on whichever socket does not carry the peer's live
+    /// link. iroh keeps one selected path per peer per endpoint, shared by every connection to
+    /// it, so a standby on the link's endpoint rides the link's path: when that path is
+    /// black-holed, the standby's streams and every new dial wait on it until its 15 s idle
+    /// timeout. Bound on first use, with its own random key (the Noise identity is the
+    /// authority; one key on two sockets would make a relay drop one of them).
+    spare: OnceCell<Endpoint>,
+    carriers: Carriers,
+}
+
+/// One of the provider's two sockets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Socket {
+    Main,
+    Spare,
+}
+
+impl Socket {
+    fn other(self) -> Self {
+        match self {
+            Self::Main => Self::Spare,
+            Self::Spare => Self::Main,
+        }
+    }
+}
+
+/// Per peer, which socket carries its live link and which one a redial should use.
+#[derive(Debug, Clone, Copy)]
+struct PeerSockets {
+    /// The socket of the group that opened a link to the peer last.
+    live: Socket,
+    /// The socket of the group last abandoned (its link declared dead, its connection
+    /// closed): iroh holds no path for the peer there any more, while the other socket may
+    /// hold a standby that rides the dead path. `None` before any.
+    fresh: Option<Socket>,
+}
+
+/// [`PeerSockets`] of each peer dialed.
+#[derive(Debug, Clone, Default)]
+struct Carriers(Arc<StdMutex<std::collections::HashMap<NodeId, PeerSockets>>>);
+
+impl Carriers {
+    fn with<R>(&self, node: NodeId, f: impl FnOnce(&mut PeerSockets) -> R) -> R {
+        let mut map = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(map.entry(node).or_insert(PeerSockets { live: Socket::Main, fresh: None }))
+    }
+
+    #[cfg(test)]
+    fn of(&self, node: NodeId) -> Socket {
+        self.with(node, |peer| peer.live)
+    }
+
+    /// A link opened on a group of `socket`.
+    fn opened(&self, node: NodeId, socket: Socket) {
+        self.with(node, |peer| peer.live = socket);
+    }
+
+    /// A group of `socket` was abandoned.
+    fn abandoned(&self, node: NodeId, socket: Socket) {
+        self.with(node, |peer| peer.fresh = Some(socket));
+    }
+
+    /// The socket a dial goes on: a standby apart from the live link; a link dial on the
+    /// socket last abandoned (cleared of the dead path), else beside the live link.
+    fn for_dial(&self, node: NodeId, standby: bool) -> Socket {
+        self.with(
+            node,
+            |peer| {
+                if standby { peer.live.other() } else { peer.fresh.unwrap_or(peer.live) }
+            },
+        )
+    }
 }
 
 impl fmt::Debug for IrohProvider {
@@ -434,11 +525,30 @@ impl fmt::Debug for IrohProvider {
 impl IrohProvider {
     pub fn new(config: IrohProviderConfig) -> Result<Self, ProviderError> {
         validate_config(&config)?;
-        Ok(Self { config, endpoint: OnceCell::new() })
+        Ok(Self {
+            config,
+            endpoint: OnceCell::new(),
+            spare: OnceCell::new(),
+            carriers: Carriers::default(),
+        })
     }
 
     async fn endpoint(&self) -> Result<&Endpoint, ProviderError> {
         self.endpoint.get_or_try_init(|| bind_endpoint(&self.config)).await
+    }
+
+    async fn socket(&self, socket: Socket) -> Result<&Endpoint, ProviderError> {
+        match socket {
+            Socket::Main => self.endpoint().await,
+            Socket::Spare => {
+                self.spare
+                    .get_or_try_init(|| async {
+                        let config = IrohProviderConfig { secret_key: None, ..self.config.clone() };
+                        bind_endpoint(&config).await
+                    })
+                    .await
+            }
+        }
     }
 
     pub async fn local_node_id(&self) -> Result<NodeId, ProviderError> {
@@ -452,6 +562,9 @@ impl IrohProvider {
     /// Gracefully closes the shared endpoint and all groups created by this provider.
     pub async fn close(&self) {
         if let Some(endpoint) = self.endpoint.get() {
+            endpoint.close().await;
+        }
+        if let Some(endpoint) = self.spare.get() {
             endpoint.close().await;
         }
     }
@@ -613,7 +726,9 @@ impl TransportProvider for IrohProvider {
         }
         let remote_node_id = route.node_id();
         let node_addr = route.into_node_addr();
-        let endpoint = self.endpoint().await?.clone();
+        let standby = request.routing.get(ROUTING_STANDBY).is_some_and(|value| value == "1");
+        let socket = self.carriers.for_dial(remote_node_id, standby);
+        let endpoint = self.socket(socket).await?.clone();
         let connection = connect_iroh_for_path_mode(
             &endpoint,
             &node_addr,
@@ -635,6 +750,8 @@ impl TransportProvider for IrohProvider {
             evidence: CarrierEvidence::Iroh { endpoint_id: remote_node_id.to_string() },
             maximum_frame_bytes: self.config.maximum_frame_bytes,
             closed: AtomicBool::new(false),
+            socket,
+            carriers: self.carriers.clone(),
         }))
     }
 }
@@ -831,6 +948,7 @@ async fn serve_iroh_connection(
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);
     let mut authenticated = false;
+    let mut held = false;
     let _connection_permit = connection_permit;
     loop {
         tokio::select! {
@@ -854,13 +972,24 @@ async fn serve_iroh_connection(
                     None => break,
                 }
             }
-            _ = &mut first_stream_deadline, if next_stream_id == 0 => {
+            _ = &mut first_stream_deadline, if next_stream_id == 0 && !held => {
                 connection.close(4_u8.into(), b"first cmux stream timed out");
                 break;
             }
             _ = &mut unauthenticated_deadline, if !authenticated => {
                 connection.close(8_u8.into(), b"cmux authentication timed out");
                 break;
+            }
+            accepted = connection.accept_uni(), if !held && next_stream_id == 0 => {
+                let Ok(receiver) = accepted else { break };
+                let lease = unauthenticated_deadline
+                    .deadline()
+                    .saturating_duration_since(tokio::time::Instant::now());
+                if !answer_hold(&connection, receiver, lease).await {
+                    connection.close(10_u8.into(), b"unexpected cmux stream");
+                    break;
+                }
+                held = true;
             }
             accepted = connection.accept_bi() => {
                 let Ok((mut sender, mut receiver)) = accepted else { break };
@@ -929,6 +1058,48 @@ async fn serve_iroh_connection(
     links.shutdown().await;
 }
 
+/// Reads a [`HOLD_REQUEST`] and answers it with [`HOLD_GRANTED`] and `lease`. False for anything
+/// else, or nothing within [`HOLD_ANSWER_WAIT`].
+async fn answer_hold(
+    connection: &::iroh::endpoint::Connection,
+    mut receiver: ::iroh::endpoint::RecvStream,
+    lease: Duration,
+) -> bool {
+    tokio::time::timeout(HOLD_ANSWER_WAIT, async {
+        let request = receiver.read_to_end(HOLD_REQUEST.len()).await.ok()?;
+        if request != HOLD_REQUEST {
+            return None;
+        }
+        let mut answer = HOLD_GRANTED.to_vec();
+        answer
+            .extend_from_slice(&u64::try_from(lease.as_millis()).unwrap_or(u64::MAX).to_be_bytes());
+        let mut sender = connection.open_uni().await.ok()?;
+        sender.write_all(&answer).await.ok()?;
+        sender.finish().ok()
+    })
+    .await
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+/// Asks the listener to hold `connection` ([`HOLD_REQUEST`]). The lease it granted, or None from a
+/// listener older than the hold (no answer within [`HOLD_ANSWER_WAIT`]).
+pub(crate) async fn request_hold(connection: &::iroh::endpoint::Connection) -> Option<Duration> {
+    tokio::time::timeout(HOLD_ANSWER_WAIT, async {
+        let mut sender = connection.open_uni().await.ok()?;
+        sender.write_all(HOLD_REQUEST).await.ok()?;
+        sender.finish().ok()?;
+        let mut receiver = connection.accept_uni().await.ok()?;
+        let answer = receiver.read_to_end(HOLD_GRANTED.len() + 8).await.ok()?;
+        let lease = answer.strip_prefix(HOLD_GRANTED)?;
+        Some(Duration::from_millis(u64::from_be_bytes(lease.try_into().ok()?)))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 #[derive(Debug, Clone, Copy)]
 enum IrohAcceptResult {
     Succeeded,
@@ -946,6 +1117,9 @@ struct IrohLinkGroup {
     evidence: CarrierEvidence,
     maximum_frame_bytes: usize,
     closed: AtomicBool,
+    /// The provider socket `endpoint` is; a link opened here makes it the peer's carrier.
+    socket: Socket,
+    carriers: Carriers,
 }
 
 fn iroh_transport_snapshot(
@@ -964,6 +1138,7 @@ fn iroh_transport_snapshot(
             },
             remote: Some(sanitized_iroh_remote(path.remote_addr())),
             rtt_micros: Some(path.rtt().as_micros().min(u64::MAX as u128) as u64),
+            outer: None,
         });
     TransportSnapshot { provider: "iroh".into(), route: description.into(), selected_path }
 }
@@ -1058,6 +1233,7 @@ impl LinkGroup for IrohLinkGroup {
                 }
             }
         };
+        self.carriers.opened(self.node_addr.id, self.socket);
         Ok(Box::new(LengthDelimitedLink::new(
             format!("{}:{}:{}", self.description, request.lane, request.generation),
             self.maximum_frame_bytes,
@@ -1072,4 +1248,35 @@ impl LinkGroup for IrohLinkGroup {
         }
         Ok(())
     }
+
+    fn is_closed(&self) -> bool {
+        // A held lock is an `open` in flight, which replaces a closed connection itself.
+        self.closed.load(Ordering::Acquire)
+            || self
+                .connection
+                .try_lock()
+                .is_ok_and(|connection| connection.close_reason().is_some())
+    }
+
+    async fn wait_closed(&self) {
+        let connection = self.connection.lock().await.clone();
+        let _ = connection.closed().await;
+    }
+
+    async fn hold(&self) -> Option<Duration> {
+        let connection = self.connection.lock().await.clone();
+        request_hold(&connection).await
+    }
+
+    fn abandon(&self) {
+        // A held lock is an `open` in flight, which dials its own replacement on failure.
+        if let Ok(connection) = self.connection.try_lock() {
+            connection.close(0_u8.into(), b"cmux link declared dead");
+            self.carriers.abandoned(self.node_addr.id, self.socket);
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "iroh_hold_tests.rs"]
+mod hold_tests;

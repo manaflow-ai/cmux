@@ -6,14 +6,25 @@
 // the prompt waits for its agent to start, the same line already reads "Thinking", with no start
 // status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
-// ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
+// ask above the composer, waitingOn.ts), the line says that instead, with no time, under the same sweep (Leo, 2026-11-22: all in the thinking spot glimmers):
 // never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type RefObject,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -25,6 +36,7 @@ import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
+import { ThinkingGlyph } from "./ThinkingGlyph";
 import { JumpDots } from "./JumpDots";
 import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
@@ -40,9 +52,14 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, SILENT_MS, WRITING_MS, liveLead, retryBusy, retryShown } from "./thinkingModel";
+import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
+import { useAgentSignature } from "./agentSignatureModel";
+import { AgentSignature } from "./AgentSignature";
+import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
+import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -145,6 +162,104 @@ type Roll = {
   tail?: string;
 };
 
+/// What the line says, from its props: a change of any of these rolls the line (`useRoll`). Its
+/// clocks, counts and pulse are not here; they go on under whichever words it shows.
+const SAYS = [
+  "starting",
+  "doing",
+  "doingAt",
+  "doingShell",
+  "sendTo",
+  "sendSession",
+  "draft",
+  "done",
+  "call",
+  "doneMs",
+  "liveState",
+  "liveAgents",
+  "liveAgentNames",
+  "liveCompaction",
+  "command",
+  "retry",
+] as const satisfies readonly (keyof ThinkingProps)[];
+type Says = Pick<ThinkingProps, (typeof SAYS)[number]>;
+type ThinkingProps = NonNullable<Parameters<typeof ThinkingLine>[0]>;
+
+/// The least time one set of words stays on the line before the next replaces it, in full motion.
+/// A turn that sends messages in quick succession flips the line from "Thinking" to "Sending message
+/// to X", to a call and back many times a second; each flip rolled at once, so the line flickered
+/// (Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your
+/// tool call/thinking glimmer text rapidly flickering up with very bad/nonexistent fade-in fade-out").
+/// Words that change sooner wait for the dwell's end and roll once to the latest; words that come
+/// back to what the line shows before then roll nothing. Three rolls (80 ms each) at most a second.
+export const LINE_DWELL_MS = 320;
+
+function saysKey(props: ThinkingProps): string {
+  return JSON.stringify([
+    props.starting ?? false,
+    props.doing,
+    props.doingShell ?? false,
+    props.sendTo,
+    props.sendSession,
+    props.draft ?? false,
+    props.done ?? false,
+    props.call,
+    props.liveState,
+    props.liveAgents ?? 0,
+    props.liveAgentNames,
+    props.command ?? false,
+    props.retry !== undefined,
+  ]);
+}
+
+function rollsNothing(says: Says): boolean {
+  return (says.starting ?? false) || says.retry !== undefined;
+}
+
+function pickSays(props: ThinkingProps): Says {
+  const says: Partial<Record<keyof Says, unknown>> = {};
+  for (const name of SAYS) says[name] = props[name];
+  return says as Says;
+}
+
+/// The line's words held for `LINE_DWELL_MS` since they last changed (one timeout per held change,
+/// cleared by the next; no loop). The timeout firing ends the dwell whatever the clock reads, so a
+/// clock that stands still (a frozen `now`) never holds the words for good. Reduced or no motion shows
+/// each change at once: nothing rolls there.
+function useLineDwell(props: ThinkingProps): ThinkingProps {
+  const key = saysKey(props);
+  const clock = props.now ?? Date.now;
+  // A wake since the shown words were set means their dwell ran out.
+  const [woken, wake] = useReducer((n: number) => n + 1, 0);
+  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props), woken }));
+  let hold = false;
+  if (shown.key !== key) {
+    const at = clock();
+    hold =
+      // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+      !rollsNothing(props) &&
+      !rollsNothing(shown.says) &&
+      at - shown.at < LINE_DWELL_MS &&
+      woken === shown.woken &&
+      motionMode() === "full" &&
+      // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `rapid-send-before`).
+      document.documentElement.dataset.liveDwell !== "off";
+    if (!hold) setShown({ key, at, says: pickSays(props), woken });
+  }
+  const since = shown.at;
+  useEffect(() => {
+    if (!hold) return undefined;
+    const id = setTimeout(wake, Math.max(0, LINE_DWELL_MS - (clock() - since)));
+    return () => clearTimeout(id);
+  }, [hold, since, woken, clock]);
+  return hold ? { ...props, ...shown.says } : props;
+}
+
+/// A running turn's live line (`ThinkingLine`), its words held a moment so quick changes never flash.
+export function Thinking(props: ThinkingProps = {}) {
+  return <ThinkingLine {...useLineDwell(props)} />;
+}
+
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
 /// changing tool calls at the bottom"): the old words roll up and out of the line as the new roll in
@@ -206,6 +321,15 @@ class LineBoxes {
   private resized = false;
   private observer: ResizeObserver | undefined;
   private boxes = new Map<Element, string>();
+  /// The words' box (`output.cv-thinking`) width as the observer last reported it: the width they
+  /// were last drawn at, kept when a new words box replaces it until that one's first report, read
+  /// with no forced layout (`useRollOutWidth`). Undefined until a first report.
+  wordsWidth: number | undefined;
+
+  /// Whether a ResizeObserver reports the boxes: then `wordsWidth` is theirs and nothing reads layout.
+  get observing(): boolean {
+    return this.observer !== undefined;
+  }
 
   /// One observer for the line's life; the returned cleanup disconnects it.
   connect(): () => void {
@@ -218,6 +342,8 @@ class LineBoxes {
           : `${entry.contentRect.width}x${entry.contentRect.height}`;
         const before = this.boxes.get(entry.target);
         this.boxes.set(entry.target, size);
+        if (entry.target.matches("output.cv-thinking"))
+          this.wordsWidth = box ? box.inlineSize : entry.contentRect.width;
         // A box's first report is its size when observed, already read in that commit.
         if (before !== undefined && before !== size) this.resized = true;
       }
@@ -227,6 +353,7 @@ class LineBoxes {
       observer.disconnect();
       if (this.observer === observer) this.observer = undefined;
       this.boxes = new Map();
+      this.wordsWidth = undefined;
       // A remount (Strict Mode's second pass) reads and observes again.
       this.drawn = undefined;
     };
@@ -287,25 +414,37 @@ function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly un
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
-/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
-/// only in the effect.
+/// tail on past it, set on the roll's copies in the commit that makes them, before paint; refs only
+/// in the effect. The width is the words' box as the line's ResizeObserver last reported it
+/// (`LineBoxes.wordsWidth`), so no commit forces a layout to read it (Leo, 2026-11-26: "Why should non
+/// visible thing even affect the renderer thread anyways?"): the read here took 340 ms of forced
+/// style and layout in a traced replay under load, once per commit that moved the line, each tick
+/// of its time among them. With no observer (a page without one) it reads the box once a commit
+/// that moved it (`useLineMoved`), as before.
 function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
+    const observing = moved.observing;
     // Nothing drawn moved: the width read last still holds.
-    if (turns === last.turns && !moved.moved) return;
-    if (turns !== last.turns && last.width !== undefined) {
-      const px = `${last.width}px`;
-      const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
-      const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
-      if (words) words.style.width = px;
-      if (tail) tail.style.left = px;
+    if (turns === last.turns && (observing || !moved.moved)) return;
+    if (turns !== last.turns) {
+      // Observed, the words' last report is the width they were drawn at.
+      const seen = observing ? moved.wordsWidth : last.width;
+      const width = seen && seen > 0 ? seen : undefined;
+      if (width !== undefined) {
+        const px = `${width}px`;
+        const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+        const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
+        if (words) words.style.width = px;
+        if (tail) tail.style.left = px;
+      }
     }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    const width = observing
+      ? undefined
+      : node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
     drawn.current = { turns, width: width && width > 0 ? width : undefined };
   });
 }
@@ -364,7 +503,7 @@ function arriveMs(node: Element): number {
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
-/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
 /// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
@@ -432,17 +571,15 @@ function LiveWords({
   const selected = useSlotVariant(thinkingIndicatorSlot);
   const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
   if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
-  return (
-    <LiveShimmer
-      label={indicator.label}
-      verbs={decorative ? indicator.verbs : undefined}
-      lead={lead}
-      elapsed={indicator.elapsed}
-    />
-  );
+  return <LiveShimmer label={indicator.label} verbs={decorative ? indicator.verbs : undefined} lead={lead} />;
 }
 
-export function Thinking({
+/// The one shimmer every status in the live spot draws with (conversation.css `.cv-thinking.is-shimmer`):
+/// "Thinking", a step, "Sending message to …", "Waiting", "Writing", a compaction, a retry and a wait
+/// on the person alike.
+export const SHIMMER_CLASS = "is-shimmer";
+
+function ThinkingLine({
   starting = false,
   since,
   now = Date.now,
@@ -458,10 +595,12 @@ export function Thinking({
   doneMs,
   liveState,
   liveAgents = 0,
+  liveAgentNames,
   liveCompaction,
   phaseAt,
   heardAt,
   heardKey,
+  liveWait,
   waitAt,
   turnTotal = false,
   untimed = false,
@@ -471,7 +610,9 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  retryAt,
   pulse,
+  glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -501,6 +642,8 @@ export function Thinking({
   /// running, timed from `doingAt`). Otherwise it reads "Thinking".
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The subagents' names (turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth".
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// "Thinking" past the first step: when this stretch of thinking began (turns.ts `liveClock`), the
   /// time beside the word ticking from it; and when the turn last heard anything (`heardAt`, and
@@ -508,6 +651,10 @@ export function Thinking({
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on (liveWait.ts): "Waiting on the model after Read App.tsx", never a
+  /// bare "Waiting" (Leo, 2026-11-22: "everything that goes in there write more detailed things than
+  /// just waiting").
+  liveWait?: LiveWait;
   /// "Waiting on N subagents": when that wait began (turns.ts `codexLiveTurn`), the time beside the
   /// words ticking from it, or from when the line itself turned to the wait, whichever is later.
   waitAt?: number;
@@ -526,13 +673,19 @@ export function Thinking({
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
-  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
-  /// never "Thinking" (`retryParts`).
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that
+  /// (`retryParts`), a model out of reach once it has lasted the shared bound (`retryShown`).
   retry?: AcpmuxTurnRetry;
+  /// When the retries began (the line's `retryAt`, conversation/turns.ts `withRetry`): the bound
+  /// counts from then; without it, from when the line first saw the retry.
+  retryAt?: number;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
+  /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
+  glyphTrigger?: string;
 } = {}) {
   const t = useT();
+  const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
   const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
@@ -554,6 +707,8 @@ export function Thinking({
   // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
   const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
   const time = useTicking(timed || listening, now);
+  // The countdown to the harness's next try ticks each second while a deadline is announced.
+  const retryNow = useTicking(retry?.retryAt !== undefined, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -599,38 +754,44 @@ export function Thinking({
   // 39 seconds").
   const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
+  const idleLabel = compacting
+    ? t(
+        liveCompaction?.reason === "account_switch"
+          ? "compaction.runningAccountSwitch"
+          : liveCompaction?.reason === CACHE_EXPIRY_REASON
+            ? "compaction.runningCacheExpiry"
+            : "turn.live.compacting",
+      )
+    : waitsOnAgents
+      ? subagentsLabel(t, liveAgents, liveAgentNames)
+      : writing
+        ? t("turn.live.writing")
+        : silent
+          ? waitingLabel(t, liveWait)
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
   const label =
     doing === undefined
-      ? compacting
-        ? t(
-            liveCompaction?.reason === "account_switch"
-              ? "compaction.runningAccountSwitch"
-              : liveCompaction?.reason === CACHE_EXPIRY_REASON
-                ? "compaction.runningCacheExpiry"
-                : "turn.live.compacting",
-          )
-        : waitsOnAgents
-          ? t("turn.live.waitingOnSubagents", { n: liveAgents })
-          : writing
-            ? t("turn.live.writing")
-            : silent
-              ? t("turn.live.waiting")
-              : (turnVerb ??
-                (statusVerbConfig.mode === "custom"
-                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
-                  : t("thinking")))
+      ? idleLabel
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
+            ? done
+              ? t("tools.ranCommand", { command: doing })
+              : doing
             : draft
               ? t("tools.writingCommand")
-              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
+              : done
+                ? t("tools.ranUnnamed")
+                : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  // "Can't reach the model" waits out the shared bound; until then the line reads as it did.
+  const unreachableLasting = useConnectionQuietFrom(retry !== undefined && !retryBusy(retry), retryAt, now);
+  const retrying = retryShown(retry, unreachableLasting);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
-  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  const away = waiting !== undefined || retrying || startLook !== "thinking";
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
@@ -702,12 +863,11 @@ export function Thinking({
           // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
           formatDuration(ownMs)
         : (own ?? turnTime);
-  // Background-work counts remain available when the running tray is off.
+  // What follows the time (the page a background command serves); the tray counts the running work.
   const counts = useContext(WorkingCountsContext);
-  // The label already names the subagents it waits on: no second count of them.
-  const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
-    (part) => !(liveState === "subagents" && part.key === "agents"),
-  );
+  // The chat's dot signature (appearance.agentSignature): undefined, and never asked for, while off.
+  const signature = useAgentSignature();
+  const parts = counts && !waiting ? workingParts(counts) : [];
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
   const tail = [
@@ -719,8 +879,9 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
-  // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
-  const calm = compactLook === "calm" || silent;
+  // Every status in this spot shimmers as "Thinking" does, a wait and each compaction look too: one
+  // look for the live spot, no plain or white special case (Leo, 2026-11-22: "the "waiting" also
+  // shouldnt be special cased as white. all in the "thinking" spot should glimmer like that").
   // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
   // none of it (its `quietKey` and `heardKey` only time the line).
   const moved = useLineMoved(lineRef, [
@@ -728,7 +889,6 @@ export function Thinking({
     waiting,
     asked,
     answered,
-    calm,
     decorative,
     compacting,
     label,
@@ -749,22 +909,35 @@ export function Thinking({
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
-  if (retry && !waiting) {
-    const parts = retryParts(t, retry);
+  if (retry && !waiting && retrying) {
+    const parts = retryParts(t, retry, retryNow);
     return (
       <div
         className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
         data-find-skip
         data-lead-slot
         data-retrying=""
+        title={parts.detail}
       >
-        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-retrying`}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={parts.label} />
+          </span>
+        </output>
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
           {parts.count}
         </span>
+        {parts.countdown && (
+          <span className="cv-worked__count" data-retry-countdown="">
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            {parts.countdown}
+          </span>
+        )}
         {parts.error && (
           <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
@@ -793,21 +966,30 @@ export function Thinking({
       className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
       data-find-skip
       data-compacting={compacting && !waiting ? "" : undefined}
-      // The line's tail rolls in with its words (conversation.css `cv-roll-*`).
+      // The line's tail rolls in with its words (conversation.css `cv-roll-*`), through the shared
+      // text roll's faded edges and on its clock (ui/motion/TextRoll.tsx, motion.css `data-text-roll`).
       data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
+      data-text-roll-host=""
+      data-text-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
     >
       {waiting ? (
-        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-waiting`} data-waiting={waiting}>
           <span
             className={`cv-needs-input-glyph${asked ? " is-asked" : ""}`}
             aria-hidden="true"
             onAnimationEnd={asked ? grown : undefined}
           />
-          <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
+          <span className="cv-waiting__pill">
+            <span className="cv-shimmer__row">
+              <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+            </span>
+          </span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
+          {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
+          {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
+          {activityDots && jumpButton === "dots" && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}
@@ -835,24 +1017,21 @@ export function Thinking({
               data-tail={`\u2002${roll.out.tail}`}
             />
           )}
+          {signature && <AgentSignature glyph={signature} />}
           <output
-            className={`cv-thinking${calm ? "" : " is-shimmer"}`}
+            className={`cv-thinking ${SHIMMER_CLASS}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            {calm ? (
-              label
-            ) : (
-              <LiveWords
-                decorative={decorative}
-                label={label}
-                lead={lead}
-                verbs={verbs}
-                elapsed={elapsed}
-                elapsedMs={elapsedMs}
-              />
-            )}
+            <LiveWords
+              decorative={decorative}
+              label={label}
+              lead={lead}
+              verbs={verbs}
+              elapsed={elapsed}
+              elapsedMs={elapsedMs}
+            />
           </output>
           {elapsed && (
             // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.

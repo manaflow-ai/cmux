@@ -1,0 +1,2001 @@
+{
+  "schema": "best-of-n-results/v1",
+  "measured_at": "2026-11-27T01:00:12Z",
+  "task_set": "cmux evals/best-of-n/tasks_deep",
+  "model": "codex/gpt-5.6-luna",
+  "attempts": 4,
+  "reviewer": "claude/sonnet",
+  "effort": "low",
+  "diverse": null,
+  "plan": [
+    [
+      "codex/gpt-5.6-luna",
+      ""
+    ],
+    [
+      "codex/gpt-5.6-luna",
+      ""
+    ],
+    [
+      "codex/gpt-5.6-luna",
+      ""
+    ],
+    [
+      "codex/gpt-5.6-luna",
+      ""
+    ]
+  ],
+  "hints_emulated": false,
+  "n_tasks": 27,
+  "n_started": 27,
+  "n_abstained": 0,
+  "single_solve_rate": 0.7315,
+  "pick_solve_rate": 0.9259,
+  "oracle_solve_rate": 0.9259,
+  "single_test_share": 0.9475,
+  "pick_test_share": 0.9917,
+  "oracle_test_share": 0.9917,
+  "mean_wall_s": 342.5074,
+  "rows": [
+    {
+      "task": "ansiwrap",
+      "race": "01a219e7cfef775a94f4c04429e33c0a",
+      "state": "completed",
+      "winner": "c4",
+      "judged": true,
+      "reason": "I read the diffs only and ran no tests. c4 handles every contract point I checked. `pad` and `truncate` measure cells, and `truncate` keeps the escapes from the cut-off tail. `wrap` tokenizes with `tokens()`, so it never splits inside a CSI sequence, including ones with a space intermediate byte. Splitting oversized words is a single pass, so it stays linear, and escape-only words are kept. c1 use",
+      "single": 0.75,
+      "single_tests": 0.9791666666666666,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 262.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 12,
+          "solved": false,
+          "failures": [
+            "test_huge_unbroken_line_is_fast: AssertionError('too slow')"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "argvquote",
+      "race": "01a219e7d02c74838245988567722e5f",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "All four fix quote() for empty and single-quote arguments, and all keep empty quoted words in split(). They differ on backslash handling. c1 drops the character after a backslash that precedes a non-escapable character inside double quotes (it does `i += 2` after adding the backslash). c1, c3 and c4 also mark a word as started on an unquoted backslash-newline, so `split('a \\\n b')` returns a spurio",
+      "single": 0.75,
+      "single_tests": 0.9722222222222222,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 210.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 8,
+          "total": 9,
+          "solved": false,
+          "failures": [
+            "test_split_matches_sh_on_backslashes_in_double_quotes: AssertionError('\"a\\\\b\"')"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "backoff",
+      "race": "01a21a808bf074d99272b31fdd405917",
+      "state": "completed",
+      "winner": "c4",
+      "judged": true,
+      "reason": "All four candidates fix the same things: `failures >= max_attempts` gives up, a server hint is exact, uncapped and unjittered, and a nonpositive hint becomes 0.0. All four also shorten local delays to the deadline and give up on a hint that crosses it, so they differ very little. I judged this by reading the diffs, not by running anything. c4 is the simplest and most direct. It computes `remaining",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 182.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ],
+      "from": "/home/cmux/scratch/bon-1127-0100-luna-sonnetrev-rerun4/final.json"
+    },
+    {
+      "task": "cursorpage",
+      "race": "01a219e7d0b073d99c21c895c9e9691e",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I read the diffs and did not run any tests. c3 encodes (field, id) in cursors and orders and compares on (field, id). Its prev_cursor and next_cursor are None exactly when no record sits before the first item or after the last item. That holds for after=, before= and a deleted cursor record, and the checks are O(1). c1 and c4 are also correct but less clean: c1 scans every record with any(), and c",
+      "single": 0.75,
+      "single_tests": 0.8958333333333334,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 232.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 7,
+          "total": 12,
+          "solved": false,
+          "failures": [
+            "test_before_page_next_cursor_when_tail_deleted: AssertionError()",
+            "test_iterate_visits_everything_once_without_an_extra_fetch: AssertionError()",
+            "test_no_next_cursor_when_page_ends_exactly_at_the_end: AssertionError()",
+            "test_prev_cursor_is_none_when_nothing_is_before: AssertionError()",
+            "test_random_walks_with_churn_between_pages: AssertionError(0)"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "dedupelog",
+      "race": "01a219e7d11d742aac1c6521ac953934",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "I read all four diffs and did not run them. All four are logically correct and equivalent. Each picks the highest seq per key, uses log position only to break ties, and reads valid records through `_records`, so ignored lines stay ignored. All four `next_seq` versions use the maximum seq, and all four `obsolete` versions track the deciding segment under the same rule. c1 ranks records by an explic",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 149.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "envexpand",
+      "race": "01a21a808c8973a795a0682828f81be7",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "c2, c3 and c4 have the identical file (same blob). Each routes braced `${NAME}` through `_lookup` and passes `strict` into defaults. Each evaluates a default only when it is used, and passes `strict` through `parse_dotenv` and the `cwd` expansion. Single-quoted dotenv values stay literal. c1 is wrong: in strict mode it raises `UnsetVariable` for `${NAME:-word}` and `${NAME-word}` when NAME is unse",
+      "single": 0.75,
+      "single_tests": 0.9,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 178.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_escapes_inside_defaults_regressions: UnsetVariable('NOPE')",
+            "test_random_templates_match_model: UnsetVariable('Q_1')",
+            "test_used_default_is_strict_too: AssertionError()",
+            "test_workspace_strict_everywhere: UnsetVariable('FILE')"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ],
+      "from": "/home/cmux/scratch/bon-1127-0100-luna-sonnetrev-rerun4/final.json"
+    },
+    {
+      "task": "focusorder",
+      "race": "01a21a5c456971b1b05154bb8380e9e4",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I read all four diffs and compared them by hand. I did not run any of them. They fix the same things the same way. Each one routes `open`, `move` and `reopen` through a placement clamp that puts pinned tabs at or before the pinned count and unpinned tabs at or after it, and never changes pinned state. Each one also makes `_refocus` count a history entry only if the tab is still in that group (`_wh",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 233.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "gitstatus",
+      "race": "01a21a5c45a2751b9e5e3dfc57980983",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "All four candidates make the same parse fix (source path read when either column is R or C) and the same exact-UNMERGED conflict check. Performance is identical too, because the code is unchanged apart from those lines. They differ only in `summarize`. c1 increments `renamed` for every entry that carries a source path, before the kind checks, which matches the contract's wording literally. c2, c3 ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 166.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "globmatch",
+      "race": "01a21a5c45da765bb6c1f85eb00deb34",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "I read the diffs and did not run the candidates. c2 matches git on the cases I traced. Nested `build/` is handled. A trailing `/**` does not match the directory itself. `/**/` matches zero directories. Ancestors are checked with `is_dir=True` and the path itself with the caller's `is_dir`, so `ignored` and `filter_paths` agree. It is also the fastest by its own report (about 0.02s on the stress ca",
+      "single": 0.75,
+      "single_tests": 0.9722222222222222,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 491.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 8,
+          "total": 9,
+          "solved": false,
+          "failures": [
+            "test_star_runs_and_case_regressions: AssertionError()"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "hunkapply",
+      "race": "01a21a5c461170d2948dcd2f57dd420f",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I read the code only and ran no tests. c1, c2 and c3 all handle the core fixes. They shift the expected position by the earlier hunks' net line change plus drift, search in the order 0, -1, +1, -2, +2, and reject matches that overlap or sit before earlier written regions. They also place b=0 insertions after line a. None of the three fixes the omitted-count default in parse (`or 0` should be `or 1",
+      "single": 0.0,
+      "single_tests": 0.9,
+      "pick": 0.0,
+      "pick_tests": 0.9,
+      "oracle": 0.0,
+      "oracle_tests": 0.9,
+      "wall_s": 417.2,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_count_omitted_means_one: PatchError('hunk Hunk(-2,0 +2,0) does not match its header')"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_count_omitted_means_one: PatchError('hunk Hunk(-2,0 +2,0) does not match its header')"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_count_omitted_means_one: PatchError('hunk Hunk(-2,0 +2,0) does not match its header')"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_pure_insertion_goes_after_the_named_line: AssertionError()"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "intervalset",
+      "race": "01a21a5c469b713791ad1eb216750e8f",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "I read all four diffs and did not run them. c1 is wrong: `contains` uses `bisect_left((x,))-1`, so `contains(5)` on `[(5,9)]` returns False. c2, c3 and c4 are correct on every method I traced, including half-open `overlaps`, `remove`, the `complement` guard, `first_fit` with `>=`, and the two-pointer `intersection`. c2 has the cleanest logic: `overlaps` is O(log n), and `remove` is an in-place sli",
+      "single": 0.5,
+      "single_tests": 0.9,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 357.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 15,
+          "solved": false,
+          "failures": [
+            "test_complement_partitions_range: AssertionError(0)",
+            "test_contains_excludes_end: AssertionError()",
+            "test_large_set_is_fast: AssertionError('too slow')",
+            "test_random_ops_match_a_plain_set: AssertionError()",
+            "test_remove_leaves_exact_remainder: AssertionError()"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 14,
+          "total": 15,
+          "solved": false,
+          "failures": [
+            "test_large_set_is_fast: AssertionError('too slow')"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "keychord",
+      "race": "01a21a5c46f8744a867555d54a57a32c",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "All four fix the same set of things: canonical modifier order via MOD_ORDER in `format` and the mac `menu_label`, case-insensitive named keys and aliases, and a `Keymap` that stores, looks up and unbinds by `canonical()` text. They differ in the single-character letter test. c2 and c4 use an explicit ASCII check (`'A'<=k<='Z' or 'a'<=k<='z'`), which follows the docstring's ASCII-only rule. c3 test",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 687.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "keyring",
+      "race": "01a21a5ee88f719bbea67c70511e390d",
+      "state": "completed",
+      "winner": "c4",
+      "judged": true,
+      "reason": "c4 is the only candidate that handles every place a null can end up. It strips unset members at the top of `merge()`, so the strip also covers values that replace a lower scalar or list, such as a lower `5` replaced by `{\"b\": null}`. It recurses into plain lists as well as keyed ones. Keyed-list matches go through `merge()`, so they merge like objects. Empty environment variables are skipped. c1 a",
+      "single": 0.25,
+      "single_tests": 0.9038461538461539,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 401.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_null_replacing_scalar_with_object: AssertionError()",
+            "test_random_layers_match_model: AssertionError([{'q': [None, None, 'z'], 'r': {'a': {'b': True, 'd': 1, 'c': 's'}, 'c': [1, None], 'b': {'b': 2.5, 'a': True, 'd': 2.5}}}, {'p': ['z', None], 'r': True, 'q': {'b': [{'id': 2}, {'id': 1"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_null_replacing_scalar_with_object: AssertionError()",
+            "test_random_layers_match_model: AssertionError([{'q': [None, None, 'z'], 'r': {'a': {'b': True, 'd': 1, 'c': 's'}, 'c': [1, None], 'b': {'b': 2.5, 'a': True, 'd': 2.5}}}, {'p': ['z', None], 'r': True, 'q': {'b': [{'id': 2}, {'id': 1"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_nulls_inside_plain_lists: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "lineindex",
+      "race": "01a21a808cc8764aab4462f05b5f123d",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "All four candidates replace the linear scan in `line_col` with `bisect_right`. They also rebuild line starts in `apply_edit`, which keeps the index identical to a fresh `LineIndex` after CRLF-boundary edits. I read the diffs and the candidates' own timing numbers but did not run any code. Only c2 and c3 also guard `offset()` against a negative line, which would otherwise index `starts[-1]` and ret",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 211.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ],
+      "from": "/home/cmux/scratch/bon-1127-0100-luna-sonnetrev-rerun4/final.json"
+    },
+    {
+      "task": "mdlinks",
+      "race": "01a21a61f43c72fdbdbb7ed4a68bc317",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1 handles the spec cases correctly and runs fast. c2 is equivalent on correctness. c3 and c4 each have a real bug.\n\nWhat c1 and c2 get right: fence indentation is limited to 3 spaces. Backtick and tilde fences each close only on the same character at least as long as the opener. An unclosed fence runs to the end of the document. Code-span runs are paired by exact length, and an unmatched run is s",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 393.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "oscparse",
+      "race": "01a21a62a84b72728eedf3747b5af6d4",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I ran a random chunk-boundary fuzz against all four candidates: 4000 streams cut at random points, with ESC/ST/BEL fragments and split UTF-8 mixed in. c1 and c2 fail on about 490 cases each, mostly because they decode UTF-8 per chunk, so a character split across reads becomes replacement characters. c3 and c4 both pass with 0 mismatches and handle the ESC-at-chunk-end bug. They also drop the OSC a",
+      "single": 0.25,
+      "single_tests": 0.8333333333333333,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 775.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 12,
+          "solved": false,
+          "failures": [
+            "test_byte_by_byte_matches_whole: AssertionError()",
+            "test_every_single_cut_matches_whole: AssertionError(2)",
+            "test_utf8_character_split_across_reads: AssertionError()"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 8,
+          "total": 12,
+          "solved": false,
+          "failures": [
+            "test_byte_by_byte_matches_whole: AssertionError()",
+            "test_esc_inside_osc_aborts_it: AssertionError()",
+            "test_every_single_cut_matches_whole: AssertionError(2)",
+            "test_utf8_character_split_across_reads: AssertionError()"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 12,
+          "solved": false,
+          "failures": [
+            "test_esc_inside_osc_aborts_it: AssertionError()"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "rangemerge",
+      "race": "01a21a63d39e73108882ef72176ba45a",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1 is the only candidate I found correct. `get` and `set` use bisect and a single slice assignment. `set` pulls in touching neighbours on both sides and merges the replacement, so maximal runs hold. `insert` and `delete` both re-merge. c2 only coalesces from just before the changed range, so it misses merges at the right edge: set(0,5,'a'), set(5,10,'b'), set(3,5,'b') leaves two touching 'b' runs.",
+      "single": 0.5,
+      "single_tests": 0.85,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 666.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 4,
+          "total": 5,
+          "solved": false,
+          "failures": [
+            "test_long_random_sequences_match_cell_model: AssertionError(([(7, 11, 'r'), (12, 14, 'r'), (14, 21, 'r'), (23, 24, 'r')], [None, None, None, None, None, None, None, 'r', 'r', 'r', 'r', None, 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r', None, Non"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 3,
+          "total": 5,
+          "solved": false,
+          "failures": [
+            "test_delete_joins_equal_neighbours: AssertionError()",
+            "test_long_random_sequences_match_cell_model: AssertionError(([(2, 10, 'r'), (10, 12, 'g'), (12, 14, 'g')], [None, None, 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'g', 'g', 'g', 'g', None, None, None, None, None, None, None, None, None, None]))"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "scrollback",
+      "race": "01a21a808d0f731a8dc7d95782705900",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1 fixes every point in the spec. Empty lines take one row, because `wrap` returns a single row for an empty line. `line_count()` returns the length of the logical-line deque. Capacity evicts whole lines, popping the stored row count for each from the row deque. `search` runs over logical lines, so wrapped rows can't split a match. `resize` rebuilds rows and per-line row counts from the logical li",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 237.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ],
+      "from": "/home/cmux/scratch/bon-1127-0100-luna-sonnetrev-rerun4/final.json"
+    },
+    {
+      "task": "sessiontree",
+      "race": "01a21a66de63728087b0bbf09edc462f",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1 is the only candidate that meets the performance contract. It stores children in insertion-ordered dicts and keeps per-parent casefolded name indexes. So create, rename, move, find and close are all O(1) per session touched, and child order is kept. Its move checks ancestry and name collisions before changing anything, so it is atomic. Its rename handles a change of case. Its close is iterative",
+      "single": 0.75,
+      "single_tests": 0.9423076923076923,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 510.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_casefold_not_lower_and_name_rules: AssertionError()",
+            "test_move_into_parent_with_same_name_is_refused: AssertionError()",
+            "test_random_ops_match_a_simple_model: AssertionError()"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "sortkeys",
+      "race": "01a21a680ee6703bba913f158b1f9543",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1 follows every rule in the docstring. It splits runs on `[0-9]+`, so only ASCII digits count (this covers the Arabic bug). It compares digit runs as (length, digits with leading zeros stripped), which avoids `int()` and the ValueError on long runs. Tuples of tokens give the digit-before-text order and the shorter-name-first order. The key then breaks ties by digit-run lengths and by the name its",
+      "single": 0.75,
+      "single_tests": 0.9166666666666666,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 383.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 4,
+          "total": 6,
+          "solved": false,
+          "failures": [
+            "test_only_ascii_digits_are_numbers: AssertionError()",
+            "test_random_names_match_model: AssertionError([' SS00', ' .0', 'SS', '00\u0663.SS', 'A', '1bA', 'SS\u00df\u0663a', '900\u0663\u00df', '\u0663b.a', 'Aaa0', '.', ''])"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "splittree",
+      "race": "01a21a6dfe2f721ab08f1b3fe7fc1cb5",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I read the diffs and did not run any of them. All four candidates flatten same-orientation splits, so the reported `resize(\"c\", 0.5)` case now works. All four also give a closed pane's share to the following sibling (or the previous one if it was last), and change focus on `close` only when the focused pane is closed. c3 also splits directly into the parent when the orientation matches, and its no",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 205.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tablefmt",
+      "race": "01a21a6dfe977525a3b4ce076661e812",
+      "state": "completed",
+      "winner": "c2",
+      "judged": true,
+      "reason": "c1, c2 and c4 clip identically. For example, an overlong cell at width 1 or 2 becomes `\u2026` and is then padded. They also size, pad and clip by `text_width` cells and break out of the clip loop early, so a 200,000-character cell is scanned about once. Their reported benchmark times were 0.39 s, 0.30 s and 0.51 s, against the 2.5 s limit. c3 is wrong: `clip` returns `\"\"` when no prefix fits, so an ov",
+      "single": 0.75,
+      "single_tests": 0.975,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 311.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_random_tables_match_model: AssertionError((['\u6f22baaa\u6f22', 'h'], [['-a', ''], ['b  ', 'a-\uff21 \u0301'], [3829], [None, '- a \uff21\u0301 -']], None, 2))"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tokenbucket",
+      "race": "01a21a6dff4c72f9a6691c4087516c98",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1, c2 and c4 all make the same fixes. `_refill` now runs on every read and no longer returns early when the bucket is full, so time spent full earns nothing. A backwards clock step keeps the balance and resets `_last`. `wait_time` refreshes first and returns `math.inf` for a cost above `burst`. `refund` is capped at `burst`. `Limiter.prune` reads the refreshed `tokens`. c1 does this with the smal",
+      "single": 0.75,
+      "single_tests": 0.9807692307692308,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 287.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 12,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_prune_drops_only_buckets_full_now: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tokenize2",
+      "race": "01a21a6e048b7165b2175b640524b463",
+      "state": "completed",
+      "winner": "c3",
+      "judged": true,
+      "reason": "I fuzzed all four candidates against the base module's whole-stream `tokenize`. I ran 30,000 random escape-heavy streams cut at random chunk boundaries, joining adjacent text tokens and dropping empty ones. c3 had 0 mismatches. It fed 8 MB of OSC in 4 KB chunks in about 0.12 s. c1 had a chunk-boundary mismatch around an OSC ESC split and took about 0.99 s on the 8 MB case. c2 had 389 mismatches. c",
+      "single": 0.0,
+      "single_tests": 0.71875,
+      "pick": 0.0,
+      "pick_tests": 0.875,
+      "oracle": 0.0,
+      "oracle_tests": 0.875,
+      "wall_s": 389.2,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 5,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_any_chunking_gives_the_same_tokens: AssertionError((b'\\x1b]0;\\x1b\\xc3\\xa9abt\\x1b\\\\\\x1b]0;\\x1b\\\\', [8, 9, 13, 7, 17]))",
+            "test_parameter_after_intermediate_is_malformed: AssertionError()",
+            "test_reported_st_split_across_reads: AssertionError(20)"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_any_chunking_gives_the_same_tokens: AssertionError((b'$\\x18tm\\tm\\\\B1;2\\x1b]0;B\\x1am', [5, 15, 16]))",
+            "test_one_shot_rules_regressions: AssertionError()"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 7,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_parameter_after_intermediate_is_malformed: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 5,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_big_osc_in_small_reads_is_fast: AssertionError('Traceback (most recent call last):\\n  File \"<string>\", line 14, in <module>\\nAssertionError: 0\\n')",
+            "test_one_shot_rules_regressions: AssertionError()",
+            "test_reported_st_split_across_reads: AssertionError()"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "ttlcache",
+      "race": "01a21a6e875c7015957fde71366d3e04",
+      "state": "completed",
+      "winner": "c4",
+      "judged": true,
+      "reason": "I read the code for all four candidates and did not run them. c1, c2 and c4 all make every public read, including `get_or_load`, treat expired keys as missing. All three use a heap, so the evict-only-when-full-of-live-entries rule is met and the benchmarks reported are 0.18\u20130.23s. c3 has a real bug: `get_or_load` checks `key in self._data` directly, so an expired but unpurged key goes to `get`, wh",
+      "single": 0.75,
+      "single_tests": 0.9833333333333334,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 235.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 14,
+          "total": 15,
+          "solved": false,
+          "failures": [
+            "test_get_or_load_reloads_after_expiry: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "undotree",
+      "race": "01a21a6ec5ef743ea1753b6b2a23a343",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "All four candidates fix both bugs the same way. They keep a per-node child list so `redo` and `children` are O(1) and O(children), and they update preferred children in `undo`, `goto` and duplicate-text `commit`. `goto` walks up the parent chain, so it costs O(depth). I read the code only and ran no tests, so this relies on the candidates' own benchmark reports. c1 does this with the least code: n",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 252.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "wcdiff",
+      "race": "01a21a713787763c846ad247e23b6b21",
+      "state": "completed",
+      "winner": "c1",
+      "judged": true,
+      "reason": "c1, c3 and c4 are all correct, so I picked c1 on code clarity. I fuzzed 3,000 random small cases that include CRLF lines. All three scripts rebuild `a` and `b` (with the \"\\r\" rule), take \"=\" lines from `b`, and have the same minimal edit count as the original. All three also match the original script exactly on 2,590 of the 3,000 cases. The other 410 differ only in which of several equally minimal",
+      "single": 0.75,
+      "single_tests": 0.9583333333333334,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 416.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 5,
+          "total": 6,
+          "solved": false,
+          "failures": [
+            "test_small_scripts_are_minimal_and_grouped: AssertionError((['a', 'e', 'a', 'b', 'e', 'a'], ['e', 'd', 'a', 'b', 'a', 'e', 'b', 'c', 'd'], [('+', 'e'), ('+', 'd'), ('+', 'a'), ('+', 'b'), ('=', 'a'), ('=', 'e'), ('-', 'a'), ('=', 'b'), ('-', 'e"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "effort": "low",
+            "harness": "codex",
+            "model": "gpt-5.6-luna"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "win_rate_gain": 0.1944,
+  "oracle_gain": 0.1944,
+  "judge_gap": 0.0,
+  "merged_from": [
+    "/home/cmux/scratch/bon-1126-2215-luna-sonnetrev/final.json",
+    "/home/cmux/scratch/bon-1127-0100-luna-sonnetrev-rerun4/final.json"
+  ],
+  "unjudged": {}
+}

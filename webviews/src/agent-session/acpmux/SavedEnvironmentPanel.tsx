@@ -4,8 +4,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, M
 import { Switch } from "../../ui/Switch";
 import { browseFailureMessage } from "./browseFailureModel";
 import { ChevronIcon } from "./ComposerPickers";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -271,6 +270,7 @@ export function SavedEnvironmentPanel({
           </output>
           {browseFailed && !ssh && (
             <button type="button" className="acpmux-env-button" onClick={() => void browse()} disabled={browsing}>
+              {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
               {t("project.retry")}
             </button>
           )}
