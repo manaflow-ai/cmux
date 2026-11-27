@@ -22,6 +22,19 @@ fn a_missing_program_returns_the_exec_error() {
 
 #[test]
 fn failed_exec_restores_explicit_descriptor_flags() {
+    const CHILD: &str = "CMUX_TEST_EXEC_FAILED_FLAGS";
+    const TEST: &str = "exec::tests::failed_exec_restores_explicit_descriptor_flags";
+    if std::env::var_os(CHILD).is_none() {
+        // Another test's exec would seal these process-wide flags again after this call
+        // returns, racing the restoration assertion. Keep the entire fixture isolated.
+        let status = crate::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "failed exec flag restoration fixture exited {status}");
+        return;
+    }
     let with_cloexec = File::open("/dev/null").unwrap();
     let without_cloexec = File::open("/dev/null").unwrap();
     set_flags(with_cloexec.as_raw_fd(), libc::FD_CLOEXEC).unwrap();
