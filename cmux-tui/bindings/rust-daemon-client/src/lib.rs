@@ -74,6 +74,7 @@ pub mod launcher;
 pub mod mirror;
 mod mirror_state;
 pub mod reattach;
+pub mod resume_class;
 pub mod spaces;
 
 pub use app_connection::AppConnection;
@@ -91,4 +92,5 @@ pub use daemon_attach::{DaemonAttacher, DaemonAttachment};
 pub use install_key::InstallKey;
 pub use mirror::{Applied, Change, Mirror, MirrorChange, MirrorError};
 pub use reattach::{GenerationWait, MirrorWatch, reattach};
+pub use resume_class::ResumeErrorClass;
 pub use spaces::{DEFAULT_SPACE, PROFILES_CAPABILITY, Space, Spaces, WorkspaceRef};
