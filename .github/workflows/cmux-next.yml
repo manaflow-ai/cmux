@@ -1032,7 +1032,8 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-path_route-4.md
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
-          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       - name: Mint a read token with its own quota
         id: base-red-token
@@ -1155,7 +1156,7 @@ jobs:
     needs: path_route
     if: ${{ !cancelled() && (inputs.dev_daily == true && inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.path_route.outputs.tree_state != 'ready') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux NEXT DEV daily tree wait
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 60
     permissions:
       # Why: note-107
@@ -1185,7 +1186,7 @@ jobs:
     # Why: note-369
     if: ${{ !cancelled() && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'dev-build') || needs.path_route.outputs.mac_release == 'true' || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' || needs.path_route.outputs.generated_host == 'generated-files')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next macOS placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     # Why: note-108, 2026-11-24-macos-placement-1.md
     timeout-minutes: 19
     # Why: note-16
@@ -2263,7 +2264,7 @@ jobs:
           restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache the webviews Bun package cache (restore only off base branches)
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -2316,7 +2317,7 @@ jobs:
     # Why: note-177
     if: ${{ !cancelled() && (github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && (((needs.path_route.outputs.tree_state == 'failed' || needs.path_route.outputs.tree_state == 'ready') && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && (inputs.same_tree_state == 'failed' || inputs.same_tree_state == 'ready')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: same-tree cmux-tui
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     permissions:
       statuses: write
       actions: write
@@ -2408,7 +2409,7 @@ jobs:
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && needs.path_route.outputs.mac_release == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     # Why: note-179
     timeout-minutes: 6
     permissions:
@@ -2634,7 +2635,7 @@ jobs:
     # Why: note-556
     if: ${{ !cancelled() && (github.run_attempt != 1 && !(github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && github.repository_owner == 'manaflow-ai' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_COMPILE_CHECK_GATEWAY != '' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fast tier re-run placement
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     # Why: note-186
     timeout-minutes: 6
     permissions:
@@ -2919,7 +2920,7 @@ jobs:
     needs: [fast-tier-fleet, fast-tier-fleet-mac]
     if: ${{ !cancelled() && ((needs.fast-tier-fleet-mac.outputs.verdict || needs.fast-tier-fleet.outputs.verdict) == 'queued' && github.repository_owner == 'manaflow-ai' && vars.CI_PR_POOL_OWNED == '1') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fast tier hand-back placement
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     # Why: note-194
     timeout-minutes: 8
     permissions:
@@ -3348,7 +3349,7 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
     permissions:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
@@ -3545,6 +3546,8 @@ jobs:
           bash scripts/ci/tests/cargo-target-delta.test.sh
           # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
           bash scripts/ci/tests/r2-cache-multipart.test.sh
+          # A restore killed by its step timeout left half a cargo target in place (machine channel run 46003645716).
+          bash scripts/ci/tests/r2-cache-restore.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
@@ -3575,6 +3578,8 @@ jobs:
         env:
           DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
           WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+          # Why: 2026-11-27-fast-tier-pool-miss-r2.md (repo var CI_FAST_TIER_POOL_MISS_R2=0 restores the old link)
+          CMUX_POOL_WARM_TARGET_MISS_R2: ${{ format('{0}', vars.CI_FAST_TIER_POOL_MISS_R2) != '0' && '1' || '' }}
         run: bash -e scripts/ci/cmux-next-steps/fast-tier-cargo-link-this-runner-s-warm-cargo-target.sh
 
       # Why: 2026-11-24-fast-tier-cargo-6.md, note-210
@@ -5447,6 +5452,8 @@ jobs:
           SEEN: ${{ needs.compile-status.outputs.state }}
           # Why: note-554 (undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0')
           SUPERSEDED_GATE: ${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}
+          # Why: 2026-11-27-release-compile-stale-push.md (undo: vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK = '0')
+          STALE_PUSH_GATE: ${{ vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/fast-fleet-compile-check.sh
 
   # Why: 2026-11-24-release-compile-fast-1.md, note-65
@@ -5454,7 +5461,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ (always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' && needs.release-compile-fast.outputs.verdict != 'superseded') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     permissions:
       actions: write
       contents: read
@@ -5733,7 +5740,7 @@ jobs:
     # Why: note-292
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files-linux.result == 'success' && needs.generated-files-linux.outputs.verdict != '' || (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success')) && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 10
     permissions:
       contents: read
@@ -5806,7 +5813,7 @@ jobs:
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 4
     permissions:
       actions: read
@@ -6431,7 +6438,7 @@ jobs:
     if: ${{ !cancelled() && (inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'daemon')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: same-tree status (daemon)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 64
     permissions:
       actions: read
@@ -6476,7 +6483,7 @@ jobs:
     if: ${{ !cancelled() && (inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'scheme')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: same-tree status (scheme)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 64
     permissions:
       actions: read
@@ -6522,7 +6529,7 @@ jobs:
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: checks out without submodules and has no stale-submodule reset; the next-checks workflow test keeps it off a reused workspace
     timeout-minutes: 8
     permissions:
       actions: read
@@ -6949,7 +6956,7 @@ jobs:
     if: ${{ (failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true || inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next push attribution
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name != 'pull_request') && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name != 'pull_request') && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10
     permissions:
       actions: read
@@ -6998,7 +7005,7 @@ jobs:
     needs: [release-compile, release-compile-fast-admission]
     if: ${{ !cancelled() && ((needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next Release compile revert
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name != 'pull_request') && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name != 'pull_request') && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
     # Why: note-344
     environment:
       name: ci-routing-agent
@@ -7071,7 +7078,7 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && (needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 58
     permissions: {}
     outputs:
@@ -7283,7 +7290,7 @@ jobs:
     if: ${{ (always() && !cancelled() && needs.compile-status.outputs.handoff != '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 58
     permissions: {}
     steps:
