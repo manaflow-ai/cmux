@@ -13,7 +13,7 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { hatLineLook, type HatLineArm } from "./hatLine.experiment";
 
 const running = (task: string, minutes: number, action: string, harness?: string): Subagent => ({
-  id: `agent-${task.toLowerCase().replaceAll(/[^a-z]+/g, "-")}`,
+  id: `agent-${task.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`,
   parent: null,
   name: "general-purpose",
   task,
