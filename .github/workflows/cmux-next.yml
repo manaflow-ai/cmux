@@ -77,6 +77,8 @@ on:
       - docs/remote-agents-and-cloud.md
       # Why: 2026-11-24-paths-2.md
       - docs/cmux-next/customize-recipes.md
+      - docs/cmux-next/guide/llms-full.txt
+      - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
       - webviews/test/fixtures/**
@@ -207,6 +209,7 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - scripts/cmux-next/**/*connection*notices*
+      - scripts/cmux-next/**/*retry*prompts*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -313,6 +316,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -380,6 +384,8 @@ on:
       - docs/configuration.md
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
+      - docs/cmux-next/guide/llms-full.txt
+      - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
       - scripts/cmux-next/check-generator-inputs.sh
@@ -469,7 +475,6 @@ on:
       - webviews/src/**
       # Why: note-467
       - webviews/**
-      - scripts/cmux-next/private-bun.sh
       - webviews/scripts/**
       - webviews/package.json
       - webviews/bun.lock
@@ -595,6 +600,7 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - scripts/cmux-next/**/*connection*notices*
+      - scripts/cmux-next/**/*retry*prompts*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -685,6 +691,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -835,6 +842,8 @@ jobs:
       key: cmux-next-pure-checks
       hold_minutes: 30
       no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
+      # A hand push compiles on its own commit, inside a taken window too (base-coalesce.yml); lander merges coalesce.
+      run_direct_pushes: true
 
   # Why: 2026-11-24-pure-checks-coalesce-1.md, note-11
   # Why: note-pr-control-pool
@@ -1019,10 +1028,11 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       - name: Mint a read token with its own quota
         id: base-red-token
-        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.route.outputs.fast_tier_cargo != 'false'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1030,10 +1040,10 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
-      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md
+      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md, 2026-11-27-base-red-token-burn.md
       - name: Jobs red on the base right now
         id: base-red
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,') }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,') && steps.route.outputs.fast_tier_cargo != 'false' }}
         continue-on-error: true
         timeout-minutes: 3
         env:
@@ -1807,6 +1817,11 @@ jobs:
         continue-on-error: true
         run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" conn-notices
 
+      - name: Retry prompts
+        id: retry-prompts
+        continue-on-error: true
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" retry-prompts
+
       # Why: note-434
       - name: Type scale
         id: type-scale
@@ -2179,6 +2194,7 @@ jobs:
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
+            ${{ steps.retry-prompts.outcome }}|Retry prompts (the app retries by itself)
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.instrument-tokens.outcome }}|Instrument tokens
@@ -2221,7 +2237,8 @@ jobs:
   # Why: 2026-11-24-checks-53.md, note-32
   web-bundles:
     needs: path_route
-    if: ${{ !cancelled() && (needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Why: 2026-11-25-web-bundles-consumers.md
+    if: ${{ !cancelled() && (needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && ((needs.path_route.outputs.swift == 'true' && !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) || (needs.path_route.outputs.daemon == 'true' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.path_route.outputs.tree_state == 'ready') || (needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
@@ -2286,6 +2303,12 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Why: note-174
       - name: Give this job its own bun
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -2324,7 +2347,7 @@ jobs:
       - name: Cache the webviews Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -2497,6 +2520,7 @@ jobs:
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A push reads the tip check and falls back to the Mac canary when unavailable.
           # Why: 2026-11-24-swift-canary-fleet-3.md
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
@@ -3546,6 +3570,11 @@ jobs:
       # Why: note-559
       FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
     steps:
+      # Why: 2026-11-26-fast-tier-freestyle-link.md
+      - name: Note when the checkout starts (Freestyle link check)
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: echo "FSR_CHECKOUT_T0=$(date +%s)" >> "$GITHUB_ENV"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
@@ -3553,6 +3582,16 @@ jobs:
           persist-credentials: false
           submodules: false
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      - name: Stop on a Freestyle runner whose link cannot finish this job
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: |
+          took=$(( $(date +%s) - ${FSR_CHECKOUT_T0:-$(date +%s)} ))
+          if (( took > 180 )); then
+            echo "::error title=fast tier (cargo) link too slow::checkout took ${took} s on Freestyle runner ${RUNNER_NAME} (pool runners: 18-74 s). The apt, zig, rustup and R2 steps after it are network-bound too and ran past the 30-minute job timeout on every such runner (0 of 90 passed, 2026-11-26): stopping now instead. Rerun the job; it is not the PR."
+            exit 1
+          fi
+          echo "checkout took ${took} s on ${RUNNER_NAME}: link fast enough, continuing"
 
       - name: List the changed paths
         if: ${{ env.FAST_TIER_PR_SCOPE == '1' }}
