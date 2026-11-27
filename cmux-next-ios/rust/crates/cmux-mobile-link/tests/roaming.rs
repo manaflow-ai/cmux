@@ -2089,7 +2089,8 @@ async fn failover_run(cell: FailoverCell) -> FailoverRun {
 /// The failover matrix (mobile-failover-relay lane): every failover profile
 /// of cmux-fault's `link-profiles.json` (cmux#60831) with the reliable link
 /// and relay hold each on and off, one `FAILOVER` line per cell. Filter
-/// profiles with `FAILOVER_PROFILES=a,b`. Measurement only: no assertion
+/// profiles with `FAILOVER_PROFILES=a,b`; `FAILOVER_ARMS=off` runs only the
+/// arm with both off (detection does not depend on either). Measurement only: no assertion
 /// beyond the run finishing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "measurement: run by hand for the PR's numbers (about 20 minutes)"]
@@ -2110,12 +2111,17 @@ async fn failover_matrix() {
     ];
     let only: Option<Vec<String>> =
         std::env::var("FAILOVER_PROFILES").ok().map(|v| v.split(',').map(str::to_owned).collect());
+    let arms: &[(bool, bool)] = if std::env::var("FAILOVER_ARMS").is_ok_and(|v| v == "off") {
+        &[(false, false)]
+    } else {
+        &[(false, false), (true, false), (false, true), (true, true)]
+    };
     let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as i64).unwrap_or(-1);
     for (profile, disrupt) in profiles {
         if only.as_ref().is_some_and(|only| !only.iter().any(|p| p == profile)) {
             continue;
         }
-        for (reliable, relay_hold) in [(false, false), (true, false), (false, true), (true, true)] {
+        for &(reliable, relay_hold) in arms {
             let run = failover_run(FailoverCell { profile, disrupt, reliable, relay_hold }).await;
             eprintln!(
                 "FAILOVER profile={profile} reliable={reliable} relay_hold={relay_hold}: suspect_ms={} first_frame_up_ms={} first_frame_down_ms={} first_row_ms={} longest_gap_down_ms={} rows={} frames={}/{} phone_closed={:?} mac_closed={:?} sessions={}",

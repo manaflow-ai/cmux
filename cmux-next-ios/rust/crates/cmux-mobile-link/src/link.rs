@@ -2740,7 +2740,8 @@ struct Unanswered {
 
 /// Detection, apart from teardown (the keepalive's [`KEEPALIVE_TIMEOUT`]):
 /// data with nothing received for [`OUTSTANDING_PROBE`] gets a ping; a ping
-/// with nothing received for `after` makes the link suspect; a suspect link
+/// with nothing received for `after` makes the link suspect (both waits
+/// shorter on a fast link while data is outstanding: [`BUSY_RTT_FACTOR`]); a suspect link
 /// pings every [`SUSPECT_PROBE`] until anything arrives. Every ping counts
 /// (the keepalive's, the app's probes, these), so an idle link is suspect
 /// `after` past whichever ping comes first, and an idle healthy link sends
@@ -3792,6 +3793,20 @@ mod tests {
         assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
         assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
         assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
+    }
+
+    #[test]
+    fn busy_waits_scale_with_the_round_trip_within_the_fixed_waits() {
+        let ms = Duration::from_millis;
+        let after = SUSPECT_AFTER;
+        assert_eq!(busy_waits(None, after), (OUTSTANDING_PROBE, after), "no pong yet: fixed waits");
+        assert_eq!(busy_waits(Some(ms(20)), after), (ms(500), ms(1000)), "wifi: the floors");
+        assert_eq!(busy_waits(Some(ms(70)), after), (ms(500), ms(1000)), "lte: the floors");
+        assert_eq!(busy_waits(Some(ms(400)), after), (ms(1600), ms(1600)), "a slow cell link");
+        assert_eq!(busy_waits(Some(ms(650)), after), (OUTSTANDING_PROBE, ms(2600)), "satellite");
+        assert_eq!(busy_waits(Some(Duration::from_secs(2)), after), (OUTSTANDING_PROBE, after), "2g: caps");
+        // A suspect_after below the floor caps it, without panicking.
+        assert_eq!(busy_waits(Some(ms(10)), ms(300)), (ms(500), ms(300)));
     }
 
     fn pair() -> (Link, Link) {
