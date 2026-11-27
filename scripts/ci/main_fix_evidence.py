@@ -64,6 +64,14 @@ class Unread(Refused):
     reads as "not judged, a retry" instead of red_not_excused)."""
 
 
+class RequestFailed(Unread):
+    """A failed gh command, with its stderr available separately from the command description."""
+
+    def __init__(self, args: list[str], stderr: str):
+        self.stderr = stderr
+        super().__init__(f"GitHub evidence request failed: {read_name(args)}: {stderr}")
+
+
 def read_name(args: list[str]) -> str:
     """The read, short enough to print in a refusal. `gh api <route>` is that route; anything else is its words,
     capped at 200 characters -- `run view <run> --repo R --job <job> --log`, which is the read most likely to be
@@ -104,8 +112,7 @@ class GitHub:
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Unread(f"GitHub evidence request failed: {read_name(args)}: "
-                             + errors.read(2000).decode(errors="replace"))
+                raise RequestFailed(args, errors.read(2000).decode(errors="replace"))
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):

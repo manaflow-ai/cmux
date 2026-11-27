@@ -10,9 +10,10 @@
 # so the next step on the slot compiled every target again and ran into the cap
 # again. The worker now keeps it, marked; this is the script's half.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 repo="$tmp/repo"
 pkg="$repo/Packages/macOS/Fake"
 mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
@@ -20,7 +21,7 @@ cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
   "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' > "$pkg/Package.swift"
-git -C "$repo" init -q && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git_fixture_init "$repo" && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 cat > "$tmp/bin/xcrun" <<'SH'
 #!/usr/bin/env bash
 for a in "$@"; do [ "$a" = --show-sdk-path ] && { echo "$DEVELOPER_DIR/SDKs/MacOSX.sdk"; exit 0; }; done
