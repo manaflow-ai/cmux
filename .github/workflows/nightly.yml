@@ -6283,28 +6283,23 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-25
   keep-published-dsyms:
-    needs: [published-build, pick-nightly-sign-runner]
+    needs: [published-build]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && (needs.published-build.outputs.publish_tag_status == 'updated' || needs.published-build.outputs.publish_tag_status == 'stale' || needs.published-build.outputs.publish_already_published == 'true') && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.cross_run != 'true'"
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     continue-on-error: true
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # One-mini mode adds glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py).
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
     steps:
-      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
-      - *hold-the-whole-mac
       - *clean-owned-workdir
       - *github-token-for-git
       - *checkout-publication-tooling-a
-
-      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
-      - *claim-publication-mac
 
       - *gh-app-token-read
 
@@ -6894,7 +6889,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     # The push slot, one per signer Mac, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19, #note-33
     concurrency:
-      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || format('nightly-next-one-{0}', github.run_id) }}
+      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || format('nightly-next-one-{0}', github.run_id) }}
       cancel-in-progress: false
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}

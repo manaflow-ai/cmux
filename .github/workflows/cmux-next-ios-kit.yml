@@ -389,6 +389,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCTS: ${{ github.run_id }}/kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
           LABEL: fleet pool on the build fleet's build (shadow)
+          CMUX_IOS_SIM_LINUX: shadow
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
   kit-tests:
@@ -1037,6 +1038,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           PRODUCTS: ${{ needs.kit-sim-pool.outputs.products }}
           LABEL: fleet pool (owned Mac submit)
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
       - name: Upload the fleet pool result
