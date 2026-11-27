@@ -465,6 +465,9 @@ PUBLISH_PATH = (
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    # The tail's first job: its one read of the publishing run failed on "API rate limit exceeded for
+    # installation" in tail run 45925996466, and build 4592220755201 got no release notes (2026-11-27).
+    "published-build",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
@@ -538,6 +541,10 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    # The tail's first job runs secret-free on the nightly's Linux label (no App keys there), so its two reads
+    # go on github.token and wait through a refusal instead (tail run 45925996466 lost a build's notes on one).
+    ("published-build", "Check the run that published"),
+    ("published-build", "Download its record"),
     ("published-in", "Comment the build on its PRs"),
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
