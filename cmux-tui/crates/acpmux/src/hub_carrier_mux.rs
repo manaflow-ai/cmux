@@ -807,6 +807,19 @@ impl KeptCircuits {
             .clone()
     }
 
+    /// Whether a kept circuit to `daemon` on `lane` is open now, so a stream on it costs the
+    /// relay no new circuit. A slot mid-open (locked) counts as not open; no slot is made.
+    pub(crate) fn has_live(&self, daemon: &str, lane: Lane) -> bool {
+        let slot = {
+            let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+            match by_machine.get(&(daemon.to_owned(), lane)) {
+                Some(slot) => slot.clone(),
+                None => return false,
+            }
+        };
+        slot.try_lock().is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| !mux.is_closed()))
+    }
+
     /// Drop every kept circuit (a rekey: the far machines pinned the old key).
     pub(crate) fn clear(&self) {
         let all = std::mem::take(&mut *self.by_machine.lock().unwrap_or_else(|e| e.into_inner()));
