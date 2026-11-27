@@ -408,7 +408,9 @@ import Testing
             for at in stride(from: 0, to: digits.count, by: 2) {
                 bytes.append(try #require(UInt8(String(digits[at..<at + 2]), radix: 16)))
             }
-            let value = try #require(joiner.push(bytes))
+            // `push` is mutating, and #require's function-call expansion takes it as immutable.
+            let pushed = joiner.push(bytes)
+            let value = try #require(pushed)
             texts.append(try #require(value["params"]?["update"]?["content"]?["text"]?.stringValue))
         }
         #expect(texts == ["Hello from the Mac.", "Hello again from the Mac."])

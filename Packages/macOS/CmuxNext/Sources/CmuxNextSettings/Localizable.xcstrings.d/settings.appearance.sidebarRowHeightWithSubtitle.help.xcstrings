@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.sidebarRowHeightWithSubtitle.help" : {
+      "comment" : "Settings > Appearance: a look's layout and proportions (appearance.metrics)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Seitenleistenzeile mit einer Detailzeile unter dem Titel, etwa eine zweizeilige Karte. Ohne Wert die Zeilenhöhe plus eine Zeile."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une ligne de la barre latérale avec une ligne de détail sous son titre, comme une carte sur deux lignes. Sans valeur, la hauteur de ligne plus une ligne."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "صف في الشريط الجانبي بسطر تفاصيل تحت عنوانه، مثل بطاقة من سطرين. بلا قيمة يكون ارتفاع الصف مع سطر واحد."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una fila de la barra lateral con una línea de detalle bajo su título, como una tarjeta de dos líneas. Sin valor, la altura de fila más una línea."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "標題下方有一行詳細資訊的側邊欄列，例如雙行卡片。未設定時為列高加一行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标题下方有一行详细信息的侧边栏行，例如双行卡片。未设置时为行高加一行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제목 아래에 세부 줄이 있는 사이드바 행(예: 두 줄 카드)입니다. 설정하지 않으면 행 높이에 한 줄을 더합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タイトルの下に詳細行があるサイドバー行（2行のカードなど）。未設定なら行の高さに1行を足した値です。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Red bočne trake s redom detalja ispod naslova, npr. dvoredna kartica. Bez vrijednosti visina reda plus jedan red."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En sidebjælkerække med en detaljelinje under titlen, fx et kort med to linjer. Uden værdi rækkehøjden plus én linje."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una riga della barra laterale con una riga di dettaglio sotto il titolo, come una scheda su due righe. Se non impostato, l’altezza della riga più una riga."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជួររបារចំហៀងដែលមានបន្ទាត់ព័ត៌មានលម្អិតក្រោមចំណងជើង ដូចជាកាតពីរបន្ទាត់។ បើមិនកំណត់ គឺកម្ពស់ជួរបូកមួយបន្ទាត់។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En sidefeltrad med en detaljlinje under tittelen, som et kort med to linjer. Uten verdi radhøyden pluss én linje."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wiersz paska bocznego z linią szczegółów pod tytułem, np. karta dwuliniowa. Bez wartości wysokość wiersza plus jedna linia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma linha da barra lateral com uma linha de detalhe sob o título, como um cartão de duas linhas. Sem valor, a altura da linha mais uma linha."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Строка боковой панели со строкой сведений под заголовком, например двухстрочная карточка. Без значения — высота строки плюс одна строка."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แถวของแถบด้านข้างที่มีบรรทัดรายละเอียดใต้ชื่อ เช่น การ์ดสองบรรทัด หากไม่ตั้งค่า จะเป็นความสูงแถวบวกหนึ่งบรรทัด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Başlığın altında ayrıntı satırı olan bir kenar çubuğu satırı, örneğin iki satırlı kart. Ayarlanmazsa satır yüksekliği artı bir satır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рядок бічної панелі з рядком подробиць під заголовком, наприклад дворядкова картка. Без значення — висота рядка плюс один рядок."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hàng thanh bên có một dòng chi tiết dưới tiêu đề, như thẻ hai dòng. Nếu không đặt, là chiều cao hàng cộng một dòng."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -42,6 +42,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const PHONE_PAGE: &str = "phone-page-v1";
 pub const BUNDLE: &str = "bundle-v1";
 pub const ZSTD_STREAM: &str = "zstd-stream-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -50,6 +51,7 @@ pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
 pub const MAILBOX_SEND: &str = "mailbox-send-v1";
 pub const MAC_DISPLAY: &str = "mac-display-v1";
+pub const SITE_DATA_HANDOFF: &str = "site-data-handoff-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
 pub const CONVERSATION_TABS: &str = "conversation-tabs-v1";
@@ -122,6 +124,10 @@ pub const ALL: &[Capability] = &[
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
     ),
     host(
+        PHONE_PAGE,
+        "(2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089).",
+    ),
+    host(
         MAILBOX_SEND,
         "(2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link.",
     ),
@@ -152,6 +158,10 @@ pub const ALL: &[Capability] = &[
     host(
         MAC_DISPLAY,
         "(2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on.",
+    ),
+    host(
+        SITE_DATA_HANDOFF,
+        "(2026-11-24) The host serves `site-data`: on Open on iPhone, the tab's cookies and local storage for its own site only (RFD 0089); listed only while the person turned it on on the Mac.",
     ),
     daemon(
         CLOUD_MOBILE_CHAT,
