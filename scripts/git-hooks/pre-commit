@@ -329,13 +329,13 @@ def fill(staging, shims, links, stubbed):
     for name, tool in links.items():
         link(tool, staging, name)
     try:
-        os.mkdir(os.path.join(staging, ".stub"))
+        os.mkdir(os.path.join(staging, ".stub"), 0o700)
         for kind, message in STUBS:
             stub = os.path.join(staging, ".stub", kind)
             with open(stub, "w") as handle:
                 handle.write(stub_text(message))
             os.chmod(stub, 0o755)
-        os.mkdir(os.path.join(staging, NOT_LISTED))
+        os.mkdir(os.path.join(staging, NOT_LISTED), 0o700)
     except OSError as error:
         say(f"could not make the stubs in {staging}: {error}; not committing.")
         sys.exit(1)
