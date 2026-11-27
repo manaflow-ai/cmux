@@ -60,7 +60,7 @@ import Testing
         #expect(defaults.object(forKey: key) as? Bool == true)
     }
 
-    @Test func anExplicitNextOnAfterOffClearsTheCompatibilityHold() {
+    @Test func anUnmarkedSharedOptOutRemainsOffAcrossNextSettings() {
         let nightly = "com.cmuxterm.app.nightly.cmux-next"
         let defaults = UserDefaults(testSuiteName: "AutomaticUpdatePauseTests.\(UUID().uuidString)")!
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
@@ -69,7 +69,8 @@ import Testing
         #expect(updater.preservesSharedAutomaticChecksOptOut)
         updater.configure(checkAutomatically: false, checkInterval: 3600, downloadAutomatically: false)
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
-        #expect(!updater.preservesSharedAutomaticChecksOptOut)
+        #expect(updater.preservesSharedAutomaticChecksOptOut)
+        #expect(!updater.tipCheck.automatic)
     }
 
     /// DEV and staging builds keep their automatic checks off (they never read the public appcast by themselves).

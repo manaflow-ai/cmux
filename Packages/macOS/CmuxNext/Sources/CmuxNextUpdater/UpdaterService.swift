@@ -206,7 +206,7 @@ public final class UpdaterService {
     /// Files a failed check after an update (the App's crash reporter's non-fatal report).
     @ObservationIgnored var healthCheckFile: UpdateHealthFailure.File?
     /// A shared `SUEnableAutomaticChecks = false` from the classic updater remains an explicit opt-out in NEXT.
-    @ObservationIgnored var preservesSharedAutomaticChecksOptOut: Bool
+    @ObservationIgnored let preservesSharedAutomaticChecksOptOut: Bool
     /// When this updater was made, early in the launch: the check counts relay refusals since then.
     @ObservationIgnored let launchedAt = Date()
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
@@ -285,9 +285,6 @@ public final class UpdaterService {
     /// ``configure`` applied the `updates.*` settings once: before that the fast check and the
     /// release push read nothing (`updates.checkAutomatically` may be off).
     @ObservationIgnored var settingsApplied = false
-    /// The last requested automatic-check value lets a later explicit on choice clear the
-    /// launch-time classic opt-out preservation without weakening it during the initial apply.
-    @ObservationIgnored private var lastConfiguredCheckAutomatically: Bool?
     /// The found update waiting on the update-found step: its build, and the dismiss that ends its
     /// Sparkle prompt without skipping it (a newer build replaces it, ``TipUpdateCheck``). Replaced by tests.
     @ObservationIgnored var availableBuild: () -> String? = { nil }

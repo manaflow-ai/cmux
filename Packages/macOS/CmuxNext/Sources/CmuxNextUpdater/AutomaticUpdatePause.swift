@@ -13,9 +13,6 @@ public struct AutomaticUpdatePause {
     /// be a temp thing"): while paused the card's switch could not turn on.
     public static let app = false
 
-    /// Set once the merged pause migration removed an old pause's shared false.
-    public static let resumedKey = "cmux.next.automaticUpdatePause.resumedChecks.v1"
-
     /// Marks a shared Sparkle value written by the temporary pause.
     public static let appliedKey = "cmux.next.automaticUpdatePause.applied.v2"
     /// Whether the pause replaced a persisted shared value.
@@ -25,14 +22,17 @@ public struct AutomaticUpdatePause {
 
     /// Applies the pause or the resolved NEXT setting before Sparkle is constructed.
     ///
-    /// An existing shared `false` has no reliable provenance: it can be the classic updater's explicit opt-out or
-    /// the old temporary pause. It is therefore preserved. The shipped pause migration already records its one-time
-    /// cleanup in ``resumedKey``; new pause writes are tracked here so only values written by this code are restored.
+    /// An existing unmarked shared `false` has no reliable provenance: it can be the classic updater's explicit
+    /// opt-out or the old temporary pause. It is therefore preserved. Only a value written by this code, with its
+    /// saved predecessor, is restored when the pause is lifted. This conservative boundary avoids deleting a
+    /// classic user's preference; the old unmarked pause cannot be migrated safely after the fact.
     @discardableResult
     public static func prepare(in defaults: UserDefaults, resolvedAutomaticChecks: Bool?, paused: Bool) -> Bool {
         let wasApplied = defaults.bool(forKey: appliedKey)
         let previousPresent = defaults.bool(forKey: previousValuePresentKey)
         let previousValue = defaults.bool(forKey: previousValueKey)
+        // A false without ``appliedKey`` is deliberately treated as an explicit shared opt-out. The historical
+        // pause wrote the same unmarked value, so guessing its origin would erase a classic user's choice.
         let sharedOptOut: Bool
         if wasApplied {
             sharedOptOut = previousPresent && !previousValue
