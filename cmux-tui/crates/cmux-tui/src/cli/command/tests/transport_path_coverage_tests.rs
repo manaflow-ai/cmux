@@ -418,6 +418,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.owner.handoff_wait"
                         | "cloud.owner.handoffs"
                         | "cloud.owner.harness_login_copy"
+                        | "cloud.owner.op"
                         | "cloud.owner.turn_checkpoint"
                         | "cloud.owner.turn_rewind"
                         | "cloud.owner.turns"
