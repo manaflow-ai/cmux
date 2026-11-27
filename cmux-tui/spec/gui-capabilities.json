@@ -672,6 +672,11 @@
       "the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).",
       "v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes."
     ]},
+    {"case": "settingsHistory", "wire": "settings-history-v1", "tier": "optional", "doc": [
+      "`settings.history`, `settings.undo`, `settings.restore` and `settings.reset_group`: the owner's",
+      "record of every published change of cmux-next.json, for every writer (the Settings page's Undo,",
+      "Redo and Reset <card>, `SettingsFileClient.historyCapability`)."
+    ]},
     {"case": "iconAssets", "wire": "icon-assets-v1", "tier": "optional", "doc": [
       "`put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`",
       "icon values naming a stored asset on workspace, screen, room and profile icons."

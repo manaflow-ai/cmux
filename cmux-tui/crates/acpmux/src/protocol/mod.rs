@@ -20,6 +20,7 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
+pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
@@ -233,6 +234,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // The app's and webviews' own trace spans, written to the daemon's trace sink (perf_trace.rs).
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
         // The felt-latency histograms (cmux-felt).
@@ -374,6 +378,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_HISTORY_DELETE, Request),
         untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_LIFECYCLE, Request),
         untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
@@ -403,6 +408,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
+        untyped(method::MUX_SCORECARD_REPLAY, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
@@ -630,9 +636,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/wireguard_admit", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/autocloud_enroll", Request),

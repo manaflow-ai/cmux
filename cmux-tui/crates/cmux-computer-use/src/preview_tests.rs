@@ -25,12 +25,7 @@ fn hub() -> (PreviewHub, Arc<Streams>, Arc<Mutex<Vec<Value>>>) {
     (hub, streams, lines)
 }
 
-const RECT: Rect = Rect {
-    x: 100.0,
-    y: 100.0,
-    width: 400.0,
-    height: 200.0,
-};
+const RECT: Rect = Rect { x: 100.0, y: 100.0, width: 400.0, height: 200.0 };
 
 fn last(lines: &Mutex<Vec<Value>>) -> Value {
     lines.lock().unwrap().last().cloned().unwrap_or(Value::Null)
@@ -41,19 +36,13 @@ fn an_active_session_streams_its_window_and_sends_its_frames() {
     let (hub, streams, lines) = hub();
     hub.activate("s1", "Claude Code");
     hub.note_window("s1", "Claude Code", "42", RECT, "Calculator");
-    assert_eq!(
-        streams.0.lock().unwrap().last().unwrap().0,
-        vec!["42".to_string()]
-    );
+    assert_eq!(streams.0.lock().unwrap().last().unwrap().0, vec!["42".to_string()]);
     hub.frame("42", &[0xff, 0xd8, 0xff]);
     let line = last(&lines);
     assert_eq!(line["session"], "s1");
     assert_eq!(line["card"]["done"], false);
     assert_eq!(line["card"]["app"], "Calculator");
-    assert!(line["card"]["frame"]
-        .as_str()
-        .unwrap()
-        .starts_with("data:image/jpeg;base64,"));
+    assert!(line["card"]["frame"].as_str().unwrap().starts_with("data:image/jpeg;base64,"));
 }
 
 #[test]
@@ -81,10 +70,7 @@ fn a_closed_window_clears_its_card() {
     hub.window_closed("42");
     assert_eq!(last(&lines)["card"], Value::Null);
     assert!(hub.card("s1").is_none());
-    assert_eq!(
-        streams.0.lock().unwrap().last().unwrap().0,
-        Vec::<String>::new()
-    );
+    assert_eq!(streams.0.lock().unwrap().last().unwrap().0, Vec::<String>::new());
 }
 
 #[test]
@@ -95,10 +81,7 @@ fn turning_the_preview_off_removes_every_card_and_stream() {
     hub.frame("42", b"one");
     hub.set_enabled(false);
     assert_eq!(last(&lines)["card"], Value::Null);
-    assert_eq!(
-        streams.0.lock().unwrap().last().unwrap().0,
-        Vec::<String>::new()
-    );
+    assert_eq!(streams.0.lock().unwrap().last().unwrap().0, Vec::<String>::new());
     // Off: nothing is noted or streamed.
     hub.note_window("s1", "Codex", "43", RECT, "Notes");
     assert!(hub.streaming().is_empty());
@@ -165,11 +148,7 @@ fn old_done_cards_go_first_beyond_the_limit() {
     }
     assert!(hub.card("s0").is_none());
     assert!(hub.card(&format!("s{MAX_CARDS}")).is_some());
-    assert!(lines
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|l| l["session"] == "s0" && l["card"].is_null()));
+    assert!(lines.lock().unwrap().iter().any(|l| l["session"] == "s0" && l["card"].is_null()));
 }
 
 #[test]
@@ -206,14 +185,8 @@ fn a_same_window_handoff_rejects_frames_from_the_previous_stream() {
     assert_eq!(lines.lock().unwrap().len(), count);
     assert_eq!(hub.card("s2"), None);
     hub.window_closed_for_generation("42", first_generation);
-    assert!(
-        hub.card("s1").is_some(),
-        "a stale close must not clear the new stream"
-    );
+    assert!(hub.card("s1").is_some(), "a stale close must not clear the new stream");
 
     hub.frame_for_generation("42", second_generation, b"session two");
-    assert_eq!(
-        hub.card("s2").unwrap()["frame"],
-        hub.card("s1").unwrap()["frame"]
-    );
+    assert_eq!(hub.card("s2").unwrap()["frame"], hub.card("s1").unwrap()["frame"]);
 }

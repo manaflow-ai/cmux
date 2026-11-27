@@ -1120,15 +1120,19 @@ def source_line(tree: Path, roots: list[Path], rel: str, number: int) -> str | N
     return None
 
 
-def normalize(text: str, tree: Path) -> str:
-    """A finding's identity: file, rule and source text; no tree path, no line or count numbers."""
+def normalize(text: str, tree: Path, moved: dict[str, str] | None = None) -> str:
+    """A finding's identity: file, rule and source text; no tree path, no line or count numbers. MOVED ({new path:
+    old path}, the push's renames) keys a head finding in a moved file by its old path, so the base's same finding
+    there matches it (2026-11-27: a695910bf8bb `git mv`d SleepySceneView.swift to another module with its two raw
+    font sizes and was refused for adding them)."""
     text = text.replace(str(tree.resolve()) + "/", "").replace(str(tree) + "/", "")
     roots = [tree, tree / PKG, tree / PKG / "Sources", tree / PKG / "Tests", tree / "Packages"]
 
     def keyed(match: re.Match) -> str:
         line = source_line(tree, roots, match.group("path"),
                            parse_tool_int(match.group("line"), "finding line"))
-        return f"{match.group('path')}:«{line}»" if line is not None else match.group("path")
+        path = renamed_from(match.group("path"), moved) if moved else match.group("path")
+        return f"{path}:«{line}»" if line is not None else path
     parts = []
     last = 0
     for match in LOCATION.finditer(text):
@@ -1137,6 +1141,18 @@ def normalize(text: str, tree: Path) -> str:
         last = match.end()
     parts.append(NUMBER.sub("N", text[last:]))
     return "".join(parts).strip()
+
+
+def renamed_from(path: str, moved: dict[str, str]) -> str:
+    """PATH's old path when the push moved it (MOVED is repo-relative; a finding may name its path from a package
+    root, so a moved path that ends with PATH maps by its matching tail), else PATH."""
+    if path in moved:
+        return moved[path]
+    for new, old in moved.items():
+        if new.endswith("/" + path):
+            root = new[:len(new) - len(path)]  # the root the finding names its path from
+            return old[len(root):] if old.startswith(root) else old
+    return path
 
 
 def records(output: str) -> list[str]:
@@ -1260,11 +1276,14 @@ def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str
     return None
 
 
-def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
+def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path,
+                moved: dict[str, str] | None = None) -> list[str]:
+    """HEAD_OUT's findings the base run did not print; a finding in a file the push moved (MOVED) matches its old
+    path's."""
     seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
     fresh = []
     for record in records(head_out):
-        key = normalize(record, head_tree)
+        key = normalize(record, head_tree, moved)
         if seen[key] > 0:
             seen[key] -= 1
         elif not re.search(r": ok\b|^All |passed|^ok\b", record) and not INFO.match(record):
@@ -3781,6 +3800,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
+    # The push's renames ({new path: old path}): a moved file's findings are its old path's, not new ones.
+    moved = baseline_moves(repo, base, head, trusted_scripts) if changed else {}
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with scratch_dir() as tmp:
@@ -3849,13 +3870,16 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
 
-        def side(job, tree):
+        def side(job, tree, is_base=False):
             t0 = time.monotonic()
             tree = absolute(tree)
             if job[0] == "cmd":
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
+                if is_base:
+                    # A moved file's old path, so its findings there key the head's in the new path (new_records).
+                    files = [*files, *(moved[p] for p in files if p in moved)]
                 out = fn(absolute(binary), absolute(config), tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
@@ -3864,7 +3888,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
                        and want(CRASH_RATCHET_CHECK))
         with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
-            futures = {(name, i): pool.submit(side, job, tree)
+            futures = {(name, i): pool.submit(side, job, tree, i == 0)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
             prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, absolute(Path(tmp)))
@@ -3914,7 +3938,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                                                         work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, name_base, name_head)
+                fresh = new_records(base_out, head_out, name_base, name_head, moved)
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
