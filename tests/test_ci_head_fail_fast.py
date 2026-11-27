@@ -125,5 +125,89 @@ class HeadFailFastTest(unittest.TestCase):
                 self.assertIn(f"workflow: {wf}", body)
 
 
+def _job(text, job):
+    m = re.search(rf"\n  {re.escape(job)}:\n(.*?)(?=\n  \S|\Z)", text, re.S)
+    assert m, job
+    return m.group(1)
+
+
+def _if(body):
+    return re.search(r"^    if: \$\{\{ (.*) \}\}$", body, re.M).group(1)
+
+
+class CheapGateTests(unittest.TestCase):
+    """note-cheap-gate: heavy jobs start only after the cheap gate on the same head is not red."""
+
+    ROUTER_GATED = ("machine-channel-pr-head", "screen-share-drop-gate", "swift-linux-packages", "ios-link-ffi-linux",
+                    "pipeline")
+    # An edit re-judges these with no new push (the size: and Classic API change: lines): never gated.
+    ROUTER_UNGATED = ("size-budget", "classic-api-guard")
+    CARGO = ("(github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' "
+             "|| needs.fast-tier-cargo.result == 'skipped')")
+
+    def read(self, name):
+        with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    @staticmethod
+    def ev(cond, fast_gates, event="pull_request", fork=False, labels=(), switch=""):
+        """The gate prefix of COND (everything before the router's start-list test), evaluated."""
+        gate = cond.split(" && contains(fromJSON(needs.route.outputs.start", 1)[0]
+        gate = gate.replace("!cancelled()", "True").replace("needs.route.result", "'success'")
+        gate = gate.replace("needs.fast-gates.result", repr(fast_gates)).replace("github.event_name", repr(event))
+        gate = gate.replace("github.event.pull_request.head.repo.full_name != github.repository", repr(fork))
+        gate = gate.replace("contains(github.event.pull_request.labels.*.name, 'full-ci')", repr("full-ci" in labels))
+        gate = gate.replace("format('{0}', vars.CI_HEAD_FAIL_FAST)", repr(switch))
+        gate = gate.replace("&&", " and ").replace("||", " or ")
+        return eval(gate, {"__builtins__": {}}, {})  # noqa: S307 - our own workflow's expression
+
+    def test_router_heavy_callees_wait_for_fast_gates(self):
+        text = self.read("pr-router.yml")
+        for job in self.ROUTER_GATED:
+            with self.subTest(job=job):
+                body = _job(text, job)
+                self.assertIn("needs: [route, fast-gates]\n", body)
+                self.assertIn("note-cheap-gate", body)
+                cond = _if(body)
+                self.assertTrue(cond.startswith("!cancelled() && needs.route.result == 'success' && "), cond)
+                # The router's own start-list test is kept, untouched.
+                self.assertIn("contains(fromJSON(needs.route.outputs.start || '[]'), ", cond)
+
+    def test_router_gate_cases(self):
+        text = self.read("pr-router.yml")
+        for job in self.ROUTER_GATED:
+            cond = _if(_job(text, job))
+            with self.subTest(job=job):
+                self.assertFalse(self.ev(cond, "failure"))
+                for result in ("success", "skipped", "cancelled", ""):
+                    self.assertTrue(self.ev(cond, result), result)
+                # The same escapes as head fail-fast: a fork, full-ci, another event, the switch off.
+                self.assertTrue(self.ev(cond, "failure", fork=True))
+                self.assertTrue(self.ev(cond, "failure", labels=("full-ci",)))
+                self.assertTrue(self.ev(cond, "failure", event="push"))
+                self.assertTrue(self.ev(cond, "failure", switch="0"))
+
+    def test_router_edit_judged_callees_and_the_gate_itself_are_not_gated(self):
+        text = self.read("pr-router.yml")
+        for job in self.ROUTER_UNGATED + ("fast-gates",):
+            with self.subTest(job=job):
+                self.assertIn("    needs: route\n", _job(text, job))
+
+    def test_cmux_next_release_compiles_wait_for_cargo(self):
+        text = self.read("cmux-next.yml")
+        for job in ("macos-placement", "app-compile-placement", "release-compile", "compile-status"):
+            with self.subTest(job=job):
+                body = _job(text, job)
+                needs = re.search(r"^    needs: \[(.*)\]$", body, re.M).group(1).split(", ")
+                self.assertIn("fast-tier-cargo", needs)
+                cond = _if(body)
+                self.assertIn("!cancelled()", cond)
+                self.assertIn(self.CARGO, cond)
+        # No cycle: cargo waits on none of the jobs it gates.
+        cargo_needs = re.search(r"^    needs: \[(.*)\]$", _job(text, "fast-tier-cargo"), re.M).group(1)
+        for job in ("release-compile", "compile-status", "macos-placement"):
+            self.assertNotIn(job, cargo_needs.split(", "))
+
+
 if __name__ == "__main__":
     unittest.main()
