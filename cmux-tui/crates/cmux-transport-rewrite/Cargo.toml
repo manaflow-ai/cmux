@@ -1,0 +1,11 @@
+[package]
+name = "cmux-transport-rewrite"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Where a GitHub release asset or archive URL is read from on this machine: its git cache proxy when one listens (and CMUX_TRANSPORT_REWRITE is not 0), else the URL itself. No dependencies, so build scripts can use it"
+
+[lints]
+workspace = true

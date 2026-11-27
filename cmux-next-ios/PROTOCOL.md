@@ -285,10 +285,13 @@ closed with 4001 `moved`.
     from peers that never send relay frames and confirm routes with an
     in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
     sender can join the session's WebSocket relay ("WebSocket relay"
-    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
-    has no other path: no plain UDP and no TURN allocation, so the peer
-    joins at once too); absent from older peers, which never join, and
-    then neither does this side. A roam's endpoint announcement
+    below): `"ready"` (when nothing else reaches the peer), `"first"`
+    (relay first: it joins as its dial starts, beside the direct
+    race, and so does a peer that said `"first"` too; a peer that reads
+    it as `"ready"` keeps the older rule) or `"now"` (it has no other
+    path: no plain UDP and no TURN allocation, so the peer joins at once
+    too); absent from older peers, which never join, and then neither
+    does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -648,9 +651,33 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
   client's `ping` is answered `pong` without waking the object.
+- **Early join (`wg-relay` before `wg-init`):** a phone that offers `relay:
+  "first"` sends `wg-relay` (an ordinary signal, nothing else in it) as its
+  dial starts, before the gather that `wg-init` waits for. Being the
+  session's first admitted signal, it binds the session, so both devices can
+  join the relay with the Bearer token alone, before either has sent
+  `wg-init` / `wg-resp`: the phone joins right after sending it, and a Mac
+  that offers `first` opens the session on it and joins at once, then waits
+  for the `wg-init`. No ticket and no new frame are involved (a join presents
+  a relay ticket only if a service ever stamps one). A join that finds the
+  peer absent sends its pending handshake initiation again the moment the
+  relay reports the peer (`joined` `peer:true`), not at the 250 ms repeat. A
+  cue no `wg-init` follows within the dial timeout ends the Mac's session
+  quietly: no `bye` (it could end something the phone still holds).
+  Versioning: an older Mac drops a signal of a session it has not seen, so
+  the cue is lost quietly; it answers `relay: "ready"`, keeps the 3 s rule,
+  and the phone lets its early join go unused. An older phone never sends the
+  cue, and a new Mac joins on its `wg-init` as before. With relay first off on
+  either side, the phone sends no cue or the Mac drops it as an older Mac does.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  path (`relay: "now"`); as the dial starts when both said `"first"` (both
+  on the phone's early `wg-relay` above; else the Mac on the phone's
+  `wg-init`, the phone as its tunnel starts on the Mac's `wg-resp`; beside the direct race and TURN; the phone's pending
+  handshake initiation goes through the relay as it joins, the same
+  message, so a direct answer in flight still completes it; apart from the
+  early cue neither asks the other with `wg-relay`, and a join that finds the peer already heard
+  is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
   heard nothing for 16 s in the foreground, when its relay socket dies while
@@ -693,8 +720,12 @@ learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
 upgrade, about three round trips to the edge) waited behind the Mac's gather
 and answer. Now it asks for the ticket at once:
 
-- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
-  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true` when it sends
+  `relay: "now"`, or `relay: "first"` (RFD 0142 R1: its join then starts as
+  the hub forwards the offer, beside the direct race and the Mac's own join,
+  not after `wg-resp`). Absent means false; an older Mac ignores the field.
+  A `first` dialer whose Mac answers `ready` (a build before relay first)
+  lets the early join go and keeps the 3 s rule.
 - **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
   own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
@@ -749,6 +780,26 @@ split wins.
   join and talk exactly as before, and an older Worker's relay object that
   answers the prewarm with `426` is created all the same. A prewarmed object
   holds no socket and no storage, so it is evicted soon after if nobody joins.
+- **Central pick (RFD 0142 O2, added 2026-11-25, server-only, off by
+  default, no version change):** with the Worker var
+  `LINK_RELAY_CENTRAL_PICK=on`, the user's hub learns where relays actually
+  ran fast, after Google Espresso. It keys a network pair on both ends'
+  AS number and ingress colo (`asn@colo>asn@colo`, phone first; no user,
+  device or address) and keeps, per pair and region, a moving average of the
+  relayed link's median round trip from the phone's existing `link_stat`
+  (`path: "https-relay"`, at least 3 samples; credited only when the phone's
+  placements in the last 30 minutes all went to one pair and region). The
+  prewarm then places the relay by the Rust pick
+  (`rust/crates/cmux-region-pick`, loaded as wasm): a learned region scores
+  what it measured, an unmeasured one its estimate plus the pair's least
+  learned-minus-estimate gap (at most 60 ms), and the pair moves off its
+  last region only for one at least max(10 ms, 20 %) faster, the margin
+  `relay_rank.rs` uses for TURN. With nothing learned, or a pair with no AS
+  number, the placement is exactly the one above. At most 64 pairs per user
+  are kept, and a row unseen for 7 days is dropped. Off (the default) the hub
+  creates no table and places as before. No frame, field, header or status
+  is new: old phones' `link_stat` feeds it as is, and an extra field in it is
+  ignored as before.
 
 ### When no path works
 
@@ -1174,6 +1225,50 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+
+  Since 2026-11-24, a resumable upload may add `upload_id` and `offset`.
+  `upload_id` is exactly 36 lowercase hexadecimal or `-` characters, and
+  `offset` is a byte offset represented as a number or decimal string, default
+  zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
+  in place of the link session so the same phone can resume after redial.
+  The host keeps the partial file at
+  `<upload-folder>/.parts-<SHA-256 of lowercase phone device ID>/.<upload_id>.part`.
+  The staging directory is private (0700), cannot be a symlink, and remains
+  inside the authorized upload folder even if that folder resolves to an alias.
+  Only the same authenticated phone can resume it across link sessions.
+  The host truncates the part to `offset`, and first answers `{"have":offset}\n`. If the
+  requested offset is past the partial file, it answers
+  `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
+  within the part but beyond the declared size closes `bad_request`.
+  Data is acknowledged with `{"ack":bytes}\n` after each MiB and when the
+  stream stops. An ack is durable: the host syncs the partial file to disk
+  before it sends one, so a Mac crash never loses acknowledged bytes. An overlapping attempt that still finds the part busy after
+  two seconds closes `busy`. Once `size` bytes are present, the host flushes
+  and syncs the last unsynced bytes (at most one MiB), publishes it under the safe name, and answers
+  `{"path","size"}\n` before closing `eof`. A link close or a 120-second
+  period without data keeps the partial file. The latter answers its last ack
+  and closes `stalled`. Receiving more than `size` bytes deletes the partial
+  file and closes `bad_request`. Resumable replies are one JSON object per
+  newline-terminated line. The host removes resumable parts older than 24 hours
+  when it next opens the device's staging folder. Completed uploads retain a
+  private `.done` receipt for the same retention period. A retry of the same ID,
+  name and size receives `{"have":size}` and the original path without publishing
+  another file. A changed or removed published file is refused; the receipt never
+  authorizes a replacement file at that path. Uploads without `upload_id` retain the
+  legacy reply framing and interruption behavior.
+  Since 2026-11-24 a resumable upload may also carry `sha256`: the whole file's
+  SHA-256, 64 hexadecimal characters (either case; anything else closes
+  `bad_request`). The host keeps an index of the finished uploads of each upload
+  folder, `<device-staging>/.sha256-<folder name>/<sha256>`, one file per hash naming the
+  stored file. When the index names a file that is still a regular file in that
+  folder with `size` bytes and the same SHA-256 (the host hashes it again), the
+  host answers `{"path","size","deduped":true}\n` at once, before any `have`,
+  and closes `eof` without reading data; it removes this upload's part. A stale
+  entry is removed and the upload proceeds as usual. The phone sends `sha256`
+  and waits up to 3 seconds for the host's first reply before its first byte; a
+  host that ignores the field answers `have` as above, and one older still
+  (no first reply) is sent the file from byte 0 after the wait. The index is
+  scoped to one upload folder, so a phone never learns of another phone's files.
 - `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
   upload or a file open as sealed, content-defined chunks (cmux-tui
   `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
@@ -1445,7 +1540,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
   "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
   `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
-  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+  the phone's receive, (c) `phone_paint` receive to present, and `total`. It answers the
+  same join on the channel, as `{"kind": "paint-summary", ...}` with `offset_error_ms` (half
+  the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
+  `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
+  line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the
@@ -1477,6 +1576,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
   paired; it skips bytes it sent last for that tab and part, and resends the newest of each
   to a new hostd.
+- `live-code` (2026-11-23, ios-dev-channels step 4): Swift live code patches for a DEBUG cmux Dev
+  phone (`live_code.rs`). The host watches its live folder (`CMUX_MOBILE_LIVE_CODE_DIR`, default
+  `~/Library/Caches/cmux-live-code/ios-device`, filled by `scripts/live-code/ios-device.sh patch`)
+  and sends each entry made after the channel opened, in name order: a data frame
+  `{"name","bytes","sha256"}` (a `*.dylib` patch, or a `*.rollback` / `*.rollback-all` undo with
+  `bytes` 0), then exactly `bytes` raw bytes in frames of at most 64 KiB (a patch is at most
+  64 MiB). Each data frame the phone sends is one line of its live code log; the host appends it
+  to the folder's `live-code.log`. The host checks nothing about the code: the phone opens the
+  service only in a DEBUG dev build launched with `CMUX_LIVE_CODE_LINK=1` and loads only a patch
+  signed by its own team. Machines are never offered it.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it

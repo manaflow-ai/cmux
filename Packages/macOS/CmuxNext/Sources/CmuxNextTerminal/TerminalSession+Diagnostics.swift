@@ -89,6 +89,10 @@ extension TerminalSession {
         return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
     }
 
+    /// The surface exists and got a replay or output: what the frame-timing log's blank signal reads of a terminal
+    /// (`blank_first_frame`). Two reads, no Ghostty call (``diagnostics`` makes several).
+    public var showsContent: Bool { surfaceView.surface != nil && surfaceHasContent }
+
     public var diagnostics: TerminalSurfaceDiagnostics {
         let surface = surfaceView
         return TerminalSurfaceDiagnostics(

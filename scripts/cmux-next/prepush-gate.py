@@ -127,6 +127,10 @@ caller, or gives a listed one a caller without `--update` is refused; an export 
 (Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
 header, the baseline, the checker or a Swift line naming a cmux_/acpmux_ function: a push that only moves the pin
 (the re-pin bot's, or one by hand) is not judged. The fast gates' --advisory pass warns.
+Also on every local run: "Panic ratchet allow reasons" (panic_allow_reasons): CI's Rust panic ratchet's own source scan
+(rust_panic_ratchet.py allow_without_reason) over the cmux-tui crate and binding files the push changes, at HEAD: an
+allow of the ratchet's lints without `reason =` (or an expect of them) is refused, a base one in a touched file too,
+as CI refuses it; the counting half of that ratchet needs a clippy build and stays CI's.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -557,6 +561,24 @@ RATCHET_BASELINES = {
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
     "visible-only-baseline.tsv": ((0, 1), 2),
 }
+
+
+def classic_ids_text(text: str) -> str:
+    """A classic-ids row's text in the trimmed form check-state-roots.sh keys on (cmux#55211): the character after
+    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (the matched text with its
+    trailing quote, slash or comma kept) and the trimmed ones then key the same, so an installed copy of either form
+    never reads the other's rows as deleted and its hits as new (2026-11-25: #55211 was refused for ~60 such rows)."""
+    if text.startswith("com.cmuxterm.app"):
+        return "com.cmuxterm.app"
+    if re.match(r"(\.config|\.local|Library|\.cache)", text):
+        return re.sub(r"cmux.$", "cmux", text)
+    if not text.startswith("/tmp/"):
+        return re.sub(r"[,)]$", ")", text)
+    return text
+
+
+# A ratchet baseline whose key text has more than one written form: file -> {key column: its one form}.
+RATCHET_KEY_FORMS = {"classic-ids-baseline.tsv": {1: classic_ids_text}}
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
 # finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
@@ -778,7 +800,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
     for name, (keys, count) in RATCHET_BASELINES.items():
-        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count, name) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
     files = {p for p in files if p.startswith(CHANGED_SCOPES)}
@@ -1616,14 +1638,17 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
     return found
 
 
-def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
-    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
-    rows = {}
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int, name: str = "") -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows. NAME's
+    RATCHET_KEY_FORMS bring each key to its one form, and rows that then share a key add up."""
+    forms = RATCHET_KEY_FORMS.get(name, {})
+    rows: dict[tuple[str, ...], int] = {}
     for line in text.splitlines():
         parts = line.split("\t")
         if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
             continue
-        rows[tuple(parts[i] for i in keys)] = parse_tool_int(parts[count], "ratchet count")
+        key = tuple(forms[i](parts[i]) if i in forms else parts[i] for i in keys)
+        rows[key] = rows.get(key, 0) + parse_tool_int(parts[count], "ratchet count")
     return rows
 
 
@@ -1703,19 +1728,24 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict
         own = texts.get(f"{rev}:{SCRIPTS}/{name}")
         if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count, name)
         installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        carried = carry_renamed_rows(installed_lines, moved or {}, lambda line: _ratchet_rows(line, keys, count),
+        carried = carry_renamed_rows(installed_lines, moved or {},
+                                     lambda line: _ratchet_rows(line, keys, count, name),
                                      set(k[0] for k in pushed), count)
         taken += [f"{name}: {note}" for note in carried[1]]
         lines, changed = [], bool(carried[1])
+        # Installed rows that share a key (two written forms of one text) share the push's count: each takes what
+        # is left of it, in file order.
+        left = dict(pushed)
         for line in carried[0]:
-            row = _ratchet_rows(line, keys, count)
+            row = _ratchet_rows(line, keys, count, name)
             if not row:
                 lines.append(line)
                 continue
             (key, installed), = row.items()
-            now = pushed.get(key, 0)
+            now = min(installed, left.get(key, 0))
+            left[key] = left.get(key, 0) - now
             if now >= installed:
                 lines.append(line)
                 continue
@@ -1787,6 +1817,52 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
             f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
             "`Crash-allow-OK: <reviewer or review id>` trailer"
             for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+
+
+PANIC_ALLOW_CHECK = "Panic ratchet allow reasons (rust_panic_ratchet.py: an allow of its lints says reason = \"...\")"
+PANIC_RATCHET_SCRIPT = SCRIPTS + "/rust_panic_ratchet.py"
+PANIC_ALLOW_SCOPES = ("cmux-tui/crates/", "cmux-tui/bindings/")
+PANIC_ALLOW_HINT = ("Panic ratchet allow reasons: give each listed `#[allow(clippy::<lint>)]` its "
+                    "`reason = \"why it cannot panic\"` (and use allow, not expect, for these lints). CI's Rust panic "
+                    "ratchet fails a reasonless allow in any file the change touches, the base's own included.")
+
+
+def panic_allow_reasons(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """The reasonless (or `expect`) allows of the panic ratchet's lints in the Rust files the push changes, as CI's
+    Rust panic ratchet (rust_panic_ratchet.py allow_without_reason, its own code) reports them at HEAD.
+
+    That half of the ratchet reads source text only, while its counting half needs a cmux-tui clippy build, so CI was
+    the first to say it: in a 2026-11-26 sample of 83 merged cmux PRs, 3 of 35 that took past an hour made a later
+    commit only to add a reason (#47140, #55721, #54225). CI fails such an allow in any file the change touches, a
+    base allow too (#56273 spared only untouched files), so this does as well: the push's own files are the change's.
+    """
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", base, head, "--",
+                *PANIC_ALLOW_SCOPES).decode("utf-8", "surrogateescape").split("\0")
+    rust = [p for p in names if p.endswith(".rs")]
+    if not rust:
+        return []
+    script = check_script(repo, head, PANIC_RATCHET_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than the ratchet
+    with tempfile.TemporaryDirectory(prefix="cmux-panic-allow-") as tmp:
+        root = absolute(Path(tmp))
+        check = root / "rust_panic_ratchet.py"
+        check.write_bytes(script)
+        spec = importlib.util.spec_from_file_location("cmux_panic_allow_" + hashlib.sha256(script).hexdigest()[:12],
+                                                      check)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "allow_without_reason"):
+            return []  # an older ratchet without the scan
+        tree = root / "tree"
+        for path in rust:
+            blob = blob_at(repo, head, path)
+            if blob is None:
+                continue
+            target = tree / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+        return list(module.allow_without_reason(str(tree)))
 
 
 STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
@@ -3653,6 +3729,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
         if rewritten:
             reserved.append((XCSTRINGS_CHECK, rewritten))
+    # Local only, like the Cargo.lock check: CI's Rust panic ratchet stays the backstop. Source text only, the
+    # changed Rust files at HEAD, milliseconds.
+    if (highlights_layer if only is None else "panic-allow" in only) and restrict is None and want(PANIC_ALLOW_CHECK):
+        reasonless = panic_allow_reasons(repo, base, head, trusted_scripts)
+        if reasonless:
+            reserved.append((PANIC_ALLOW_CHECK, reasonless))
     if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -4460,7 +4542,7 @@ def _main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,panic-allow,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds,reusable-perms,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
@@ -4662,6 +4744,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
+    if any(name == PANIC_ALLOW_CHECK for name, _ in found_any):
+        print(PANIC_ALLOW_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
     if any(name == REDEFINITION_CHECK for name, _ in found_any):

@@ -101,6 +101,66 @@ fn git_in(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 
+#[test]
+fn carry_lists_worktrees_and_submodules_without_packing_subfolders() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-qm", "init"]);
+
+    // A supported root still publishes its carried pack.
+    let carry = projection_carry(&repo).expect("ordinary repository carries by default");
+    let listed = list_with_carry(&repo, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+    drop(carry);
+
+    let worktree = root.join("worktree");
+    git_in(&repo, &["worktree", "add", "--detach", worktree.to_str().unwrap()]);
+    git_in(
+        &repo,
+        &["-c", "protocol.file.allow=always", "submodule", "add", repo.to_str().unwrap(), "module"],
+    );
+    for at in [worktree, repo.join("module")] {
+        assert!(at.join(".git").is_file());
+        let carry = projection_carry(&at).expect("linked repositories carry by default");
+        let listed = list_with_carry(&at, Some(&carry)).unwrap();
+        assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+        assert!(listed.manifest.resolve(".git/cmux-carry.base").is_some());
+        // The listing expands the gitfile into a standalone repository before carry
+        // adds its entries, so those entries never appear beneath a manifest file.
+        let git = listed.manifest.resolve(".git").unwrap();
+        assert_eq!(listed.manifest.entry(git).unwrap().kind, Kind::Dir);
+    }
+    let subfolder = repo.join("src");
+    assert!(projection_carry(&subfolder).is_none());
+    assert!(list(&subfolder).is_err(), "preserve the listing's existing root-only contract");
+}
+
+#[test]
+fn carry_skips_bare_repositories_without_a_worktree_git_directory() {
+    let folder = tempfile::tempdir().unwrap();
+    let bare = folder.path().join("bare");
+    git_in(&folder.path(), &["init", "--bare", bare.to_str().unwrap()]);
+
+    // A bare repository resolves HEAD for Git, but the projection listing treats it as a plain
+    // folder. Carry must follow that same classification and never add a synthetic `.git` path.
+    assert!(projection_carry(&bare).is_none());
+
+    let carry_root = tempfile::tempdir().unwrap();
+    let base_path = carry_root.path().join("carry.base");
+    let pack_path = carry_root.path().join("carry.pack");
+    std::fs::write(&base_path, "0".repeat(40)).unwrap();
+    std::fs::write(&pack_path, b"pack").unwrap();
+    let carry = CarryFiles { base_path, pack_path, folder: carry_root.path().to_path_buf() };
+    let listed = list_with_carry(&bare, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.base").is_none());
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_none());
+}
+
 /// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a
 /// repository tracks is listed with its real stat and why, and its bytes are refused; an untracked
 /// secret is still not listed at all.
