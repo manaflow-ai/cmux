@@ -1011,7 +1011,12 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { facts: PathBuf },
+    RouteDeath {
+        session: Option<String>,
+        facts: Option<PathBuf>,
+        #[arg(long)]
+        show_facts: bool,
+    },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1681,7 +1686,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Undelete { session } => Command::Undelete { session },
             SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Route { session, facts, show_facts } => {
+                Command::RouteDeath { session, facts, show_facts }
+            }
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),

@@ -23,6 +23,7 @@ pub mod command_host;
 pub mod command_new;
 pub mod command_session;
 pub(crate) mod consent_admin;
+pub mod consent_grant;
 pub mod daemon_felt;
 pub mod daemon_placement;
 pub mod daemon_service;
@@ -54,6 +55,8 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod host_pipe;
 pub(crate) mod host_sandbox;
 pub mod host_ssh_key;
 pub mod host_steps;

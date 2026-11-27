@@ -115,6 +115,8 @@ class CloudChatProofTests(unittest.TestCase):
                     value = {"removed": "conn-proof"}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
+                elif words == ["vm", "token", "revoke", "--json"]:
+                    value = {"revoked": True, "removed": True}
                 elif words == ["cloud", "start-chat", "--help"]:
                     # The Rust start-chat (#55501) lists no --login; an older app's CLI does.
                     value = "usage: cmux cloud start-chat [--prompt TEXT]" + (" [--login MODE]" if cli_takes_login else "")
@@ -245,6 +247,9 @@ class CloudChatProofTests(unittest.TestCase):
                 chat_index = next(index for index, words in enumerate(calls)
                                   if words[:2] == ["cloud", "start-chat"])
                 self.assertLess(max(index for index, words in enumerate(calls) if words == auth), chat_index)
+                self.assertEqual(steps["revoke VM token"]["exit"], 0)
+                self.assertLess(calls.index(["vm", "token", "revoke", "--json"]),
+                                calls.index(["app", "quit", "--json"]))
                 self.assertEqual(calls[-1], ["app", "quit", "--json"])
                 self.assertEqual(steps["app exited"]["exit"], 0)
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
