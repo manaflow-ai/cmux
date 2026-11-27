@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLayout
@@ -22,6 +23,14 @@ extension DebugMouse {
         guard let controller, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane else { return .object(["error": .string("no Chromium page window for pane")]) }
         if let inTree = DebugKey.inTreePageView(of: pane, in: controller), let window = controller.window {
             return clickInTreePage(inTree, in: window, params: params, windowID: controller.state.id)
+        }
+        // MEASUREMENT BRANCH ONLY (remote-cocoa click probe): a remote Cocoa page of the Chromium host prototype, whose
+        // own RenderWidgetHostViewCocoa is in this window over the pane (`debug.chromium_host open remote`).
+        if let window = controller.window,
+           let remote = controller.content?.paneController(key: pane)?.view.contentHost.subviews
+               .compactMap({ $0 as? ChromiumHostPageView }).first(where: { $0.pageKeyView != nil }),
+           let key = remote.pageKeyView {
+            return clickInTreePage(key, in: window, params: params, windowID: controller.state.id)
         }
         guard let page = DebugKey.pageWindow(of: pane, in: controller), let content = page.contentView else {
             return .object(["error": .string("no Chromium page window for pane")])

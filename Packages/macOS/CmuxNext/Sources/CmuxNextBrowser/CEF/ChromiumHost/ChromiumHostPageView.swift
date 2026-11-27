@@ -31,7 +31,12 @@ public final class ChromiumHostPageView: NSView {
     private var lastProbeChain = ""
     /// Remote Cocoa: the page's views go into ``remoteContainer``; nothing is forwarded.
     var remoteCocoa = false {
-        didSet { if remoteCocoa, remoteContainer.superview == nil { addSubview(remoteContainer) } }
+        didSet {
+            if remoteCocoa, remoteContainer.superview == nil { addSubview(remoteContainer) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if remoteCocoa { ChromiumRemoteClickProbe.installIfEnabled() }
+            #endif
+        }
     }
     /// Remote Cocoa: a subview arrived (the page's `WebContentsViewCocoa`).
     var onPageView: ((NSView) -> Void)? {
@@ -212,6 +217,11 @@ public final class ChromiumHostPageView: NSView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if remoteCocoa, ChromiumRemoteClickProbe.isEnabled {
+            ChromiumRemoteClickProbe.log("page_view_mouse_down", event, " dropped=1 (remote mode forwards nothing)")
+        }
+        #endif
         window?.makeFirstResponder(self)
         mouse(event, phase: 1, button: 0)
     }
