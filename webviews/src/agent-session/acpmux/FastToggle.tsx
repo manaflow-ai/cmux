@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { DisclosureChevron } from "./DisclosureFace";
 import { BoltIcon } from "./BoltIcon";
 
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -69,7 +70,7 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
       {!inline && (
         <Menu>
           <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
-            ⌄
+            <DisclosureChevron />
           </MenuButton>
           <MenuPopup className="acpmux-menu" label={label}>
             <MenuRadioGroup value={speed.current ?? speed.off} onValueChange={speed.onPick}>

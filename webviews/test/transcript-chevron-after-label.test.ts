@@ -5,7 +5,10 @@
 //
 // Measured in Chromium over the transcript gallery scenes, at a wide and a narrow pane:
 // - every laid-out chevron (an opened group's inner steps too, whose chevron shows on hover) starts
-//   within MAX_GAP px of the right edge of the last visible words before it on its line;
+//   between MIN_GAP and MAX_GAP px after the right edge of the last visible words before it on its line
+//   (never on the words: Leo, 2026-11-27, on a sender's chip and machine with the chevron touching
+//   them, "these chevrons are too close dont we have any guidelines for these yet?";
+//   design/disclosure-chevron.md);
 // - a closed chevron's glyph is taller than wide (it points right), an open one's wider than tall
 //   (it points down).
 //
@@ -20,6 +23,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   setDefaultTimeout(240_000);
   /** The farthest a chevron's glyph may start after its words, in CSS px. */
   const MAX_GAP = 8;
+  /** The nearest a chevron's glyph may start after its words, in CSS px (design/disclosure-chevron.md). */
+  const MIN_GAP = 3;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
   const SCENES: { entry: string; variant: string }[] = [
     { entry: "agent-pane.transcript-system-rows", variant: "leo-capture" },
@@ -33,6 +38,11 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     // count, SendMessage rows to long names, a bot's received line and a received pair.
     { entry: "agent-pane.message-line-look", variant: "leo-capture" },
     { entry: "agent-pane.message-line-look", variant: "single" },
+    // Shut-and-stacked and opened lines: the toggle holds no words, so the chevron follows the
+    // sentence's last box, a link chip or bare words (a machine, "· and 7 more commands"); before
+    // 2026-11-27 an opened one drew it on the last letter (design/disclosure-chevron.md).
+    { entry: "agent-pane.message-line-look", variant: "stacked" },
+    { entry: "agent-pane.message-line-look", variant: "opened" },
     // An opened lead thought: its own first line and its chevron right after it (cmux#27896 parked it
     // at the row's far edge).
     { entry: "agent-pane.claude-desktop-organization", variant: "shared" },
@@ -206,10 +216,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       test(`${name}: has disclosure chevrons to measure`, async () => {
         expect((await of(scene, width)).length).toBeGreaterThan(0);
       });
-      test(`${name}: every chevron starts within ${MAX_GAP}px after its words`, async () => {
+      test(`${name}: every chevron starts ${MIN_GAP}-${MAX_GAP}px after its words`, async () => {
         // After its label's words, never after a trailing status or duration at the line's end.
         const far = (await of(scene, width)).filter(
-          ({ gap, trail }) => trail || gap === null || gap < -0.5 || gap > MAX_GAP + 0.5,
+          ({ gap, trail }) => trail || gap === null || gap < MIN_GAP - 0.5 || gap > MAX_GAP + 0.5,
         );
         expect(far).toEqual([]);
       });

@@ -55,3 +55,40 @@
   align-items: center;
   gap: 2px;
 }
+
+/* DISCLOSURE FACE (design/disclosure-chevron.md): every label + chevron control (a menu trigger, a
+   picker chip, a fold) draws its words and its chevron through this one pair, so the room between
+   them is one number everywhere. Leo, 2026-11-27, on two chips whose chevrons touched their names:
+   "these chevrons are too close dont we have any guidelines for these yet?". The chevron is the
+   registry's `disclosure.expanded` at a fixed size (its box, not a font's glyph, so its side bearing
+   never changes), one spacing step (--ds-space-1) after the label's box; the label gives up its
+   width first and ends in an ellipsis, the chevron never shrinks, so it is never cut or drawn over
+   the words. test/disclosure-chevron-gap.test.ts measures every one in the gallery. */
+:root {
+  --ui-disclosure-gap: var(--ds-space-1, 4px);
+  --ui-disclosure-chevron: 12px;
+}
+.ui-disclosure-face {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-disclosure-gap);
+  min-width: 0;
+  max-width: 100%;
+}
+.ui-disclosure-face__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-disclosure-chevron {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--ui-disclosure-chevron);
+  height: var(--ui-disclosure-chevron);
+}
+.ui-disclosure-chevron > svg {
+  width: 100%;
+  height: 100%;
+}

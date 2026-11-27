@@ -1,0 +1,45 @@
+.dface-stage {
+  display: grid;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui, system-ui);
+  font-size: 13px;
+}
+.dface-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.dface-caption {
+  width: 120px;
+  flex: none;
+  color: var(--cmux-text-secondary, GrayText);
+  font-size: 11px;
+}
+.dface-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentcolor 8%, transparent);
+  color: inherit;
+  font: inherit;
+}
+.dface-chip[data-cap] { max-width: 120px; }
+.dface-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  margin-inline-end: var(--ds-space-1);
+  border-radius: 7px;
+  background: color-mix(in srgb, currentcolor 10%, transparent);
+}
+.dface-muted { color: var(--cmux-text-secondary, GrayText); }
+/* The old text glyph, as the chips drew it before (the "before" row). */
+.dface-old-chevron { margin-inline-start: 4px; line-height: 1; }

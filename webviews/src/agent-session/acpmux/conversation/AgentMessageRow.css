@@ -136,14 +136,32 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--cv-text);
 }
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
-   takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
-   chip, as after any row's words (transcript-chevron-after-label). */
+   takes back the line's gap before it, so the chevron sits right after what ends the sentence, as
+   after any row's words (transcript-chevron-after-label), its ink the transcript's room after the
+   last letter (design/disclosure-chevron.md). Leo, 2026-11-27, on an opened sender chip and a
+   send's "· and 7 more commands" with the chevron on their last letter: "these chevrons are too
+   close dont we have any guidelines for these yet?". The pull used to assume a chip ended the
+   sentence and took its end padding as room too, so after bare words (a machine, "and 7 more
+   commands") it drew the chevron on them. Now bare words are the default, and only a link chip
+   that ends the sentence (its 4px end padding already room) takes one step more. */
 .acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+  margin-inline-start: calc(-1 * var(--grid-gap));
 }
-/* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
+/* Opened, the turned chevron's ink is wider and starts half a step sooner: half a step less pull. */
 .acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 1.5 * var(--ds-space-1));
+  margin-inline-start: calc(-1 * var(--grid-gap) + 0.5 * var(--ds-space-1));
+}
+.acpmux-row
+  .cv-agentmsg:not([data-open])
+  :is(button.cv-agent-tag.is-open, .cv-received__sender:not(:has(> .cv-received__host)):has(> button.cv-agent-tag.is-open))
+  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - var(--ds-space-1));
+}
+.acpmux-row
+  .cv-agentmsg.cv-received[data-open]
+  :is(button.cv-agent-tag.is-open, .cv-received__sender:not(:has(> .cv-received__host)):has(> button.cv-agent-tag.is-open))
+  + .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */

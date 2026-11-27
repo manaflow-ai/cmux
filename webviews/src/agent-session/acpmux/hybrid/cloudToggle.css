@@ -317,11 +317,10 @@ button.acpmux-hybrid-tri__name {
   color: var(--agent-text);
 }
 
-/* The name as the slot holders' menu button (every slot taken): a quiet chevron after it. */
-.acpmux-hybrid-tri__chevron {
-  margin-inline-start: 4px;
+/* The name as the slot holders' menu button (every slot taken): a quiet chevron after it, one
+   --ui-disclosure-gap after the words (DisclosureFace, design/disclosure-chevron.md). */
+.acpmux-hybrid-tri__name .ui-disclosure-chevron {
   color: var(--agent-muted);
-  line-height: 1;
 }
 .acpmux-hybrid-holder {
   display: flex;
