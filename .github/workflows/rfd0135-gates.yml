@@ -37,6 +37,9 @@ on:
       - scripts/cmux-next/rfd0135_gates.py
       - tests/test_rfd0135_gates.py
       - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
+      - cmux-tui/crates/cmux-tui/tests/phone_direct_gate.rs
+      - cmux-tui/crates/cmux-cloud-phone-acp/**
+      - cmux-tui/crates/cmux-tui/src/link/phone_chat.rs
       - .github/workflows/rfd0135-gates.yml
 
 permissions:
@@ -80,18 +83,14 @@ jobs:
           persist-credentials: false
           submodules: false
       - name: Initialize Ghostty protocol submodules
-        if: matrix.gate != 'phone'
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
-        if: matrix.gate != 'phone'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
-        if: matrix.gate != 'phone'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
-        if: matrix.gate != 'phone'
         id: ghostty-zig-version
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -101,13 +100,11 @@ jobs:
           [[ -n "$version" ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Set up Zig for Ghostty
-        if: matrix.gate != 'phone'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
-        if: matrix.gate != 'phone'
         uses: ./.github/actions/zig-global-cache
       - name: Gate ${{ matrix.gate }}
         if: matrix.gate != 'move' || github.event_name == 'schedule' || inputs.move_matrix
