@@ -84,6 +84,38 @@ describe("a provider rate limit or overload", () => {
   });
 });
 
+// Production 2026-11-27: Freestyle answered `POST /v5/vms/<id>/start` with
+// 409 CONFLICT "start did not complete successfully (current state: Stopped)"
+// (or "Paused") on 10 machines, in the same minutes as PLACEMENT_REJECTED
+// "memory headroom exhausted" and 429 INFRASTRUCTURE_OVERLOADED for the same
+// machines. Freestyle documents start's 409 as "no capacity is available"
+// (the other case, an ephemeral machine deleted at shutdown, answers not
+// found). Each was answered as the generic 502 "temporarily unavailable"
+// with the provider's "conflict" text, and the Mac app retried one 32 vCPU
+// machine's resume every ~2 minutes for over 3 hours. Nothing was lost: the
+// machine and its disk are where they were, and the same resume can succeed
+// once the provider has room.
+describe("a start the provider could not complete", () => {
+  const startDidNotComplete = (state: string) => () => new FreestyleApiError(409, {
+    code: "CONFLICT",
+    message: `conflict: vm vm-1 start did not complete successfully (current state: ${state})`,
+  });
+  const refusals: Array<[string, () => FreestyleApiError]> = [
+    ["the machine stayed stopped", startDidNotComplete("Stopped")],
+    ["the machine stayed paused", startDidNotComplete("Paused")],
+  ];
+  test.each(refusals)("a resume refused because %s answers the retryable capacity 503", async (_label, refusal) => {
+    const provider = providerWith({ start: async () => { throw refusal(); } });
+    const cause = await failure(() => provider.resume("vm-1"));
+    const { response, payload } = await answer("resume", cause);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(payload).toMatchObject({ error: "vm_provider_capacity", retryable: true, phase: "resume" });
+    expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable|conflict:/i);
+    expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
+  });
+});
+
 describe("a machine-state conflict", () => {
   test("an exec on a machine that is still starting answers 409 with a wait-and-retry action", async () => {
     const provider = providerWith({ exec: async () => { throw stillStarting(); } });
