@@ -8,7 +8,7 @@
 # pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
-#     [--painter react|dom-floor|worker|native]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
+#     [--painter react|dom-floor|worker|native] [--history-rows N]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -28,10 +28,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
+    --seconds|--rate|--log|--warm|--painter|--history-rows) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--history-rows N]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then

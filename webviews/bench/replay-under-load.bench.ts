@@ -32,7 +32,8 @@
 //                           are then the worker's frames and react_frame_p95_ms the pane's, in the same run)
 //                           or native (the real pane with Experiments `nativeTranscript` on: the Rust transcript's
 //                           Worker, nativeTranscript/, paints the viewport; frame_* are its frames, as for worker)
-//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]
+//   history_rows            --history-rows N: the rows the chat already held when it opened (0: attached empty)
+//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--history-rows N]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -41,7 +42,7 @@ import path from "node:path";
 import { chromium } from "./browsers";
 import type { CDPSession } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
-import { parseLog, type ReplayLog } from "./replayLogs";
+import { longLog, parseLog, rowsIn, type ReplayLog } from "./replayLogs";
 import { printProfile, type CpuProfile } from "./support/profile";
 import { DOM_FLOOR_HTML, PAINTER_WORKER_JS, workerOverlay } from "./support/viewportPainter";
 
@@ -63,6 +64,9 @@ const PROFILE = argv.includes("--profile");
 /// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
 const TRACE = flag("--trace");
 const PAINTER = flag("--painter") ?? "react";
+/// --history-rows N: the chat is open on N rows already (longLog's finished turns, served in the attach), and the
+/// recorded log then streams live on top of them: the "100k-row chat open under load" case. 0 (default) attaches empty.
+const HISTORY_ROWS = Number(flag("--history-rows") ?? 0);
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -72,10 +76,11 @@ const BUCKETS = 1000;
 const FLUSH_WAIT_MS = 6_000;
 if (
   ![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0) ||
+  !(Number.isInteger(HISTORY_ROWS) && HISTORY_ROWS >= 0) ||
   !["react", "dom-floor", "worker", "native"].includes(PAINTER)
 ) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker|native]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker|native] [--history-rows N]",
   );
   process.exit(2);
 }
@@ -119,6 +124,7 @@ type Reading = {
   scenario: string;
   log: string;
   log_records: number;
+  history_rows: number;
   rate: number;
   seconds: number;
   records: number;
@@ -145,12 +151,41 @@ async function taskSeconds(cdp: CDPSession): Promise<number> {
   return metrics.find((m) => m.name === "TaskDuration")?.value ?? 0;
 }
 
+/// The log with `rows` rows of finished history before it (pure): longLog's turns, then the log's records renumbered
+/// after them into the history's session, so the attach serves the history and the replay streams the log live.
+/// `live` is how many records the replay streams.
+export function withHistory(log: ReplayLog, rows: number): ReplayLog & { live: number } {
+  if (rows <= 0) return { ...log, live: log.events.length };
+  const sample = longLog({ turns: 200, checkpoints: [] });
+  const perTurn = rowsIn(sample.events) / 200;
+  let base = longLog({ turns: Math.ceil(rows / perTurn), checkpoints: [] });
+  for (let turns = Math.ceil(rows / perTurn); rowsIn(base.events) < rows; turns += Math.ceil(turns / 50))
+    base = longLog({ turns, checkpoints: [] });
+  const offset = base.events.length;
+  const lastAt = base.events[offset - 1]?.at ?? 0;
+  const firstAt = log.events[0]?.at ?? 0;
+  const live = log.events.map((event, index) => ({
+    ...event,
+    sessionId: base.sessionId,
+    seq: offset + index + 1,
+    at: lastAt + 60_000 + (event.at - firstAt),
+    msg:
+      event.msg && typeof event.msg === "object" && "params" in (event.msg as Record<string, unknown>)
+        ? JSON.parse(
+            JSON.stringify(event.msg).replaceAll(JSON.stringify(log.sessionId), JSON.stringify(base.sessionId)),
+          )
+        : event.msg,
+  }));
+  return { ...base, name: `${log.name} after ${rows} rows`, events: [...base.events, ...live], live: live.length };
+}
+
 async function run(): Promise<Reading> {
-  const log: ReplayLog = parseLog(path.basename(LOG_FILE), fs.readFileSync(LOG_FILE, "utf8"));
+  const log = withHistory(parseLog(path.basename(LOG_FILE), fs.readFileSync(LOG_FILE, "utf8")), HISTORY_ROWS);
+  const history = log.events.length - log.live;
   const releases: (() => unknown)[] = [];
   try {
     // ---------- the stand-in acpmux: serves the session, keeps the frame tally the page sends ----------
-    let served = 0;
+    let served = history;
     let status = "running";
     // Every attached socket gets the records: the worker arm's painter attaches beside the pane.
     const sockets = new Set<{ send(data: string): void }>();
@@ -202,6 +237,8 @@ async function run(): Promise<Reading> {
         return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
+        // A --history-rows attach answer is one message of hundreds of MB (Bun's default cap is 16 MB).
+        maxPayloadLength: 1 << 30,
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as {
             id?: number;
@@ -397,7 +434,8 @@ async function run(): Promise<Reading> {
       schema: "replay-under-load/v1",
       scenario: `replay ${log.name} at ${RATE} records/s, ${SECONDS} s window${PAINTER === "react" ? "" : `, painter ${PAINTER}`}`,
       log: log.name,
-      log_records: log.events.length,
+      log_records: log.events.length - history,
+      history_rows: HISTORY_ROWS > 0 ? rowsIn(log.events, history) : 0,
       rate: RATE,
       seconds: SECONDS,
       records: sent,
