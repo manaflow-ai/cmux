@@ -5378,6 +5378,137 @@
         }
       }
     },
+    "browser.permission.clipboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to see text and images on your clipboard."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がクリップボードのテキストと画像へのアクセスを求めています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte Text und Bilder in Ihrer Zwischenablage sehen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite accéder au texte et aux images de votre presse-papiers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ الاطّلاع على النصوص والصور في الحافظة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere ver el texto y las imágenes de tu portapapeles."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要查看剪貼板中的文字和圖片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要查看剪贴板中的文字和图片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 클립보드의 텍스트와 이미지를 보려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ želi vidjeti tekst i slike u vašem međuspremniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vil se tekst og billeder i din udklipsholder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vuole vedere il testo e le immagini negli appunti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ចង់មើលអត្ថបទ និងរូបភាពនៅក្នុងក្ដារតម្បៀតខ្ទាស់របស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vil se tekst og bilder på utklippstavlen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chce zobaczyć tekst i obrazy w Twoim schowku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quer ver o texto e as imagens na sua área de transferência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хочет просматривать текст и изображения в буфере обмена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ต้องการดูข้อความและรูปภาพในคลิปบอร์ดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ panonuzdaki metin ve resimleri görmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хоче переглядати текст і зображення у вашому буфері обміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ muốn xem văn bản và hình ảnh trong bảng nhớ tạm của bạn."
+          }
+        }
+      }
+    },
     "browser.permission.location": {
       "extractionState": "manual",
       "localizations": {

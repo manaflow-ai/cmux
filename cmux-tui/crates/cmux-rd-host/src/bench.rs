@@ -118,6 +118,8 @@ enum Arrived {
     /// carrier (bench_rx.rs), the read time on the others.
     Datagram(Vec<u8>, u64),
     Closed(String),
+    /// The link has a current path again (after none answered): feedback goes at once.
+    PathBack,
 }
 
 impl ViewerIo {
@@ -200,11 +202,19 @@ impl ViewerIo {
                             link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
-                        NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
+                        NetEvent::Endpoint(EndpointEvent::PathChanged {
+                            route,
+                            kind,
+                            rtt_us,
+                            ..
+                        }) => {
                             eprintln!(
                                 "{}",
                                 json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
                             );
+                            if route.is_some() {
+                                out.push(Arrived::PathBack);
+                            }
                         }
                         _ => {}
                     }
@@ -647,6 +657,12 @@ impl Viewer {
                 }
                 Arrived::Closed(reason) => {
                     self.ended.get_or_insert(reason);
+                    continue;
+                }
+                // The host learns the path is back from the first feedback after the
+                // silence (D12): send it now rather than at the next keepalive.
+                Arrived::PathBack => {
+                    self.last_feedback_ns = 0;
                     continue;
                 }
                 Arrived::Control(payload) => payload,
@@ -1309,7 +1325,11 @@ pub fn run(opts: &Opts) -> Res<()> {
         v.send_input()?;
         loop {
             v.pump(2_000_000)?;
-            if v.marker == Some(expected) {
+            // Reached or passed: after a drop, pump() resends every key the drop lost and
+            // they land together, so the marker jumps past `expected` on the first frame
+            // that shows them. Waiting for exactly `expected` then counted that frame as
+            // a lost key and added up to a second to every measured recovery.
+            if v.marker.is_some_and(|m| m.wrapping_sub(expected) < 0x8000) {
                 if let Some(from) = stall_from.take() {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }
