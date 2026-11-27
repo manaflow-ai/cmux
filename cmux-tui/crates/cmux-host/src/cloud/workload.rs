@@ -10,7 +10,12 @@
 //!
 //! - `busy_processes`: processes that used more than [`CPU_BUSY_PERCENT`] of one CPU between
 //!   two probes ([`PROBE_INTERVAL_MS`] apart). A process's reaped children count toward it, so
-//!   a `make` whose compilers each live a second still reads busy.
+//!   a `make` whose compilers each live a second still reads busy. The machine's own network
+//!   transfer counts as one more, named [`NETWORK_BUSY`], while it moves more than
+//!   [`NET_BUSY_BYTES_PER_S`] (every interface but loopback, both ways, from `/proc/net/dev`): a
+//!   download or a clone waits on the network, not the CPU, so its `curl` or `git` uses almost
+//!   none, and a 45 MB toolchain download over a slow link read as idle and was paused mid-way
+//!   (a 2-vCPU Cloud machine, 2026-11-25).
 //! - `listening_ports`: TCP sockets in LISTEN (IPv4 and IPv6, loopback included: a dev server on
 //!   127.0.0.1 is still a dev server). A socket whose owner cannot be found counts.
 //! - `timers`: user crontabs, `/etc/cron.d` entries, at jobs, transient (`systemd-run`) timers
@@ -38,6 +43,13 @@ pub const PROBE_INTERVAL_MS: u64 = 30_000;
 pub const CPU_BUSY_PERCENT: u64 = 2;
 /// At most this many names per list.
 pub const NAMES_MAX: usize = 8;
+/// Network transfer above this, on average between two probes, counts as one busy process.
+/// Keepalives, the agent's own reports and an idle terminal move a few KB a second; a download
+/// on the slowest link a Cloud machine has (1.7 Mbit/s, about 210 KB/s) moves several times this.
+pub const NET_BUSY_BYTES_PER_S: u64 = 64 * 1024;
+/// The name the network transfer counts under in `busy_processes` (never a real `comm`: those
+/// hold no parentheses at the start and end both).
+pub const NETWORK_BUSY: &str = "(network)";
 
 /// System processes by `comm` (exact): never busy, their listeners never count.
 pub const SYSTEM_PROCESSES: &[&str] = &[
@@ -121,6 +133,9 @@ pub const SYSTEM_TIMERS: &[&str] = &[
     "anacron.timer",
     "cmux-machine-health.timer",
     "cmux-self-update-guard.timer",
+    // The Cloud Chief host's self-update (images/cmux-vm/chief): installed in every image, so on a
+    // guest that is not a Chief it still kept every machine awake as workload (staging, 2026-11-24).
+    "cmux-chief-update.timer",
 ];
 
 /// `/etc/cron.d` entries that are the distribution's.
@@ -217,6 +232,9 @@ pub struct Snapshot {
     pub listeners: Vec<(u16, Option<String>)>,
     /// Every timer found, as `KIND:NAME` ([`is_system_timer`]).
     pub timers: Vec<String>,
+    /// Bytes received and sent on every interface but loopback since boot, None when
+    /// `/proc/net/dev` does not read (the network then never counts as busy).
+    pub net_bytes: Option<u64>,
 }
 
 /// The workload as the report carries it.
@@ -227,6 +245,13 @@ pub struct Workload {
     pub timers: Vec<String>,
     /// When a probe last found the machine busy (Unix ms): the idle period starts no earlier.
     pub last_busy_at: Option<u64>,
+}
+
+impl Snapshot {
+    /// Whether an `acpmux` process (a daemon, or a CLI call) is in the process list.
+    pub fn acpmux_running(&self) -> bool {
+        self.procs.iter().any(|p| !p.kthread && p.comm == "acpmux")
+    }
 }
 
 impl Workload {
@@ -270,7 +295,26 @@ type Ticks = BTreeMap<(u32, u64), u64>;
 #[derive(Debug, Default)]
 pub struct Tracker {
     prev: Option<(u64, Ticks)>,
+    prev_net: Option<u64>,
     last_busy_at: Option<u64>,
+}
+
+/// Bytes received plus sent on every interface but `lo`, from `/proc/net/dev`'s text, or None
+/// when no interface line parses.
+pub fn parse_net_dev(text: &str) -> Option<u64> {
+    let mut total: Option<u64> = None;
+    for line in text.lines() {
+        let Some((name, rest)) = line.split_once(':') else { continue };
+        if name.trim() == "lo" {
+            continue;
+        }
+        let fields: Vec<u64> = rest.split_whitespace().filter_map(|f| f.parse().ok()).collect();
+        // Receive: bytes packets errs drop fifo frame compressed multicast; transmit: bytes ...
+        if let (Some(rx), Some(tx)) = (fields.first(), fields.get(8)) {
+            total = Some(total.unwrap_or(0).saturating_add(*rx).saturating_add(*tx));
+        }
+    }
+    total
 }
 
 impl Tracker {
@@ -279,6 +323,7 @@ impl Tracker {
     pub fn observe(&mut self, snap: &Snapshot, wall_ms: u64) -> Option<Workload> {
         let ticks: Ticks = snap.procs.iter().map(|p| ((p.pid, p.start), p.ticks)).collect();
         let prev = self.prev.replace((snap.mono_ms, ticks));
+        let prev_net = std::mem::replace(&mut self.prev_net, snap.net_bytes);
         let (prev_ms, prev_ticks) = prev?;
         let window_ms = snap.mono_ms.checked_sub(prev_ms).filter(|ms| *ms > 0)?;
         let clk_tck = snap.clk_tck.max(1);
@@ -294,6 +339,12 @@ impl Tracker {
             if used.saturating_mul(1000 * 100) > CPU_BUSY_PERCENT * clk_tck * window_ms {
                 busy.insert(p.comm.clone());
             }
+        }
+        // A counter that went down (an interface gone, a wrap) is no transfer.
+        if let (Some(now), Some(before)) = (snap.net_bytes, prev_net)
+            && now.saturating_sub(before).saturating_mul(1000) > NET_BUSY_BYTES_PER_S * window_ms
+        {
+            busy.insert(NETWORK_BUSY.to_owned());
         }
         let ports: BTreeSet<u16> = snap
             .listeners
@@ -374,6 +425,9 @@ mod reader {
             procs,
             listeners,
             timers: timers(root),
+            net_bytes: fs::read_to_string(proc_dir.join("net/dev"))
+                .ok()
+                .and_then(|text| super::parse_net_dev(&text)),
         })
     }
 

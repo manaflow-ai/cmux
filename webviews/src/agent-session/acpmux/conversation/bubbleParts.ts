@@ -1,7 +1,7 @@
 // The parts a recorded prompt's bubble draws in their order (UserBubble.tsx), read without React,
 // so Find (chatFind.ts) and the row's height estimate (model.ts) read exactly what the bubble draws.
 import type { AcpmuxRow, PromptContentPart } from "../model";
-import { isImageOriginal } from "./userBubbleModel";
+import { isImageOriginal, withoutFileNotes } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { readsAsText } from "./inlinePromptContentModel";
@@ -60,7 +60,7 @@ export function bubbleLayout(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
   view: AttachmentView,
 ): { parts: PromptContentPart[]; band: Exclude<PromptContentPart, { kind: "text" }>[] } | undefined {
-  const recorded = withoutVideoFrames(row).inlineParts;
+  const recorded = withoutFileNotes(withoutVideoFrames(row)).inlineParts;
   if (!recorded) return undefined;
   const originals = imageOriginals(row);
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
@@ -83,4 +83,16 @@ export function bubbleLayout(
       sentVideos,
     ),
   };
+}
+
+/// The attachments an attachment-only prompt draws in its strip (UserBubble.tsx `stripMedia`), in
+/// their order: its recorded parts less its videos' frames and its images' retained originals. The
+/// row's estimate (model.ts) measures each at its own sent size.
+export function stripAttachments(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
+): Exclude<PromptContentPart, { kind: "text" }>[] {
+  const originals = imageOriginals(row);
+  return (withoutFileNotes(withoutVideoFrames(row)).inlineParts ?? [])
+    .filter((part) => !isImageOriginal(part, originals))
+    .filter(isStripMedia);
 }

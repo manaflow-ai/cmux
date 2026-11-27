@@ -251,11 +251,20 @@ class LayerGateTests(unittest.TestCase):
         self.assertIn("CmuxNextService (service) -> CmuxNextUI (ui)", found[0])
 
     def test_unreadable_dependency_expression_is_refused(self):
+        # A ternary on anything but a plain Bool name (a call here) is not read.
+        text = manifest(BASE_DEPS).replace('name: "CmuxNextService",\n            dependencies: ["CmuxNextCore"]',
+                                           'name: "CmuxNextService",\n            dependencies: flag() ? ["CmuxNextUI"] : []')
+        found = self.push({gate.PACKAGE_SWIFT: text})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("cannot read", found[0])
+
+    def test_plain_bool_ternary_reads_as_both_arms_edges(self):
+        # arch_counts reads `flag ? A : B` on a plain Bool as the union of both arms (#57894).
         text = manifest(BASE_DEPS).replace('name: "CmuxNextService",\n            dependencies: ["CmuxNextCore"]',
                                            'name: "CmuxNextService",\n            dependencies: flag ? ["CmuxNextUI"] : []')
         found = self.push({gate.PACKAGE_SWIFT: text})
         self.assertEqual(len(found), 1, found)
-        self.assertIn("cannot read", found[0])
+        self.assertIn("CmuxNextService (service) -> CmuxNextUI (ui)", found[0])
 
     def test_relabel_and_a_new_edge_in_one_push_are_refused(self):
         # The review's case: a new service -> ui edge, with the service relabelled ui in the same push.

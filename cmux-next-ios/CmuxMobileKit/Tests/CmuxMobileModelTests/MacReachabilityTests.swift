@@ -1,3 +1,5 @@
+// The rules run in Rust (cmux-mobile-link-ffi `mac_reachability.rs`), which links on iOS only.
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileModel
@@ -50,7 +52,16 @@ import Testing
     }
 
     @Test func aDialThatGotNoAnswerSaysSoWithWhatTheServiceSaid() {
-        #expect(resolve(mac(online: false), nil, .hostUnreachable) == .noAnswer(listedOnline: false, lastSeenAt: seen))
+        // Listed offline: offline with its last-seen time, whatever the dial said (cmux#52200 walk, step 2).
+        let offline = resolve(mac(online: false), nil, .hostUnreachable)
+        #expect(offline == .offline(lastSeenAt: seen))
+        #expect(offline.title(macName: "Cosmic Gray") == "Cosmic Gray is offline")
+        #expect(offline.statusText(now: now) == "Last seen 50m ago")
+        // Listed online, not answering (a frozen Mac whose socket the service still holds): not responding.
+        let frozen = resolve(mac(online: true), .failed("Offline"), .hostUnreachable)
+        #expect(frozen.title(macName: "Cosmic Gray") == "Cosmic Gray isn't responding")
+        #expect(frozen.shortStatus == "Not responding")
+        #expect(frozen.offersRetry)
         #expect(resolve(mac(online: true), .failed("Offline"), .hostUnreachable) == .noAnswer(listedOnline: true, lastSeenAt: seen))
         // A failed link with no failure recorded yet still says it didn't answer, never "Can't connect".
         #expect(resolve(mac(online: true), .failed("Offline")) == .noAnswer(listedOnline: true, lastSeenAt: seen))
@@ -107,7 +118,7 @@ import Testing
     @Test func daemonSilenceFailsAtTheSessionStep() {
         let attempt = MacRecoveryAttempt(step: .mac).advanced(by: .linked).advanced(by: .failed(.serviceDown))
         #expect(attempt.result == .failed(.session))
-        #expect(attempt.outcome(macName: "Cosmic Gray")?.hasPrefix("Reached Cosmic Gray, but cmux on it didn't respond") == true)
+        #expect(attempt.outcome(macName: "Cosmic Gray")?.hasPrefix("Reached Cosmic Gray, but cmux on it isn't responding") == true)
     }
 
     @Test func theServiceStepIgnoresTheLinkAndAnEndedAttemptStays() {
@@ -116,6 +127,22 @@ import Testing
         let ended = MacRecoveryAttempt(step: .mac, result: .failed(.mac))
         #expect(ended.advanced(by: .live) == ended)
         #expect(ended.timedOut() == ended)
+    }
+
+    /// All Macs: one Retry over every offline Mac reads as one attempt.
+    @Test func combinedAttemptRunsWhileAnyRunsAndConnectsWhenOneDoes() {
+        #expect(MacRecoveryAttempt.combined([]) == nil)
+        let failed = MacRecoveryAttempt(step: .mac, result: .failed(.mac))
+        #expect(MacRecoveryAttempt.combined([failed, MacRecoveryAttempt(step: .session)]) == MacRecoveryAttempt(step: .session))
+        #expect(MacRecoveryAttempt.combined([failed, MacRecoveryAttempt(step: .session, result: .connected)])?.result == .connected)
+        #expect(MacRecoveryAttempt.combined([failed, MacRecoveryAttempt(step: .service, result: .failed(.service))])
+            == MacRecoveryAttempt(step: .mac, result: .failed(.mac)))
+    }
+
+    @Test func shortStatusFitsTheHeader() {
+        #expect(MacReachability.offline(lastSeenAt: nil).shortStatus == "Offline")
+        #expect(MacReachability.slow(quietSeconds: 60).shortStatus == "Not responding")
+        #expect(MacReachability.serviceDown.shortStatus == "cmux not answering")
     }
 
     @Test func aDeadlineFailsWhereTheAttemptStood() {
@@ -133,3 +160,4 @@ import Testing
         #expect(MacRecoveryAttempt(step: .session, result: .connected).action == nil)
     }
 }
+#endif

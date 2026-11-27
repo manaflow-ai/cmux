@@ -22,7 +22,7 @@ from cmux.raw import (
 from cmux.raw._generated import models
 from cmux.raw._generated._schema import SCHEMA
 from cmux.raw._generated.client import GeneratedClientMixin
-from cmux.raw._generated.codec import decode_event, encode_request
+from cmux.raw._generated.codec import _decode, decode_event, encode_request
 from cmux.raw._generated.metadata import COMMANDS, EVENTS, IR_SHA256
 
 
@@ -64,6 +64,39 @@ class GeneratedProtocolTests(unittest.TestCase):
             {"name": None},
         )
         self.assertIs(request_type().name, MISSING)
+
+    def test_server_stats_disk_decodes_with_and_without_checkpoints(self) -> None:
+        # An older daemon's disk section has no checkpoints; a newer one sends
+        # them only when the request names disk_checkpoints.
+        old_reply = {
+            "registry_bytes": 4096,
+            "wal_bytes": 0,
+            "shm_bytes": 0,
+            "page_size": 4096,
+            "page_count": 1,
+            "freelist_pages": 0,
+            "files": [],
+            "files_unlisted": 0,
+            "files_truncated": False,
+            "journal": None,
+            "segments": None,
+            "error": "unreadable",
+        }
+        disk_ref = {"kind": "ref", "name": "ServerStatsDisk"}
+        old = _decode(disk_ref, old_reply, "test")
+        self.assertIs(old.checkpoints, MISSING)
+        new_reply = dict(
+            old_reply,
+            checkpoints={
+                "checkpoints": 16,
+                "bytes": 250064,
+                "largest_bytes": 15629,
+                "budget_bytes": 50331648,
+                "over_budget": False,
+            },
+        )
+        new = _decode(disk_ref, new_reply, "test")
+        self.assertEqual(new.checkpoints.checkpoints, 16)
 
     def test_uint64_event_ids_remain_exact_python_ints(self) -> None:
         request = 2**63 + 9_007_199_254_740_993

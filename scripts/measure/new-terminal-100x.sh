@@ -5,7 +5,7 @@
 # live terminal costs. Run alone on a worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/new-terminal-100x.sh --ref SHA
 #     [--arg=rounds=N] [--arg=against=SHA] [--arg=max_p50_ms=X] [--arg=disk_load=N]
-#     [--arg=host_model=hosts|holder|both]
+#     [--arg=host_model=hosts|holder|both] [--arg=malloc_space=1]
 # The binary is the commit's published cmux-tui tree, or a release build when unpublished.
 # against=SHA runs that commit's binary too, interleaved pass by pass. max_p50_ms=X fails the
 # step when any of this commit's first-text p50 is above X ms. Each run also measures login
@@ -14,11 +14,15 @@
 # host_model=holder runs every terminal on the install's one holder (CMUX_TUI_TERMINAL_HOST_MODEL=
 # holder, labels *-holder); both runs each pass with hosts and with the holder, interleaved.
 set -euo pipefail
+# malloc_space=1 starts this commit's daemon (label ref) the way the app does since the daemon malloc change (CMUX-571):
+# macOS's malloc in space-efficient mode (bench-terminal-create.py --malloc-space-efficient); against= stays default,
+# so an against= the same binary measures what the mode alone costs a new terminal.
 rounds=40
 against=""
 max_p50=""
 disk_load=0
 host_model=hosts
+malloc_space=0
 for arg in "$@"; do
   case "$arg" in
     rounds=*) rounds="${arg#rounds=}" ;;
@@ -26,11 +30,13 @@ for arg in "$@"; do
     max_p50_ms=*) max_p50="${arg#max_p50_ms=}" ;;
     disk_load=*) disk_load="${arg#disk_load=}" ;;
     host_model=*) host_model="${arg#host_model=}" ;;
+    malloc_space=*) malloc_space="${arg#malloc_space=}" ;;
     *) echo "new-terminal-100x.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 case "$rounds" in [1-9]|[1-9][0-9]|[1-2][0-9][0-9]) ;; *) echo "new-terminal-100x.sh: rounds must be 1-299" >&2; exit 2 ;; esac
 case "$disk_load" in [0-9]|1[0-6]) ;; *) echo "new-terminal-100x.sh: disk_load must be 0-16" >&2; exit 2 ;; esac
+case "$malloc_space" in 0|1) ;; *) echo "new-terminal-100x.sh: malloc_space must be 0 or 1" >&2; exit 2 ;; esac
 case "$max_p50" in ""|[0-9]*) ;; *) echo "new-terminal-100x.sh: max_p50_ms must be a number" >&2; exit 2 ;; esac
 case "$host_model" in hosts) models="hosts" ;; holder) models="holder" ;; both) models="hosts holder" ;;
   *) echo "new-terminal-100x.sh: host_model must be hosts, holder or both" >&2; exit 2 ;; esac
@@ -134,10 +140,12 @@ for mode in $modes; do
       model_suffix=""
       [ "$model" = holder ] && model_suffix="-holder"
       for label in against ref; do
+        malloc_flag=""
+        [ "$label" = ref ] && [ "$malloc_space" = 1 ] && malloc_flag="--malloc-space-efficient"
         [ -x "$work/bin-$label/cmux-tui" ] || continue
         # shellcheck disable=SC2086
         python3 -I cmux-tui/scripts/bench-terminal-create.py --bin "$work/bin-$label/cmux-tui" --rounds "$per" \
-          --disk-load "$load" $extra --host-model "$model" --label "$label$suffix$model_suffix-p$pass" \
+          --disk-load "$load" $extra $malloc_flag --host-model "$model" --label "$label$suffix$model_suffix-p$pass" \
           --root-dir "$state_root" --spans --out "$work/$label$suffix$model_suffix-p$pass.json" || status=$?
       done
     done

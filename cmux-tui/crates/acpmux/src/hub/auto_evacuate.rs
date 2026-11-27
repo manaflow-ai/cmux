@@ -61,7 +61,7 @@ impl BudgetSource for MeterSource {
 
 /// The daemon's mover: `session move ID --host auto`'s steps, driven over this daemon's own
 /// socket, exactly as the CLI drives them.
-struct SessionMove;
+pub(crate) struct SessionMove;
 
 impl Mover for SessionMove {
     fn move_off<'a>(&'a self, id: &'a str) -> Boxed<'a, Result<String, String>> {
@@ -180,7 +180,7 @@ impl Hub {
         setting: &Setting,
         mover: &dyn Mover,
     ) {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&m.id).cloned();
+        let session = self.session_get(&m.id);
         let Some(session) = session else { return };
         let idle_min = m.idle_ms / 60_000;
         let back = format!("cmux move {} --from MACHINE --to here", m.name);

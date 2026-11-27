@@ -3,14 +3,17 @@
 // ("Auto", one plain sentence); what makes Auto special is the icon, its colour and a little motion
 // (autoWhere.css), which hold still under reduced motion.
 import "./autoWhere.css";
-import { useT } from "./i18n";
+import { useId } from "react";
+import { useT, type StringKey } from "./i18n";
 import { type AutoLanding, type AutoLook, landingMove, landingTextKey } from "./autoWhereModel";
 
-/// Auto's icon. `orbit` (ships): your chat as a still centre and three machine-coloured dots going
+/// Auto's icon. `split` (ships): a laptop with a cloud badge on its corner, this Mac and Cloud at
+/// once, in the other rows' 14px box and stroke (cmux#51731). `orbit`: your chat as a still centre and three machine-coloured dots going
 /// round it. `constellation`: a spark in the machines' colours. `aurora`: there-and-back arrows in a
 /// cool gradient. `plain`: the arrows in the text colour, as any row's icon.
 export function AutoIcon({ look }: { look: AutoLook }) {
   const className = "acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon acpmux-auto-icon";
+  if (look === "split") return <SplitIcon className={className} />;
   if (look === "orbit") {
     return (
       <svg
@@ -94,6 +97,42 @@ export function AutoIcon({ look }: { look: AutoLook }) {
   );
 }
 
+/// The `split` look: a laptop (screen and base) with a filled cloud badge on its top-right corner, the
+/// laptop cut around the badge so the two read apart at 14px.
+function SplitIcon({ className }: { className: string }) {
+  const id = useId();
+  const cut = `${id}-cut`;
+  const badge = "M10.2 6.8H14A1.4 1.4 0 0 0 14.2 4.02 2.15 2.15 0 0 0 10 4.1 1.5 1.5 0 0 0 10.2 6.8Z";
+  return (
+    <svg
+      className={className}
+      data-look="split"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <mask id={cut} maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+          <rect width="16" height="16" fill="white" stroke="none" />
+          <path d={badge} fill="black" stroke="black" strokeWidth={2.5} />
+        </mask>
+      </defs>
+      <g mask={`url(#${cut})`}>
+        <rect x="2" y="3.75" width="10.5" height="7.25" rx="1.25" />
+        <path d="M.75 13.25h13" />
+      </g>
+      <path className="acpmux-auto-split-cloud" d={badge} fill="var(--agent-ansi-4, currentColor)" stroke="none" />
+    </svg>
+  );
+}
+
 /// The line under an Auto chat's first message: where it went, and the move back (Bring it back from
 /// Cloud; Move to Cloud from here). `deciding`: Send asked the daemon and it has not answered yet.
 export function AutoArrival({
@@ -150,6 +189,24 @@ export function AutoArrival({
           </svg>
         </button>
       )}
+    </div>
+  );
+}
+
+/// The one-shot line shown while Auto's scale-up admission starts a machine. It uses the arrival
+/// line's existing Auto styling; the model decides whether the text is present.
+export function AutoAddingMachineLine({ text, look }: { text: StringKey; look: AutoLook }) {
+  const t = useT();
+  return (
+    <div
+      className="acpmux-auto-arrival"
+      data-auto-look={look}
+      data-went="scalingUp"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a flex row in the notices strip; <output> is inline and form-bound.
+      role="status"
+    >
+      <AutoIcon look={look} />
+      <span className="acpmux-auto-arrival-text">{t(text)}</span>
     </div>
   );
 }

@@ -11,7 +11,6 @@ import type { useBackgroundNotice } from "../conversation/backgroundNotice";
 import type { useStopThroughReconnect } from "../stopThroughReconnect";
 import type { clientWaiter } from "../lostPrompt";
 import type { DefaultComposerChips } from "./ComposerChips";
-import type { InboxMessage } from "../conversation/inboxNotice";
 import { ShareNudge } from "../share/ShareNudge";
 import { chatOnThisMac, chatPlace } from "../chatMachine";
 import { thisMacName, type ConnectKind, type OffloadKind } from "../environments";
@@ -21,10 +20,9 @@ import { postNative } from "../native";
 import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
+import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject } from "../newtab/startedProject";
-import { SurgeHoldRow } from "../SurgeHoldRow";
-import { surgeShows } from "../conversation/surgeHold";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -33,15 +31,17 @@ import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
 import { paneKnowsNewChat } from "../locationRow";
 import { translate, type Translate } from "../i18n";
-import { inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
+import { inThisVisit, type useFolderTrustAsk, composerTrustBlock } from "../useFolderTrustAsk";
 import { bindsHeldSendNow } from "../heldSendBinding";
 import { TrayPullTab } from "../subagents/TrayPullTab";
 import { pullTabCounts } from "../subagents/trayPullTabModel";
 import { isWaitingForWords, type Dictation } from "../dictation";
 import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
+import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -51,6 +51,9 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { MoveDock } from "../place/PlaceMounts";
+import { OverloadNotice } from "../OverloadNotice";
+import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -72,18 +75,20 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, sendHeldFork } from "../forkHold";
+import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
-import { AutoArrival } from "../AutoWhere";
+import { AutoArrival, AutoAddingMachineLine } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
+import type { StringKey } from "../i18n";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
-import { keptAttachments } from "./draftHost";
+import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
+import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -97,7 +102,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
-import type { HatPillPlace } from "../hatPillPlace.experiment";
+import { hatPillInMiddle, hatPillQuiet, type HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -109,6 +114,7 @@ import type { PathRef } from "../diff";
 import type { BtwNotes } from "../aside/btwNotes";
 import type { PaneSurface } from "../paneSurface";
 import type { StartingSends } from "../startingSends";
+import { untilLinked, type OfflineSends } from "../offlineSends";
 import type { HeaderMoveTarget } from "../header/headerState";
 import type { Project } from "../ProjectChooser";
 import type { ExtraFolderDraft } from "../extraFolders";
@@ -117,10 +123,6 @@ import type { ComposerPlusExtension, CaptureMode } from "../composerPlusRegistry
 import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { commandPlace } from "../commandPlace";
-
-/// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
-const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
-const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 
 /// A worktree start that failed, and where (App.tsx `worktreeError`).
 type WorktreeError = {
@@ -135,12 +137,16 @@ type WorktreeError = {
 export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
+  /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
+  hostOverload: HostOverload | undefined;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
   subagentDraftKey: string;
   /// A message to the subagent did not reach the chat: its note shows over the box.
   subagentFailed: boolean;
+  /// acpmux's queue for the composer's queued cards, the same list while it holds the same prompts.
+  composerTurnQueue: AcpmuxSnapshot["queue"];
   t: Translate;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
@@ -156,12 +162,15 @@ export type PaneComposerDeps = {
   };
   /// Where Auto put this page's chat (AutoArrival), or `deciding` while the daemon answers.
   autoArrival: AutoLanding | "deciding" | undefined;
+  autoAddingMachine: StringKey | undefined;
   /// The arrival line's move is offered now (the chat's own move menu offers it).
   autoArrivalMove: boolean;
   onAutoArrivalDismiss: () => void;
   /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
   autoSendGate: {
-    holds: (text: string) => boolean;
+    picked: boolean;
+    holds: () => boolean;
+    cloudStart: () => { autoLanding?: AutoLanding };
     once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
   cloudHint: CloudChatHintState;
@@ -185,6 +194,10 @@ export type PaneComposerDeps = {
     healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
+  /// A failed start that starts again on its own (startFailure.ts): no card until it lasts.
+  switchFailedByItself: boolean;
+  /// That start has kept failing past the hold (useAutoRetry): its card says it is still trying.
+  switchStillTrying: boolean;
   composerHandle: React.RefObject<ComposerHandle | null>;
   healthStale: React.RefObject<boolean>;
   connectMachine: (kind: ConnectKind) => undefined;
@@ -209,6 +222,11 @@ export type PaneComposerDeps = {
   shareNudge: ShareNudgeState;
   setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
   notices: PaneToasts;
+  /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
+  /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
+  placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -236,6 +254,8 @@ export type PaneComposerDeps = {
   approvedPlanNode?: React.JSX.Element | null;
   /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
   approvedPlanAtFoot?: boolean;
+  /** A live customization's bar (customizeBar/CustomizeBar.tsx), right over the composer; null with none. */
+  customizeBarNode?: React.JSX.Element | null;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -244,17 +264,19 @@ export type PaneComposerDeps = {
   trayNode: React.JSX.Element | null;
   trayList: TrayItem[];
   waitingAgents: Set<string>;
-  hatPlan: readonly AcpmuxPlanEntry[] | undefined;
-  hatKept: boolean;
   trayHandle: TrayHandleSide;
   /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
   /// line (hatSide, hatPillPlace.experiment.ts).
   hatHandle: TrayHandleSide;
   hatPillArm: HatPillPlace;
   statusCardOpen: boolean;
+  /// The changes pill over the composer (session-info/EnvironmentCard.tsx ChangesPill), null when off.
+  changesPillNode: React.JSX.Element | null;
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
+  /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
+  onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
@@ -265,6 +287,8 @@ export type PaneComposerDeps = {
   ComposerChips: React.ComponentType<{ snapshot: AcpmuxSnapshot }> | typeof DefaultComposerChips;
   reconnectPeer: (peer: string) => Promise<unknown>;
   sessionInfo: ReturnType<typeof useSessionInfo>;
+  /// The agent's /compact for this chat (App.tsx `compactChat`): the context card's Compact conversation row.
+  compactChat: (() => void) | undefined;
   draft: string | undefined;
   setDraftSettled: React.Dispatch<React.SetStateAction<string | undefined>>;
   onNewChatDraft: (text: string) => Promise<unknown>;
@@ -290,6 +314,10 @@ export type PaneComposerDeps = {
   clearProject(): void;
   /// A GitHub repository picked with This Mac picked: the chip's choice only, checked out when Return sends.
   deferGitHub(repo: string, candidates: string[]): void;
+  /// Drops that pick (another machine picked).
+  dropDeferredGitHub(): void;
+  /// The repository the chip names while it waits for Return.
+  pendingGitHub: string | undefined;
   /// Return on a GitHub repository chosen with This Mac picked: starts its checkout and holds the prompt, which
   /// goes once the checkout is the folder. False when the chip names no such repository.
   checkOutGitHubOnSend(): boolean;
@@ -327,6 +355,7 @@ export type PaneComposerDeps = {
   pickedProject: React.RefObject<string | undefined>;
   remoteChat: boolean;
   startingSends: StartingSends;
+  offlineSends: OfflineSends;
   individualPermission: AcpmuxPermission | undefined;
   promptLanded: React.RefObject<() => void>;
   cancelOpenInWindow: () => void;
@@ -406,7 +435,9 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  hostOverload,
   markDockEdge,
+  composerTurnQueue,
   readOnlySubagent,
   subagentRelay,
   subagentDraftKey,
@@ -419,6 +450,7 @@ export function drawPaneComposer({
   showNewTab,
   composerModeRows,
   autoArrival,
+  autoAddingMachine,
   autoArrivalMove,
   onAutoArrivalDismiss,
   autoSendGate,
@@ -435,7 +467,11 @@ export function drawPaneComposer({
   startsElsewhere,
   chatSignIns,
   switchLoginCommand,
+  switchFailedByItself,
+  switchStillTrying,
   composerHandle,
+  placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -484,6 +520,7 @@ export function drawPaneComposer({
   goalNode,
   approvedPlanNode = null,
   approvedPlanAtFoot = false,
+  customizeBarNode = null,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -492,15 +529,15 @@ export function drawPaneComposer({
   trayNode,
   trayList,
   waitingAgents,
-  hatPlan,
-  hatKept,
   trayHandle,
   hatHandle,
   hatPillArm,
   statusCardOpen,
   setStatusCardOpen,
+  changesPillNode,
   openImage,
   cloudStarting,
+  onCloudStartQueue,
   composerDrawn,
   guestsHere,
   composerSnapshot,
@@ -511,6 +548,7 @@ export function drawPaneComposer({
   ComposerChips,
   reconnectPeer,
   sessionInfo,
+  compactChat,
   draft,
   setDraftSettled,
   onNewChatDraft,
@@ -529,6 +567,8 @@ export function drawPaneComposer({
   cloningGitHub,
   clearProject,
   deferGitHub,
+  dropDeferredGitHub,
+  pendingGitHub,
   checkOutGitHubOnSend,
   openEmptyProject,
   pickSourceProject,
@@ -559,6 +599,7 @@ export function drawPaneComposer({
   pickedProject,
   remoteChat,
   startingSends,
+  offlineSends,
   individualPermission,
   promptLanded,
   cancelOpenInWindow,
@@ -638,6 +679,12 @@ export function drawPaneComposer({
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
   };
+  // A started chat can use native file links before its cwd arrives. On a fresh pane, the
+  // native host still verifies the destination before handing back a gesture's paths.
+  const localFileLinks =
+    !quick &&
+    !readOnlySubagent &&
+    (snapshot.summary ? chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot)) : !onOtherMachine);
   const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return (
     (readOnlySubagent || !reviewing) && (
@@ -663,6 +710,9 @@ export function drawPaneComposer({
                   onDismiss={onAutoArrivalDismiss}
                 />
               )}
+            </Notice>
+            <Notice id="auto-adding-machine" tier="hint" when={autoAddingMachine !== undefined}>
+              {autoAddingMachine !== undefined && <AutoAddingMachineLine text={autoAddingMachine} look={AUTO_LOOK} />}
             </Notice>
             <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
               {shownComputerUseAsk && (
@@ -703,9 +753,14 @@ export function drawPaneComposer({
                 {harnessCard}
               </Notice>
             ) : (
-              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+              <Notice
+                id="switch"
+                tier="error"
+                when={snapshot.switching?.phase === "failed" && (!switchFailedByItself || switchStillTrying)}
+              >
                 <SwitchNotice
                   switching={snapshot.switching}
+                  stillTrying={switchFailedByItself}
                   // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
                   installs={!startsElsewhere}
                   // An agent not signed in: on another machine its sign-in runs there, in the card; on
@@ -818,7 +873,18 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
+            <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && !quick && (
+              <MoveDock
+                session={snapshot.sessionId}
+                say={notices.transient}
+                claims={() => ({
+                  queued: snapshot.queue.length,
+                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                })}
+              />
+            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}
@@ -914,17 +980,8 @@ export function drawPaneComposer({
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
               step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
-        {/* The chat's held surge, one row however many messages its inbox holds (SurgeHoldRow.tsx). */}
-        {!showNewTab && snapshot.sessionId && (
-          <SurgeHoldRow
-            key={`surge:${snapshot.sessionId}`}
-            surge={snapshot.surge}
-            sessionId={snapshot.sessionId}
-            listThreads={listSurgeThreads}
-            readThread={readInboxThread}
-            onOpenSender={openSenderChat}
-          />
-        )}
+        {/* No held-messages row: the count of inbox messages held without a turn is not the person's to
+            read (Leo, 2026-11-24: "it's also not useful to show this to the user"). */}
         {!goalAtFoot && goalNode}
         {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
@@ -937,16 +994,18 @@ export function drawPaneComposer({
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
-              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
+              quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
           ) : (
             trayNode
           ))}
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
+        {customizeBarNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
+        {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
+        {changesPillNode}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -954,11 +1013,13 @@ export function drawPaneComposer({
             key={subagentRelay ? subagentDraftKey : undefined}
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
+            onFilled={quick ? undefined : postComposerFilled}
             cloudStarting={cloudStarting}
+            {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={snapshot.queue}
+            turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -969,7 +1030,7 @@ export function drawPaneComposer({
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
               approvedPlanNode !== null ||
-              (!showNewTab && surgeShows(snapshot.surge)) ||
+              customizeBarNode !== null ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
@@ -978,6 +1039,8 @@ export function drawPaneComposer({
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
+            // The card's Compact conversation row sends the agent's /compact, as Session Info's Compact does.
+            onCompact={compactChat}
             draft={draft}
             onDraftSettled={setDraftSettled}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
@@ -1009,6 +1072,37 @@ export function drawPaneComposer({
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
+            // A send made while a dropped file still attaches goes now, ahead of it, and shows as
+            // sent (composer/sendBehind.ts): only where onSend below takes it straight to the client
+            // of the chat open now (its plain path), which sends it once the file is its chip.
+            onBindSendAhead={() => {
+              const client = directClient.current;
+              const plainPath =
+                client !== undefined &&
+                Boolean(snapshot.sessionId) &&
+                client.selectedSession === snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !authBlock &&
+                !cloningGitHub &&
+                !autoSendGate.picked &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !sandboxPickedNotOffered &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId) &&
+                Boolean(window.cmuxAcpmuxActions?.["chat.send"]);
+              const route = {
+                openChat: client?.selectedSession,
+                switchPending: harnessSwitch.view().intent !== undefined,
+                startsChat: Boolean(projectDraft && !snapshot.sessionId),
+                cloudStart: cloudPicked,
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
+              };
+              return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
+            }}
             transcriptFollowing={transcriptFollowing}
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
@@ -1020,15 +1114,79 @@ export function drawPaneComposer({
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock || cloningGitHub) return false;
+              // A send to this pane's own chat, which nothing else (a Cloud start or wake, the
+              // sandbox, the folder's trust, a held fork, Start Agent, a View Only chat) takes first:
+              // it may leave the composer at once and wait in the pane, in order, for acpmux to
+              // connect or for the sends before it. (A file still attaching never holds it either:
+              // composer/sendBehind.ts sends it ahead of the file, `onBindSendAhead`.)
+              const waitsInPane =
+                !paneSends.noAcpmux &&
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !cloudPicked &&
+                !sandboxPickedNotOffered &&
+                !sandboxing &&
+                !(cloudWakeChat && cloudRecovery.state !== "deleted" && !quick) &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId);
+              /// Puts the prompt in the pane's queue (startingSends.ts): its row shows now, as sent
+              /// when the agent is idle, and it goes once acpmux takes prompts here and every prompt
+              /// sent before it was taken, so none overtakes another (Leo,
+              /// 2026-11-17: a message sent while another is queued must not go before it).
+              const sendInTurn = () => {
+                const before = paneSends.inFlight;
+                // It goes to the chat it was sent in: one the pane left meanwhile refuses it
+                // (`expectedSessionId`), and it comes back to the composer, never into the chat shown now.
+                const sentIn = snapshot.sessionId || undefined;
+                startingSends.add(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  async (words, attachments, held) => {
+                    await before;
+                    await untilAcpmuxTakesSends();
+                    return sendWhenTaken(steer === true, sentIn)(
+                      words,
+                      shellContextAttachments(attachments, (id) => shellRuns.get(id)),
+                      held,
+                    );
+                  },
+                  gesture,
+                  gesture?.promptId,
+                  { asSent: !snapshot.isWorking },
+                );
+                return true;
+              };
+              // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
+              // the message (CMUX-682), before it can go to the pane's queue.
+              if (waitsInPane && holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
+              // While the link is down, one with nothing going ahead of it (no new chat's prompts, no
+              // direct send acpmux has not taken) is kept on disk and goes in order when the link is
+              // back (offlineSends.ts); one behind those waits in the pane's queue (`sendInTurn`).
+              if (waitsInPane && !window.cmuxAcpmuxActions?.["chat.send"]) {
+                if (snapshot.sessionId && !startingSends.busy && paneSends.direct === 0) {
+                  offlineSends.add(
+                    snapshot.sessionId,
+                    text,
+                    shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                    gesture?.promptId,
+                  );
+                  return true;
+                }
+                return sendInTurn();
+              }
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
-              if (autoSendGate.holds(text)) return false;
+              if (autoSendGate.holds()) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
               // A GitHub repository on the chip with This Mac picked: Return checks it out here first (cmux#53226).
-              if (!cloudPicked && !sandboxing && checkOutGitHubOnSend()) return false;
+              if (!sandboxing && checkOutGitHubOnSend()) return false;
               if (cloudPicked) {
                 if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
@@ -1036,17 +1194,30 @@ export function drawPaneComposer({
                 const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
+                const machinePick = cloudAgentPick();
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
-                const cloudShownAgent = {
-                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
-                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                // Before the picker has a harness (the catalog still listing), the person's last local pick
+                // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
+                const remembered = lastPick(composerSnapshot.summary?.cwd);
+                const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
+                const cloudShownAgent = machinePick ?? {
+                  harness: shownHarness || remembered?.harness,
+                  model:
+                    held.model ??
+                    (shownModel && shownModel !== "default"
+                      ? shownModel
+                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
+                        ? remembered?.model
+                        : undefined),
                 };
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
+                    ...autoSendGate.cloudStart(),
                     // The agent and model the composer shows, as the New Tab page's Cloud send names them
                     // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
                     // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
@@ -1066,6 +1237,11 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
+                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
+                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
+                // one picked never is.
+                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
+                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {
@@ -1093,12 +1269,42 @@ export function drawPaneComposer({
                 cloudRecovery.resume();
                 return true;
               }
-              // Until acpmux connects nothing takes a prompt; the composer keeps it.
-              if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // No link to acpmux (the page still loads, a reconnect, a daemon restart): Send still
+              // takes the prompt (Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS";
+              // 2026-11-22: "JUST LET ME SEND"). One to this pane's own open chat, which nothing else
+              // takes first (a held fork, the folder's trust), shows at once as its pending row, is kept
+              // on disk and goes once, in order, when the link is back (offlineSends.ts); one sent while
+              // earlier ones still wait goes after them. One sent while a new chat's prompts still go
+              // waits behind them (`waitsToConnect`, sendWhenReady.ts `untilAcpmuxTakesSends`). Any
+              // other (a held fork, a trust hold, a new chat's start) waits for the link where it goes
+              // (`untilLinked`), its prompt already drawn.
+              const connecting = !window.cmuxAcpmuxActions?.["chat.send"];
+              const ownOpenChat =
+                snapshot.sessionId &&
+                !paneSends.noAcpmux &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !heldFork(snapshot.sessionId) &&
+                !trustHolds &&
+                !trustHeld.pending()
+                  ? snapshot.sessionId
+                  : undefined;
+              const offlineChat = ownOpenChat && !startingSends.busy ? ownOpenChat : undefined;
+              if (offlineChat && (connecting || offlineSends.pending(offlineChat))) {
+                offlineSends.add(
+                  offlineChat,
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  gesture?.promptId,
+                );
+                return true;
+              }
+              const waitsToConnect = connecting && Boolean(ownOpenChat);
               // An installed harness mention is a read-only guest request. Keep the normal send
               // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
               // known mention outside code gets one inline guest note at the transcript tail.
-              if (guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
+              if (!connecting && guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
                 const guest = guestMention(text, composerSnapshot.catalog);
                 if (guest) {
                   const changedFiles =
@@ -1114,7 +1320,7 @@ export function drawPaneComposer({
                     .join("\n\n");
                   const anchor = [...turnRowsShown]
                     .reverse()
-                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
+                    .find((row) => ![WORKING, THINKING, DATE].includes(row.kind));
                   const client = directClient.current;
                   btwNotes.ask(
                     snapshot.sessionId,
@@ -1144,13 +1350,16 @@ export function drawPaneComposer({
                 // message goes to the chat as it is rather than failing each send.
                 if (!switchForks(snapshot)) clearHeldFork(snapshot.sessionId);
                 const forked = sendHeldFork(snapshot.sessionId, {
+                  // While the pane reconnects the fork waits for the link, never refused for it.
                   fork: (params) =>
-                    callNative<string>("chat.switchModel", {
-                      ...params,
-                      text,
-                      attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
-                      ...(gesture ? { gesture } : {}),
-                    }),
+                    untilLinked().then(() =>
+                      callNative<string>("chat.switchModel", {
+                        ...params,
+                        text,
+                        attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                    ),
                   // The composer leaves with the chat: its prompt is not the source chat's draft now.
                   sent: (source) => writePersistedDraft(source, ""),
                 });
@@ -1189,19 +1398,30 @@ export function drawPaneComposer({
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
-                // Prompts sent while the chat started still wait to go: this one goes after them.
-                if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
-                  return true;
-                }
+                // Prompts sent before it still wait to go, one is still on its way to acpmux, or the page
+                // has not connected yet: this one goes after them (`sendInTurn`).
+                if (startingSends.busy || paneSends.direct > 0 || waitsToConnect) return sendInTurn();
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
+                // Until acpmux takes it (or refuses it), a prompt sent after it waits behind it.
+                paneSends.direct += 1;
+                let landed!: () => void;
+                paneSends.inFlight = new Promise<void>((resolve) => (landed = resolve));
+                let taken = false;
+                const tookIt = () => {
+                  if (taken) return;
+                  taken = true;
+                  paneSends.direct -= 1;
+                  landed();
+                };
                 // A typed reply while the chat's own question waits answers it in the chat: the
                 // question is declined first, so the agent reads the reply instead of waiting on it
                 // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
-                withdrawForTypedReply(individualPermission, sentOn, () =>
-                  callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }),
-                ).then(
+                const direct = withdrawForTypedReply(individualPermission, sentOn, () =>
+                  callNative("chat.send", { text, attachments, steer, taken: tookIt, ...(gesture ? { gesture } : {}) }),
+                );
+                direct.then(tookIt, tookIt);
+                direct.then(
                   () => {
                     rememberStart();
                     promptLanded.current();
@@ -1221,9 +1441,10 @@ export function drawPaneComposer({
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch, as
+                        // does a chat the pane left (its store draws it there, never this composer);
                         // a shown prompt is acpmux's, and one given back is the composer's.
-                        if (outcome === "failed") return;
+                        if (outcome === "failed" || outcome === "away") return;
                         sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
                         if (outcome === "shown") return promptLanded.current();
                         giveBack();
@@ -1251,6 +1472,9 @@ export function drawPaneComposer({
               // gesture is bound to, if any (`sendThrough` sends it under that).
               const promptId = gesture?.promptId ?? crypto.randomUUID();
               const send = async () => {
+                // While the pane reconnects the start and its prompt wait for the link: the prompt is
+                // drawn already (startingSends.ts), and nothing is refused for the link (offlineSends.ts).
+                await untilLinked();
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
                 // A Claude or Codex desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
@@ -1261,14 +1485,16 @@ export function drawPaneComposer({
                 ) {
                   throw new Error("watch.notTakenOver");
                 }
-                if (projectDraft && !snapshot.sessionId)
-                  // The chat's start is part of this send: a trust refusal there asks the folder's
-                  // question, keeps this prompt (with its send's gesture) and sends it after Trust
-                  // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", {
+                const pick = heldPick(snapshot);
+                // The chat's start is part of this send: a trust refusal there asks the folder's
+                // question, keeps this prompt (with its send's gesture) and sends it after Trust
+                // (cx-nn3e P0b; the prompt was lost when only the start ran again). A held pick's
+                // start waits for this prompt, so the prompt goes with it (firstSend.ts).
+                const start = () =>
+                  callNative("chat.new", {
                     cwd: projectDraft,
                     peer: directClient.current?.newChatPeer(),
-                    ...heldPick(snapshot),
+                    ...pick,
                   }).then(
                     (started) => {
                       if (started) rememberStart();
@@ -1300,6 +1526,8 @@ export function drawPaneComposer({
                         ...(gesture ? { gesture } : {}),
                       }),
                   );
+                // A new chat has no bridged session to take over: its start, then (or with) the prompt.
+                if (projectDraft && !snapshot.sessionId) return startThenSend(start, deliver, Boolean(pick.harness));
                 if (!snapshot.summary?.bridged) return deliver();
                 // The app that ran the bridged session is gone: the chat is taken over and the message
                 // stays in the composer. It is not sent again here, since its send gesture is spent;
@@ -1459,6 +1687,7 @@ export function drawPaneComposer({
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
               cloudDraftMachineID.current = null;
+              dropDeferredGitHub();
               rememberNewChatPlace(computer === "local" ? { kind: "local" } : { kind: "machine", peer: computer });
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
@@ -1478,6 +1707,7 @@ export function drawPaneComposer({
             sourceRepository={checkedOutGitHub}
             onCloudFolderWaiting={setCloudSourceWaiting}
             cloningRepository={cloningGitHub}
+            pendingRepository={cloningGitHub ? undefined : pendingGitHub}
             onNoProject={freshChat ? clearProject : undefined}
             // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
             // there is none), then the chat's worktree of it.
@@ -1487,6 +1717,11 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
+            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
+            // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
+            // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
+            {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
@@ -1567,15 +1802,9 @@ export function drawPaneComposer({
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
             // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
-            canRecord={
-              localCwd !== undefined &&
-              !quick &&
-              !readOnlySubagent &&
-              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
-            }
+            canRecord={localCwd !== undefined && localFileLinks}
             upload={uploadFiles}
-            // A chat on this Mac (as Sources' + below); the host refuses any other.
-            localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
+            localPaths={localFileLinks ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.
@@ -1588,7 +1817,7 @@ export function drawPaneComposer({
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
+            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={
               blockSend ||

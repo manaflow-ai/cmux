@@ -147,9 +147,15 @@ impl State {
         let row = self.schema.row_at(&path).map(|row| self.row_view(row));
         let managed = managed_key_for_path(&self.effective.managed_keys, &path)
             .map(|(key, source)| (key.to_string(), source.clone()));
+        // A key a schema row covers reads as the row does: its default when no layer sets it,
+        // so `settings get` after a reset answers the default rather than null.
+        let value = match &row {
+            Some(row) => row.value.clone(),
+            None => value_at(&self.effective.root, &path).cloned(),
+        };
         GetView {
             key: dotted(&path),
-            value: value_at(&self.effective.root, &path).cloned(),
+            value,
             file_value: value_at(&self.effective.file_root, &path).cloned(),
             path,
             row,
@@ -158,8 +164,9 @@ impl State {
     }
 
     fn row_view(&self, row: &'static Row) -> RowView<'static> {
-        let customized = value_at(&self.effective.file_root, &row.path)
-            .is_some_and(|stored| Some(stored) != row.default.as_ref());
+        let customized = value_at(&self.effective.file_root, &row.path).is_some_and(|stored| {
+            Some(stored) != row.default.as_ref() || self.overrides_group_background(row, stored)
+        });
         RowView {
             row,
             value: effective_value(row, &self.effective.root, &self.domains),

@@ -1,6 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// A finished reply's footer (Copy, Fork, Pin, Read aloud) stays in sight at rest under every turn, as
-// ChatGPT's does; before 2026-11-04 only the chat's last one did (#31503, #31609). Its layout (buttons first on the prose's left edge,
+// A finished reply's footer (Copy, Fork, Pin, Read aloud, its age) is hidden at rest and shows while
+// the pointer is on its turn, as Claude Code desktop's (Leo, 2026-11-22), except the chat's last
+// reply's buttons, shown at rest (Lucas, 2026-11-26); from 2026-11-04 it showed at
+// rest under every turn (#34939), before that under the chat's last one (#31503, #31609). Its layout (buttons first on the prose's left edge,
 // the time after them on hover) is reply-footer.test.ts's.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
@@ -159,16 +161,18 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     return footers(page);
   };
 
-  test("every finished reply's footer shows at rest, and stays while pointed at", async () => {
-    // Leo, 2026-11-04, on ChatGPT's row under every finished reply: "we don't have the time worked
-    // for nor the thing always showing at hte bottom (excl. thumb up/down)". Replaces #31609's rule
-    // that only the last reply's footer showed at rest.
+  test("a finished reply's footer is hidden at rest and shows while its turn is pointed at", async () => {
+    // Leo, 2026-11-22: "claude hides buttons until you hover over the relevant area of a turn
+    // response ... i think we go with claude code here. idk when we decided to always show all
+    // buttons always. let's not". Replaces 2026-11-04's rule (cmux#34939) that every finished
+    // reply's footer showed at rest.
+    // The chat's last reply keeps its buttons shown at rest (Lucas, 2026-11-26).
     const page = await open();
-    expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
+    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
     await page.getByText("Not yet: the hosted test run").hover();
     expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
     await page.mouse.move(0, 0);
-    expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
+    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
     await page.close();
   });
 });

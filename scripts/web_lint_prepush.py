@@ -268,14 +268,24 @@ class Plan:
     trusted: Path | None = None  # the reviewed copy trusted_pieces run from
 
 
-def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True)
+def git(repo: Path, *args: str, check: bool = True, lazy: bool = True) -> str:
+    """LAZY=False for a read of refs and commits only: see no_lazy_fetch()."""
+    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True,
+                            env=None if lazy else no_lazy_fetch())
     if check and result.returncode != 0:
         raise SystemExit(f"web-lint: git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
 
 PUSH_RANGE = "push_range.py"
+
+# trust_base() reads the reviewed branches' refs on every push. In a worktree of a blobless mirror a ref whose commit
+# the mirror lacks made `rev-parse ref^{commit}` lazy-fetch that commit's whole history, and pushes sat in this hook
+# 526 to 1436 s with no violation named (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18).
+# Its ref and commit reads run with lazy fetch off, so such a ref reads as absent (a full clone ignores the
+# variable). Reads that may need file contents keep lazy fetch.
+def no_lazy_fetch() -> dict[str, str]:
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
 def load_push_range(trusted_scripts: Path | None):
@@ -513,12 +523,12 @@ def trust_base(repo: Path, head: str) -> str | None:
         for remote in reviewed_remotes(repo):
             ref = f"refs/remotes/{remote}/{branch}"
             if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
-                              capture_output=True).returncode != 0:
+                              capture_output=True, env=no_lazy_fetch()).returncode != 0:
                 continue
-            base = git(repo, "merge-base", head, ref, check=False).strip()
+            base = git(repo, "merge-base", head, ref, check=False, lazy=False).strip()
             if not base:
                 continue
-            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}", lazy=False).split())
             if distance < FAR:
                 return base
             found.append((distance, base))
@@ -1915,15 +1925,93 @@ def sparse_refusal(plan: Plan, mode: str) -> str:
             "Lint a commit instead (`scripts/web-lint.sh --head HEAD`), which is written whole from git's objects.")
 
 
+HOLDER_PREFIX = "cmux-web-lint-"
+HOLDER_OWNER = ".owner-pid"
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # EPERM: another user's live process
+    return True
+
+
+def sweep_orphan_holders(repo: Path, grace_seconds: float = 600.0) -> int:
+    """Remove lint-tree holders (cmux-web-lint-*, ~1.9 GB each) in the temp folder whose owner process is gone: a
+    lint killed by SIGKILL, a timeout or a closed terminal never reached tree_of()'s finally, and acpmux keeps the
+    session TMPDIR they sit in (fs-agent-lane-40, 2026-11-27: +39 GB/day in /tmp/acpmux-*/t). A holder with no owner
+    file is judged by age (GRACE_SECONDS) so one still being made is kept. Returns how many were removed."""
+    root = Path(tempfile.gettempdir())
+    removed = 0
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(HOLDER_PREFIX) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / HOLDER_OWNER).read_text().strip())
+            dead = not pid_alive(owner)
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    if removed and has_work_tree(repo):
+        git(repo, "worktree", "prune", check=False)  # the removed holders' worktree registrations
+    return removed
+
+
+@contextlib.contextmanager
+def terminate_cleanly():
+    """SIGTERM/SIGHUP raise SystemExit while inside, so the `finally` that removes a lint tree runs (Python's default
+    action ends the process with no cleanup). Only from the main thread, and only over the default action."""
+    saved = {}
+    if threading.current_thread() is threading.main_thread():
+        def stop(signum, _frame):
+            raise SystemExit(128 + signum)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            if signal.getsignal(sig) == signal.SIG_DFL:
+                saved[sig] = signal.SIG_DFL
+                signal.signal(sig, stop)
+    try:
+        yield
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+
+def make_holder(repo: Path) -> Path:
+    sweep_orphan_holders(repo)
+    holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+    (holder / HOLDER_OWNER).write_text(str(os.getpid()))
+    return holder
+
+
 @contextlib.contextmanager
 def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
+    if sha is None or is_checked_out(repo, sha):
+        yield repo
+        return
+    with terminate_cleanly():
+        with tree_of_holder(repo, sha, directories, only) as tree:
+            yield tree
+
+
+@contextlib.contextmanager
+def tree_of_holder(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
     Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
     ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
-    holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
+    holder = make_holder(repo)
     tree = holder / "tree"
     if only is not None:
         try:
@@ -2035,13 +2123,30 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
         return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        # One install and one strings pass per package, then every rerun side by side with run_checks' slots: on
+        # 2026-11-26 a webviews pull request over a base red on 13 checks ran them here one at a time, each after its
+        # own `bun install`, 128 s of the fast gates' 290 s job (job 139919568161), when the head's 37 ran at once.
+        ready: dict[str, bool] = {}
+        reruns: list[Result] = []
         for result in failed:
-            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
-            if whole and ensure_deps(base_tree, result.label):
-                continue  # no base to compare with: the red stays this change's
-            if whole:
-                compare.generate_strings(base_tree / result.label)
-            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            # A ratchet that lands with its own script and baseline: the base cannot run it, so every finding on
+            # the merge (base's own moves since the baseline was written included) would be charged here. The
+            # same rule as the webviews checks gate (NEW_CHECK_SCRIPTS); later PRs compare normally.
+            script = compare.NEW_CHECK_SCRIPTS.get(result.command.removeprefix("bun run ").strip())
+            if script and not (base_tree / result.label / script).is_file():
+                print(f"::warning title=web lint (new check)::{result.label}: {result.command} is new; the base "
+                      f"{base[:12]} has no {script}, so this transition is not charged", file=sys.stderr)
+                result.returncode = 0
+                continue
+            if result.label not in plan.script_pieces and result.label not in ready:  # a lone piece needs no install
+                ready[result.label] = ensure_deps(base_tree, result.label) is None
+                if ready[result.label]:
+                    compare.generate_strings(base_tree / result.label)
+            if ready.get(result.label, True):  # else no base to compare with: the red stays this change's
+                reruns.append(result)
+        agains = run_checks(base_tree, plan, [(r.label, r.command, base_tree / r.label,
+                                               package_env(base_tree, r.label)) for r in reruns])
+        for result, again in zip(reruns, agains):
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))

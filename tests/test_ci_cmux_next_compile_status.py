@@ -23,6 +23,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 # CMUX_NEXT_WORKFLOW: run the checks against another copy (the detector against an older workflow).
 WORKFLOW = Path(os.environ.get("CMUX_NEXT_WORKFLOW") or ROOT / ".github" / "workflows" / "cmux-next.yml")
 SHA = "a" * 40
@@ -94,7 +96,7 @@ NO_VERDICT_LINE = re.compile(r"cmux-next/compile is not a pass for \S+ \((?!fail
 
 
 def job() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status"]
+    return yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["compile-status"]
 
 
 def step_script() -> str:
@@ -167,9 +169,26 @@ class StatusMapping(unittest.TestCase):
                 code, posts, reads = self.run_step(self.reply(state, status_poster="controller"), PR="28059")
                 self.assertEqual(code, 0)
                 self.assertEqual([p["state"] for p in posts], ["pending"])
-                self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
+                self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip",
+                                         f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
                 self.assertIn("posts cmux-next/compile itself", self.stdout)
                 self.assertEqual(self.output.strip(), f"state={state}")
+
+    def test_an_awaiting_land_receipt_finishes_without_posting_pending(self):
+        receipt = self.reply("awaiting_land", status_poster="controller")
+        code, posts, reads = self.run_step(receipt, PR="28059")
+        self.assertEqual(code, 0)
+        self.assertEqual(posts, [])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip"])
+        self.assertEqual(self.output.strip(), "state=awaiting_land")
+
+    def test_a_mismatched_tip_receipt_falls_back_to_the_existing_wait(self):
+        receipt = self.reply("awaiting_land", status_poster="controller", configuration="debug")
+        code, posts, reads = self.run_step(receipt, PR="28059", WAIT_SECONDS="5")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(posts[0]["state"], "pending")
+        self.assertGreaterEqual(len(reads), 2)
+        self.assertTrue(reads[0].endswith("&phase=tip"), reads)
 
     def test_a_superseded_push_whose_branch_moved_ends_at_its_first_read(self):
         """note-554: the controller will never check a superseded push tip; once the branch head has moved on, the job
@@ -199,10 +218,10 @@ class StatusMapping(unittest.TestCase):
 
     def test_the_superseded_gate_is_a_repo_variable_defaulting_on(self):
         for name in ("compile-status", "release-compile-fast"):
-            job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][name]
+            job = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"][name]
             env = next(step["env"] for step in job["steps"] if "run" in step and "SUPERSEDED_GATE" in step.get("env", {}))
             self.assertEqual(env["SUPERSEDED_GATE"], "${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}")
-        admission = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast-admission"]
+        admission = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast-admission"]
         self.assertIn("needs.release-compile-fast.outputs.verdict != 'superseded'", admission["if"])
 
     def test_a_controller_mark_hands_nothing_off_that_this_job_would_not(self):
@@ -222,7 +241,8 @@ class StatusMapping(unittest.TestCase):
         self.assertTrue(reads and not reads[0].endswith("&wait=1"), reads)
         # An unmarked pull request receipt drops back to the long blocking read after the first look.
         _, _, reads = self.run_step(self.reply("running"), PR="28059", WAIT_SECONDS="8", READ_GAP="1")
-        self.assertTrue(len(reads) >= 2 and reads[0].endswith("&wait=1") and not reads[1].endswith("&wait=1"), reads)
+        self.assertTrue(len(reads) >= 3 and reads[0].endswith("&phase=tip") and reads[1].endswith("&wait=1")
+                        and not reads[2].endswith("&wait=1"), reads)
 
     def test_a_failure_links_the_compile_log(self):
         _, posts, _ = self.run_step(self.reply("fail"))
@@ -238,7 +258,8 @@ class StatusMapping(unittest.TestCase):
         # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571). Its
         # first read takes the receipt as it is (wait=1): the controller may post this head's status itself.
         _, _, reads = self.run_step(self.reply("pass"), PR="28059")
-        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip",
+                                 f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
         _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
         _, _, reads = self.run_step(self.reply("pass"), BAD_BOUND="3000")
@@ -396,7 +417,7 @@ class StatusMapping(unittest.TestCase):
     def test_every_cmux_next_compile_post_waits_out_a_rate_limit(self):
         """The detector of this class: every step that posts cmux-next/compile uses the one post(), which reads the
         answer, names it, and waits out a GitHub rate limit; no bare curl to the statuses API sits beside it."""
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        workflow = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         posters = {name: step["run"] for name, j in workflow.items() for step in j.get("steps", [])
                    if '"cmux-next/compile"' in step.get("run", "")}
         self.assertEqual(sorted(posters), ["compile-status", "compile-status-handoff"])
@@ -435,6 +456,38 @@ class StatusMapping(unittest.TestCase):
         self.assertRegex(self.stdout, NO_VERDICT_LINE)
         self.assertEqual(self.output, "")
 
+    def test_a_superseded_push_with_the_service_down_ends_green(self):
+        """2026-11-24-compile-status-down-superseded.md: at 14:50Z five feat-cmux-next pushes the preflight had
+        found superseded (so FALLBACK false) failed this job in about a minute on "results service down, HTTP 000", each a base red. The branch
+        moved on, so the newer tip's check covers the commit: a no-verdict status, and the job ends green."""
+        newer = "b" * 40
+        for probe in ("530", "000"):
+            with self.subTest(probe=probe):
+                code, posts, reads = self.run_step(self.reply("pass"), PROBE_CODE=probe, HEAD_SHA=newer)
+                self.assertEqual((code, reads, len(self.git_reads)), (0, [], 1))
+                self.assertEqual([p["state"] for p in posts], ["pending", "error"])
+                said = posts[-1]["description"]
+                self.assertTrue(said.startswith(f"[no-verdict] [superseded] Results service down (HTTP {probe}); "), said)
+                self.assertLessEqual(len(said), 140)
+                self.assertRegex(said, base_red_excuse().COMPILE_STATUS_NO_VERDICT)
+                self.assertNotRegex(self.stdout, NO_VERDICT_LINE)
+        # Down after the bad-answer bound, too.
+        code, posts, _ = self.run_step(None, CODES="503", BAD_BOUND="2", READ_GAP="1", WAIT_SECONDS="2400",
+                                       HEAD_SHA=newer)
+        self.assertEqual(code, 0)
+        self.assertTrue(posts[-1]["description"].startswith("[no-verdict] [superseded] Results service down (HTTP 503 for "))
+        # The head not moved, unreadable, or the gate off: no verdict and a red, as before.
+        for env in ({"HEAD_SHA": SHA}, {}, {"HEAD_SHA": newer, "SUPERSEDED_GATE": "0"}):
+            with self.subTest(env=env):
+                code, posts, _ = self.run_step(self.reply("pass"), PROBE_CODE="530", **env)
+                self.assertEqual(code, 1)
+                self.assertIn("no fallback compile runs here, re-run this job", posts[-1]["description"])
+                self.assertRegex(self.stdout, NO_VERDICT_LINE)
+        # A pull request head never reads the branch: the overflow compile takes it.
+        code, posts, _ = self.run_step(self.reply("pass"), PROBE_CODE="530", HEAD_SHA=newer, PR="28059")
+        self.assertEqual((code, self.git_reads), (0, []))
+        self.assertTrue(posts[-1]["description"].startswith("[overflow] "))
+
     def test_a_service_that_answers_nothing_usable_is_down_after_the_bound(self):
         # Probes see a 404 (the service up), then every read is a 503 or a 530: handed off after BAD_BOUND.
         for bad in ("503", "530", "000", "403"):
@@ -462,15 +515,17 @@ class Placement(unittest.TestCase):
     def test_the_fallback_is_named_where_one_runs(self):
         fallback = next(step for step in job()["steps"] if "run" in step)["env"]["FALLBACK"]
         for needle in ("needs.push-head-preflight.outputs.current == 'true'", "github.event_name == 'push'",
-                       "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                       "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
-        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight"])
+        # A PR head's compile-status waits for the Linux cargo tier and skips on a red one (#58899, note-cheap-gate).
+        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce", "fast-tier-cargo"])
+        self.assertIn("needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped'", job()["if"])
         self.assertEqual(job()["outputs"]["handoff"], "${{ steps.wait.outputs.handoff }}")
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
-        for needle in ("github.event_name != 'pull_request'", "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        release = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile"]["if"]
+        for needle in ("github.event_name != 'pull_request'", "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'", "needs.push-head-preflight.outputs.current == 'true'"):
             self.assertIn(needle, release)
 
@@ -499,7 +554,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
         if reply is None or reply.get("state") == "running":
             env = {**env, "WAIT_SECONDS": "5", "READ_GAP": "1"}  # no terminal answer until the deadline: keep it short
         env = {**GAPS, **env}
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp, "bin")
@@ -552,7 +607,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
             with self.subTest(env=env):
                 code, verdict, reads = self.run_step(self.reply("superseded"), WAIT_SECONDS="400", **env)
                 self.assertEqual((code, verdict, len(reads)), (0, "unavailable", 1))
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
+        release = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile"]["if"]
         self.assertIn("needs.release-compile-fast.outputs.verdict == 'unavailable'", release)
 
     def test_a_gateway_runner_submits_its_own_check_and_never_reads_the_result(self):
@@ -570,7 +625,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
     def test_the_wait_fits_the_job(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]
+        job = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast"]
         run = next(step["run"] for step in job["steps"] if step.get("id") == "compile")
         self.assertIn("WAIT_SECONDS:-1200", run)
         self.assertLessEqual(1200 + 120, job["timeout-minutes"] * 60 - 300)
@@ -584,7 +639,7 @@ def base_red_excuse():
 
 
 def handoff_job() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status-handoff"]
+    return yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["compile-status-handoff"]
 
 
 class ResultsServer(http.server.ThreadingHTTPServer):
@@ -593,7 +648,7 @@ class ResultsServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, code: int):
         # probe_code: what the first two reads (the probes) answer, else `code`; stall: a later read never answers.
-        self.code, self.probe_code, self.stall, self.posts, self.reads = code, None, False, [], []
+        self.code, self.probe_code, self.stall, self.posts, self.reads, self.tip_reads = code, None, False, [], [], []
         self.release = threading.Event()
         server = self
 
@@ -602,6 +657,11 @@ class ResultsServer(http.server.ThreadingHTTPServer):
                 pass
 
             def do_GET(self):
+                if self.path.endswith("&phase=tip"):  # a PR head's tip read comes before the probes: kept apart
+                    server.tip_reads.append(self.path)
+                    self.send_response(server.code)
+                    self.end_headers()
+                    return
                 server.reads.append(self.path)
                 probe = len(server.reads) <= 2  # the step's two probes come first
                 if server.stall and not probe:
@@ -663,6 +723,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual(output.strip(), "handoff=HTTP 530")
         self.assertEqual(len(self.server.reads), 2)
         self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads), self.server.reads)
+        self.assertEqual(self.server.tip_reads, [f"/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=40600&phase=tip"])
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         down = output.strip().split("=", 1)[1]
         # A fallback's red is a red (exit 1); with no fallback run it is the needs_verdict rule's no verdict (exit 3),
@@ -698,8 +759,9 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertIn("the overflow compile posts cmux-next/compile", stdout)
 
     def test_a_push_with_no_fallback_says_no_verdict(self):
-        """The overflow compile takes only pull request heads: a superseded push still says no verdict."""
-        code, stdout, output = self.compile_status(FALLBACK="false")
+        """The overflow compile takes only pull request heads: a push with no fallback whose branch head is not read
+        as moved on (here the gate off, so no real `git ls-remote`) still says no verdict and fails."""
+        code, stdout, output = self.compile_status(FALLBACK="false", SUPERSEDED_GATE="0")
         self.assertEqual((code, output), (1, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "error"])
         self.assertIn("no fallback compile runs here, re-run this job", self.server.posts[-1]["description"])
@@ -717,7 +779,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         self.server.reads.clear()
         started = time.monotonic()
@@ -726,7 +788,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1")
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))

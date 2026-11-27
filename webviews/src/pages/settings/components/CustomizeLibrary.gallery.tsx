@@ -16,7 +16,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { LibraryListing } from "../ops";
 import type { LibraryLayout } from "./CustomizeLibraryCard";
 
-type State = "few" | "empty" | "fifty" | "conflict" | "refused";
+type State = "few" | "empty" | "fifty" | "conflict" | "refused" | "experiments" | "experiments-two";
 type Props = { layout: LibraryLayout; state: State };
 
 const REFUSAL =
@@ -26,13 +26,16 @@ async function load() {
   const { installCatalog } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { CustomizeLibraryView } = await import("./CustomizeLibraryCard");
-  const { mockEmptyLibrary, mockLibrary, mockLongLibrary, runLibrary } = await import("../mockLibrary");
+  const { mockEmptyLibrary, mockLibrary, mockLibraryWithExperiments, mockLongLibrary, runLibrary, PR_ON, PR_MERGED } =
+    await import("../mockLibrary");
   const listings: Record<State, LibraryListing> = {
     few: runLibrary(mockLibrary(), { verb: "off", name: "roomy" })!,
     empty: mockEmptyLibrary(),
     fifty: mockLongLibrary(50),
     conflict: mockLibrary(),
     refused: mockLibrary(),
+    experiments: mockLibraryWithExperiments(),
+    "experiments-two": mockLibraryWithExperiments([PR_ON, PR_MERGED]),
   };
   const actions = { onToggle: () => {}, onMove: () => {}, onRemove: () => {} };
   return function CustomizeLibraryLayouts({ layout, state }: Props) {
@@ -62,6 +65,9 @@ const STATES: Record<State, string> = {
   fifty: "fifty entries",
   conflict: "night and roomy are on and both set the sidebar width: roomy says night wins",
   refused: "a toggle refused while a preview is open: the CLI's words under the list",
+  experiments:
+    "PR entries on top: #43543 on with a needs-a-build line, #43496 turned off by a refresh (merged: in your build), #43410 with no web part (its switch stays off)",
+  "experiments-two": "two PRs on: the lower one says the higher one's pages are in use",
 };
 
 const variants: Record<string, { note: string; props: Props }> = {};

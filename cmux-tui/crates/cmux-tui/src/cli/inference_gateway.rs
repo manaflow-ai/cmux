@@ -56,8 +56,14 @@ const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
-/// Calls this gateway takes at once (equal to the API's cap per team); one more is answered busy.
+/// Calls this gateway takes at once (equal to the API's cap per team); one more waits for a slot ([`Slots`]).
 const MAX_CALLS: usize = 256;
+/// How long a call past the cap waits for a slot, by priority, before it is answered a 529 (the same bounds as
+/// cmux-platform's GatewayQueue.ts): a slot frees within a call's latency, so a short wait beats a failed turn.
+const INTERACTIVE_WAIT: Duration = Duration::from_secs(30);
+const BACKGROUND_WAIT: Duration = Duration::from_secs(10);
+/// A busy answer's Retry-After is full jitter: uniform in 1..=this many seconds (GatewayQueue.ts: min(30, 2 x 5)).
+const BUSY_RETRY_AFTER_MAX_S: u64 = 10;
 /// Of [`MAX_CALLS`], the calls only an interactive one may take (`x-subrouter-priority: interactive`:
 /// the person's chats and coordinators, acpmux `subrouter_priority.rs`): background calls (lanes,
 /// helpers, subagents) reach the limit first, so Leo can still talk to his chats under load.
@@ -166,6 +172,10 @@ pub(super) enum TokenSource {
     File(PathBuf),
     Command(String),
     Env,
+    /// The caller's held token on stdin (`--token-stdin`): a bare token or `cmux auth token --json`'s object. The app's
+    /// Cloud start gate hands over the install token it already holds, so the read mints none (hq#19758: the nested
+    /// `auth token` mint could take the gate's whole 10 s bound).
+    Stdin,
     App,
 }
 
@@ -339,7 +349,11 @@ pub(super) fn parse(
         }
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
@@ -476,7 +490,18 @@ pub(super) async fn backend_credential(
     team: Option<&str>,
 ) -> Result<(String, Option<String>), String> {
     let raw = match source {
-        TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Env => super::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+            .unwrap_or_default(),
+        TokenSource::Stdin => {
+            use tokio::io::AsyncReadExt;
+            let mut raw = String::new();
+            tokio::io::stdin()
+                .take(64 * 1024)
+                .read_to_string(&mut raw)
+                .await
+                .map_err(|e| format!("cannot read the token on stdin: {e}"))?;
+            raw
+        }
         TokenSource::File(path) => tokio::fs::read_to_string(path)
             .await
             .map_err(|e| format!("cannot read the token file: {e}"))?,
@@ -599,7 +624,7 @@ async fn stopping(stop: &mut watch::Receiver<bool>) {
 }
 
 async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("cmux-inference-gateway/", env!("CARGO_PKG_VERSION")))
@@ -612,6 +637,12 @@ async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
+    // Open the provider's connection now, while the backend socket dials, so the first model call reuses it.
+    // Its owner lives as long as serve(): a gateway that stops first cancels the warm-up.
+    let warming = cmux_scope::Scope::new("inference gateway warm-up");
+    drop(start_warm(&warming, &upstream));
+    // One count for the process: a call aborted with its old socket gives its slot back when its task drops.
+    let slots = Arc::new(Slots::default());
     let has_login = match upstream.check().await {
         Ok(found) => found,
         Err(error) => {
@@ -657,7 +688,9 @@ async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
         };
         let ended = match token {
             _ if *stop.borrow() => Ended::Shutdown,
-            Ok(token) => session(&options, &token, upstream.clone(), stop.clone()).await,
+            Ok(token) => {
+                session(&options, &token, upstream.clone(), slots.clone(), stop.clone()).await
+            }
             Err(error) => Ended::Closed(error),
         };
         match ended {
@@ -714,6 +747,7 @@ async fn session(
     options: &Options,
     token: &str,
     upstream: Arc<Provider>,
+    slots: Arc<Slots>,
     mut stop: watch::Receiver<bool>,
 ) -> Ended {
     let path = if options.personal { PERSONAL_CONNECT_PATH } else { CONNECT_PATH };
@@ -738,7 +772,12 @@ async fn session(
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::inference_gateway",
+    );
     let connect = tokio::select! {
         connect = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect) => connect,
         () = stopping(&mut stop) => return Ended::Shutdown,
@@ -873,15 +912,8 @@ async fn session(
                             .collect()
                     })
                     .unwrap_or_default();
-                if !admits(pending.len() + running.len(), &headers) {
-                    let busy = error_frame(
-                        &id,
-                        "inference.gateway_busy",
-                        "the gateway is at its call limit; retry",
-                    );
-                    send(&tx, &busy).await;
-                    continue;
-                }
+                // No slot yet: the body's bytes are bounded by MAX_HELD_BYTES, and the call takes its slot (or
+                // waits for one) once its body is whole (`body_end`).
                 pending.insert(
                     id,
                     Pending {
@@ -934,9 +966,10 @@ async fn session(
                 let Some(call) = pending.remove(&id) else { continue };
                 let bytes = call.body.len();
                 let (tx, done, upstream) = (tx.clone(), done_tx.clone(), upstream.clone());
+                let slots = slots.clone();
                 let key = id.clone();
                 let task = tokio::spawn(async move {
-                    answer(&upstream, &key, call, &tx).await;
+                    admitted(&slots, &upstream, &key, call, &tx).await;
                     let _ = done.send(key);
                 });
                 running.insert(id, (task.abort_handle(), bytes));
@@ -961,16 +994,141 @@ async fn session(
     ended
 }
 
-/// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
 /// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
 /// one up to [`MAX_CALLS`], any other up to [`MAX_CALLS`] less [`INTERACTIVE_RESERVE`].
+#[cfg(test)]
 fn admits(in_flight: usize, headers: &[(String, String)]) -> bool {
-    let interactive = headers
-        .iter()
-        .any(|(k, v)| k == PRIORITY_HEADER && v.trim().eq_ignore_ascii_case("interactive"));
-    in_flight < if interactive { MAX_CALLS } else { MAX_CALLS - INTERACTIVE_RESERVE }
+    in_flight < cap(interactive(headers))
 }
 
+fn interactive(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(k, v)| k == PRIORITY_HEADER && v.trim().eq_ignore_ascii_case("interactive"))
+}
+
+fn cap(interactive: bool) -> usize {
+    if interactive { MAX_CALLS } else { MAX_CALLS - INTERACTIVE_RESERVE }
+}
+
+/// The calls this process runs against the provider at once. A call holds a [`Slot`] for as long as its task lives,
+/// so every way a call ends (its answer, an error, a `cancel`'s abort, the socket's end) gives the slot back.
+#[derive(Default)]
+struct Slots {
+    taken: std::sync::Mutex<usize>,
+    freed: tokio::sync::Notify,
+}
+
+/// One call's place in [`Slots`]: dropping it frees the place and wakes the calls waiting for one.
+struct Slot(Arc<Slots>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        *self.0.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner) -= 1;
+        self.0.freed.notify_waiters();
+    }
+}
+
+impl Slots {
+    fn in_flight(&self) -> usize {
+        *self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A slot now, if the call's share has one.
+    fn try_take(self: &Arc<Self>, interactive: bool) -> Option<Slot> {
+        let mut taken = self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *taken >= cap(interactive) {
+            return None;
+        }
+        *taken += 1;
+        Some(Slot(self.clone()))
+    }
+
+    /// A slot within `wait`, or none. An interactive call also takes the reserve, so when the calls are past the
+    /// background share a freed slot goes to the interactive calls waiting.
+    async fn take(self: &Arc<Self>, interactive: bool, wait: Duration) -> Option<Slot> {
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            // Registered before the check, so a slot freed between the check and the wait still wakes this call.
+            let freed = self.freed.notified();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
+            if let Some(slot) = self.try_take(interactive) {
+                return Some(slot);
+            }
+            if tokio::time::timeout_at(deadline, freed).await.is_err() {
+                return None;
+            }
+        }
+    }
+}
+
+/// A whole call: its slot (waited for by priority), then its answer. Past the wait it is answered a 529
+/// `overloaded_error` with a jittered Retry-After, which Claude Code and Codex wait out, never the turn-ending 502.
+async fn admitted(
+    slots: &Arc<Slots>,
+    upstream: &Provider,
+    id: &str,
+    call: Pending,
+    tx: &mpsc::Sender<String>,
+) {
+    let interactive = interactive(&call.headers);
+    let started = Instant::now();
+    let Some(slot) =
+        slots.take(interactive, if interactive { INTERACTIVE_WAIT } else { BACKGROUND_WAIT }).await
+    else {
+        log(&format!(
+            "{} {} {} -> 529 busy, waited {} ms ({} in flight)",
+            call.headers
+                .iter()
+                .find(|(k, _)| k == "x-cmux-machine")
+                .map_or_else(|| "-".into(), |(_, v)| printable(v)),
+            printable(&call.method),
+            log_path(&call.path),
+            started.elapsed().as_millis(),
+            slots.in_flight(),
+        ));
+        for frame in busy_frames(id, jitter_s(BUSY_RETRY_AFTER_MAX_S)) {
+            send(tx, &frame).await;
+        }
+        return;
+    };
+    answer(upstream, id, call, tx).await;
+    drop(slot);
+}
+
+/// Seconds, uniform in 1..=`max`: full jitter, so the calls a busy gateway turned away do not all come back at once.
+fn jitter_s(max: u64) -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    // RandomState is seeded at random per instance: enough for a jitter, with no new dependency.
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos());
+    1 + hasher.finish() % max.max(1)
+}
+
+/// A busy gateway's answer, as frames: a 529 head with Retry-After, the Anthropic-shaped `overloaded_error`
+/// body (the same as cmux-platform's GatewayQueue.ts answers past its bound), and the end.
+fn busy_frames(id: &str, retry_after_s: u64) -> [Value; 3] {
+    let body = json!({
+        "type": "error",
+        "error": {
+            "type": "overloaded_error",
+            "code": "inference.gateway_busy",
+            "message": "the inference gateway is at its call limit; retry",
+        },
+    });
+    let data = base64::engine::general_purpose::STANDARD.encode(body.to_string());
+    [
+        json!({"v": 1, "t": "head", "id": id, "status": 529, "headers": {
+            "content-type": "application/json",
+            "retry-after": retry_after_s.to_string(),
+        }}),
+        json!({"v": 1, "t": "data", "id": id, "data": data}),
+        json!({"v": 1, "t": "end", "id": id}),
+    ]
+}
+
+/// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
 async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
     let _ = tx.send(frame.to_string()).await;
 }
@@ -1006,6 +1164,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             return send(tx, &error_frame(id, code, &message)).await;
         }
     };
+    // The provider's head: a pool that holds its head until the first content (sr2) makes this the time to first token.
+    let head_ms = started.elapsed().as_millis();
+    let mut first_ms = None;
     let status = response.status().as_u16();
     let mut headers = serde_json::Map::new();
     for name in ANSWER_HEADERS {
@@ -1035,6 +1196,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
         };
         match chunk {
             Ok(bytes) => {
+                if first_ms.is_none() && !bytes.is_empty() {
+                    first_ms = Some(started.elapsed().as_millis());
+                }
                 for part in bytes.chunks(CHUNK_BYTES) {
                     let data = base64::engine::general_purpose::STANDARD.encode(part);
                     send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data})).await;
@@ -1058,12 +1222,48 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&format!(
-        "{machine} {} {path} -> {status} ({} ms)",
-        printable(&call.method),
-        started.elapsed().as_millis()
+    log(&call_line(
+        &machine,
+        &call.method,
+        &path,
+        status,
+        started.elapsed().as_millis(),
+        head_ms,
+        first_ms,
     ));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
+}
+
+/// How long a warm-up waits for the provider; it never holds up a call or the start.
+const WARM_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Warms the provider's connection in the background ([`Provider::warm`]); the start does not wait for it.
+/// `None` when `scope` was cancelled first.
+fn start_warm(
+    scope: &cmux_scope::Scope,
+    upstream: &Arc<Provider>,
+) -> tokio::task::JoinHandle<Option<usize>> {
+    let upstream = upstream.clone();
+    scope.spawn_until_cancelled("inference gateway warm-up", async move { upstream.warm().await })
+}
+
+/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
+/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py).
+fn call_line(
+    machine: &str,
+    method: &str,
+    path: &str,
+    status: u16,
+    total_ms: u128,
+    head_ms: u128,
+    first_ms: Option<u128>,
+) -> String {
+    let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
+    format!(
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first})",
+        printable(method)
+    )
 }
 
 /// The login this gateway holds, and how a call reaches the provider with it.
@@ -1128,6 +1328,41 @@ impl Provider {
                 Ok(true)
             }
         }
+    }
+
+    /// The origins this gateway's model calls go to.
+    fn warm_urls(&self) -> Vec<String> {
+        match &self.upstream {
+            Upstream::Proxy { base, .. } => vec![base.clone()],
+            Upstream::MacLogins(logins) => {
+                vec![logins.claude_base.clone(), CODEX_BACKEND.to_owned()]
+            }
+            Upstream::Codex { .. } => vec![CODEX_BACKEND.to_owned()],
+        }
+    }
+
+    /// Opens a connection (DNS, TCP, TLS on https, and the tailnet path on a tailnet host) to each origin with one
+    /// HEAD and leaves it in the client's pool, so the first model call does not pay for it. Any answer counts; a
+    /// failure is logged and changes nothing (the call dials as before). How many origins answered.
+    async fn warm(&self) -> usize {
+        let mut warmed = 0;
+        for url in self.warm_urls() {
+            let started = Instant::now();
+            let head = self.http.head(&url).timeout(WARM_TIMEOUT).send();
+            match head.await {
+                Ok(response) => {
+                    warmed += 1;
+                    log(&format!(
+                        "warmed {} ({} in {} ms)",
+                        log_path(&url),
+                        response.status().as_u16(),
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(error) => log(&format!("could not warm {}: {error}", log_path(&url))),
+            }
+        }
+        warmed
     }
 
     async fn call(&self, call: &Pending) -> Result<reqwest::Response, CallError> {
