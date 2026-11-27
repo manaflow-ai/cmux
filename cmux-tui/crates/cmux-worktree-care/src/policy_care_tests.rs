@@ -28,6 +28,7 @@ fn an_open_session_keeps_its_worktree_however_idle() {
         name: "lane".into(),
         cwd: "/w/a/src".into(),
         open: true,
+        archived_checkout: None,
         updated_ms: 0,
         ids: Vec::new(),
     };
@@ -42,6 +43,7 @@ fn a_closed_session_s_last_change_counts_as_use() {
         name: "lane".into(),
         cwd: "/w/a".into(),
         open: false,
+        archived_checkout: None,
         updated_ms: NOW,
         ids: Vec::new(),
     };
@@ -82,6 +84,7 @@ fn a_worktree_whose_wt_owner_is_live_is_kept() {
         name: "loop".into(),
         cwd: "/home/chats/loop".into(),
         open,
+        archived_checkout: None,
         updated_ms: 0,
         ids,
     };
@@ -115,6 +118,7 @@ fn a_session_active_in_the_main_checkout_gets_its_worktrees_the_longest_waits() 
         name: "chief".into(),
         cwd: "/r/src".into(),
         open: true,
+        archived_checkout: None,
         updated_ms: NOW,
         ids: Vec::new(),
     };

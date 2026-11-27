@@ -876,6 +876,20 @@ pub(crate) async fn tag(
     Ok(())
 }
 
+/// `acpmux session unsettle NAME`: the chat menu's Unarchive (`_acpmux/archive` false), which
+/// also drops a settled chat's reason (`hub/auto_settle.rs`).
+pub(crate) async fn unsettle(client: Arc<Client>, key: &str, json_out: bool) -> Result<()> {
+    let id = resolve_id(&client, &expand_session_key(key)?).await?;
+    let v =
+        client.request(method::MUX_ARCHIVE, json!({"sessionId": id, "archived": false})).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        println!("{key}: back on the lists");
+    }
+    Ok(())
+}
+
 /// `acpmux session rules NAME '{json}' | @file | --clear`.
 pub(crate) async fn rules(
     client: Arc<Client>,

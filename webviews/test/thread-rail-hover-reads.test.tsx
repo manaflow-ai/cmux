@@ -13,6 +13,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": "compact",
@@ -146,6 +147,7 @@ async function mount(prompts: number) {
       />,
     ),
   );
+  await railFrame();
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
   await act(async () => {

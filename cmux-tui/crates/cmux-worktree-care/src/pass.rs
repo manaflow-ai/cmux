@@ -153,6 +153,10 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             if !options.only.is_empty() && !options.only.iter().any(|p| p == &worktree.path) {
                 continue;
             }
+            // A parked checkout can contain writes made during or after its move.
+            if worktree.path.starts_with(store.dir.join("parked")) {
+                continue;
+            }
             if worktree.prunable {
                 // A stale-only pass touches only the folders it was given:
                 // `git worktree prune` is repository-wide.
@@ -249,7 +253,7 @@ fn act(
     match verdict.action {
         Action::Keep => Ok((0, None)),
         Action::Trim => archive::trim(&fresh, facts, &*options.uses).map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive => archive::reclaim_unless(
+        Action::Reclaim | Action::Archive | Action::Park => archive::reclaim_unless(
             repo,
             &fresh,
             facts,
@@ -280,6 +284,9 @@ fn measure(
     facts: Option<&inventory::Facts>,
     until: Option<std::time::Instant>,
 ) -> u64 {
+    if action == Action::Park {
+        return 0;
+    }
     let own = std::time::Instant::now() + MEASURE;
     let deadline = until.map_or(own, |until| until.min(own));
     let parts: Vec<PathBuf> = facts
