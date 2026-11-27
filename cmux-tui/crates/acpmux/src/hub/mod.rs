@@ -506,7 +506,7 @@ mod wait_reason_tests;
 mod wake_place;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
