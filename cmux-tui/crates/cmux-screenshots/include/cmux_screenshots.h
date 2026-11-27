@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_SCREENSHOTS_ABI_VERSION 3
+#define CMUX_SCREENSHOTS_ABI_VERSION 4
 
 /*
  The panes unlocked this launch.
@@ -212,19 +212,6 @@ uint32_t cmux_screenshots_rule_item_kind(const CmuxScreenshotsRule *rule,
                                          const uint8_t *name,
                                          size_t name_len,
                                          uint32_t system_kind);
-
-/*
- Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-
- # Safety
- `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
- */
-bool cmux_screenshots_rule_enters(const CmuxScreenshotsRule *rule,
-                                  uint32_t entry_kind,
-                                  bool hidden,
-                                  const uint8_t *name,
-                                  size_t name_len,
-                                  size_t depth);
 
 /*
  The position of the newest picture among `entries` (the first listed wins a tie), or -1.
