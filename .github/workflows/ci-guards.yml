@@ -1201,6 +1201,13 @@ jobs:
           python3 tests/test_ci_no_bare_urlopen.py
           python3 tests/test_ci_gh_http.py
 
+      - name: Validate that every workflow git fetch aborts a stalled transfer and retries
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # A fetch at 1000 B/s for 60 s, or an unbounded pool-mirror fetch, was the second-largest false-red
+        # cluster (78 of 465 in 24 h, 2026-11-27): 1 B/s for 60 s, a timeout and a bounded retry, per
+        # cmuxterm-hq docs/handbook/network-transfer-stalls-the-whole-job.md.
+        run: python3 tests/test_ci_workflow_git_fetch_bounds.py
+
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         # setup-zig's per-run caches filled the 10 GB store and evicted the cargo caches (2026-11-18).
@@ -1389,6 +1396,10 @@ jobs:
       - name: Validate fast checks fail over from stalled labels
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Validate fast checks warm checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
 
       - name: Test fleet submission from a plain checkout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2553,6 +2564,10 @@ jobs:
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
+
+      - name: Validate a nightly-next run reads its feed back before it says published
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_published_feed_check.py
 
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -242,6 +242,10 @@ path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_kernel_free.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks fast-checks.yml's setup=kernel-free Mac job: its owned label, trust boundary and receipt; run python3 tests/test_ci_fast_checks_kernel_free.py yourself after changing that job (about 2 s, no build)."
@@ -777,6 +781,10 @@ path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_proof_record.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_protocol_skew_check.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
@@ -1150,6 +1158,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
+path = "tests/test_ci_transcript_replay_report.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/transcript_replay_report.py, the per-kind summary transcript-replay-perf-report.yml writes. Run python3 tests/test_ci_transcript_replay_report.py after changing the script (seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -1167,6 +1180,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_tree_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1242,6 +1259,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_git_fetch_bounds.py"
 lane = "linux-guard"
 
 [[test]]
