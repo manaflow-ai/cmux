@@ -443,7 +443,7 @@ jobs:
           github.event_name == 'schedule' &&
           steps.decide.outputs.variant == 'internal' &&
           steps.decide.outputs.last_uploaded_sha != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Commits and trees only: the batch counts first-parent commits and
@@ -546,7 +546,7 @@ jobs:
       CMUX_TESTFLIGHT_PRO_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_PRO_GROUP_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Shallow and without submodules: the iOS archive needs only the
@@ -1203,7 +1203,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Download notes request
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
@@ -1253,7 +1253,7 @@ jobs:
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Assign uploaded build to the internal beta group
         run: |
@@ -1280,7 +1280,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false

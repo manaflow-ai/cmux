@@ -20,6 +20,7 @@ on:
       - "scripts/cmux-next/rust_panic_ratchet.py"
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
+      - "scripts/ci/cargo_target_strip.py"
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
@@ -282,6 +283,9 @@ jobs:
           CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose land tier ran
+          # carries that run (head_tier.py's full-ci base merge carry rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
@@ -1053,7 +1057,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ !cancelled() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1068,7 +1072,7 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ !cancelled() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save

@@ -131,7 +131,7 @@ jobs:
     outputs:
       run: ${{ steps.route.outputs.run }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -165,7 +165,7 @@ jobs:
       key: ${{ steps.key.outputs.key }}
       hit: ${{ steps.reuse.outputs.hit }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/api_workerd_key.py
@@ -211,7 +211,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       # A later push of a pull request that leaves every path this workflow runs on (`pull_request.paths`, this file
       # among them) as an earlier green run of this shard had them reuses that verdict (.github/actions/tree-result,
       # scripts/ci/paths_tree_key.py): on 11-23T22..11-24T22, 55 of 333 backend PR runs tested inputs identical to an
@@ -341,7 +341,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -544,7 +544,7 @@ jobs:
       run:
         working-directory: backend/db
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -580,7 +580,7 @@ jobs:
       run:
         working-directory: backend/db
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -619,7 +619,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -680,7 +680,7 @@ jobs:
       deployment: false
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -712,7 +712,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # The guard compares the pushed tree with the previous head's: two commits and no ancestry. checkout's
@@ -813,7 +813,7 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -1003,7 +1003,7 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -1126,7 +1126,7 @@ jobs:
       # run ends red with its verdict and summary instead of being killed by a step timeout with neither.
       - name: Set the journey's deadline
         run: echo "JOURNEY_DEADLINE_EPOCH=$(( $(date +%s) + 47 * 60 ))" >> "$GITHUB_ENV"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -1181,6 +1181,7 @@ jobs:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
       - name: Cache the cmux-tui target dir
+        id: headless-target
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -1193,6 +1194,35 @@ jobs:
           cache-workspace-crates: "true"
           # cmux-tui-headless-debug.yml owns this key; read-only here.
           save-if: false
+      # rust-cache restores only its exact key (with the environment hash off its restore key is the key), and
+      # that key hashes Cargo.lock, which feat-cmux-next changes several times an hour. So the journey often
+      # runs on a lock hash no headless-debug run has saved yet: run 45903917201 (job 140211783694) missed both
+      # caches, compiled cmux-tui cold for 35 min and ran past its deadline. This falls back to the newest
+      # headless-debug target dir under any lock hash; cargo then rebuilds only what changed. The paths are
+      # rust-cache's own, in its order and absolute, so the entry's version matches the one it saved.
+      - name: Paths of the headless target dir
+        id: headless-target-paths
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          {
+            echo "paths<<EOF"
+            echo "$cargo_home/registry"
+            echo "$cargo_home/git"
+            echo "$GITHUB_WORKSPACE/cmux-tui/target"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore the newest headless target dir (any Cargo.lock)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.headless-target-paths.outputs.paths }}
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}-${{ runner.os }}-x64
+          restore-keys: |
+            v0-rust-cmux-tui-headless-debug-
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1267,7 +1297,7 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -1450,7 +1480,7 @@ jobs:
     outputs:
       candidate: ${{ steps.gates.outputs.candidate }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # Ancestry (the lineage recheck, rev-list, production's source SHA) needs feat-cmux-next's history, not
@@ -1555,7 +1585,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.promote-gates.outputs.candidate }}
           persist-credentials: false
@@ -1655,7 +1685,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
@@ -1712,7 +1742,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
@@ -1746,7 +1776,7 @@ jobs:
           sha="$(bun scripts/cmux-next/release/prod-promote.ts serving)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::production serves no tagged commit"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.serving.outputs.sha }}
           persist-credentials: false
@@ -1814,7 +1844,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1909,7 +1939,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The rollback reads production's source tags as commits (prod-promote.ts): feat-cmux-next's history,
