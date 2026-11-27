@@ -13,3 +13,7 @@
   color: var(--cv-text);
   font-weight: var(--weight-emphasis);
 }
+/* Loading draws no words but holds the empty row's two lines (model.ts SUBAGENT_EMPTY height). */
+.cv-subagent-empty[aria-busy="true"] {
+  min-height: calc(2 * var(--text-body--line-height));
+}

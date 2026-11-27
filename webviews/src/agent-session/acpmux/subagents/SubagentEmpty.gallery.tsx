@@ -7,17 +7,25 @@ import { childView } from "./subagentRows";
 
 /// `pending`: a pane opened on a subagent the chat's rows no longer hold, while its own records are
 /// read (`loading`) or after they came back empty (`missing`), drawn by `subagentPaneView`.
-/// `look`: the loading designs weighed for it (ask-d066640281); `words` ships.
+/// `look`: the loading designs weighed for it (ask-d066640281); `blank` ships (Leo, 2026-11-27, on the
+/// words: "unnecesssary message", ask-4646da8b19): the tab's spinner already says it is loading.
 type Props = {
   state: string;
   populated?: boolean;
   pending?: "loading" | "missing";
-  look?: "words" | "skeleton" | "spinner";
+  look?: "blank" | "words" | "skeleton" | "spinner";
 };
 
 /// The loading designs not picked, drawn here only to compare: three bars of the reply's width, and
 /// a small spinner beside the words. Both change the row's shape when the rows come.
-function RejectedLoading({ look }: { look: "skeleton" | "spinner" }) {
+function RejectedLoading({ look }: { look: "words" | "skeleton" | "spinner" }) {
+  if (look === "words")
+    return (
+      <div style={{ padding: "12px 16px", color: "var(--cv-text-muted)" }}>
+        <strong>Loading messages…</strong>
+        <div>Messages and tool calls from this agent appear here.</div>
+      </div>
+    );
   if (look === "skeleton")
     return (
       <div aria-hidden="true" style={{ display: "grid", gap: 8, padding: "12px 16px" }}>
@@ -80,7 +88,7 @@ export default componentEntry<Props>({
             at: at + 1000,
             text: "The review is complete.",
           };
-          if (props.pending && props.look && props.look !== "words") return <RejectedLoading look={props.look} />;
+          if (props.pending && props.look && props.look !== "blank") return <RejectedLoading look={props.look} />;
           const rows = props.pending
             ? subagentPaneView(
                 "reviewer",
@@ -116,8 +124,12 @@ export default componentEntry<Props>({
     // A pane opened on a subagent the chat's rows no longer hold (Leo, 2026-11-07: "is this your
     // sub-agent, or is this literally just a duplicate of you?"): never the chat's rows.
     "own-loading": {
+      props: { state: "completed", pending: "loading", look: "blank" },
+      note: "Picked: the empty row's height with no words; the tab's spinner says loading, so the swap to rows or to empty moves nothing.",
+    },
+    "own-loading-words": {
       props: { state: "completed", pending: "loading", look: "words" },
-      note: "Picked: the empty row's shape with its first line saying Loading, so the swap to rows or to empty moves nothing.",
+      note: 'Was shipped, now not picked: Leo, 2026-11-27: "unnecesssary message".',
     },
     "own-loading-skeleton": {
       props: { state: "completed", pending: "loading", look: "skeleton" },

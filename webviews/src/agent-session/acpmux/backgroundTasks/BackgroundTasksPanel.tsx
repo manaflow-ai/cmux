@@ -277,7 +277,6 @@ export function BackgroundTasksPanel({
                   rows={drillRows}
                   running={drillRunning}
                   anchor={drill.rowId}
-                  notice={drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined}
                 />
               </NestedAgents.Provider>
             )}
