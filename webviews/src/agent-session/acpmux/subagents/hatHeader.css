@@ -275,7 +275,7 @@
 }
 /* Overlapped, each mark tucks under the one before it (the first is on top, HatHeadDeck's z-index). */
 .acpmux-hat-deck:is([data-fit="1"], [data-fit="2"]) > .acpmux-hat-deck__mark + .acpmux-hat-deck__mark {
-  margin-inline-start: calc(-5 * var(--grid-half-step));
+  margin-inline-start: calc(-3 * var(--grid-half-step));
 }
 .acpmux-hat-deck[data-fit="3"] {
   margin: 0;

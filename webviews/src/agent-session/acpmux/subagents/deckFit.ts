@@ -19,11 +19,11 @@ export type DeckLevel = 0 | 1 | 2 | 3;
 /** The bar widths (px, at or under) where the deck gives up a form. */
 export const DECK_FIT_STEPS = {
   /** The marks overlap and the count drops "more". */
-  stacked: 560,
+  stacked: 640,
   /** Three marks at most. */
-  few: 440,
+  few: 480,
   /** No marks: the words alone. */
-  wordsOnly: 340,
+  wordsOnly: 420,
 } as const;
 
 /** The marks each level draws at most (level 0 takes the caller's cap). */
