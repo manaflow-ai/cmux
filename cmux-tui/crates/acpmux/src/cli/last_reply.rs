@@ -26,6 +26,9 @@ const FIRST_PAGE: usize = 256;
 /// The most JSON a page of the daemon's log may hold (`_acpmux/events` `maxBytes`).
 const PAGE_BYTES: usize = 4 << 20;
 
+/// Additive protocol support, advertised before the CLI sends the new session method.
+pub(crate) const LAST_REPLY_FEATURE: &str = "lastReplies";
+
 /// The last `count` assistant replies of a session, oldest first.
 pub(crate) async fn last_replies(
     client: &Arc<Client>,
@@ -33,10 +36,15 @@ pub(crate) async fn last_replies(
     count: usize,
 ) -> Result<Vec<String>> {
     let count = count.max(1);
-    match client.request(method::MUX_LAST, json!({"sessionId": id, "count": count})).await {
-        Ok(reply) => return Ok(texts(&reply)),
-        Err(e) if !served(&e) => {}
-        Err(e) => return Err(e),
+    // Older local daemons forward unknown session methods to the harness; probing them
+    // can require person authorization or start an agent. Their advertised features are
+    // the safe boundary. A newer local daemon can still reach an older remote peer.
+    if client.daemon_lists(LAST_REPLY_FEATURE) {
+        match client.request(method::MUX_LAST, json!({"sessionId": id, "count": count})).await {
+            Ok(reply) => return Ok(texts(&reply)),
+            Err(e) if !served(&e) => {}
+            Err(e) => return Err(e),
+        }
     }
     let mut pages = Pages::new(count);
     while let Some(query) = pages.next_query(id) {

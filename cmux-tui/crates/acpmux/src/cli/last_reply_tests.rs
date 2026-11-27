@@ -33,7 +33,13 @@ async fn last_falls_back_only_when_the_peer_does_not_serve_it() {
         (RpcError::new(-32001, "access denied").with_data(json!({"reason": "forbidden"})), false),
         (RpcError::new(-32001, "not allowed: mesh.read_unsupported"), false),
     ];
-    for (error, fallback) in cases {
+    // No advertised feature models the old local daemon's harness-forwarding path.
+    let cases = cases.into_iter().map(|(error, fallback)| (error, fallback, true)).chain([(
+        RpcError::new(-32001, "person_required"),
+        true,
+        false,
+    )]);
+    for (error, fallback, advertised) in cases {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("d.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
@@ -49,6 +55,12 @@ async fn last_falls_back_only_when_the_peer_does_not_serve_it() {
                     continue;
                 };
                 let response = match name.as_str() {
+                    method::INITIALIZE => Message::ok(
+                        id,
+                        json!({"_meta": {"acpmux": {
+                            "features": if advertised { vec![LAST_REPLY_FEATURE] } else { vec![] }
+                        }}}),
+                    ),
                     method::MUX_LAST => {
                         assert_eq!(params.unwrap()["sessionId"], "peer/session");
                         asks.push(name);
@@ -76,7 +88,11 @@ async fn last_falls_back_only_when_the_peer_does_not_serve_it() {
         let asks = server.await.unwrap();
         if fallback {
             assert_eq!(result.unwrap(), vec!["older peer reply"]);
-            assert_eq!(asks, [method::MUX_LAST, method::MUX_EVENTS]);
+            if advertised {
+                assert_eq!(asks, [method::MUX_LAST, method::MUX_EVENTS]);
+            } else {
+                assert_eq!(asks, [method::MUX_EVENTS], "never probe an old local daemon");
+            }
         } else {
             assert_eq!(
                 result.unwrap_err().downcast_ref::<crate::client::DaemonError>().unwrap().0,
