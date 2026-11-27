@@ -4,7 +4,7 @@
 //! A value goes into the login Keychain (service `cmux-cloud-secret`, account `<scope>/<NAME>`,
 //! scope `OWNER/NAME` or `*` for every repo) through `security -i` on stdin, as `cmux harness
 //! secret set` does: it is read from a no-echo prompt or stdin, never from argv, and is never
-//! printed or logged. `~/.config/cmux/cloud-secrets.json` (0600) lists the accounts and when each
+//! printed or logged. `~/.config/cmux-next/cloud-secrets.json` (0600) lists the accounts and when each
 //! was set, never a value: `ls` reads it, and the app's `cloud deliver-secrets` uses the times to
 //! deliver a changed value again. Values reach a machine only over its daemon link.
 

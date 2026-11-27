@@ -54,6 +54,7 @@ export const CATEGORY_CARDS = [
   "keys",
   "mcpServers",
   "integrationsHub",
+  "developerTokens",
   "automationsCloud",
 ] as const;
 
