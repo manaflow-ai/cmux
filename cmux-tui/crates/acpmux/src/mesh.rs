@@ -194,6 +194,9 @@ pub struct BookSession {
     pub harness: String,
     #[serde(default)]
     pub state: String,
+    /// A harness sandbox refusal or an explicit blocked result, when the session is failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck_reason: Option<String>,
     #[serde(default)]
     pub last_seen_at: u64,
     /// The rest of a row a local one carries: read whenever the hub returns them, each `None`

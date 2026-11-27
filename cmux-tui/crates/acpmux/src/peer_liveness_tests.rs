@@ -765,7 +765,7 @@ async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_dro
     let server = tokio::spawn(async move {
         let mut held = Vec::new();
         while let Ok((stream, _)) = listener.accept().await {
-            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
                 held.push(ws);
             }
         }
@@ -857,7 +857,7 @@ async fn a_backlog_frame_does_not_drop_the_replacement_dial() {
         let mut held = Vec::new();
         while let Ok((stream, _)) = listener.accept().await {
             tokio::time::sleep(Duration::from_millis(300)).await;
-            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
                 held.push(ws);
             }
         }
