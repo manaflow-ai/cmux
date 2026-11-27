@@ -405,7 +405,7 @@ reads (a design token, a schema, a skill page the daemon embeds), the loop
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
    `--build-host` the changed files go to a tree kept for this checkout on that host (rsync over one
    kept ssh connection), which keeps its own warm `target/` and uses sccache when the host has it;
-2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
+2. brings the binaries back (rsync, only the change) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
    stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
@@ -455,6 +455,21 @@ crates saves nothing (it's the front end, not codegen). Splitting those crates i
 toward a second. From a build host on another machine add the copy: the debug `cmux-tui` is 614
 MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
 change against the last build. That took 19 s from the fleet box to a Mac over the tailnet.
+
+Nearly all of that copy was rsync's `-z`: zlib read the whole 263 MB to shrink a delta of about
+0.4 MB to 0.1 MB. The loop no longer compresses. Measured with `scripts/measure/rust-live-fetch.py`
+(both rsync ends on one fleet Linux box, so CPU counts and the network doesn't; three one-line
+cmux-tui-core edits each; the host's strip adds 1.25 s to every row):
+
+| Copy of the stripped 263 MB cmux-tui | p50 | sent |
+|---|---|---|
+| `rsync -z` (zlib), before | 13.66 s | 0.1 MB |
+| `rsync`, no compression (now) | 0.96 s | 0.4 MB |
+| `rsync -z --compress-choice=zstd` | 1.03 s | 0.1 MB |
+| `zstd -T0 -1` piped, no delta | 1.17 s | 142.6 MB |
+| `rsync -z --whole-file` | 12.61 s | 136.4 MB |
+
+The first copy after a start still sends the whole binary, since there is no build here to diff.
 
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
