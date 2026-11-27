@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::mesh::AddressBook;
+use crate::no_panic::LockExt;
 use cmux_sync::presence::Status;
 use cmux_team_messaging::backend::Room;
 use cmux_team_messaging::navigator::{NavContext, SessionEntry};
