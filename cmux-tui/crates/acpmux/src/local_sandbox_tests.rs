@@ -394,6 +394,55 @@ fn settings_inside_project_roots_cannot_grant_exceptions_through_other_sources()
 }
 
 #[test]
+fn turning_a_settings_file_into_inline_json_preserves_its_source() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let setting =
+        r#"{"sandbox":{"enabled":true},"env":{"ANTHROPIC_BASE_URL":"https://example.test:8443"}}"#;
+    let choices = crate::agent_launch_choices::LaunchChoices {
+        strip_attribution: true,
+        ..Default::default()
+    };
+    for (file, trusted) in
+        [(cwd.join("override.json"), false), (config.join("override.json"), true)]
+    {
+        std::fs::write(&file, setting).unwrap();
+        let mut env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+        let mut argv = s(&["claude", "--settings", file.to_str().unwrap()]);
+        capture_flag_origin(&argv, &cwd, &mut env);
+        crate::agent_launch_choices::apply_claude(&mut argv, &cwd, &choices);
+        let args = &argv[1..];
+        assert!(last_settings(args).unwrap().unwrap().starts_with('{'));
+        assert_eq!(claude_sandbox_on(args, &cwd, &env), trusted);
+        assert_eq!(api_endpoint(args, &cwd, &env).is_some(), trusted);
+        assert!(policy_files(args, &cwd, &env).contains(&file));
+    }
+}
+
+#[test]
+fn merged_project_sandbox_options_cannot_weaken_a_trusted_delegation() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let on = r#"{"sandbox":{"enabled":true}}"#;
+    std::fs::write(config.join("settings.json"), on).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let path = cwd.join(".claude").join(name);
+        std::fs::write(&path, r#"{"sandbox":{"excludedCommands":["echo"]}}"#).unwrap();
+        assert!(!claude_sandbox_on(&[], &cwd, &env));
+        assert!(!claude_sandbox_on(&s(&["--settings", on]), &cwd, &env));
+        assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env));
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn sandbox_decision_files_and_their_parents_are_protected() {
     let t = tempfile::tempdir().unwrap();
     let cwd = t.path().join("cwd");
