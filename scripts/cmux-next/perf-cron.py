@@ -335,6 +335,15 @@ PARTS = [
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+    # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+    # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
+    # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus
+    # drafts_lost and transient_frames). Before it, NOW's hot_swap_mac_*_p95_ms came only from a hand-run capture,
+    # import and publish (the unfocused row read null 2026-11-24 to 11-27). goal_rows: a run that stored no p95 row
+    # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
+    {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -472,7 +481,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -2805,7 +2814,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy"):
+                      "chat-snappy", "graceful-swap"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
