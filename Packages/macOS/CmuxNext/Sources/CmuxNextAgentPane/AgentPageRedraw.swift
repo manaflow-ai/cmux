@@ -156,6 +156,8 @@ public final class AgentPageRedraw {
             guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
+            guard generation == AgentPaneNewTabFrame.shared.generation, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+            AgentPaneNewTabFrame.shared.store(image, size: size, appearance: appearance, generation: generation)
         }
     }
 

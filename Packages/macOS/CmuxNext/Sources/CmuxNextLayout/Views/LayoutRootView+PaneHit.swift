@@ -20,4 +20,10 @@ extension LayoutRootView {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
         return convert(rect, from: view)
     }
+    /// Pane bounds after a keyboard split, before the pane exists; nil when the preview cannot predict it.
+    public func newSplitPaneSize(splitting pane: PaneID, zone: PaneDropZone) -> CGSize? {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
+        return view.newSplitPaneSize(splitting: pane, zone: zone)
+    }
+
 }
