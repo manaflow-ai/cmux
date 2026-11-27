@@ -4,8 +4,9 @@
 # `lipo -archs` failed (a Mac with only the /usr/bin/lipo stub), the skip printed nothing, and resolve-acpmux.sh told
 # the relaunch bench the acpmux "could not be fetched".
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 repo="$TMP/repo"; mkdir -p "$repo/scripts/cmux-next" "$repo/cmux-tui/crates/acpmux" "$repo/tree"
@@ -17,7 +18,7 @@ cat > "$repo/scripts/cmux-next/pin-cmux-tui.sh" <<'STUB'
 echo "$(cd "$(dirname "$0")/../.." && pwd)/tree/acpmux"
 STUB
 chmod +x "$repo/scripts/cmux-next/"*.sh
-git -C "$repo" init -q && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m t
+git_fixture_init "$repo" && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m t
 
 # A thin arm64 Mach-O as `file` reads it: the magic and CPU type are enough.
 printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01\x00\x00\x00\x00\x02\x00\x00\x00' > "$repo/tree/acpmux"

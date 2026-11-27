@@ -1029,6 +1029,9 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], "${{ steps.pr-exports.outputs.name }}")
 
     def test_the_mac_job_is_skipped_when_a_matching_pack_exists_and_runs_otherwise(self):
+        for name in ("action-exports-linux", "settings-exports-linux"):
+            self.assertEqual(PR_AUTOFIX["jobs"][name]["outputs"]["fallback"],
+                             "${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}", name)
         mac = PR_AUTOFIX["jobs"]["action-exports"]
         self.assertIn("generated-exports", mac["needs"])
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")

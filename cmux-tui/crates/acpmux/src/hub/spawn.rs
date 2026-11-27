@@ -294,6 +294,16 @@ impl Hub {
         let mut prompt_file = None;
         {
             let cfg = self.config.read().await;
+            // The built-in Claude Code's or Codex's program, home, args and env from cmux
+            // Settings (`agents.providers.*`, provider_settings.rs), read at each start; a
+            // person's own profile keeps its own. Before the preset and the remote checks, so
+            // both see the launch as it will run.
+            if let Some(provider) = crate::provider_settings::Provider::of_builtin(
+                profile,
+                cfg.discovered.contains(&meta.harness),
+            ) {
+                crate::provider_settings::Launch::current(provider).apply(&mut p, provider);
+            }
             if let Some(name) = &meta.preset
                 && let Some(preset) = cfg.presets.get(name)
             {
@@ -853,6 +863,27 @@ impl Hub {
             // Per-turn context in the user turn, not a trailing system message the
             // next turn cannot read from the cache (prompt_cache_env.rs).
             crate::prompt_cache_env::keep_turn_context_in_user_turn(&mut p.env, &login);
+        }
+        // The person's `agents.env` and `agents.envExclude` (agent_env.rs), every harness: a
+        // value already set here or by the login shell wins; the exclude list goes to the
+        // command build, which removes those names last. A remote-origin chat gets no values.
+        {
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let remote = meta.remote_origin;
+            let login = |key: &str| {
+                crate::login_env::var(key)
+                    .filter(|v| !remote && crate::login_env::allowed(key, v, Some(&family)))
+            };
+            crate::agent_env::AgentEnv::current().apply(&mut p.env, remote, &login);
+        }
+        // `agents.sandbox.mode` `workspaceWrite` (agent_sandbox.rs): Claude Code starts with its
+        // sandbox on. A remote chain refuses a profile `--settings` and keeps its own sandbox.
+        if profile.kind == crate::config::HarnessKind::ClaudeStdio && !meta.remote_origin {
+            crate::agent_sandbox::claude_argv(
+                crate::agent_sandbox::Sandbox::current(),
+                &mut p.argv,
+                Path::new(&meta.cwd),
+            );
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {

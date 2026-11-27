@@ -213,11 +213,12 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
     /// New chats hold effort and Fast picks before the harness tells us the option's id. Those
     /// ids are aliases for the same user-facing option, so a ticket taken for the held spelling
-    /// must redeem when the opened session reports its spelling.
+    /// must redeem when the opened session reports its spelling. Effort's ids are the ones acpmux
+    /// reads as effort (start_defaults.rs `EFFORT_IDS`): Antigravity and Pi name it `thought_level`.
     private func configOptionIDsEquivalent(_ lhs: AgentPaneJSONScalar, _ rhs: AgentPaneJSONScalar) -> Bool {
         guard case .string(let left) = lhs, case .string(let right) = rhs else { return false }
         if left == right { return true }
-        let effort = Set(["effort", "reasoning_effort"])
+        let effort = Set(["effort", "reasoning_effort", "thought_level", "thinking", "reasoning"])
         if effort.contains(left), effort.contains(right) { return true }
         let fast = Set(["fast", "fast_mode", "fast-mode"])
         return fast.contains(left) && fast.contains(right)

@@ -3634,14 +3634,14 @@ function ComposerFrame({
               const prompt = (field.current?.agentText(typedWords()) ?? typedWords()).trim();
               if (!prompt) return Promise.reject(new Error(t("runOn.emptyPrompt")));
               const session = persistedSession.current;
-              const written = field.current?.value() ?? textRef.current;
+              const written = field.current?.value() ?? promptRef.current.text;
               return runOnAgents.run(prompt, variants).then(() => {
                 closeRunOn();
                 // The prompt went to the runs: it is no draft any more, as a send's. Read the
                 // editor now, not this render's text: words typed after it while the runs started
                 // stay, as a send keeps them; another chat's draft, or an edit of the prompt, stays.
                 if (persistedSession.current !== session) return;
-                const now = field.current?.value() ?? textRef.current;
+                const now = field.current?.value() ?? promptRef.current.text;
                 if (now !== written && !now.startsWith(written)) return;
                 const rest = now.slice(written.length).trimStart();
                 edit(rest, rest.length);

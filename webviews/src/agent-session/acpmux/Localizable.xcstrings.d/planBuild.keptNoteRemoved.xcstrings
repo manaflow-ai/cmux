@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "planBuild.keptNoteRemoved" : {
+      "comment" : "Agent pane: note after keeping one run: the others' worktrees were archived and removed",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أُغلقت الأخرى؛ وأُرشفت أشجار عملها وأُزيلت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ostali su zatvoreni; njihova radna stabla arhivirana i uklonjena"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De andre blev lukket; deres arbejdstræer arkiveret og fjernet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die anderen wurden geschlossen; ihre Worktrees archiviert und entfernt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The others were closed; their worktrees archived and removed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los demás se cerraron; sus worktrees se archivaron y eliminaron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les autres ont été fermés ; leurs worktrees archivés et supprimés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli altri sono stati chiusi; i loro worktree archiviati e rimossi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "他は閉じられ、ワークツリーはアーカイブして削除されました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្សេងទៀតត្រូវបានបិទ; worktree របស់ពួកវាត្រូវបានរក្សាទុក ហើយដកចេញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "나머지는 닫혔고 워크트리는 보관 후 제거되었습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De andre ble lukket; arbeidstrærne arkivert og fjernet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozostałe zamknięto; ich worktree zarchiwizowano i usunięto"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os outros foram fechados; seus worktrees arquivados e removidos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Остальные закрыты; их worktree заархивированы и удалены"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตัวอื่นถูกปิดแล้ว worktree ถูกเก็บถาวรและนำออก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diğerleri kapatıldı; çalışma ağaçları arşivlenip kaldırıldı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Решту закрито; їхні worktree заархівовано й прибрано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các cái khác đã đóng; worktree của chúng được lưu trữ và gỡ bỏ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他已关闭；其工作树已归档并移除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他已關閉；其工作樹已封存並移除"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
