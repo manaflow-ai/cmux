@@ -818,8 +818,10 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_only_a_build_replaced_before_it_started_goes_unreported(self):
         script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
                       if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
-        self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
-        checkout = DOC['jobs']['report-nightly-failure']['steps'][0]
+        self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+        checkout = next(s for s in DOC['jobs']['report-nightly-failure']['steps']
+                        if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout['with']['path'], '.publish-tooling')
         self.assertIn('actions/checkout@', checkout['uses'])
         self.assertEqual(checkout['with']['ref'], '${{ github.sha }}')
         self.assertIs(checkout['with']['persist-credentials'], False)

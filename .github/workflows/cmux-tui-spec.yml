@@ -1431,9 +1431,11 @@ jobs:
   remote-web-wasm:
     name: cmux remote web wasm
     needs: changes
-    # Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
+    # Tier rule first (head_tier.py, as clippy and acpmux-tests): `changes` is skipped for a cheap or landing head, and a skipped
+    # router read as `result != 'success'` ran this on every head (273 runs in 40 min, 11-27 04Z). The post-merge batch
+    # (suite cmux-tui-spec) and the feat-cmux-next push run it. Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
     # change none of those inputs sees skips it; a failed router, a push and full-ci on a reaching change run it.
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
