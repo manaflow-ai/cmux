@@ -423,9 +423,13 @@ def difference(a: bytes, b: bytes) -> float:
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, float]]:
+def timeline(spec: dict, frames: list[Path], crop: str, still: bool = False) -> list[tuple[Path, float]]:
     """(frame, seconds) at the capture's own pace: runs of alike frames merged, the first frame held
-    `lead` and the last `hold`, the whole between MIN_SECONDS and MAX_SECONDS."""
+    `lead` and the last `hold`, the whole between MIN_SECONDS and MAX_SECONDS.
+
+    STILL (a before) lets a clip that never changes through as one frame held MIN_SECONDS: an old app
+    without the setting a step sets shows the same window throughout, and that window is the before
+    (space-button-spacing, 2026-11-27). An after that never changes is still refused."""
     interval = float(spec.get("frameInterval", 1.0))
     runs: list[list[Any]] = []
     previous = None
@@ -446,6 +450,8 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
             settled.append(run_)
     runs = settled
     if len(runs) < 2:
+        if still and runs:
+            return [(runs[0][0], MIN_SECONDS)]
         raise ClipError("every frame of the clip is alike: it shows no change (an idle window); script the feature")
     runs[0][1] = max(runs[0][1], float(spec.get("lead", LEAD)))
     runs[-1][1] = max(runs[-1][1], float(spec.get("hold", HOLD)))
@@ -457,12 +463,12 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
     return [(frame, round(seconds, 3)) for frame, seconds in runs]
 
 
-def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None) -> dict:
+def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None, still: bool = False) -> dict:
     """Writes the clip to OUT; with KEEP, also the cropped PNG frames it is made of, in order (KEEP/NNNN.png):
     the pictures the privacy check reads, since its Linux OCR cannot decode an animated WebP."""
     size = size_of(frames[0])
     crop = crop_filter(spec["crop"], size)
-    plan = timeline(spec, frames, crop)
+    plan = timeline(spec, frames, crop, still)
     for width in (MAX_WIDTH, 720, 560):
         with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
             argv = ["img2webp", "-loop", "0", "-min_size", "-mixed"]
@@ -1013,16 +1019,37 @@ def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> li
             if previous is None or frame.get("time", 0) - previous >= interval:
                 picked.append(tour_dir / frame["file"])
                 previous = frame.get("time", 0)
+        ended = manifest.get("frames_ended") or {}
+        if inside and first <= ended.get("step", 0) <= last:
+            # The window went away in a clip step (a before whose ⌘Q quits at once): the clip ends on its
+            # last frame, then on an empty frame for the window that is gone, never on what was behind it.
+            last_frame = tour_dir / frames[inside[-1]]["file"]
+            if picked[-1] != last_frame:
+                picked.append(last_frame)
+            picked.append(closed_frame(picked[0], scratch))
     if len(picked) < 2:
         raise ClipError(f"the clip steps span {len(picked)} frame(s); give them a longer wait")
     return picked
 
 
-def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None) -> dict:
+# The frame a clip shows once the app's window is gone: a flat gray, like the space a closed window leaves.
+CLOSED_COLOR = "0x3a3a3c"
+
+
+def closed_frame(like: Path, scratch: Path) -> Path:
+    """An empty frame the size of LIKE, in SCRATCH."""
+    width, height = size_of(like)
+    out = scratch / "closed.png"
+    run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={CLOSED_COLOR}:s={width}x{height}",
+         "-frames:v", "1", str(out)])
+    return out
+
+
+def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None, role: str = "after") -> dict:
     spec = load_spec(clip_id)
     manifest = json.loads((tour_dir / "manifest.json").read_text())
     with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
-        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep)
+        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep, still=role == "before")
     print(json.dumps({"id": clip_id, "out": str(out), **report}))
     return report
 
@@ -1053,7 +1080,7 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", 
                 problems.append(f"{row['id']} {role}: its tour did not run (no app); it waits for the next tour")
                 continue
             try:
-                render_tour(row["id"], tour_dir, local, pictures)
+                render_tour(row["id"], tour_dir, local, pictures, role=role)
                 frames = sorted(pictures.glob("*.png"))
                 if not frames:
                     raise ClipError("the encoder kept no frames to check")

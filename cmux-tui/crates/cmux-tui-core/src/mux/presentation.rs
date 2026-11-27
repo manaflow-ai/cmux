@@ -881,6 +881,9 @@ impl Mux {
         if let Some(marked_unread) = update.marked_unread {
             fingerprint.set("marked_unread", marked_unread.into());
         }
+        if let Some(keep_awake) = update.keep_awake {
+            fingerprint.set("keep_awake", keep_awake.into());
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -907,6 +910,9 @@ impl Mux {
             }
             if let Some(marked_unread) = update.marked_unread {
                 after.marked_unread = marked_unread;
+            }
+            if let Some(keep_awake) = update.keep_awake {
+                after.keep_awake = keep_awake;
             }
             let changed = before != after;
             let desired = self.registry_projection(&state);
