@@ -1,0 +1,59 @@
+name: Repo archive store bucket
+
+# The repo archive store (hq RFD 0065 pieces 1-2, cmux#54405), decision d-d301c6c7ba. Leo, on the decision: "cant
+# you guys alr do this? i think another lane is workin on this". The R2 bucket cmux-repo-archive in the cmux
+# account, private; objects under repo-archive/ expire after 7 days (the publisher rewrites each live archive every
+# 24 h, so only superseded ones age out). The push trigger (this file or its script) checks only. A dispatch from
+# feat-cmux-next with seal_pubkey creates the bucket if missing, keeps it private, sets the expiry rule, mints two
+# bucket-scoped tokens (publisher write, VM read) and uploads their S3 credentials sealed to that key (artifact
+# repo-archive-credentials.sealed). scripts/repo-archive/install-store.sh runs it from the controller and unseals
+# there. Credentials are never printed. Same environment and named-secret pattern as leo-session-archive-bucket.yml.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/repo-archive-store.yml, scripts/ci/repo-archive-store-bucket.py]
+  workflow_dispatch:
+    inputs:
+      seal_pubkey:
+        description: "Base64 DER RSA public key (4096-bit) the credentials are sealed to; its private key lives on the controller"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-archive-store
+  cancel-in-progress: false
+
+jobs:
+  bucket:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment: billing-e2e
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/repo-archive-store-bucket.py
+          sparse-checkout-cone-mode: false
+      - name: Check, or create and seal
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          SEAL_PUBKEY: ${{ inputs.seal_pubkey }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            python3 scripts/ci/repo-archive-store-bucket.py create "$RUNNER_TEMP/sealed"
+          else
+            python3 scripts/ci/repo-archive-store-bucket.py check
+          fi
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repo-archive-credentials.sealed
+          path: ${{ runner.temp }}/sealed
+          retention-days: 1
+          if-no-files-found: error

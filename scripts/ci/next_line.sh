@@ -11,15 +11,27 @@
 # has no such folder. Anything this cannot read prints `false`, so the legacy
 # lanes run, as they did before.
 #
-# Usage: next_line.sh EVENT_NAME BASE_REF BASE_SHA
+# A run that is not a pull request (the hourly full tier's workflow_dispatch,
+# .github/hourly-full-tier.json) is on the line when its ref is feat-cmux-next:
+# it tests a feat-cmux-next commit, so it routes like a feat-cmux-next pull
+# request instead of running every legacy lane no such pull request runs
+# (run 45951987470, 2026-11-27: 25 of 56 jobs red, about 52 job-minutes of
+# legacy guards an hour).
+#
+# Usage: next_line.sh EVENT_NAME BASE_REF BASE_SHA [REF_NAME]
 set -uo pipefail
 
 event="${1:-}"
 base_ref="${2:-}"
 base_sha="${3:-}"
+ref_name="${4:-}"
 
 if [[ "$event" != pull_request ]]; then
-  echo false
+  if [[ "$ref_name" == feat-cmux-next ]]; then
+    echo true
+  else
+    echo false
+  fi
   exit 0
 fi
 if [[ "$base_ref" == feat-cmux-next ]]; then
