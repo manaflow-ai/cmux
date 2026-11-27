@@ -357,6 +357,8 @@ PY
 }
 
 case "$verb" in
+  # Apple's OCR error is the comparison every quality-ladder run owes (eval.py OWED).
+  caps) echo owes-ocr ;;
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }
