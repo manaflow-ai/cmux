@@ -13,6 +13,11 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
     echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
   }
+  # full-ci into feat-cmux-next is one-shot (head_tier.py): only its own labeled event runs the full tier.
+  if [[ "${CI_FULL_CI_ONE_SHOT:-1}" != 0 && "${PR_BASE_REF:-}" == feat-cmux-next ]] &&
+    ! [[ "${EVENT_ACTION:-}" == labeled && "${EVENT_LABEL:-}" == full-ci ]]; then
+    labels="$(tr ',' '\n' <<< "$labels" | grep -vx full-ci | paste -sd, -)" || labels=""
+  fi
 else
   : > "$changed"
 fi
