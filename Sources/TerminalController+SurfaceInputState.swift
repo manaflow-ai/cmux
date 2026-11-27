@@ -38,7 +38,7 @@ extension TerminalController {
             }
 
             let lifecycle = workspace.agentHibernationLifecycleState(panelId: surfaceId, fallback: nil)
-            let hasAgent = workspace.agentLifecycleStatesByPanelId[surfaceId]?.isEmpty == false
+            let hasAgent = workspace.panelRunsAgent(surfaceId)
             var payload: [String: Any] = [
                 "surface_id": surfaceId.uuidString,
                 "workspace_id": workspace.id.uuidString,

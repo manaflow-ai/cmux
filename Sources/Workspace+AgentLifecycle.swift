@@ -539,6 +539,14 @@ extension Workspace {
         return didClear
     }
 
+    /// Whether `panelId` hosts an agent: a local one with a lifecycle state,
+    /// or one on a remote host. An idle remote agent has no lifecycle state
+    /// (that would make the panel eligible for hibernation), so the lifecycle
+    /// map alone misses it.
+    func panelRunsAgent(_ panelId: UUID) -> Bool {
+        agentLifecycleStatesByPanelId[panelId]?.isEmpty == false
+    }
+
     func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         if let panelId {
             return agentLifecycleStatesByPanelId[panelId]?[key] == .running

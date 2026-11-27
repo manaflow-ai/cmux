@@ -386,6 +386,7 @@ extension Workspace {
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
+        remoteAgentPanelIds.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -3287,6 +3288,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// writer wins), so two panes running the same agent would otherwise hide
     /// each other; the row resolves the most urgent pane from these instead.
     var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
+    /// Panels whose terminal shows an agent running on a remote host, in any
+    /// state. The remote status projectors own it; see `panelRunsAgent`.
+    var remoteAgentPanelIds: Set<UUID> = []
     var programStatusStoresByPanelId: [UUID: ProgramStatusRecordStore] = [:]
     var programStatusUrgencyByPanelId: [UUID: Int] = [:]
     /// One pending agent turn settlement per panel and status key; see

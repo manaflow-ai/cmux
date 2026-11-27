@@ -564,6 +564,7 @@ extension Workspace {
         panelShellActivityStates.removeValue(forKey: panelId)
         clearProgramStatusPanel(panelId: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
+        remoteAgentPanelIds.remove(panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         discardAgentWakeVerification(
