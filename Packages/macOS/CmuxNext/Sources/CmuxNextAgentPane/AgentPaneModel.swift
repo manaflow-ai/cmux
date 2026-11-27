@@ -595,8 +595,8 @@ public final class AgentPaneModel {
         page.start = startFolders.local(of: self)
         if page.projectRows == nil, page.startsRemote != true {
             page.projectRows = AgentPaneProjectSnapshot.rows(
-                projects: AgentPaneProjectSnapshot.cachedProjects + page.projects,
-                repos: AgentPaneProjectSnapshot.cachedRepos, warm: page.warm, cwd: page.cwd)
+                projects: newTabText.cachedProjects + page.projects,
+                repos: newTabText.cachedProjectRepos, warm: page.warm, cwd: page.cwd)
             newTab?.projectRows = page.projectRows
         }
         return page
@@ -850,8 +850,8 @@ public final class AgentPaneModel {
             let repos = await AgentPaneProjectRepoReader.replies(for: projects)
             let page = newTabForPage
             if query == nil {
-                AgentPaneProjectSnapshot.cachedProjects = projects
-                AgentPaneProjectSnapshot.cachedRepos = repos
+                newTabText.cachedProjects = projects
+                newTabText.cachedProjectRepos = repos
             }
             var reply: [String: Any] = ["projects": projects, "repos": repos]
             if query == nil, !remoteChat, newTab?.inputToken == opening, let page, page.startsRemote != true {

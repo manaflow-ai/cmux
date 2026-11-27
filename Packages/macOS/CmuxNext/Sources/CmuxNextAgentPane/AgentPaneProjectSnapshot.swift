@@ -4,8 +4,6 @@ import Foundation
 /// Thin JSON transport to Rust's opening-scoped project snapshot. No disk work
 /// or ordering runs when a New Tab paints.
 @MainActor enum AgentPaneProjectSnapshot {
-    static var cachedProjects: [String] = []
-    static var cachedRepos: [String: Any] = [:]
 
     static func rows(projects: [String], repos: [String: Any], warm: String?, cwd: String?, seed: String? = nil) -> String? {
         var request: [String: Any] = ["projects": projects, "repos": repos]

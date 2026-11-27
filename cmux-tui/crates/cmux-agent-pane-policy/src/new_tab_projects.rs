@@ -59,10 +59,14 @@ pub fn snapshot(request: &Value) -> Value {
         add(cwd);
     }
     rows.sort_by_key(|row| {
-        std::cmp::Reverse(recency.get(row["cwd"].as_str().unwrap()).copied().unwrap_or(0))
+        std::cmp::Reverse(
+            recency.get(row["cwd"].as_str().unwrap_or_default()).copied().unwrap_or(0),
+        )
     });
-    let mut remaining: HashMap<String, Value> =
-        rows.iter().map(|row| (row["cwd"].as_str().unwrap().to_owned(), row.clone())).collect();
+    let mut remaining: HashMap<String, Value> = rows
+        .iter()
+        .map(|row| (row["cwd"].as_str().unwrap_or_default().to_owned(), row.clone()))
+        .collect();
     let mut ordered = Vec::new();
     for row in seed {
         if let Some(cwd) = row["cwd"].as_str() {
@@ -74,11 +78,11 @@ pub fn snapshot(request: &Value) -> Value {
         }
     }
     for row in rows {
-        if remaining.remove(row["cwd"].as_str().unwrap()).is_some() {
+        if remaining.remove(row["cwd"].as_str().unwrap_or_default()).is_some() {
             ordered.push(row);
         }
     }
-    json!({"rows": serde_json::to_string(&ordered).expect("project rows serialize")})
+    json!({"rows": serde_json::to_string(&ordered).ok()})
 }
 
 #[cfg(test)]
