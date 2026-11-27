@@ -13,8 +13,9 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
 import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
-// Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
-setDefaultTimeout(60_000);
+// Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that, and
+// 40 to 60 s on a loaded machine. A test past its timeout skips its teardown, failing every one after.
+setDefaultTimeout(180_000);
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
