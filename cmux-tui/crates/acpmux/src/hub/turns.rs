@@ -896,6 +896,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        let install_turn = self.harness_turn(session).await;
         let device = run.full_access_device.clone();
         let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
@@ -1799,7 +1800,7 @@ impl Hub {
             .await;
         Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
         if let Some(c) = &carried {
-            self.start_carried(session, &child, &turn_id, c, guard.take_slot());
+            self.start_carried(session, &child, &turn_id, c, guard.take_slot(), install_turn);
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());

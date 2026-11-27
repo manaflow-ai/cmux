@@ -578,7 +578,7 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     does. The socket goes only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app
     then strips the CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507).
     CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
-    ~/.config/cmux/cmux-next.json that the person's other apps read."""
+    ~/.config/cmux-next/cmux-next.json that the person's other apps read."""
     argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
             "--env", f"CMUX_NEXT_CONFIG_FILE={config}",
             # A NIGHTLY's SingleInstanceGuard otherwise hands off to the copy already running and exits
