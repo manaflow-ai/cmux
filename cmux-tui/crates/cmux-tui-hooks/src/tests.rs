@@ -1060,7 +1060,7 @@ fn native_pre_tool_wrappers_keep_denials_and_block_helper_failures() {
     for provider in ["claude", "codex"] {
         let installed = hook_command(provider, "PreToolUse");
         let fallback =
-            emit_hook_command(&shell_quote(helper.to_str().unwrap()), provider, "PreToolUse");
+            emit_hook_command(&shell_quote(helper.to_str().unwrap()), provider, "PreToolUse", 90);
         let contextual =
             codex_contextual_hook_command("PreToolUse", Path::new("/unused"), "term_test", &helper);
         for command in [installed, fallback, contextual] {
@@ -1092,6 +1092,26 @@ fn native_pre_tool_wrappers_keep_denials_and_block_helper_failures() {
     assert_eq!(hook["async"], false);
     assert_eq!(hook["timeout"], 90);
     assert!(hook["command"].as_str().unwrap().contains(HOOK_MODE_ARG));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_emit_fallback_ends_itself_before_its_installed_timeout() {
+    assert_eq!(emit_deadline_ms(5), 3500);
+    assert_eq!(emit_deadline_ms(3), 1500);
+    assert_eq!(emit_deadline_ms(10), 8500);
+    assert_eq!(emit_deadline_ms(90), 85000);
+    let settings = claude_session_hook_settings(Some(Path::new("/opt/cmux-tui"))).unwrap();
+    let hooks = settings["hooks"].as_object().unwrap();
+    for (event, groups) in hooks {
+        if event == "PreToolUse" {
+            continue;
+        }
+        let hook = &groups[0]["hooks"][0];
+        let command = hook["command"].as_str().unwrap();
+        let deadline = emit_deadline_ms(hook["timeout"].as_u64().unwrap());
+        assert!(command.contains(&format!("--deadline-ms {deadline} ")), "{event}: {command}");
+    }
 }
 
 #[cfg(unix)]
