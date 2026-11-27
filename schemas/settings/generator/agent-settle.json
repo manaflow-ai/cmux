@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/agent-settle.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentSettle.generated.swift",
+  "type": "AgentSettleSettingsSchema",
+  "lists": {
+    "agentSettle": ["descriptors", "AgentSettleSettings"]
+  }
+}
