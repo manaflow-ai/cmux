@@ -3859,7 +3859,7 @@ mod tests {
         let reliable = super::super::reliable_agreed(&on, &lanes);
         assert!(reliable);
         assert!(!tunnel_input_lane(&on, &lanes, reliable));
-        let plain = DialOptions { reliable: false, ..on.clone() };
+        let plain = DialOptions { reliable: false, ..on };
         let reliable = super::super::reliable_agreed(&plain, &lanes);
         assert!(tunnel_input_lane(&plain, &lanes, reliable), "a plain link keeps its lane");
     }
