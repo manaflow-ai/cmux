@@ -8,7 +8,7 @@ name: cmux-next agent connection chaos
 # reserved hosts by name, and the suite kills only its own tagged app and that app's daemon.
 #
 # Every pull request into feat-cmux-next triggers it (no `paths:`), so the check always reports and can be made
-# required. The `route` job (Linux, seconds, no checkout) lists the pull request's files and matches them against
+# required. The `route` job (Linux, seconds, a trees-only checkout) diffs the merge commit against its base and matches them against
 # CONNECTION_PATHS; a pull request that touches none skips the `agent connection chaos` job, which reports
 # skipped, a pass.
 #
@@ -44,15 +44,22 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
-      pull-requests: read
+      contents: read
     outputs:
       run: ${{ steps.route.outputs.run }}
     steps:
+      # The merge commit, trees only: HEAD^1 is the base it merges into. A git fetch, not the REST API, whose
+      # installation quota ran out under this job on 2026-11-27 (HTTP 403 "API rate limit exceeded").
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/cmux-next-agent-conn-chaos.yml
       - id: route
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
           # fnmatch patterns (a `*` also matches `/`): the connection path and the suite itself.
           CONNECTION_PATHS: >-
             cmux-tui/crates/acpmux/*
@@ -67,16 +74,19 @@ jobs:
             scripts/cmux-next/idle_cost_load.py
             .github/workflows/cmux-next-agent-conn-chaos.yml
         run: |
-          set -euo pipefail
-          gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
-          # A pull request of 3,000 files or more lists only its first 3,000: run then, rather than guess.
+          set -uo pipefail
+          # A diff that cannot be read runs the suite rather than skip it.
+          if ! git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/files.txt"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "could not read the pull request's diff: the chaos suite runs"
+            exit 0
+          fi
           hit="$(python3 -I -c '
           import fnmatch, os, sys
           pats = os.environ["CONNECTION_PATHS"].split()
           files = open(sys.argv[1]).read().split()
-          hits = [f for f in files if any(fnmatch.fnmatch(f, p) for p in pats)]
-          print(hits[0] if hits else ("(3000+ files)" if len(files) >= 3000 else ""))
-          ' "$RUNNER_TEMP/files.txt")"
+          print(next((f for f in files if any(fnmatch.fnmatch(f, p) for p in pats)), ""))
+          ' "$RUNNER_TEMP/files.txt")" || hit="(the matcher failed)"
           if [[ -n "$hit" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "touches the agent connection path ($hit and maybe more): the chaos suite runs"
