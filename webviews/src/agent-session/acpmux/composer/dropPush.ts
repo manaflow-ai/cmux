@@ -29,6 +29,10 @@ export type PushedDrop = { local: boolean; items: PushedItem[] };
 type Held = { at: number; local: boolean; items: (PushedItem & { taken?: boolean })[] };
 let held: Held[] = [];
 let lastDrop: { at: number; names: Set<string> } | undefined;
+type IgnoredPush = { at: number; dropAt: number; names: string[] };
+/// A fallback answer won a DOM drop. A native push for that same drop may still arrive after the
+/// answer (Chromium), and must not be left around to satisfy a later same-basename drop.
+let ignored: IgnoredPush[] = [];
 /// When the last push came: one after the last DOM drop is that drop's (it is not waited for again).
 let lastPushAt = -Infinity;
 const waiting = new Set<() => void>();
@@ -36,6 +40,18 @@ const waiting = new Set<() => void>();
 const fresh = () => {
   const now = performance.now();
   held = held.filter((drop) => now - drop.at <= LIFETIME_MS && drop.items.some((item) => !item.taken));
+  ignored = ignored.filter((drop) => now - drop.at <= LIFETIME_MS);
+};
+
+const namesMatch = (items: readonly PushedItem[], names: readonly string[]) => {
+  if (items.length !== names.length) return false;
+  const left = [...names];
+  return items.every((item) => {
+    const at = left.findIndex((name) => named(item.path, name));
+    if (at < 0) return false;
+    left.splice(at, 1);
+    return true;
+  });
 };
 
 /// Takes the host's push (the window event's detail).
@@ -49,7 +65,16 @@ export function receivePushedDrop(detail: unknown): void {
   });
   if (!items.length) return;
   fresh();
-  lastPushAt = performance.now();
+  const at = performance.now();
+  // The fallback may have answered before Chromium delivers its native push. Keep that push from
+  // becoming a stale record, but only while no newer DOM drop has taken ownership of the names.
+  if (
+    drop.local === true &&
+    ignored.some((entry) => at >= entry.at && lastDrop?.at === entry.dropAt && namesMatch(items, entry.names))
+  ) {
+    return;
+  }
+  lastPushAt = at;
   held.push({ at: lastPushAt, local: drop.local === true, items });
   for (const wake of waiting) wake();
 }
@@ -62,6 +87,7 @@ export function noteDomDrop(files: readonly File[]): void {
 /// Forgets every push (tests).
 export function clearPushedDrops(): void {
   held = [];
+  ignored = [];
   lastDrop = undefined;
   lastPushAt = -Infinity;
 }
@@ -156,6 +182,7 @@ export function pushedDropPaths(
   files: readonly File[],
   ask: () => Promise<KnownPaths | undefined>,
 ): Promise<KnownPaths | undefined> {
+  const dropAt = lastDrop?.at;
   const now = takeLocal(files);
   if (now) return Promise.resolve(now);
   // The host pushed these files for a chat on another machine: nothing links, and nothing waits.
@@ -184,7 +211,20 @@ export function pushedDropPaths(
     void ask().then(
       (items) => {
         asked = true;
-        if (items) finish(items);
+        if (items) {
+          // The older host answered for this DOM drop. Consume a push already held for it and
+          // tombstone a late one so a later same-basename file cannot inherit this drop's path.
+          if (dropAt !== undefined) {
+            const names = files.map((file) => file.name.normalize("NFC"));
+            held.forEach((drop) => {
+              if (drop.local && namesMatch(drop.items, names)) {
+                drop.items.forEach((item) => (item.taken = true));
+              }
+            });
+            ignored.push({ at: performance.now(), dropAt, names });
+          }
+          finish(items);
+        }
         // Past the wait, or the drop's push already came and named other files: none come.
         else if (waited || (lastDrop && lastPushAt >= lastDrop.at)) finish(undefined);
       },
