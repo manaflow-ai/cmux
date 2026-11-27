@@ -333,6 +333,66 @@ export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
   return NO_RETRY_TARGET;
 }
 
+/// One `retryTargetIn` scan, kept for the next snapshot's (`retryScanOf`): the rows it read, the
+/// index of their last retryable prompt (-1: none) and of the first turn summary after it (-1: none).
+export type RetryScan = {
+  readonly rows: readonly AcpmuxRow[];
+  readonly prompt: number;
+  readonly footer: number;
+  readonly target: RetryTarget;
+};
+
+function retryScanFrom(rows: readonly AcpmuxRow[], prompt: number, footer: number, last?: RetryScan): RetryScan {
+  let target = NO_RETRY_TARGET;
+  if (prompt >= 0) {
+    const row = rows[prompt]!;
+    const summary = footer >= 0 ? rows[footer]! : undefined;
+    const footerId =
+      summary && offersRetry(summary) && summary.retryRowId === row.id && !isEmptyFooter(summary)
+        ? summary.id
+        : undefined;
+    // The same ids give the last target back, so what keys on it sees no change.
+    target =
+      last && last.target.promptId === row.id && last.target.footerId === footerId
+        ? last.target
+        : footerId
+          ? { promptId: row.id, footerId }
+          : { promptId: row.id };
+  }
+  return { rows, prompt, footer, target };
+}
+
+const firstSummaryFrom = (rows: readonly AcpmuxRow[], from: number) => {
+  for (let at = from; at < rows.length; at += 1) if (rows[at]!.kind === "turnSummary") return at;
+  return -1;
+};
+
+/// `retryTargetIn(rows)` (its oracle, test/retry-target-scan.test.ts), reading only the rows after
+/// those `rows` kept of `last.rows` (prefixFlatMap.ts `keptPrefix`, which the client says of each
+/// snapshot). The transcript asked `retryTargetIn` on every rows change, a streamed token too, and
+/// it walked back over the whole chat when no prompt there can be retried (another agent's chat, a
+/// long turn of work after the prompt): 0.6 ms at 100k rows, 5 to 10 ms at 1M, per frame. Now a token
+/// costs the rows it changed. Only an edit that takes away the last retryable prompt itself walks
+/// back from the change, as `retryTargetIn` would.
+export function retryScanOf(rows: readonly AcpmuxRow[], last?: RetryScan): RetryScan {
+  if (last && last.rows === rows) return last;
+  const kept = last ? keptPrefix(last.rows, rows) : 0;
+  // A retryable prompt in the rows past the kept ones is the last one: its footer is past it too.
+  for (let at = rows.length - 1; at >= kept; at -= 1)
+    if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
+  if (!last || last.prompt >= kept) {
+    // No scan to start from, or its prompt was in the rows that changed: walk back from the change.
+    for (let at = kept - 1; at >= 0; at -= 1)
+      if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
+    return retryScanFrom(rows, -1, -1, last);
+  }
+  // The last scan's prompt is kept and still the last. Its footer is the same row while that row is
+  // kept; else no summary came between the prompt and the kept rows' end, so it is the first after.
+  if (last.prompt < 0) return retryScanFrom(rows, -1, -1, last);
+  const footer = last.footer >= 0 && last.footer < kept ? last.footer : firstSummaryFrom(rows, kept);
+  return retryScanFrom(rows, last.prompt, footer, last);
+}
+
 /// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
 /// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
 /// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so
@@ -1820,8 +1880,13 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
     if (isLateSteer(row)) {
       if (lastCall >= row.at) break;
       late = at;
-    } else if (row.kind === "activity" && row.inBackground === undefined)
+    } else if (row.kind === "activity" && row.inBackground === undefined) {
       for (const item of row.items ?? []) if (item.tool) lastCall = Math.max(lastCall, item.tool.startedAt ?? row.at);
+    }
+    // A subagent the turn started is a call too, at its start line's time (the earliest of its group,
+    // runningTray.ts): its own Agent call may draw no row, and the steer before it read as late, so
+    // the start line drew over the steer once the turn ended (leo-0522-midturn-inbox, d-steer-order).
+    else if (row.kind === "subagentStarted" && row.inBackground === undefined) lastCall = Math.max(lastCall, row.at);
   }
   if (late < 0) return rows;
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
@@ -2928,8 +2993,12 @@ function foldTailTurns(
   if (rows.length === 0) return [];
   const out: AcpmuxRow[] = [];
   let from = 0;
+  // The background turns already folded here: one's late row after another turn's (a subagent it
+  // started, done later) is a stretch of its own, and draws as it came under that fold, never a second
+  // "Worked for" of the same id.
+  const folded = new Set<string>();
   const flush = (to: number) => {
-    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily));
+    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, folded));
     from = to;
   };
   // The background turn the stretch from `from` belongs to, once a row names it.
@@ -2957,11 +3026,17 @@ function foldTailTurn(
   endedBackground: ReadonlySet<string>,
   clockOffset: number,
   agentFamily: string | undefined,
+  folded: Set<string> = new Set(),
 ): AcpmuxRow[] {
   const lineAt = stretch.findIndex((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
   const background = line?.background?.id ?? stretch.find((row) => row.inBackground !== undefined)?.inBackground;
   if (background === undefined || !endedBackground.has(background)) return endedTail(stretch);
+  // A late row of a turn that already folded above (a subagent it started, done after the next turn
+  // began) draws as it came, as a late update before a line does: a second fold would draw that turn's
+  // "Worked for" twice, under one id (replay-lane-session, d-shift: the first one jumped 334px).
+  if (!line && folded.has(background)) return endedTail(stretch);
+  folded.add(background);
   // What came before its line (a late update of an earlier call) draws as it came.
   const before = line ? stretch.slice(0, lineAt) : [];
   const drawn = line ? stretch.slice(lineAt + 1) : stretch;
