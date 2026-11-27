@@ -86,6 +86,8 @@ import Testing
     }
     #endif
 
+    // The failure names the typed group, which the Rust rule (workspace_groups FFI, iOS only) trims.
+    #if os(iOS)
     @Test func aRefusedNewGroupSaysSo() async {
         let (_, creator, recorder, macID) = setup()
         var failures: [String] = []
@@ -95,6 +97,7 @@ import Testing
         await creator.settle()
         #expect(failures == ["Couldn't make the group Backend"])
     }
+    #endif
 
     /// The same name and color, each member duplicated in order and placed in the copy.
     @Test func duplicateWorkspaceGroupCopiesEveryMemberIntoANewGroup() async {
