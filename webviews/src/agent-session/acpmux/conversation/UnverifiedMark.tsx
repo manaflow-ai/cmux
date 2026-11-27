@@ -1,15 +1,12 @@
-// The one sign that acpmux could not verify who sent a message (senderIdentity.ts): a small muted
-// mark by the sender's name, its tooltip and accessible name "Sender not verified". Never words in
-// the name (Leo, 2026-11-07: "Why does it say blah blah unauthenticated? ... Why does it say it's
-// self-declared if we can just detect the thing?"). It never shifts the row: it is the size of a
-// status mark and sits in the sentence's flow, or on the icon's corner in the `corner` look.
-// A sender acpmux saw as a program (incomingMessage.ts `senderProgram`: a fleet tool's `acpmux
-// send`) draws a terminal prompt instead, and says what acpmux checked: "Program checked by
-// acpmux: next-autoland on build-box", that no agent was proven, and the program's path (Leo,
-// 2026-11-11: "generally the "unverified sender" things should be more verified").
-// A sender that only named itself (`--from`, a notice's sender) says that name is its claim:
-// "Claimed to be ci-watch, not proven". One of our own tools proves its name with the host's
-// sender token (acpmux sender_token.rs) and draws no mark at all.
+// A received message from a sender acpmux saw as a program (incomingMessage.ts `senderProgram`: a
+// fleet tool's `acpmux send`) draws a small terminal prompt by the sender's name, and says what
+// acpmux checked: "Program checked by acpmux: next-autoland on build-box", that no agent was
+// proven, and the program's path (Leo, 2026-11-11: "generally the "unverified sender" things should
+// be more verified"). It never shifts the row: it is the size of a status mark and sits in the
+// sentence's flow, or on the icon's corner in the `corner` look.
+// A sender that only named itself draws no mark: the old question bubble is gone (Leo, 2026-11-25:
+// "get rid of this tiny icon it's been bugging me for a while"). Never words in the name either
+// (Leo, 2026-11-07: "Why does it say blah blah unauthenticated?").
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { SenderProgram } from "./incomingMessage";
@@ -24,35 +21,21 @@ export function programMarkText(t: Translate, program: SenderProgram): { label: 
   return { label, title };
 }
 
-export function UnverifiedMark({
-  className,
-  program,
-  claimed,
-}: {
-  className?: string;
-  program?: SenderProgram;
-  /// The name the sender gave itself, which acpmux did not prove.
-  claimed?: string;
-}) {
+export function UnverifiedMark({ className, program }: { className?: string; program?: SenderProgram }) {
   const t = useT();
-  const checked = program && programMarkText(t, program);
-  const name = claimed?.trim();
-  const label = checked
-    ? checked.label
-    : name
-      ? t("message.claimedNotProven", { name })
-      : t("message.senderUnverified");
+  if (!program) return null;
+  const checked = programMarkText(t, program);
   return (
     // A glyph with a name, no image file: the mark's words are its label and tooltip.
     <span
-      className={`cv-unverified${checked ? " is-program" : ""}${className ? ` ${className}` : ""}`}
+      className={`cv-unverified is-program${className ? ` ${className}` : ""}`}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph, not an image file
       role="img"
-      aria-label={label}
-      title={checked ? checked.title : label}
+      aria-label={checked.label}
+      title={checked.title}
       data-find-skip=""
     >
-      <Icon name={checked ? "terminal.prompt" : "agent.question"} size={12} />
+      <Icon name="terminal.prompt" size={12} />
     </span>
   );
 }

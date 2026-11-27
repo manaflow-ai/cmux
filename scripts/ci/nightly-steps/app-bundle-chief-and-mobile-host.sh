@@ -44,6 +44,14 @@ if [ -n "$host_bin" ]; then
   env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="$host_bin" \
     CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
 fi
-python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper
-env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
-  CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
+# The Screen Sharing helper is a part too: a failed build ships the nightly without it. The app's existing
+# in-process fallback serves a build that carries none, with its own permission identity, and says so as a stale part.
+# Its build output lives in this run's RUNNER_TEMP, so there is no earlier copy to fall back to.
+if python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper; then
+  env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
+    CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
+else
+  [ "${NIGHTLY_COMPONENT_GATES:-}" != block ] || exit 1
+  bash scripts/ci/nightly-steps/stale-part.sh cmux-screen-sharing \
+    "the Screen Sharing helper failed to build; the nightly uses the app's in-process Screen Sharing fallback"
+fi

@@ -428,6 +428,13 @@ function ConsentSheet({
           variant="solid"
           className="button"
           data-looks-action="confirmInstall"
+          // The name UI drivers match (the feature-flows looks row waits on an
+          // AXButton named "Install"): WebKit exposes text-only buttons as
+          // AXTitle, which exact-label matching skips. The tiles' Install
+          // buttons carry aria-label for the same reason.
+          aria-label={
+            busy === card.setup.id ? t("settingsPage.looksGallery.installing") : t("settingsPage.looksGallery.install")
+          }
           disabled={busy !== null}
           onClick={() => onConfirm(card)}
         >

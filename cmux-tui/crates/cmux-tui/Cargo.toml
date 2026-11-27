@@ -70,7 +70,9 @@ path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
 tempfile = "3"
+ignore.workspace = true
 cmux-json.workspace = true
+cmux-intent.workspace = true
 cmux-egress.workspace = true
 cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
@@ -95,6 +97,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The held remote tree (session/remote/held_tree.rs).
+cmux-tag-cache.workspace = true
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
@@ -124,6 +128,8 @@ cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
 # `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
 cmux-web-pieces.workspace = true
+# `cmux app web-cas fetch` (cli/app/web_cas.rs): a web update by cas/1 Range GETs (RFD 0166).
+cmux-cas.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
@@ -199,6 +205,8 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
 # already has it through other crates.
 backtrace = "0.3"
@@ -224,6 +232,7 @@ cmux-file-lock.workspace = true
 cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
+cmux-no-checkout.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
@@ -240,6 +249,7 @@ plist = "1.10"
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
+cmux-proxy.workspace = true
 cmux-remote.workspace = true
 cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
@@ -361,3 +371,7 @@ security-framework = "3"
 security-framework-sys = "2"
 # Mac Screen on cmux.rd/1 (`cmux rd serve|connect`): capture, encode, input and the secure link.
 cmux-rd-host = { path = "../cmux-rd-host", default-features = false, features = ["link"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+# tests/checkout_free_bench.rs: the write side's GitHub stand-in.
+cmux-no-checkout = { workspace = true, features = ["mock"] }

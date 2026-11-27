@@ -54,11 +54,7 @@ rm -rf "$out" && mkdir -p "$work"
 # version and sha256 in step with it).
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
-curl -fsSL --retry 3 --retry-delay 2 -o "$work/xcodegen.zip" \
-  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip"
-got="$(shasum -a 256 "$work/xcodegen.zip" | awk '{ print $1 }')"
-[[ "$got" == "$xcodegen_sha256" ]] || { echo "error: xcodegen zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
-unzip -q "$work/xcodegen.zip" -d "$work"
+bash "$(dirname "${BASH_SOURCE[0]}")/../ci/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$work" >/dev/null || exit 3
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"

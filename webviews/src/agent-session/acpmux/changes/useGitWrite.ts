@@ -2,6 +2,7 @@
 // write at a time, and keeps the outcome until the next write or a dismiss. A stale reply never
 // shows: each status read and each write is numbered, and only the latest settles.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAutoRetry } from "../autoRetry";
 import { translate } from "../i18n";
 import type { ChangesSource } from "./model";
 import {
@@ -35,6 +36,9 @@ export type GitWrite = {
   available: boolean;
   status?: WriteStatus;
   statusFailed: boolean;
+  /// The status read has kept failing past the house deadline while it is read again on its own
+  /// (autoRetry.ts): the view says so in one quiet line, with no button.
+  statusStillTrying?: boolean;
   state?: GitWriteState;
   commit: (message: string, scope: CommitScope, includeNew: boolean) => Promise<boolean>;
   /// The untracked files "Include new files" would commit, from the Uncommitted diff.
@@ -42,8 +46,8 @@ export type GitWrite = {
   push: () => Promise<boolean>;
   /// Runs the failed write again with its params and key.
   retry: () => void;
-  /// Reads the status again, reloads the scope and drops the outcome (a stale view, or a
-  /// status read that failed).
+  /// Reads the status again, reloads the scope and drops the outcome (a stale view after a failed
+  /// write). A status read that failed alone is read again on its own, never by a click.
   refresh: () => void;
   /// Reads the status again only while the folder was found outside a repository, so a `git init`
   /// made while the view is open brings Commit and Push back (the view calls it on each scope load).
@@ -108,6 +112,9 @@ export function useGitWrite(
   useEffect(() => {
     if (capable) void readStatus();
   }, [capable, readStatus]);
+  // A status read that failed is read again on its own (a re-read is no decision: Leo, 2026-11-22, "vacuous
+  // decisions like that should be just done"); only one that keeps failing is said, with no button.
+  const { stillTrying: statusStillTrying } = useAutoRetry(capable && statusFailed, () => void readStatus());
 
   const run = useCallback(
     async (op: GitWriteOp, params: Record<string, unknown>): Promise<boolean> => {
@@ -170,7 +177,8 @@ export function useGitWrite(
           ? translate("git.push.detachedHead")
           : current
             ? translate("git.push.nothing")
-            : translate("git.statusFailed"),
+            : // retry-prompt-ok: a push refused on an unread status; Refresh then Push is the person's write.
+              translate("git.statusFailed"),
         canRetry: false,
         canRefresh: !current,
       });
@@ -198,7 +206,20 @@ export function useGitWrite(
     return files;
   }, [source]);
 
-  return { available, status, statusFailed, state, commit, listNewFiles, push, retry, refresh, recheck, dismiss };
+  return {
+    available,
+    status,
+    statusFailed,
+    statusStillTrying,
+    state,
+    commit,
+    listNewFiles,
+    push,
+    retry,
+    refresh,
+    recheck,
+    dismiss,
+  };
 }
 
 function doneText(op: GitWriteOp, result: unknown): string {

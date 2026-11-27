@@ -49,6 +49,14 @@ pub(crate) fn seed_repo(socket: &Path, local: &Path, remote: &str) -> serde_json
         Err(error) => seed_cli::failure(&error),
     }
 }
+/// Whether `error` is a socket timeout: SO_RCVTIMEO and SO_SNDTIMEO end a blocking read or write
+/// with EAGAIN (`WouldBlock`; os error 35 on macOS, 11 on Linux), and some platforms answer
+/// `TimedOut`. Shown as is it reads "Resource temporarily unavailable (os error 11)", which says
+/// nothing of what stalled: every pump words it as the silence it is.
+pub(crate) fn socket_timed_out(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+}
+
 mod spans;
 mod start_chat_cli;
 mod state;
@@ -174,6 +182,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some("push" | "clone" | "pull" | "fetch" | "move" | "copy-rest")
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
+        }
+        if args.get(1).map(String::as_str) == Some("workspace-remote") {
+            return seed::workspace_remote::run(args.get(2..).unwrap_or_default());
         }
         return seed::run(&args[1..]);
     }

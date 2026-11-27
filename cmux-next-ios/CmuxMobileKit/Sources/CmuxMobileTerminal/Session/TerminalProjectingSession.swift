@@ -174,6 +174,14 @@ public final class TerminalProjectingSession: TerminalSession {
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
     /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
     public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
+    /// Paint reports go to the Mac's session too: without this the default (projection) sent none.
+    /// DEBUG: the bench's ``onPaintReport`` sees them as well.
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        #if DEBUG
+        onPaintReport?(samples)
+        #endif
+        inner.reportPaint(samples)
+    }
     public func discardHeldInput() { inner.discardHeldInput() }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
@@ -233,11 +241,6 @@ public final class TerminalProjectingSession: TerminalSession {
     public var onPaintReport: (@MainActor ([TerminalPaintTally.Sample]) -> Void)?
     #endif
 
-    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
-        #if DEBUG
-        onPaintReport?(samples)
-        #endif
-    }
 
     private var lastOlderLoad: CFAbsoluteTime?
     /// A ``loadOlderHistory()`` re-wrap is promised and not sent yet.

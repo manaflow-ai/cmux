@@ -24,20 +24,3 @@ public struct DeleteSavedTabGroupRequest: DaemonRequest {
     public var saved: SavedTabGroupID
     public init(saved: SavedTabGroupID) { self.saved = saved }
 }
-
-/// Reopens a saved group into `pane`. A still-linked live group is returned
-/// unchanged; otherwise running terminals reattach, others start in their
-/// saved directory, and browsers reopen at their saved URL.
-public struct ReopenSavedTabGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "reopen-saved-tab-group"
-    public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
-    public var saved: SavedTabGroupID
-    public var pane: PaneID
-    public var transaction: ClientTransactionID?
-    public init(saved: SavedTabGroupID, pane: PaneID, transaction: ClientTransactionID? = nil) {
-        self.saved = saved
-        self.pane = pane
-        self.transaction = transaction
-    }
-}

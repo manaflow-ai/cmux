@@ -131,7 +131,7 @@ async fn a_chat_already_on_sonnet_stays_on_it() {
 /// cmux#57784: chats started on Opus 5.5 were left on Sonnet 5.5. The gateway's own 503s cut
 /// every turn, so no turn ended well on the fallback to put Opus back, and the picker showed
 /// Sonnet for good. Off by default now; a chat a past switch left there goes back to its own
-/// model before its next capacity attempt.
+/// model before its next prompt goes in, so even the first try runs on Opus.
 #[tokio::test]
 async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
     let (hub, mut c, id) = chat_on(SONNET, 0).await;
@@ -147,11 +147,57 @@ async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
     assert_eq!(restored.len(), 1, "{restored:?}");
     assert_eq!(restored[0].msg["from"], SONNET);
     assert_eq!(restored[0].msg["to"], OPUS);
-    // Back before the first attempt went out: every retry ran on Opus.
+    // Back before the prompt itself went out: it and every retry ran on Opus.
     let prompts = records(&hub, &id, "user_message");
-    assert!(restored[0].seq > prompts[0].seq && restored[0].seq < prompts[1].seq, "{restored:?}");
+    assert!(restored[0].seq < prompts[0].seq, "{restored:?}");
     let to_opus = switches(&hub, &id).into_iter().rfind(|(_, m)| m == OPUS).expect("a switch");
-    assert!(to_opus.0 < prompts[1].seq, "{to_opus:?}");
+    assert!(to_opus.0 < prompts[0].seq, "{to_opus:?}");
     assert_eq!(model_now(&hub, &id).as_deref(), Some(OPUS));
     assert_eq!(hub.resolve(&id).unwrap().meta().capacity_fallback, None);
+}
+
+/// Leo, 2026-11-26: "austin noticed his models getting switched to sonnet. we shouldnt do that".
+/// A chat a past switch left on Sonnet that sits idle runs the person's next prompt on Opus,
+/// with no capacity error at all, and says so once.
+#[tokio::test]
+async fn the_next_prompt_of_a_chat_left_on_its_fallback_runs_on_its_own_model() {
+    let (hub, mut c, id) = chat_on(SONNET, 0).await;
+    let session = hub.resolve(&id).unwrap();
+    session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
+        from: OPUS.to_owned(),
+        to: SONNET.to_owned(),
+    });
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]}),
+    )
+    .await
+    .unwrap();
+
+    let restored = records(&hub, &id, "capacity_restored");
+    assert_eq!(restored.len(), 1, "{restored:?}");
+    let prompts = records(&hub, &id, "user_message");
+    assert!(restored[0].seq < prompts[0].seq, "{restored:?} {prompts:?}");
+    assert_eq!(model_now(&hub, &id).as_deref(), Some(OPUS));
+    assert_eq!(hub.resolve(&id).unwrap().meta().capacity_fallback, None);
+}
+
+/// A person who picked another model after the switch keeps theirs.
+#[tokio::test]
+async fn a_model_the_person_picked_after_the_switch_stays() {
+    const HAIKU: &str = "claude-haiku-5-5";
+    let (hub, mut c, id) = chat_on(HAIKU, 0).await;
+    let session = hub.resolve(&id).unwrap();
+    session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
+        from: OPUS.to_owned(),
+        to: SONNET.to_owned(),
+    });
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]}),
+    )
+    .await
+    .unwrap();
+    assert!(records(&hub, &id, "capacity_restored").is_empty());
+    assert_eq!(model_now(&hub, &id).as_deref(), Some(HAIKU));
 }

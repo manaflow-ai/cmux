@@ -316,7 +316,7 @@ pub(super) fn display_path(logical: &str, roots: &crate::Roots) -> String {
     if logical == SETTINGS { file_name(&roots.settings_file) } else { logical.to_owned() }
 }
 
-/// `~/.config/cmux/themes`, or the path when it is not under home.
+/// `~/.config/cmux-next/themes`, or the path when it is not under home.
 pub(super) fn display_dir(path: &Path, roots: &crate::Roots) -> String {
     if let Ok(rest) = path.strip_prefix(&roots.config_dir)
         && !rest.as_os_str().is_empty()
