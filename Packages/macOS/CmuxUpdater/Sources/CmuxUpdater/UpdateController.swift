@@ -306,6 +306,7 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
             defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
+            defaults.removeObject(forKey: UpdateSettings.automaticInstallMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
