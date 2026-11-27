@@ -173,7 +173,7 @@ fn link_stamp(path: &Path) -> String {
 fn under_git_objects(root: &Path, path: &Path) -> bool {
     let Ok(rel) = path.strip_prefix(root) else { return false };
     let names: Vec<_> = rel.components().map(|c| c.as_os_str()).collect();
-    names.windows(2).any(|w| w[0] == ".git" && w[1] == "objects")
+    names.windows(2).any(|w| matches!(w, [a, b] if *a == ".git" && *b == "objects"))
 }
 
 /// Whether the `Glob` pattern can match a loose object or a pack (ripgrep's own `--glob`
