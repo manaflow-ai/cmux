@@ -12,7 +12,8 @@
 //! `dynamic` (opt-in) keeps the terminal's class while the Mac is calm and uses
 //! `PRIO_DARWIN_BG` only during measured contention. It returns to the terminal's class after
 //! clear samples, so a temporary CPU peak cannot strand a chat at background priority. A person's
-//! attended turn stays at the terminal's class for its whole turn.
+//! attended turn stays above background class until its first token, thought, or completed
+//! tool result arrives; subsequent work may yield under pressure.
 //!
 //! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
 //! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
@@ -393,6 +394,20 @@ pub fn harness_cpu_ticks(pid: u32) -> Option<u64> {
     imp::cpu_ticks(pid)
 }
 
+/// `root` and the processes under it, read the same way as a start's harness tree (only the
+/// descendants of a process acpmux spawned and holds, no process listing; at most 64 on macOS,
+/// 256 on Linux). Elsewhere `root` alone. The host budget's per-session use reads it
+/// (`hub/session_usage.rs`, RFD 0072 piece 2).
+pub fn own_tree(root: u32) -> Vec<u32> {
+    imp::own_tree(root)
+}
+
+/// A Linux process's `/proc/<pid>/stat` fields after the command name (field 3 first).
+#[cfg(target_os = "linux")]
+pub fn stat_fields(pid: u32) -> Option<Vec<String>> {
+    imp::stat(pid)
+}
+
 /// What a start's deadline error can say about its harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HarnessSeen {
@@ -599,6 +614,11 @@ mod imp {
         all
     }
 
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        let Ok(root) = libc::c_int::try_from(root) else { return Vec::new() };
+        tree(root).into_iter().filter_map(|(pid, _)| u32::try_from(pid).ok()).collect()
+    }
+
     // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
     // acpmux does not depend on; they are not defective.
     #[allow(deprecated)]
@@ -745,7 +765,7 @@ mod imp {
 
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
-    fn stat(pid: u32) -> Option<Vec<String>> {
+    pub(super) fn stat(pid: u32) -> Option<Vec<String>> {
         let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let (_, fields) = raw.rsplit_once(')')?;
         Some(fields.split_whitespace().map(str::to_owned).collect())
@@ -798,6 +818,10 @@ mod imp {
             i += 1;
         }
         out
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        tree(root).into_iter().map(|(pid, _)| pid).collect()
     }
 
     /// How many of `pid`'s threads were on a CPU or ready for one (`R`) when read.
@@ -918,6 +942,10 @@ mod imp {
     pub(super) fn cpu_ticks(_pid: u32) -> Option<u64> {
         None
     }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        vec![root]
+    }
 }
 
 #[cfg(test)]
@@ -961,7 +989,7 @@ mod tests {
                 "-c",
                 "agents.max_depth=16",
                 "-c",
-                "tools.update_plan.enabled=true",
+                "tools.update_plan.enabled=false",
                 "app-server",
             ]),
         ] {

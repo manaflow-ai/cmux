@@ -30,6 +30,11 @@
 //! - `{"op":"traffic"}`: this host's bytes in and out per service since it
 //!   started, and per second over the last 10 s and 60 s (`traffic.rs`;
 //!   `cmux device traffic`).
+//! - `{"op":"phone-page","device":D|null,"method":M,"params":P}`: an agent's
+//!   `browser.page.*` call on a tab the phone shows in its own web view
+//!   (`phone_page.rs`, RFD 0089; `cmux browser tab_…@phone VERB`). One answer
+//!   line, `{"ok":true,"device_id":D,"value":V}` or a refusal such as
+//!   `phone_not_linked`, then the socket closes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -145,6 +150,12 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
         }
         Some("open") => open(&dialer, &request, read, write).await,
         Some("traffic") => reply(&mut write, traffic_reply(Instant::now())).await,
+        Some("phone-page") => {
+            let device = request.get("device").and_then(Value::as_str);
+            let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
+            let params = request.get("params").unwrap_or(&Value::Null);
+            reply(&mut write, crate::phone_page::PHONES.call(device, method, params).await).await
+        }
         Some("pair-requests") => {
             // Only this user reaches this socket (`same_user`): the trust of the app's Allow.
             let args = request.get("args").cloned().unwrap_or_else(|| json!({}));
@@ -153,7 +164,7 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
         _ => {
             reply(
                 &mut write,
-                json!({"error": "bad_request", "message": "op is machines, open, pair-requests or traffic"}),
+                json!({"error": "bad_request", "message": "op is machines, open, pair-requests, phone-page or traffic"}),
             )
             .await
         }

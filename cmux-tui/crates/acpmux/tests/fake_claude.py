@@ -184,13 +184,14 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
     return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
+         "<cmux-card-context>"))
 
 
 def command_text(content):
@@ -377,8 +378,10 @@ def compact_stop():
     """A compaction that ignores interrupt until its late result."""
     import time
     send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
-    deadline = time.monotonic() + 0.8
-    while time.monotonic() < deadline:
+    hold = os.environ.get("FAKE_CLAUDE_COMPACT_HOLD")
+    deadline = time.monotonic() + (30 if hold else 0.8)
+    deferred = []
+    while time.monotonic() < deadline and (not hold or os.path.exists(hold)):
         try:
             got = LINES.get(timeout=0.02)
         except queue.Empty:
@@ -388,6 +391,9 @@ def compact_stop():
         try:
             control = json.loads(got)
         except ValueError:
+            continue
+        if (control.get("request") or {}).get("subtype") != "interrupt":
+            deferred.append(got)
             continue
         if control.get("type") == "control_request":
             # Claude acknowledges the interrupt but remains in compaction.
@@ -401,6 +407,9 @@ def compact_stop():
           "message": {"role": "user", "content": "Summary: compacted late."}})
     send({"type": "result", "subtype": "success", "result": "", "num_turns": 0,
           "duration_api_ms": 0, "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
+
+    for got in deferred:
+        LINES.put(got)
 
 
 def long_step(prompt):
@@ -1367,7 +1376,7 @@ while True:
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
                   "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
             if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
-                agent_failure("toolu_send")
+                agent_failure("toolu_send", os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503"))
             if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
                       "tool_use_id": "toolu_send", "status": "completed", "output_file": "",
@@ -1522,7 +1531,7 @@ while True:
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
-        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux never sets it).
         if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
             def task_call(tool_id, name, tool_input, result_text, tool_use_result):
                 send({"type": "assistant", "message": {"content": [

@@ -60,9 +60,7 @@ SINGLE_SIZE: dict[str, int] = {
     "agent-brands.yml": 0,
     "app-ffi-release.yml": 0,
     "auto-resume-nightly-notarization.yml": 0,
-    "automation-bench.yml": 0,
     "backend.yml": 0,
-    "ci-artifact-canary.yml": 0,
     "ci-compile-attribution.yml": 0,
     "ci-guards.yml": 0,
     "ci-health-report.yml": 0,
@@ -75,7 +73,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,
     "cloud-vm-image-bake.yml": 0,
-    "cloud-vm-image-lock.yml": 0,
     "cloud-vm-image-promote.yml": 0,
     "cloud-vm-migrate.yml": 0,
     "cloud-vm-smoke.yml": 0,
@@ -107,8 +104,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-tui-tree-request.yml": 0,
     "cmux-tui.yml": 0,
     "cmux-vm.yml": 0,
-    "coderouter-release.yml": 0,
-    "coderouter-verify-release.yml": 0,
     "docs-deploy-reusable.yml": 0,
     "feature-flag-review-drift.yml": 0,
     "fleet-artifact-cdn.yml": 0,
@@ -188,7 +183,6 @@ FIXED_PAIR: dict[str, int] = {
     "cmux-vm-clients.yml": 0,
     "cmux-vm-cloud.yml": 0,
     "cmux-vm.yml": 0,
-    "coderouter-ci.yml": 0,
     "iroh-v2.yml": 0,
     "nightly-next-launch-smoke.yml": 0,
     "presence.yml": 0,
@@ -290,7 +284,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
@@ -301,7 +295,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
