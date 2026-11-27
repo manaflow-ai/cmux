@@ -2637,7 +2637,7 @@ function TranscriptView({
   );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
-  const changedDrawn = useRef(new Set<string>());
+  const changedDrawn = useRef(new Map<string, DrawnHeight | undefined>());
   /// The last placement, and the mounted range it was drawn with.
   const lastPlaced = useRef<
     | {
@@ -2677,7 +2677,7 @@ function TranscriptView({
       let changes: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
-        changedDrawn.current.add(id);
+        changedDrawn.current.set(id, entry);
         changes = changes ?? new Map();
         changes.set(id, entry);
       }
@@ -2950,20 +2950,6 @@ function TranscriptView({
     },
     [readMounted],
   );
-  // Every commit while the rows flow moves their anchor with what it mounted; one that cannot flow
-  // (another chat, a held row, a second range) ends the flow and places the rows after it.
-  useLayoutEffect(() => {
-    const live = liveResize.current;
-    if (live.flow !== undefined) {
-      if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
-      else holdFlow();
-      return;
-    }
-    if (readAfterSettle.current && !renderedFlowing.current) {
-      readAfterSettle.current = false;
-      readMounted();
-    }
-  });
   // A transcript that unmounts mid-drag leaves no flow (the box's effect cleared the settle's timer).
   // The render's copy goes with it, for a transcript whose effects stop and start again.
   useEffect(
@@ -3150,7 +3136,7 @@ function TranscriptView({
         if (!current.has(id)) continue;
         changes = changes ?? new Map();
         changes.set(id, undefined);
-        changedDrawn.current.add(id);
+        changedDrawn.current.set(id, undefined);
       }
       return changes ? current.with(changes) : current;
     });
@@ -3926,7 +3912,7 @@ function TranscriptView({
     const last = lastPlaced.current;
     // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
     const drawnChanged = drawn !== last?.drawn;
-    const changed = drawnChanged ? changedDrawn.current : new Set<string>();
+    const changed = drawnChanged ? changedDrawn.current : new Map<string, DrawnHeight | undefined>();
     // Rows before the first that changed (by object, or by drawn height) keep their places. A
     // drawn height comes from a mounted row, so its index is looked for around the mounted range.
     let kept = 0;
@@ -4144,8 +4130,17 @@ function TranscriptView({
     lastPlaced.current = measured.placement;
     olderRoom.current = measured.olderRoom;
     footRoom.current = measured.footRoom;
-    // An urgent render with the old drawn state has not consumed the pending correction's IDs.
-    if (drawnCommitted) changedDrawn.current = new Set();
+    // Keep corrections skipped by an urgent commit. React can reuse an eagerly computed updater
+    // result later without running its dirty-ID write again.
+    if (drawnCommitted)
+      for (const [id, expected] of changedDrawn.current)
+        if (
+          expected === undefined
+            ? !measured.placement.drawn.has(id)
+            : expected.sessionId !== measured.placement.sessionId ||
+              sameDrawn(measured.placement.drawn.get(id), expected)
+        )
+          changedDrawn.current.delete(id);
   }, [measured]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing for
@@ -4618,6 +4613,20 @@ function TranscriptView({
     lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
     lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
     lastPlaced.current.held = heldIndices;
+  });
+  // Run after publishing the committed layout and mounted range: the flow's anchor must describe
+  // the rows this commit mounted, including a held row or a second range that ends the flow.
+  useLayoutEffect(() => {
+    const live = liveResize.current;
+    if (live.flow !== undefined) {
+      if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
+      else holdFlow();
+      return;
+    }
+    if (readAfterSettle.current && !renderedFlowing.current) {
+      readAfterSettle.current = false;
+      readMounted();
+    }
   });
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
@@ -7887,7 +7896,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
-    footRoom: footRoom.current,
+    footRoom: measured.footRoom,
     loading,
     later,
     promptCount,
