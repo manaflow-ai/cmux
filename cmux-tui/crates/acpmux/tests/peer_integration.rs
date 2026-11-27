@@ -495,6 +495,9 @@ async fn authored_presence_over_a_dashboard_token_link_is_refused() {
         .await
         .unwrap();
     let mut ca = client(a.clone()).await;
+    // Opt in on A so the request reaches B's Web-origin author guard instead of
+    // being refused locally by the shared-presence Live gate.
+    ca.call("_acpmux/live", json!({"live": true})).await.unwrap();
     ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
     let author = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
     for (m, params) in [
