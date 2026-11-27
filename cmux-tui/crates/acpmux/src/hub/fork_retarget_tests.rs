@@ -614,7 +614,7 @@ async fn an_asking_fork_starts_claude_asking_and_refuses_a_broader_target() {
     assert!(refused.is_err(), "a target that refuses asking must not remain broader");
     assert_eq!(live(&hub), before, "a refused fork remained live");
     let explicit = hub
-        .fork_start(
+        .fork_with_start(
             &parent,
             Some(to("refuses-asking")),
             None,
@@ -652,7 +652,7 @@ async fn a_fork_start_normalizes_its_model_and_keeps_its_explicit_mode() {
     for target in [None, Some(to("lister2"))] {
         let own = target.is_none();
         let fork = hub
-            .fork_start(
+            .fork_with_start(
                 &parent,
                 target,
                 None,
@@ -699,7 +699,7 @@ async fn fork_catalog_aliases_reach_the_native_spawn_model() {
             .unwrap();
         for alias in ["fable-5.2", "claude/fable-5.2"] {
             let fork = hub
-                .fork_start(
+                .fork_with_start(
                     &parent,
                     (harness != "native")
                         .then(|| Retarget { model: Some(alias.into()), ..to("native") }),
