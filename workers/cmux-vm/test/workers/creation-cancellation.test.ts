@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { CREATE_SEND_GRACE_MS } from "../../src/limits/ledger.ts";
+import { CREATE_RESEND_AFTER_MS, CREATE_SEND_GRACE_MS } from "../../src/limits/ledger.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -199,4 +199,58 @@ it("does not count a provider 409 as proof that nothing was created", async () =
   const t = await setup(); t.upstream.fail("create", 409);
   expect((await t.create()).status).toBe(409);
   expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelling" });
+});
+
+// An uncertain send is resent under its own slug after CREATE_RESEND_AFTER_MS, not the whole grace window: one provider
+// timeout used to fail every retry of a create (staging vm_9fca061251a7f47ec504, 2026-11-26).
+const resendable = () => { const at = Date.now() + CREATE_RESEND_AFTER_MS + 1000; vi.spyOn(Date, "now").mockReturnValue(at); };
+const isCreate = (request: Request) => request.method === "POST" && new URL(request.url).pathname === "/v5/vms";
+const isSlugRead = (request: Request) => request.method === "GET" && new URL(request.url).pathname.startsWith("/v5/vms/cmux-vm-");
+
+it("resends a timed-out create once its slug still reads 404 after the resend window, and makes one VM", async () => {
+  const t = await setup(), upstream = t.upstream.fetch; let timeouts = 1;
+  t.upstream.fetch = async (request) => {
+    if (isCreate(request) && timeouts > 0) { timeouts--; throw new DOMException("The operation timed out.", "TimeoutError"); }
+    return upstream(request);
+  };
+  expect((await t.create()).status).toBe(503);
+  // Inside the window the retry reads the slug and does not send.
+  expect((await t.create()).status).toBe(503);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
+  resendable();
+  expect((await t.create()).status).toBe(201);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+  expect(t.upstream.vms.size).toBe(1);
+});
+
+it("adopts the first send's VM when the resend answers 409 for its slug, never making a second", async () => {
+  const t = await setup(), upstream = t.upstream.fetch; let lost = true, hidden = true;
+  t.upstream.fetch = async (request) => {
+    // The first send made its VM but its answer was lost, and the slug reads 404 (propagation) until the resend.
+    if (isCreate(request) && lost) { lost = false; await upstream(request); throw new DOMException("The operation timed out.", "TimeoutError"); }
+    if (isCreate(request)) { const answer = await upstream(request); hidden = false; return answer; }
+    if (isSlugRead(request) && hidden) return Response.json({ code: "NOT_FOUND", message: "no such VM" }, { status: 404 });
+    return upstream(request);
+  };
+  expect((await t.create()).status).toBe(503);
+  resendable();
+  const adopted = await t.create();
+  expect(adopted.status).toBe(201);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(2);
+  expect(t.upstream.vms.size).toBe(1);
+  expect(await adopted.json()).toMatchObject({ id: t.resources[0]!.cmuxId });
+});
+
+it("does not resend after the resend window when the slug read itself fails", async () => {
+  const t = await setup(), upstream = t.upstream.fetch; let timeouts = 1, readsFail = false;
+  t.upstream.fetch = async (request) => {
+    if (isCreate(request) && timeouts > 0) { timeouts--; readsFail = true; throw new DOMException("The operation timed out.", "TimeoutError"); }
+    if (isSlugRead(request) && readsFail) return Response.json({ code: "INTERNAL", message: "provider down" }, { status: 503 });
+    return upstream(request);
+  };
+  expect((await t.create()).status).toBe(503);
+  resendable();
+  expect((await t.create()).status).toBe(503);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
+  expect(t.upstream.vms.size).toBe(0);
 });

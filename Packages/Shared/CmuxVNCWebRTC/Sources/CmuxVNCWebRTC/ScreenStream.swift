@@ -431,6 +431,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
         }
         var last: (buffer: CVPixelBuffer, crop: CGRect)?
         var lastPush = DispatchTime.now()
+        /// When the screen last changed (the source's last picture) or the encoder last needed a fresh one (a
+        /// quality step, the viewer's refresh): the idle refresh backs off from here (``idleRefreshDue``).
+        var lastChange = DispatchTime.now()
         var displays: [CGSize] = []
         var current = 0
         var quality = ScreenQuality.auto
@@ -441,7 +444,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         /// Pictures the source delivered since the last encoder log line (idle refreshes not counted).
         var captured = 0
         /// The size the viewer needs (``ViewerDemand``); full size until it reports one.
-        var demand = ViewerDemand()
+        var demand: ViewerDemand
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
         /// The viewer draws pointers itself (it said ``ScreenHostMessage/telepointersCapability``).
@@ -452,9 +455,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var images = ScreenImageAssembler()
         /// The source state the viewer last heard (live until the host says otherwise).
         var source = ScreenSourceState.live
-        init(link: VNCPeerLink, backend: any ScreenBackend) {
+        init(link: VNCPeerLink, backend: any ScreenBackend, rules: ScreenRules) {
             self.link = link
             self.backend = backend
+            demand = ViewerDemand(rules: rules)
         }
     }
 
@@ -481,6 +485,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
     public let viewOnly: Bool
     private let makeBackend: @Sendable () -> any ScreenBackend
     private let log: @Sendable (String) -> Void
+    /// The rules the host asks (``ScreenRules``; none: full size, the cursor in the picture, no focus signals).
+    private let rules: ScreenRules
     private let lock = NSLock()
     private var session: Session?
     /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
@@ -503,7 +509,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private var eventSink: (@Sendable (Event) -> Void)?
 
     public init(pairing: VNCPairing, viewOnly: Bool = false, backend: @escaping @Sendable () -> any ScreenBackend,
-                log: @escaping @Sendable (String) -> Void = { print($0) }) {
+                rules: ScreenRules = ScreenRules(), log: @escaping @Sendable (String) -> Void = { print($0) }) {
+        self.rules = rules
         self.pairing = pairing
         name = pairing.name
         self.viewOnly = viewOnly
@@ -513,7 +520,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     /// A host for device hub sessions (``serve(_:)``); no room.
     public init(name: String, viewOnly: Bool = false, backend: @escaping @Sendable () -> any ScreenBackend,
-                log: @escaping @Sendable (String) -> Void = { print($0) }) {
+                rules: ScreenRules = ScreenRules(), log: @escaping @Sendable (String) -> Void = { print($0) }) {
+        self.rules = rules
         pairing = nil
         self.name = name
         self.viewOnly = viewOnly
@@ -606,7 +614,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private func accept(offer sdp: String, signaling: any ScreenSignaling) async throws {
         endSession()
         let link = try VNCPeerLink(iceServers: try await signaling.iceServers(), preferStreamRelays: false)
-        let session = Session(link: link, backend: makeBackend())
+        let session = Session(link: link, backend: makeBackend(), rules: rules)
         lock.withLock { self.session = session }
         session.add(Task { [weak self] in
             for await event in link.events {
@@ -642,7 +650,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
                     session.lock.withLock { session.captured += 1 }
-                    self?.push(buffer, crop: crop, session: session)
+                    self?.push(buffer, crop: crop, session: session, change: true)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
                         session.displays = sizes
@@ -675,14 +683,19 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
-        // Idle refresh: capture sends nothing while the screen is still, but a
-        // lost keyframe or a quality step needs a frame to encode.
+        // Idle refresh: capture sends nothing while the screen is still, but the encoder sharpens a still picture
+        // over the next few frames, a lost keyframe needs a frame to answer it, and a quality step needs one to take
+        // effect. Backing off (``idleRefreshDue``): soon after a change, then every 4 s, so a still screen costs
+        // almost nothing on the wire (RFD 0088 slice 3b) where a refresh every 500 ms kept encoding it.
         session.add(Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500)) // idle refresh period
+                try? await Task.sleep(for: .milliseconds(250)) // idle refresh check period
                 guard let self else { return }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
-                    guard let last = session.last, DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > 450_000_000 else { return nil }
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    guard let last = session.last,
+                          Self.idleRefreshDue(sinceChangeNs: now &- session.lastChange.uptimeNanoseconds,
+                                              sincePushNs: now &- session.lastPush.uptimeNanoseconds) else { return nil }
                     return (last.buffer, last.crop)
                 }
                 if let stale { push(stale.0, crop: stale.1, session: session) }
@@ -690,10 +703,33 @@ public final class ScreenStreamHost: @unchecked Sendable {
         })
     }
 
-    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
+    /// Whether a still screen gets its last picture encoded again: once the last push is older than half the time
+    /// since the screen last changed, at least 450 ms and at most 4 s apart. So after a change a refresh comes at
+    /// about 0.5, 1, 2, 4 s, then every 4 s (0.25 fps): the first few let the encoder sharpen the still picture, the
+    /// rest bound how long a lost keyframe takes to repair.
+    static func idleRefreshDue(sinceChangeNs: UInt64, sincePushNs: UInt64) -> Bool {
+        let interval = min(max(sinceChangeNs / 2, idleRefreshMinimumNs), idleRefreshMaximumNs)
+        return sincePushNs >= interval
+    }
+
+    static let idleRefreshMinimumNs: UInt64 = 450_000_000
+    static let idleRefreshMaximumNs: UInt64 = 4_000_000_000
+
+    /// Restarts the idle refresh's back-off: the encoder needs a fresh picture soon (a quality step, the viewer
+    /// asked). Pushes the last picture at once.
+    private func refreshSoon(_ session: Session) {
+        let last = session.lock.withLock { () -> (buffer: CVPixelBuffer, crop: CGRect)? in
+            session.lastChange = .now()
+            return session.last
+        }
+        if let last { push(last.buffer, crop: last.crop, session: session) }
+    }
+
+    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session, change: Bool = false) {
         session.lock.withLock {
             session.last = (buffer, crop)
             session.lastPush = .now()
+            if change { session.lastChange = session.lastPush }
         }
         session.video.push(buffer, crop: crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
     }
@@ -726,43 +762,14 @@ public final class ScreenStreamHost: @unchecked Sendable {
         return fps
     }
 
-    /// Whether a viewer's `caps` message says it draws pointers itself.
-    static func viewerDrawsPointers(_ input: ScreenInput) -> Bool {
-        viewerCapabilities(input).contains(ScreenHostMessage.telepointersCapability)
-    }
-
-    /// Whether a viewer's `caps` message says it draws the Mac's cursor image.
-    static func viewerDrawsCursorShapes(_ input: ScreenInput) -> Bool {
-        let capabilities = viewerCapabilities(input)
-        return capabilities.contains(ScreenHostMessage.telepointersCapability)
-            && capabilities.contains(ScreenHostMessage.cursorShapeCapability)
-    }
-
-    private static func viewerCapabilities(_ input: ScreenInput) -> [String] {
-        guard input.t == ScreenHostMessage.capabilitiesType else { return [] }
-        return (input.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-    }
-
-    /// The shape ids a host remembers sending, newest last: a shape that
-    /// left it is sent again. The viewer keeps more (``ScreenStreamCursorCache``),
-    /// so every shape the host remembers is still one the viewer has.
-    struct SentCursorShapes {
-        static let capacity = 64
-        private(set) var ids: [String] = []
-
-        /// Records `id`; true when the viewer needs it sent first.
-        mutating func needsSend(_ id: String) -> Bool {
-            if let index = ids.firstIndex(of: id) {
-                ids.remove(at: index)
-                ids.append(id)
-                return false
-            }
-            ids.append(id)
-            if ids.count > Self.capacity { ids.removeFirst(ids.count - Self.capacity) }
-            return true
-        }
-
-        mutating func reset() { ids = [] }
+    /// What a viewer's `caps` message says it draws: pointers, and the Mac's
+    /// cursor image (cmux-rd-screen `screen_cursor_caps`; neither without
+    /// the rules, so the cursor stays in the picture).
+    static func viewerDraws(_ input: ScreenInput, rules: ScreenRules) -> (pointers: Bool, shapes: Bool) {
+        struct Request: Encodable { var t: String, s: String? }
+        struct Answer: Decodable { var pointers: Bool, shapes: Bool }
+        let answer = rules.ask("screen_cursor_caps", Request(t: input.t, s: input.s), as: Answer.self)
+        return (answer?.pointers ?? false, answer?.shapes ?? false)
     }
 
     /// `point` (global display coordinates) as a fraction of `display`;
@@ -785,11 +792,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// second, only when one moved, on the unordered `pointer` channel
     /// (latest wins; the ordered channel for a viewer without one).
     private func startTelepointers(_ session: Session) {
+        let rules = rules
         let task = Task { [weak self] in
             var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?, String?)?
             var lastSent = DispatchTime.now()
             // The Mac's cursor image, for a viewer that draws it (cursor-shape).
-            var shapes = ShapeSender()
+            var shapes = ShapeSender(rules: rules)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(16)) // telepointer sampling period (60 Hz)
                 guard let self else { return }
@@ -819,8 +827,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// and screen damage in the streamed display's pixels, only on a `focus`
     /// channel the viewer opened (an older viewer gets none).
     private func startFocusSignals(_ session: Session) {
+        guard rules.installed else { return }
         let link = session.link
-        let producer = FocusSignalProducer(probe: FocusSignalProducer.systemProbe(), geometry: { [weak session] in
+        let producer = FocusSignalProducer(rules: rules, probe: FocusSignalProducer.systemProbe(), geometry: { [weak session] in
             guard let session, let display = session.backend.displayFrame else { return nil }
             let pixels = session.lock.withLock { session.displays.indices.contains(session.current) ? session.displays[session.current] : nil }
             return pixels.map { FocusGeometry(display: display, pixels: $0) }
@@ -833,9 +842,16 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// shape once, on the ordered channel, before the telepointers that name it.
     private struct ShapeSender {
         #if os(macOS)
-        private let reader = ScreenCursorReader()
+        private let reader: ScreenCursorReader
         #endif
-        private var delivery = CursorShapeDelivery()
+        private var delivery: CursorShapeDelivery
+
+        init(rules: ScreenRules) {
+            #if os(macOS)
+            reader = ScreenCursorReader(rules: rules)
+            #endif
+            delivery = CursorShapeDelivery(rules: rules)
+        }
 
         /// The id of the cursor's shape now (nil: the viewer draws no shapes, or none is known yet).
         mutating func current(session: Session, display: CGRect?) async -> String? {
@@ -849,45 +865,31 @@ public final class ScreenStreamHost: @unchecked Sendable {
         }
     }
 
-    /// The ordered cursor messages and the last shape accepted by the link.
-    /// Sampling and delivery are separate: an unchanged seed produces no new image.
+    /// The ordered cursor messages and the last shape accepted by the link
+    /// (cmux-rd-screen's `CursorShapeDelivery`: each shape once per display,
+    /// a refused send retried without another read, a fresh shape
+    /// superseding an unsent one).
     struct CursorShapeDelivery {
-        private var sent = SentCursorShapes()
-        private var shape: String?
-        private var display: CGRect?
-        /// One encoded replacement, retried by the existing sampling tick without reading or rendering again.
-        private var pending: (id: String, text: String)?
+        private let rules: ScreenRules
+        private var state: ScreenJSON?
+
+        init(rules: ScreenRules) {
+            self.rules = rules
+        }
 
         mutating func current(read: ScreenCursorShape?, display: CGRect, sendText: (String) -> Bool) -> String? {
-            if display != self.display {
-                // Sizes are fractions of the display: another display's shapes are new ones.
-                self.display = display
-                sent.reset()
-                shape = nil
-                pending = nil
-            }
-            if let read {
-                if sent.ids.contains(read.id) {
-                    _ = sent.needsSend(read.id)
-                    pending = nil
-                    shape = read.id
-                } else {
-                    var message = ScreenHostMessage(t: ScreenHostMessage.cursorShapeType)
-                    message.cursor = read
-                    // A fresh shape supersedes an unsent one, even if encoding fails.
-                    pending = nil
-                    if let data = try? JSONEncoder().encode(message) {
-                        pending = (read.id, String(decoding: data, as: UTF8.self))
-                    }
-                }
-            }
-            if let pending, sendText(pending.text) {
-                // A refused send must neither forget the payload nor record it as delivered.
-                _ = sent.needsSend(pending.id)
-                shape = pending.id
-                self.pending = nil
-            }
-            return shape
+            struct Prepare: Encodable { var delivery: ScreenJSON?, read: ScreenCursorShape?, display: ScreenRect }
+            struct Prepared: Decodable { var delivery: ScreenJSON, text: String? }
+            struct Finish: Encodable { var delivery: ScreenJSON, delivered: Bool }
+            struct Finished: Decodable { var delivery: ScreenJSON, shape: String? }
+            guard let prepared = rules.ask("screen_cursor_prepare", Prepare(delivery: state, read: read, display: ScreenRect(display)),
+                                           as: Prepared.self) else { return nil }
+            // A refused send must neither forget the payload nor record it as delivered.
+            let delivered = prepared.text.map(sendText) ?? false
+            guard let finished = rules.ask("screen_cursor_finish", Finish(delivery: prepared.delivery, delivered: delivered),
+                                           as: Finished.self) else { return nil }
+            state = finished.delivery
+            return finished.shape
         }
     }
 
@@ -910,8 +912,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         }
         if input.t == ScreenHostMessage.capabilitiesType {
             // The viewer's own capabilities, not input: view-only sessions too.
-            let draws = Self.viewerDrawsPointers(input)
-            let shapes = Self.viewerDrawsCursorShapes(input)
+            let (draws, shapes) = Self.viewerDraws(input, rules: rules)
             guard draws, !session.lock.withLock({ session.telepointers }) else { return }
             session.lock.withLock {
                 session.telepointers = true
@@ -946,6 +947,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if applyQuality(session) { sendDisplays(session) }
             return
         }
+        if input.t == "refresh" { refreshSoon(session) } // and the backend's own refresh below (VNC asks for a full update)
         deliver(input, to: session.backend)
     }
 
@@ -1018,15 +1020,6 @@ public final class ScreenStreamHost: @unchecked Sendable {
         applyQuality(session)
     }
 
-    /// The long edge the source captures at and the encoder sizes its
-    /// bitrate for: the viewer's demand, but only under an adaptive quality
-    /// (a fixed preset keeps the full display, its own scale-down) and only
-    /// for a source that scales. A source that can't keeps sending the full
-    /// picture, so the bitrate must not shrink under it.
-    static func captureCap(_ demand: Int?, quality: ScreenQuality, scales: Bool) -> Int? {
-        scales && (quality == .auto || quality == .smooth) ? demand : nil
-    }
-
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
     /// hears it with the next displays message).
@@ -1035,8 +1028,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let hostRate = session.backend.maximumFrameRate
         let (quality, size, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int?, Int, Bool) in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
-            let cap = Self.captureCap(session.demand.cap, quality: session.quality, scales: session.backend.scalesToDemand)
-            let size = ViewerDemand.fit(display, cap: cap)
+            let cap = session.demand.captureCap(quality: session.quality, scales: session.backend.scalesToDemand)
+            let size = ViewerDemand.fit(display, cap: cap, rules: rules)
             let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
             defer { session.frameRate = fps }
             return (session.quality, size, cap, fps, session.frameRate != fps)
@@ -1044,6 +1037,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.link.applyVideo(quality, source: size, frameRate: fps)
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
+        refreshSoon(session) // a still screen shows the new settings now, not at the next back-off step
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
     }
@@ -1502,6 +1496,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         public var totalDecodeTime: Double = 0
         public var freezeCount: Double = 0
         public var packetsLost: Double = 0
+        /// Every byte the nominated path received (video, RTCP, the data channel, headers): what a relay carries.
+        public var transportBytesReceived: Double = 0
     }
 
     public func videoStats() async -> VideoStats {

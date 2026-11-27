@@ -54,6 +54,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         arguments: &[args::PROVIDER],
         cli_name: "accounts reauth",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

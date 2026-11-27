@@ -352,7 +352,7 @@ body {
 
 .md-prose code {
   padding: 0.1em 0.35em;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--cmux-md-code-background);
   font-family: var(--cmux-md-code-font-family);
   font-size: var(--cmux-md-code-inline-size);
@@ -1400,7 +1400,7 @@ body {
 .md-reading-segments {
   grid-column: 1 / -1;
   display: flex;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--page-hover);
   padding: 2px;
 }
@@ -1409,7 +1409,7 @@ body {
   flex: 1 1 0;
   min-width: 0;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -1541,7 +1541,7 @@ body {
   margin-inline: 0;
   padding: 0.6em 0.9em;
   border-left: 3px solid var(--md-callout-color);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--md-callout-color) 9%, transparent);
   color: var(--cmux-md-text-color);
 }

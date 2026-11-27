@@ -1,85 +1,55 @@
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextCloud
+@testable import CmuxNextCloud
 import Foundation
 import Testing
 
-/// Provision API on Machine and the API key actions (#25594): the routes and bodies the client
-/// sends, the server answers they decode, and the fields a CLI or agent run gets back.
+/// Provision API on Machine and the API key actions (#25594): the daemon calls the client sends
+/// (cmux-cloud-api `previews.rs`'s `cloud.vm.*`), the platform answers they decode, and the fields a CLI or
+/// agent run gets back.
 @Suite(.serialized)
 struct CloudAPIClientProvisionAPITests {
-    nonisolated final class APIRoutes: URLProtocol {
-        nonisolated(unsafe) static var seen: [(method: String, path: String, body: [String: Any]?)] = []
+    typealias FakeDaemon = CloudAPIClientRunTests.FakeDaemon
 
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    nonisolated static let key = #"{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
+    nonisolated static let publication = #"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#
 
-        override func startLoading() {
-            guard let url = request.url else { return }
-            let body = Self.body(of: request).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            Self.seen.append((request.httpMethod ?? "", url.path, body))
-            let key = #"{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
-            let publication = #"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#
-            let answer: String
-            switch (request.httpMethod ?? "", url.path) {
-            case ("POST", "/v1/cloud/machines/vm_abc/previews/3000/api-keys"):
-                answer = #"{"url":"https://p3000-abc.preview.test","publication":\#(publication),"apiKey":\#(key),"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}"#
-            case ("GET", "/v1/cloud/previews"):
-                answer = #"{"previews":[\#(publication)]}"#
-            case ("GET", "/v1/cloud/domains"):
-                answer = #"{"domains":[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]}"#
-            case ("GET", _):
-                answer = #"{"apiKeys":[\#(key)]}"#
+    /// The daemon's answer bodies, as `previews.rs` gives them (the list calls answer the list, not its wrapper).
+    private func daemon() -> FakeDaemon {
+        FakeDaemon { call, _, _ in
+            let body: String
+            switch call {
+            case "vm.provision_api":
+                body = #"{"url":"https://p3000-abc.preview.test","publication":\#(Self.publication),"apiKey":\#(Self.key),"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}"#
+            case "vm.publications": body = "[\(Self.publication)]"
+            case "vm.domains":
+                body = #"[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]"#
+            case "vm.publication_api_keys": body = "[\(Self.key)]"
             default:
-                answer = #"{"apiKey":{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":"2026-10-26T12:05:00.000Z"}}"#
+                body = #"{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":"2026-10-26T12:05:00.000Z"}"#
             }
-            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(answer.utf8))
-            client?.urlProtocolDidFinishLoading(self)
+            return #"{"ok":true,"body":\#(body)}"#
         }
-
-        override func stopLoading() {}
-
-        /// URLSession moves a body into a stream before a protocol sees it.
-        private static func body(of request: URLRequest) -> Data? {
-            if let data = request.httpBody { return data }
-            guard let stream = request.httpBodyStream else { return nil }
-            stream.open()
-            defer { stream.close() }
-            var data = Data()
-            var buffer = [UInt8](repeating: 0, count: 4_096)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                guard count > 0 else { break }
-                data.append(buffer, count: count)
-            }
-            return data
-        }
-    }
-
-    private func session() -> URLSession {
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [APIRoutes.self]
-        return URLSession(configuration: sessionConfiguration)
     }
 
     /// The app's preview client (CloudService.previewAPI): the person's session at the platform origin.
-    private func api() throws -> CloudAPIClient {
-        CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
-                                      teamID: { "team-1" }, session: session())
-            .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
+    private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
+        var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
+                                                   teamID: { "team-1" })
+        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
+        return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 
     @Test func provisionPublishesThePortAndAnswersTheURLAndKeyOnce() async throws {
-        APIRoutes.seen = []
-        let provisioned = try await api().provisionAPI(machineID: "vm_abc", port: 3000, keyName: "agent")
-        #expect(APIRoutes.seen.map(\.method) == ["POST"])
-        #expect(APIRoutes.seen.map(\.path) == ["/v1/cloud/machines/vm_abc/previews/3000/api-keys"])
-        let body = try #require(APIRoutes.seen.first?.body)
-        #expect(body["name"] as? String == "agent")
-        #expect(body.count == 1)
+        let daemon = daemon()
+        let provisioned = try await api(daemon).provisionAPI(machineID: "vm_abc", port: 3000, keyName: "agent")
+        #expect(daemon.requests.map { $0["call"] as? String } == ["vm.provision_api"])
+        #expect(daemon.requests.first?["api"] as? String == "https://platform.invalid")
+        let args = try #require(daemon.args("vm.provision_api").first)
+        #expect(args["machine"] as? String == "vm_abc")
+        #expect(args["port"] as? Int == 3000)
+        #expect(args["keyName"] as? String == "agent")
+        #expect(args.count == 3)
 
         let fields = CloudHandlers.machineFields("vm_abc", provisioned.actionFields.mapValues(ActionResultValue.string))
         #expect(fields["url"] == .string("https://p3000-abc.preview.test"))
@@ -94,43 +64,54 @@ struct CloudAPIClientProvisionAPITests {
         #expect(text.contains("curl -H 'Cookie: __Host-cmux-preview=k1.secret' https://p3000-abc.preview.test"))
     }
 
-    @Test func listAndRevokeFindThePublicationsMachinePortByIDOrHostname() async throws {
-        APIRoutes.seen = []
-        let api = try api()
+    /// The daemon finds the publication's machine and port by its id or hostname; the app names it as given.
+    @Test func listAndRevokeNameThePublicationByIDOrHostname() async throws {
+        let daemon = daemon()
+        let api = try api(daemon)
         let keys = try await api.listPublicationAPIKeys("p3000-abc.preview.test")
         #expect(keys.map(\.id) == ["key-1"])
         #expect(keys.first?.hint == "wxyz")
         let revoked = try await api.revokePublicationAPIKey("vm_abc:3000", keyID: "key-1")
         #expect(revoked.revokedAt == "2026-10-26T12:05:00.000Z")
-        #expect(APIRoutes.seen.map(\.method) == ["GET", "GET", "GET", "DELETE"])
-        #expect(APIRoutes.seen.map(\.path) == [
-            "/v1/cloud/previews", "/v1/cloud/machines/vm_abc/previews/3000/api-keys",
-            "/v1/cloud/previews", "/v1/cloud/machines/vm_abc/previews/3000/api-keys/key-1",
-        ])
-        await #expect(throws: CloudAPIError.self) { try await api.listPublicationAPIKeys("vm_other:80") }
+        #expect(daemon.requests.map { $0["call"] as? String } == ["vm.publication_api_keys", "vm.revoke_publication_api_key"])
+        #expect(daemon.args("vm.publication_api_keys").first?["publication"] as? String == "p3000-abc.preview.test")
+        let revoke = try #require(daemon.args("vm.revoke_publication_api_key").first)
+        #expect(revoke["publication"] as? String == "vm_abc:3000")
+        #expect(revoke["keyId"] as? String == "key-1")
+    }
+
+    /// An unknown publication is the daemon's 404, the same error the app showed before.
+    @Test func anUnknownPublicationIsNotFound() async throws {
+        let daemon = FakeDaemon { _, _, _ in
+            #"{"ok":false,"error":{"kind":"http","status":404,"code":"cloud.preview.not_found","message":"no such publication: vm_other:80"}}"#
+        }
+        await #expect(throws: CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: vm_other:80")) {
+            try await api(daemon).listPublicationAPIKeys("vm_other:80")
+        }
     }
 
     @Test func domainsAndPublicationsComeFromThePlatform() async throws {
-        APIRoutes.seen = []
-        let api = try api()
+        let daemon = daemon()
+        let api = try api(daemon)
         #expect(try await api.listDomains().map(\.hostname) == ["preview.test"])
         let publications = try await api.listPublications()
         #expect(publications.map(\.id) == ["vm_abc:3000"])
         #expect(publications.first?.accessMode == "personal")
-        #expect(APIRoutes.seen.map(\.path) == ["/v1/cloud/domains", "/v1/cloud/previews"])
+        #expect(daemon.requests.map { $0["call"] as? String } == ["vm.domains", "vm.publications"])
     }
 
-    /// No platform preview origin: the classic client refuses and sends nothing to classic Cloud.
+    /// No platform preview origin: the classic client refuses and sends nothing.
     @Test func aClassicClientSendsNothing() async throws {
-        APIRoutes.seen = []
+        let daemon = daemon()
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
-        let classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" }, session: session())
+        var classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
+        classic.daemon.daemonCall = { input, _ in try daemon.run(input) }
         await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
             try await classic.listPublications()
         }
         await #expect(throws: CloudAPIError.self) { try await classic.provisionAPI(machineID: "vm_abc", port: 3000) }
-        #expect(APIRoutes.seen.isEmpty)
+        #expect(daemon.requests.isEmpty)
     }
 
     @Test func theActionsAreCatalogedForTheCLIAndAgents() throws {

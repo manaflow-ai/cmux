@@ -38,7 +38,8 @@ run_step() {
   mkdir -p "$ws" "$TMP/runner"
   ( cd "$ws" && PATH="$TMP/bin:$PATH" GITHUB_WORKSPACE="$ws" RUNNER_TEMP="$TMP/runner" \
       BUILD_SHA="$sha" REPO_URL="file://$TMP/refuses-like-a-403" WORKFLOW_SHA="$sha" \
-      GITHUB_REPOSITORY=none/none GLAEDA_GIT_MIRROR_DIR="$TMP/git" \
+      GITHUB_REPOSITORY=none/none GITHUB_SERVER_URL=https://github.com GLAEDA_GIT_MIRROR_DIR="$TMP/git" FETCH_TOKEN=test-token \
+      CHECKOUT_MIRROR_WAIT_SECONDS=1 CHECKOUT_FETCH_BACKOFF_SECONDS=0 GLAEDA_GIT_MIRROR_TOOL="$TMP/no-mirror-tool" \
       bash -e "$TMP/step.sh" ) >"$TMP/out" 2>&1
 }
 

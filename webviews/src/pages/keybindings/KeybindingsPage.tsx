@@ -7,6 +7,7 @@ import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import {
   canEditWhen,
   displayStrokes,
@@ -77,9 +78,7 @@ function Keycaps({ display }: { display: string }) {
     <span className="keys-caps">
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
-        <kbd key={index} className="keys-cap">
-          {keycapLegend(stroke)}
-        </kbd>
+        <KeyHint key={index} keys={stroke} />
       ))}
     </span>
   );
@@ -329,9 +328,7 @@ function withKeys(text: string, keys: readonly string[]) {
       part
     ) : (
       // oxlint-disable-next-line react/no-array-index-key
-      <kbd key={index} className="keys-recorder-hint-cap">
-        {part.cap}
-      </kbd>
+      <KeyHint key={index} keys={part.cap} />
     ),
   );
 }
@@ -458,6 +455,7 @@ function Recorder({
             // oxlint-disable-next-line react/no-array-index-key
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
+                // key-hint-allow: the recorder's large caps are the keys being pressed live (each pops in as it goes down), an input display, not a shortcut hint.
                 <kbd key={cap} className="keys-recorder-cap">
                   {keycapLegend(cap)}
                 </kbd>

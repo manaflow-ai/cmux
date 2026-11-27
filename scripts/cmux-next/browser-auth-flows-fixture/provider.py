@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Fixture OAuth provider + relying party for browser auth-flow checks. Usage: server.py PORT
 Hosts: localhost (RP, app), 127.0.0.1 (IdP). No real credentials."""
-import http.server, sys, json, urllib.parse
+import http.server, sys, json, urllib.parse, html
 PORT=int(sys.argv[1]) if len(sys.argv)>1 else 8765
 P={}  # what pages and requests observed, read back at /reports
+def oc(js):  # a script as a double-quoted HTML attribute (a json.dumps'd string's quotes would end it early)
+    return '"'+html.escape(js,quote=True)+'"'
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def send(self,body,ct="text/html",code=200,headers=()):
@@ -32,7 +34,7 @@ window.scripted=()=>{{var w=window.open('http://127.0.0.1:{PORT}/idp/plain','x')
             other=q.get("other",[f"http://127.0.0.1:{PORT}"])[0]
             self.send(f"<title>embed</title><script>window.__m=[];addEventListener('message',e=>__m.push(e.data))</script><iframe id=fr src='{other}/iframe'></iframe>")
         elif u.path=="/iframe":
-            self.send("<title>ifr</title><script>document.cookie='tp=1; SameSite=None';localStorage.setItem('k','v');parent.postMessage({cookie:document.cookie,ls:localStorage.getItem('k')},'*')</script>",
+            self.send("<title>ifr</title><script>document.cookie='tp=1; SameSite=None';localStorage.setItem('k','v');parent.postMessage({cookie:document.cookie,ls:localStorage.getItem('k'),saa:typeof document.requestStorageAccess},'*')</script>",
                       headers=[("Set-Cookie","fr=1; Path=/; SameSite=None")])
         elif u.path=="/report":  # a page tells what it saw: /report?k=NAME&opener=true...
             k=q.pop("k",["?"])[0]; P[k]={a:b[0] for a,b in q.items()}; self.send("ok")
@@ -49,14 +51,17 @@ window.scripted=()=>{{var w=window.open('http://127.0.0.1:{PORT}/idp/plain','x')
                       f"<a id=l_named target=named_win href='{t}?k=named'>x</a>")
         elif u.path=="/coopopener":  # opener page with its own COOP; popup is cross-origin and has its own
             hdr=[("Cross-Origin-Opener-Policy",q["coop"][0])] if "coop" in q else []
-            self.send(f"<title>coop</title><button id=go onclick=\"window.__w=window.open('http://127.0.0.1:{PORT}/probe?k='+{json.dumps(q.get('k',['coop'])[0])}+{json.dumps('&coop='+q['popupcoop'][0] if 'popupcoop' in q else '')},'coopwin','popup,width=400,height=400');window.__opened=String(!!__w)\">go</button>",headers=hdr)
+            to=f"http://127.0.0.1:{PORT}/probe?"+urllib.parse.urlencode([("k",q.get("k",["coop"])[0])]+([("coop",q["popupcoop"][0])] if "popupcoop" in q else []))
+            js="window.__w=window.open(%s,'coopwin','popup,width=400,height=400');window.__opened=String(!!__w)"%json.dumps(to)
+            self.send("<title>coop</title><button id=go onclick=%s>go</button>"%oc(js),headers=hdr)
         elif u.path=="/cb":  # an OAuth popup ending: custom scheme by script, or by 302
             to=q.get("to",["vscode://auth?code=1"])[0]
             if q.get("via",["js"])[0]=="302": self.send("",code=302,headers=[("Location",to)])
             else: self.send(f"<title>cb</title>finishing<script>setTimeout(()=>{{location.href={json.dumps(to)}}},300)</script>")
         elif u.path=="/schemeopen":  # RP: opens the /cb popup (gesture), or the main tab goes there
             to=q.get("to",["vscode://auth?code=1"])[0]; via=q.get("via",["js"])[0]
-            self.send(f"<title>schemeopen</title><button id=go onclick=\"window.__w=window.open('http://127.0.0.1:{PORT}/cb?via={via}&to='+encodeURIComponent({json.dumps(to)}),'schemewin','popup,width=400,height=400')\">go</button>")
+            js="window.__w=window.open(%s+encodeURIComponent(%s),'schemewin','popup,width=400,height=400')"%(json.dumps(f"http://127.0.0.1:{PORT}/cb?via={via}&to="),json.dumps(to))
+            self.send("<title>schemeopen</title><button id=go onclick=%s>go</button>"%oc(js))
         elif u.path=="/iframeopen":  # a same-origin iframe whose script opens the IdP popup and gets the code back
             self.send(f"<title>iframeopen</title><iframe id=fr src='/iframeopen_inner'></iframe><script>window.__m=[];addEventListener('message',e=>__m.push(e.data))</script>")
         elif u.path=="/iframeopen_inner":
@@ -76,4 +81,4 @@ window.scripted=()=>{{var w=window.open('http://127.0.0.1:{PORT}/idp/plain','x')
             else: self.send("<title>basic 401</title>need auth",code=401,headers=[("WWW-Authenticate",'Basic realm="fixture"')])
         elif u.path=="/cookies": self.send(self.headers.get("Cookie","(none)"),ct="text/plain")
         else: self.send("hi")
-http.server.ThreadingHTTPServer(("127.0.0.1",PORT),H).serve_forever()
+if __name__=="__main__": http.server.ThreadingHTTPServer(("127.0.0.1",PORT),H).serve_forever()
