@@ -138,6 +138,10 @@ import Testing
         pane.view.layoutSubtreeIfNeeded()
         for _ in 0..<12 where pane.currentTabKey != webTab.id || tab.contentView.window == nil { await nextCommittedPass() }
         try #require(pane.currentTabKey == webTab.id && tab.contentView.window === window, "the Chromium tab never showed in its pane")
+        // The pane laid out its content: the host view has the page area the in-tree container takes when the page comes in.
+        pane.view.layoutSubtreeIfNeeded()
+        let area = tab.host.hostView.bounds
+        try #require(area.width >= 1 && area.height >= 1, "the page's host view has no room in the pane: \(area)")
 
         // The fork puts the page in the tree; its request runs at the end of the turn.
         let page = StandInPage()
