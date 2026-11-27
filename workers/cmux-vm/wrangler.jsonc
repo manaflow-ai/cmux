@@ -11,6 +11,7 @@
   // Keep deploys within the bundle budget without losing names used in diagnostics.
   "minify": true,
   "keep_names": true,
+  "upload_source_maps": true,
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
