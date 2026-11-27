@@ -181,12 +181,11 @@ final class QuitCoordinator {
         DebugTimings.markLaunch("quit.decided")
         let services = services
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
-        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        // (then cancelled now), once the rollback keep ends (bounded); its relaunch is a hand-off.
         await services.updater.prepareForQuitAfterKeep()
-        // A keep quit ends within `keepQuitLimit` from here, whatever any step
-        // below does (slow quit, 2026-10-20). An End quit arms its deadline
-        // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
+        // A keep quit ends within `keepQuitLimit` from here, whatever any step below does (slow
+        // quit, 2026-10-20). An End quit arms its deadline once its sessions ended (they show failures).
+        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit); if services.updater.relaunchingForUpdate { QuitAgents.environment(services)?.expectRelaunch() } }
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.

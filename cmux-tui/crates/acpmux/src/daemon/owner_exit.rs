@@ -125,7 +125,8 @@ pub(crate) fn adopt_if_relaunched(pid: u32) -> bool {
         current.generation += 1;
         current.generation
     };
-    tracing::info!(pid, exe = %peer_exe.display(), "the owner app is back (relaunched); following it");
+    // Warn level: once per update, and the hand-off tests read it at `--log warn`.
+    tracing::warn!(pid, exe = %peer_exe.display(), "the owner app is back (relaunched); following it");
     crate::daemon::owner_relaunch::arrived();
     GONE.send_replace(false);
     watch_owner(pid, generation);

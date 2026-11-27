@@ -323,3 +323,23 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         }
     }
 }
+
+extension AcpmuxEnvironment {
+    /// Before an update's quit: the relaunched app is expected, so the daemon serves on through
+    /// the gap instead of stopping 2 s after this app is gone, and follows the new app once it
+    /// connects (acpmux `daemon/owner_relaunch.rs`: `owner-relaunch.json` in the acpmux home, as
+    /// `acpmux daemon expect-relaunch` writes it). Leo: after every update "agent services stop".
+    /// Atomic; a failure only logs: the daemon then stops as on a quit and the app starts it again.
+    public func expectRelaunch(within seconds: Int = 60, reason: String = "an app update") {
+        let untilMs = Int((Date().timeIntervalSince1970 + Double(min(max(seconds, 1), 300))) * 1000)
+        let body: [String: Any] = ["untilMs": untilMs, "reason": reason, "pid": Int(getpid())]
+        let url = home.appendingPathComponent("owner-relaunch.json", isDirectory: false)
+        do {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            try data.blockingWrite(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+                .error("relaunch marker not written: \(String(describing: error), privacy: .public)")
+        }
+    }
+}
