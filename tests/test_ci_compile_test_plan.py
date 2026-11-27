@@ -388,7 +388,7 @@ class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
     def test_the_plan_needs_full_ci(self) -> None:
         plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
         condition = re.search(r"^    if: (.*)$", plan, re.M).group(1)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertIn("(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", condition)
         # The compile job needs the plan, so a skipped plan skips it: no gateway runner is taken.
         job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
         self.assertRegex(job, r"(?m)^    needs: plan$")
@@ -546,16 +546,18 @@ class AdvisoryVerdictTests(unittest.TestCase):
                            check=True, timeout=30)
             self.assertEqual(out.read_text(), "packages=CmuxNext CmuxUpdater\n")
 
-    def test_it_never_takes_the_required_compiles_gateway(self) -> None:
-        # Each gateway job holds a fleet runner while its client waits on the controller, so the advisory
-        # check has its own label; on the required compile's it starved cmux-next app compile (2026-10-22).
-        # Only the fallback takes it, and only when the Linux read gave no verdict.
+    def test_advisory_fallback_keeps_its_separate_enable_switch(self) -> None:
+        # #54437 froze gateway labels. The advisory fallback now shares that runner,
+        # but only its own enable switch can queue it after a missing Linux verdict.
         text = WORKFLOW.read_text()
         self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", text.split("\njobs:\n", 1)[1])
         fallback = job("mac-fallback")
         runs_on = re.search(r"^    runs-on: (.*)$", fallback, re.M).group(1)
         condition = re.search(r"^    if: (.*)$", fallback, re.M).group(1)
-        self.assertEqual(runs_on, "${{ vars.CI_TEST_COMPILE_GATEWAY }}")
+        self.assertEqual(
+            runs_on.split(" #", 1)[0],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}",
+        )
         self.assertIn("needs.compile.outputs.verdict == 'none'", condition)
         self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
         self.assertIn("::warning title=mac fallback::", fallback)

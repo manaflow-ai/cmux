@@ -247,7 +247,7 @@ enum DaemonClosedHistory {
         switch kind {
         case .screen:
             guard let screen = workspace.screens.first(where: { $0.resourceID == reopened.screenIDs.first }),
-                  let content = window.content else { return }
+                  let content = (services.windows.controller(for: services.windows.registry.value.owner(of: workspace.id) ?? window.state.id) ?? window).content else { return } // the window that shows it, if another lists it
             ScreenCommands.select(LayoutScreenID(screen.id), in: content)
         case .tab:
             guard let tab = reopened.tabIDs.first,
