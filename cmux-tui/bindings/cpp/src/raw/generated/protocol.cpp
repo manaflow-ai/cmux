@@ -3694,6 +3694,79 @@ Result<ExportedPane> Codec<ExportedPane>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<FloatingPane>::encode(const FloatingPane& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_h = encode_value(value.h);
+    if (!encoded_h) return std::move(encoded_h).error();
+    object.emplace("h", std::move(encoded_h).value());
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_w = encode_value(value.w);
+    if (!encoded_w) return std::move(encoded_w).error();
+    object.emplace("w", std::move(encoded_w).value());
+    auto encoded_x = encode_value(value.x);
+    if (!encoded_x) return std::move(encoded_x).error();
+    object.emplace("x", std::move(encoded_x).value());
+    auto encoded_y = encode_value(value.y);
+    if (!encoded_y) return std::move(encoded_y).error();
+    object.emplace("y", std::move(encoded_y).value());
+    return Json(std::move(object));
+}
+
+Result<FloatingPane> Codec<FloatingPane>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    FloatingPane result{};
+    const Json* field_h = value.find("h");
+    if (!field_h) {
+        return make_error(ErrorCode::decode, "missing required field 'h'");
+    }
+    if (field_h) {
+        auto decoded = decode_value<double>(*field_h);
+        if (!decoded) return std::move(decoded).error();
+        result.h = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_w = value.find("w");
+    if (!field_w) {
+        return make_error(ErrorCode::decode, "missing required field 'w'");
+    }
+    if (field_w) {
+        auto decoded = decode_value<double>(*field_w);
+        if (!decoded) return std::move(decoded).error();
+        result.w = std::move(decoded).value();
+    }
+    const Json* field_x = value.find("x");
+    if (!field_x) {
+        return make_error(ErrorCode::decode, "missing required field 'x'");
+    }
+    if (field_x) {
+        auto decoded = decode_value<double>(*field_x);
+        if (!decoded) return std::move(decoded).error();
+        result.x = std::move(decoded).value();
+    }
+    const Json* field_y = value.find("y");
+    if (!field_y) {
+        return make_error(ErrorCode::decode, "missing required field 'y'");
+    }
+    if (field_y) {
+        auto decoded = decode_value<double>(*field_y);
+        if (!decoded) return std::move(decoded).error();
+        result.y = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<FocusDirectionResult>::encode(const FocusDirectionResult& value) {
     (void)value;
     Json::Object object;
@@ -9643,10 +9716,7 @@ Result<Screen> Codec<Screen>::decode(const Json& value) {
     }
     const Json* field_floating = value.find("floating");
     if (field_floating) {
-        if (field_floating->is_null()) {
-            return make_error(ErrorCode::decode, "field 'floating' must not be null");
-        }
-        auto decoded = decode_value<JsonValue>(*field_floating);
+        auto decoded = decode_value<std::vector<FloatingPane>>(*field_floating);
         if (!decoded) return std::move(decoded).error();
         result.floating = std::move(decoded).value();
     }

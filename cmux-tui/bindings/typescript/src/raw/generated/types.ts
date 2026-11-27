@@ -467,6 +467,19 @@ export type ExportedPane = {
   "surfaces": Array<Id>;
 };
 
+export type FloatingPane = {
+  /** The height, 0 to 1. */
+  "h": number;
+  /** floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area. */
+  "pane": Id;
+  /** The width, 0 to 1. */
+  "w": number;
+  /** The left edge, 0 to 1. */
+  "x": number;
+  /** The top edge, 0 to 1. */
+  "y": number;
+};
+
 export type FocusDirectionResult = {
   "pane": Id;
 };
@@ -1137,7 +1150,7 @@ export type Screen = {
   /** The screen's layout columns. */
   "columns"?: Array<LayoutColumnNode>;
   /** floating-panes-v1: panes above the tiled layout, back to front. */
-  "floating"?: JsonValue;
+  "floating"?: Array<FloatingPane>;
   /** The screen group the screen is in. */
   "group"?: (string) | null;
   /** split-divider-visibility-v1: splits whose divider is hidden. */

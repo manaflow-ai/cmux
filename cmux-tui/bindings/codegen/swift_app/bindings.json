@@ -2998,6 +2998,32 @@
             }
           }
         },
+        "FloatingPaneSnapshot": {
+          "type": "FloatingPane",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One floating pane of a screen (`floating-panes-v1`, `Screen.floating[]`): a leaf of the screen's layout that the",
+            "tiled layout leaves out, shown above the tiled panes in its frame. The frame is as the daemon sent it; not checked",
+            "against the layout, the range or repeats. The daemon bounds each number (each is in `0...1` today).",
+            "FloatingPaneSnapshot.swift groups x, y, w and h as `frame`."
+          ],
+          "order": [
+            "pane",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          }
+        },
         "ViewportSplit": {
           "type": "ViewportSplitWidth",
           "conformances": [
