@@ -136,7 +136,7 @@ KEEP_H = 36
 PUBLISH_WINDOW_H = 25
 PUBLISH_MAX = 768 << 10
 PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
-PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "recipient_host", "posted_at", "error",
                   "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
@@ -151,6 +151,7 @@ GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
 GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 SEND_SECONDS = 60
+SEND_RETRY_S = 2  # between a HOST/NAME send that failed and the bare-NAME lookup after it
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
 # (objects/info/alternates), so a fetch from GitHub sends only what the mirror lacks and a checkout's blobs are local.
@@ -205,6 +206,23 @@ def tail(text, most: int = 400) -> str:
     if isinstance(text, bytes):
         text = text.decode("utf-8", "replace")
     return " ".join((text or "").split())[-most:]
+
+
+def send_targets(req: dict) -> list[str]:
+    """Whom a look's message goes to, in order: HOST/NAME when the request names the pushing session's host and the
+    recipient is a bare name, then the recipient as given."""
+    recipient, host = str(req["recipient"]), req.get("recipient_host")
+    if host and "/" not in recipient and SESSION.match(str(host)) and "/" not in str(host):
+        return [f"{host}/{recipient}", recipient]
+    return [recipient]
+
+
+def send_why(text) -> str:
+    """A send's refusal, its `send:` line first: lane-gh prints hints (a report's --state) before the refusal, and
+    the last 400 characters cut the refusal in half."""
+    lines = [ln.strip() for ln in (text.decode("utf-8", "replace") if isinstance(text, bytes) else text or "").splitlines()]
+    why = [ln for ln in lines if "send:" in ln and "reads faster" not in ln]
+    return tail(" ".join(why) if why else "\n".join(lines), 300)
 
 
 class LookError(Exception):
@@ -988,7 +1006,7 @@ class Worker:
     # One look.
     def new_receipt(self, req: dict) -> dict:
         receipt = {k: req.get(k) for k in ("repo", "head_sha", "base_sha", "branch", "pushed_at", "ui_files",
-                                           "recipient")}
+                                           "recipient", "recipient_host")}
         receipt.update(posted_at=None, scenes=[], worker=self.host, started_at=utc_now())
         if req.get("synthetic"):
             receipt["synthetic"] = True
@@ -1123,7 +1141,7 @@ class Worker:
         if not any(s.get("before") and s.get("after") for s in scenes):
             raise LookError(receipt.get("error") or "no scene was shot")
         with stages("send"):
-            self.send(req["recipient"], self.message(req, scenes, receipt))
+            receipt["sent_to"] = self.send(send_targets(req), self.message(req, scenes, receipt))
         receipt["posted_at"] = utc_now()
 
     def url(self, token: str, side: str, name: str) -> str:
@@ -1144,21 +1162,34 @@ class Worker:
             lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
-    def send(self, recipient: str, text: str) -> None:
-        """Hands TEXT to RECIPIENT with --send's command ({recipient} filled in, the text on stdin); with no --send,
-        writes it to outbox/ (a test)."""
+    def send(self, recipients, text: str) -> str:
+        """Hands TEXT to the first of RECIPIENTS that takes it, with --send's command ({recipient} filled in, the
+        text on stdin), and returns the one that did. The pushing session is named HOST/NAME first (the request's
+        recipient_host): a bare NAME makes `lane-gh send` look it up on every machine, and with any machine unread
+        it refuses ("no session named X on the machines read; unread: ..."), which dropped 33 posts on 11-27. The
+        bare NAME comes second, for a session that moved off its host since the push. With no --send, writes it to
+        outbox/ (a test)."""
+        if isinstance(recipients, str):
+            recipients = [recipients]
         if not self.send_template:
             box = self.state / "outbox"
             box.mkdir(exist_ok=True)
-            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipient)}.txt").write_text(text)
-            return
-        argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
-        try:
-            done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
-        except (subprocess.TimeoutExpired, OSError) as err:
-            raise LookError(f"the send to {recipient} failed: {err}") from None
-        if done.returncode != 0:
-            raise LookError(f"the send to {recipient} exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipients[0])}.txt").write_text(text)
+            return recipients[0]
+        errors = []
+        for attempt, recipient in enumerate(recipients):
+            if attempt:
+                time.sleep(SEND_RETRY_S)
+            argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
+            try:
+                done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
+            except (subprocess.TimeoutExpired, OSError) as err:
+                errors.append(f"the send to {recipient} failed: {err}")
+                continue
+            if done.returncode == 0:
+                return recipient
+            errors.append(f"the send to {recipient} exited {done.returncode}: {send_why(done.stderr or done.stdout)}")
+        raise LookError("; ".join(errors))
 
     # Receipts.
     def write_receipt(self, receipt: dict) -> None:
