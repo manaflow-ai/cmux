@@ -1812,7 +1812,20 @@ async function installPreclaimLogin(api: Api, machine: string, exec: Exec, progr
  * A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path.
  * `readyFrame` and `spareRow` time its refill to ready (preclaimRefillToReady); both null with no spare.
  */
-export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null };
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null; phases?: PreclaimPhases };
+
+/**
+ * Where one spare's preclaim time went, each phase's own ms in order (prepareSpareLogin): the warm that names the spare,
+ * its spare.ready wait, the ready warm, the row read, the login install, the guest's own-login check and the installed
+ * warm. The step's 12 s on prod (runs 45973327369, 45975681836) had no split, so no part of it could be cut.
+ */
+export type PreclaimPhases = Partial<Record<"warm" | "ready_wait" | "ready_warm" | "row" | "install" | "own_login" | "installed_warm", number>>;
+
+/** The phases as the step's detail names them: `warm 812 ms, ready_wait 6101 ms, ...` in the order they ran. */
+export function preclaimPhasesText(phases: PreclaimPhases | undefined): string {
+  const parts = Object.entries(phases ?? {}).map(([name, ms]) => `${name} ${ms} ms`);
+  return parts.length ? `; phases: ${parts.join(", ")}` : "";
+}
 
 /** A claim's bounded wait for a ready spare: how long, how many warms, and whether the bound ran out first. */
 export type SpareWait = { waited_ms: number; attempts: number; cold_after_wait: boolean; ready_by: "warm" | "claim_path" | null };
@@ -1904,26 +1917,38 @@ export async function prepareSpareLogin(a: {
   journey: Journey;
   readyBudgetMs?: number;
 }): Promise<PreparedSpare> {
+  const phases: PreclaimPhases = {};
+  let mark = Date.now();
+  const lap = (name: keyof PreclaimPhases) => { const now = Date.now(); phases[name] = now - mark; mark = now; };
   const warm = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, a.request);
+  lap("warm");
   const spare = typeof warm.machine === "string" ? warm.machine : null;
   let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
   let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
   let readyFrame: unknown = null, spareRow: unknown = null;
   if (spare) {
     const ready0 = await waitForSpareReady(Object.assign(Object.create(Object.getPrototypeOf(a.api)), a.api, { team: a.wireTeam ?? a.api.team }), spare, a.readyBudgetMs);
+    lap("ready_wait");
     readyFrame = ready0.frame;
     const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
+    lap("ready_warm");
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
     // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
     spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
+    lap("row");
     await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
+    lap("install");
     const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+    lap("own_login");
     if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
-    if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+    if (copy.generation) {
+      await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+      lap("installed_warm");
+    }
   }
-  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason) };
+  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason), phases };
 }
 
 /** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
@@ -4667,24 +4692,53 @@ export function leakProof(log: string, id: string): string | null {
   return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
 }
 
-type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+type GhResponse = { status: number; location: string | null; text: string; remaining?: string | null; reset?: string | null; retryAfter?: string | null };
+type GhGet = (url: string, headers: Record<string, string>) => Promise<GhResponse>;
 
 const ghGet: GhGet = async (url, headers) => {
   const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   const text = await res.text();
-  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+  return {
+    status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024),
+    remaining: res.headers.get("x-ratelimit-remaining"), reset: res.headers.get("x-ratelimit-reset"),
+    retryAfter: res.headers.get("retry-after"),
+  };
 };
 
 /**
  * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
  * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
  */
-export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet,
+  clock: { now: () => number; sleep: (ms: number) => Promise<unknown> } = { now: Date.now, sleep },
+): Promise<string | null> {
   const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
   const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
-  const json = async (url: string) => {
+  const diagnostic = (r: GhResponse) => {
+    // Redact before truncating: a cut through a token must never expose its prefix.
+    const safe = (text: string) => scrub(token ? text.split(token).join("[secret]") : text);
+    const body = Buffer.from(safe(r.text)).subarray(0, 200).toString("utf8").replace(/\uFFFD$/, "");
+    return `HTTP ${r.status}; x-ratelimit-remaining=${safe(r.remaining ?? "unknown")}; x-ratelimit-reset=${safe(r.reset ?? "unknown")}; retry-after=${safe(r.retryAfter ?? "unknown")}; body=${JSON.stringify(body)}`;
+  };
+  const read = async (url: string) => {
     const r = await get(url, auth);
-    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    if ((r.status !== 403 && r.status !== 429) || r.remaining !== "0") return r;
+    const now = clock.now();
+    const reset = r.reset && /^\d+$/.test(r.reset) ? Number(r.reset) * 1000 - now : NaN;
+    const retry = r.retryAfter
+      ? (/^\d+$/.test(r.retryAfter) ? Number(r.retryAfter) * 1000 : Date.parse(r.retryAfter) - now)
+      : NaN;
+    const delays = [reset, retry].filter(Number.isFinite);
+    if (!delays.length) return r;
+    // Honor both headers. Longer resets belong to a later run, not an hour-long cleanup job.
+    const delay = Math.max(1000, ...delays);
+    if (delay > 60_000) return r;
+    await clock.sleep(delay);
+    return get(url, auth);
+  };
+  const json = async (url: string) => {
+    const r = await read(url);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: ${diagnostic(r)}`);
     return JSON.parse(r.text);
   };
   try {
@@ -4699,13 +4753,13 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
     if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
     const workflow = String(run?.path ?? "").replace(/@.*$/, "");
     if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
-    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    const link = await read(`${api}/jobs/${entry.job}/logs`);
     let log = link.text;
     if (link.status === 302 && link.location) {
       const blob = await get(link.location, {});
       if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
       log = blob.text;
-    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered ${diagnostic(link)}`;
     const why = leakProof(log, entry.id);
     return why ? `job ${entry.job}: ${why}` : null;
   } catch (e) {
@@ -5732,7 +5786,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }), preclaimSpareWait * 1000, { ready: (ms) => waitForAnySpareReady({ ...api, team: wireTeam }, ms) });
           prepared = got;
           const waited = wait ? `; waited ${wait.waited_ms} ms over ${wait.attempts} warm(s)${wait.cold_after_wait ? ", bound ran out" : wait.ready_by === "claim_path" ? ", the claim path's spare ready" : ""}` : "";
-          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited });
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited + preclaimPhasesText(prepared.phases) });
         } catch (e) {
           prepared = null;
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login goes with the agent's start: ${String((e as Error)?.message ?? e).slice(0, 300)}` });

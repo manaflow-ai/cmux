@@ -708,14 +708,51 @@ PROVIDER_STEP_HTTP = re.compile(r"^(file write|mesh ACL apply|mesh ACL read|mesh
 PROVIDER_JS_ERROR = re.compile(r"^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError)(?=:|$)")
 
 
+# cmux-platform src/server/cloud/ownhost/CloudProvider.ts: every call names its step ("find VM", "create VM",
+# `${verb} VM`), then a fixed tail. Dev 2026-11-27 12:26Z: twelve creates in a row read only "own-host: other" while
+# the host's origin no longer resolved, so the class never said whether the daemon answered at all.
+OWN_HOST_STEPS = frozenset({"create VM", "delete VM", "exec", "find VM", "list VMs", "power VM", "read VM",
+                            "resume VM", "pause VM", "write file"})
+OWN_HOST_TAILS = frozenset({
+    "no readable answer", "no VM in the answer", "no VM state in the answer", "no receipt in the answer",
+    "the receipt names another request", "the receipt names another VM", "the host answered refused",
+    "the host answered failed", "wrong VM answer", "no such VM", "invalid answer", "unreadable resources",
+    "HTTP 409 and no VM under the name", "the VM is failed", "the VM is deleted", "invalid path or mode",
+    "unconfirmed write", "invalid timeout",
+})
+OWN_HOST_WHOLE = frozenset({
+    "invalid VM id", "invalid VM name", "invalid report selector", "no snapshots", "no resize", "no TLS edge rules",
+    "no machine without internet", "only the configured template boots", "no disk-depth pause",
+})
+# A step's daemon status and its safe error code (codeOf: the daemon's own token, never its message).
+OWN_HOST_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?: \(([a-z][a-z0-9_.]{0,63})\))?$")
+
+
+def _own_host_class(rest):
+    if rest in OWN_HOST_WHOLE:
+        return rest
+    step, sep, tail = rest.partition(": ")
+    if not sep or step not in OWN_HOST_STEPS:
+        return "other"
+    if tail in OWN_HOST_TAILS:
+        return f"{step}: {tail}"
+    m = OWN_HOST_HTTP.match(tail)
+    if m:
+        return f"{step}: HTTP {m.group(1)}" + (f" ({m.group(2)})" if m.group(2) else "")
+    return f"{step}: other"
+
+
 def provider_error_class(message):
     """A fixed class for a provider call's error message: its source prefix (PROVIDER_SOURCES) and then a
     PROVIDER_ERROR_PHRASES phrase, "HTTP <status>", "<step> HTTP <status>", "boot image is not listed yet", a JS
-    error name, or other. No text past a known phrase is ever kept."""
+    error name, or other. An own-host message keeps its step and fixed tail (OWN_HOST_*). No text past a known
+    phrase is ever kept."""
     if not isinstance(message, str):
         return "other"
     source = next((p for p in PROVIDER_SOURCES if message.startswith(p)), "")
     rest = message[len(source):]
+    if source == "own-host: ":
+        return source + _own_host_class(rest)
     return source + _provider_phrase_class(rest) if source else _provider_phrase_class(rest)
 
 
