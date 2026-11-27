@@ -59,7 +59,7 @@ fn sidebar_order<'a>(
 /// The id of the row a new workspace goes before (top) or after (bottom): the first or last of
 /// its Mac's unpinned rows other than Home and itself, in sidebar order. Nil when it is alone.
 #[uniffi::export]
-pub fn workspace_edge_anchor(
+pub fn workspace_new_row_anchor(
     top: bool,
     workspace_id: String,
     mac_id: String,

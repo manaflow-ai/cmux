@@ -49,16 +49,16 @@ fn edge_anchors_skip_pinned_rows_and_home() {
         row("new", Some(4)),
     ];
     // Top skips the grouped first row; bottom is the last row.
-    assert_eq!(workspace_edge_anchor(true, "new".into(), "m".into(), rows.clone()), Some("x".into()));
-    assert_eq!(workspace_edge_anchor(false, "new".into(), "m".into(), rows), Some("y".into()));
-    assert_eq!(workspace_edge_anchor(true, "new".into(), "m".into(), vec![row("new", Some(4))]), None);
+    assert_eq!(workspace_new_row_anchor(true, "new".into(), "m".into(), rows.clone()), Some("x".into()));
+    assert_eq!(workspace_new_row_anchor(false, "new".into(), "m".into(), rows), Some("y".into()));
+    assert_eq!(workspace_new_row_anchor(true, "new".into(), "m".into(), vec![row("new", Some(4))]), None);
 }
 
 /// Every first row grouped: Top goes before the first one anyway.
 #[test]
 fn top_falls_back_to_the_first_row_when_every_row_is_grouped() {
     let rows = vec![WorkspaceRowFacts { grouped: true, ..row("g", Some(0)) }, row("new", None)];
-    assert_eq!(workspace_edge_anchor(true, "new".into(), "m".into(), rows), Some("g".into()));
+    assert_eq!(workspace_new_row_anchor(true, "new".into(), "m".into(), rows), Some("g".into()));
 }
 
 /// Sidebar order, rows with no index last in list order, other Macs, Home, itself and pending
