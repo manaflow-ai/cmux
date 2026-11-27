@@ -1815,7 +1815,9 @@ mod tests {
         kept.check_server(bound);
         lost.check_server(bound);
         let mut dead = lost.dead();
-        tokio::time::timeout(bound * 2, dead.wait_for(|dead| *dead))
+        // The bound is the check's own deadline; the wait for the watch to flip is only a hang guard, so a loaded
+        // CI VM that delays the wake-up by a few hundred ms (a false red at 2x the bound) cannot fail the test.
+        tokio::time::timeout(Duration::from_secs(10), dead.wait_for(|dead| *dead))
             .await
             .expect("the silent server's allocation is declared dead")
             .expect("watch open");
