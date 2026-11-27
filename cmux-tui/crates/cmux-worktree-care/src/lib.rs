@@ -7,6 +7,7 @@
 //! - [`inventory`]: every linked worktree of the repositories under the
 //!   given folders, and its facts (branch, HEAD, changes, unpushed commits,
 //!   last activity, bytes, ignored build output).
+//! - [`owner`]: the session `wt new` recorded as a worktree's owner.
 //! - [`policy`]: a verdict per worktree from those facts, the sessions that
 //!   use it, the programs registered as working in it and how full its disk is: kept (in use,
 //!   recent, or unsafe to archive) or reclaimed (finished, idle and pushed,
@@ -34,6 +35,7 @@ pub mod disk;
 mod finished_memo;
 mod git;
 pub mod inventory;
+pub mod owner;
 pub mod pass;
 pub mod policy;
 pub mod procs;
