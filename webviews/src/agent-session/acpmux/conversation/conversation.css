@@ -7326,7 +7326,11 @@ a.cv-sha:focus-visible {
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter,
-  .acpmux-thinking.acpmux-row--enter[data-send-thinking] {
+  /* As specific as the live-activity fade above (`.acpmux-row.acpmux-row--enter:not(...):not(...)`),
+     and later, so it wins: since #55713 a sent prompt's "Working for" (`.acpmux-worked`) stands between
+     it and its thinking row from the send, so the sibling selectors no longer reach it and this mark
+     alone carries the send clock. */
+  .acpmux-row.acpmux-thinking.acpmux-row--enter[data-send-thinking]:not(.acpmux-user) {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
