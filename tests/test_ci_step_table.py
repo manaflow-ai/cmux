@@ -939,6 +939,27 @@ class SetupTest(unittest.TestCase):
         self.assertIn("::error title=red::", out)
         self.assertNotIn("step big exited", out)
 
+    def test_alone_on_red_runs_the_alone_step_after_a_blocking_failure(self) -> None:
+        # The post-merge batch has no re-run: on a base that stays red, a skipped alone step would never run.
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (f'[step.big]\njob = "linux"\nalone = true\nrun = "touch {tmp}/big"\n'
+                    '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+            buffer = io.StringIO()
+            code, out = ci_steps.run_job(table(body), "linux", None, out=buffer, alone_on_red=True), buffer.getvalue()
+            self.assertEqual(code, 1, out)
+            self.assertTrue(Path(tmp, "big").exists(), out)
+        self.assertNotIn("skipped: blocking step", out)
+
+    def test_every_post_merge_batch_job_runs_its_alone_steps_on_red(self) -> None:
+        for job in ("linux", "mac", "ios"):
+            text = (ROOT / f".github/workflows/cmux-next-pr-pipeline-{job}-batch.yml").read_text()
+            self.assertEqual(yaml.safe_load(text)["jobs"][job]["env"]["CI_RUN_ALONE_ON_RED"], "1", job)
+        self.assertNotIn("ALONE_ON_RED", (ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        with mock.patch.dict(os.environ, {"CI_RUN_ALONE_ON_RED": "1"}), \
+                mock.patch.object(ci_steps, "run_job", return_value=0) as run:
+            ci_steps.main(["run", "--job", "linux"])
+        self.assertTrue(run.call_args.kwargs["alone_on_red"])
+
     def test_a_failed_alone_step_skips_the_alone_steps_after_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             body = ('[step.first]\njob = "linux"\nalone = true\nrun = "exit 2"\n'
@@ -2258,9 +2279,9 @@ class IosJobTest(unittest.TestCase):
                 self.assertIn("git diff --exit-code -- cmux-next-ios/", step.run)
                 # The run text names no event variable, so a pass is still reused.
                 self.assertFalse([v for v in ci_steps.EVENT_VARS if v in step.run])
-        # The same inputs, so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
+        # The same inputs (bar the simulator leg's own helper and the pool phone's script), so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
         # macOS leg's verdict through the helper.
-        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py"})
+        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py", "scripts/ci/ios-sim-linux-test.sh"})
         self.assertEqual(set(macos.inputs) - set(kit.inputs), set())
         self.assertEqual(kit.ignore, macos.ignore)
         # The ordering rule both legs had in one step: a red macOS leg skips the simulator and fails ios-kit.

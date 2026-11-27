@@ -22,6 +22,11 @@ cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA
   --artifact artifacts/ios-sim/evidence.zip
 ```
 
+The fleet accepts runner script changes only after they land on `feat-cmux-next`
+or `main`. For a PR changing this entry point, run the headless checks before
+landing, then dispatch this simulator verification at the merged commit. A
+pre-merge rejection by the trusted-script check is not a simulator test result.
+
 This first-build verification is separate from the fast headless PR gate. Its
 receipt includes the actual simulator result and build cost; dispatch is not a pass.
 
