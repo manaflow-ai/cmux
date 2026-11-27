@@ -344,6 +344,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // An agent on the Mac drives the tabs this iPhone shows itself (RFD 0089).
+        let phoneName = deviceName
+        Task { await PhonePageChannel.serve(on: link, macID: macID, deviceName: phoneName) }
         #if canImport(CmuxMobileLinkFFI)
         // Other devices waiting for this Mac's Allow, answered from here (ask-45c37458ea).
         pairRequests.linkServed(macID: macID, source: MacPairRequests.Source(
@@ -355,6 +358,10 @@ extension LiveCoordinator {
         // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
         let tabs = self.tabs
         Task { await tabs.read(on: link, macID: macID) }
+        #if DEBUG
+        // Swift live code patches from the Mac, in cmux Dev launched by scripts/live-code/ios-device.sh.
+        Task.detached(priority: .utility) { await LiveCodeLinkFeed.read(on: link) }
+        #endif
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
