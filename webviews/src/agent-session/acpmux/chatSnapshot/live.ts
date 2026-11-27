@@ -10,6 +10,7 @@ import {
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
+  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
@@ -451,6 +452,9 @@ export function watchChatSnapshot(
     // half drawn under it. The copy's going clears the root's opacity, a change the observer below
     // hears, so the write comes once the page is quiet after it.
     if (showsChatSnapshot()) return;
+    // A hidden page's transcript that let go of its rows draws none: the copy written as it hid, from
+    // the rows it drew then, stays the one kept until it shows again and draws them.
+    if (doc.querySelector(`[${TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE}]`)) return;
     const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
@@ -480,14 +484,20 @@ export function watchChatSnapshot(
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
     // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
     // waking a chat at rest by itself (slackTimers.ts).
+    // On the beat that rests the page (`atRest`) the write goes now, ahead of QUIET_MS and WRITE_GAP_MS:
+    // the page rests because nothing happened in it for a beat, so the markup is what it will stay, and a
+    // timer kept for either wait would only wake it alone (the read_ahead arm's write at 3.46 s in
+    // bench/chat-switch.bench.ts). A change after the rest arms the next write as before.
     timer = slackTimers.later(
-      () => {
+      (atRest) => {
         timer = undefined;
-        const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
+        const late = atRest ? 0 : Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
         if (late > 1) schedule();
-        else write("quiet");
+        else write(atRest ? "rest" : "quiet");
       },
       Math.max(0, due),
+      undefined,
+      { atRest: true },
     );
   };
   // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to

@@ -423,9 +423,29 @@ PY
     if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   fi
 fi
+# CMUX_WEB_TEST_HELD_REDS: a file of test files (one a line) red on every base push for a day or more
+# (webviews_test_history.py held-red-files). A pull request drops them after the split, as the reused files above, and
+# reports no verdict for them; the batch runs keep running them, so the history says when one goes green.
+: > "$results/held"
+if [ -n "${CMUX_WEB_TEST_HELD_REDS:-}" ] && [ -s "$CMUX_WEB_TEST_HELD_REDS" ]; then
+  python3 - "$results/files" "$CMUX_WEB_TEST_HELD_REDS" "$results/held" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+held = {line.strip() for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()}
+path.write_bytes(b"".join(name.encode() + b"\0" for name in listed if name not in held))
+pathlib.Path(sys.argv[3]).write_text("".join(name + "\n" for name in listed if name in held))
+PY
+  if [ -s "$results/held" ]; then
+    echo "red on the base for a day or more, so left to the batch runs: $(grep -c . "$results/held")"
+    sed 's/^/  HELD RED /' "$results/held"
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
-if [ "$count" -eq 0 ] && [ -s "$results/reused" ] && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
-  echo "### webviews tests: 0 files; all $(grep -c . "$results/reused") of this shard passed at the previous head"
+if [ "$count" -eq 0 ] && { [ -s "$results/reused" ] || [ -s "$results/held" ]; } && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
+  echo "### webviews tests: 0 files; $(cat "$results/reused" "$results/held" | grep -c .) of this shard passed at the previous head or are held base reds"
   if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
     : > "$results/summary"
     python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"

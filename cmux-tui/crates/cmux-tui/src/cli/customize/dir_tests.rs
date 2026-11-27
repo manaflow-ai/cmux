@@ -19,7 +19,7 @@ fn fake_builders(dir: &Path, fail: Option<&str>) {
 }
 
 #[test]
-fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
+fn the_builders_fill_every_nested_surface_and_leave_no_log() {
     let tmp = tempfile::tempdir().unwrap();
     fake_builders(tmp.path(), None);
     let out = tmp.path().join("out");
@@ -28,7 +28,7 @@ fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
         assert!(out.join(prefix).join("index.js").is_file(), "{prefix}");
     }
     let found = files(&out).unwrap();
-    assert_eq!(found.len(), 3, "{found:?}");
+    assert_eq!(found.len(), SURFACES.len(), "{found:?}");
     let logs: Vec<_> = std::fs::read_dir(&out)
         .unwrap()
         .filter_map(Result::ok)
@@ -83,11 +83,12 @@ fn the_same_build_is_the_same_layer_and_a_change_is_another() {
                 "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/x",
                 "c",
             ),
+            ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/other.txt", "d"),
         ],
     );
     let found = files(&out).unwrap();
-    // Agent Activity is no overlay surface.
-    assert_eq!(found.len(), 2);
+    // Agent Activity is a surface; a file beside the surfaces is none.
+    assert_eq!(found.len(), 3);
     let one = digest(&out, &found).unwrap();
     assert_eq!(one, digest(&out, &files(&out).unwrap()).unwrap());
     tree(&out, &[("Resources/markdown-viewer/webviews-app/index.html", "c")]);
