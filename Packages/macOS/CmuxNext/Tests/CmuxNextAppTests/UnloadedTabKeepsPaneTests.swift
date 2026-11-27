@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextTestSupport
@@ -45,6 +46,49 @@ import Testing
         }
     }
 
+    /// Only the test advances presentation, so a run-loop commit cannot silently replenish the surface budget.
+    private final class ManualFrames: ControlFrameSource, @unchecked Sendable {
+        nonisolated(unsafe) private var pending: [@MainActor @Sendable () -> Void] = [] // main actor only
+        func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) { pending.append(work) }
+        @MainActor func fire() {
+            let due = pending
+            pending = []
+            due.forEach { $0() }
+        }
+    }
+
+    /// A second pane uses this frame's one cold presentation before the move.
+    private final class BudgetPane: PresentablePane {
+        var selectedContentIsAlive = false
+        var isFocusedInWorkspace: Bool { false }
+        func showSelected() { selectedContentIsAlive = true }
+        func showWhileWaiting() {}
+    }
+
+    @Test(arguments: [false, true])
+    func movingWithTheSurfaceBudgetSpentKeepsTheSourceDrawn(selectBeforeMove: Bool) async throws {
+        let frames = ManualFrames()
+        let fixture = try await Fixture(frames: frames)
+        defer { fixture.close() }
+        frames.fire()
+        let other = BudgetPane()
+        try #require(fixture.services.presentation.showNow(other))
+        let host = fixture.pane.view.contentHost
+        let hostFrame = host.frame
+        let taker = TakingPane()
+        if selectBeforeMove { fixture.select(fixture.blank) }
+        fixture.services.cache.present(fixture.history, by: taker, presence: .visible)
+        if !selectBeforeMove { fixture.select(fixture.blank) }
+        await Self.nextCommittedPass()
+        #expect(fixture.pane.view.contentHost === host && host.frame == hostFrame,
+                "the unchanged source pane moved or replaced its content host")
+        #expect(fixture.pane.view.hostsContent || fixture.pane.view.launchImageView?.superview === host,
+                "the source pane committed empty while a cold neighbor waited for the spent surface budget")
+        frames.fire()
+        #expect(fixture.pane.currentTabKey == fixture.blank && fixture.pane.view.hostsContent,
+                "the cold neighbor did not replace the held frame when its presentation became eligible")
+    }
+
     /// The pane the moved tab goes to: it takes the tab's view from the source pane (`TabContentCache.present`).
     private final class TakingPane: SurfacePresenter {
         func surfaceWasDisplaced(_ key: String) {}
@@ -60,9 +104,10 @@ import Testing
         let history: String, blank: String, terminal: String
         let page: HistoryPageTab
 
-        init() async throws {
+        init(frames: (any ControlFrameSource)? = nil) async throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
+            if let frames { services.presentation.frames = frames }
             let store = services.daemon.store
             store.connectionState = .connected(try UnloadedTabKeepsPaneTests.connected())
             store.apply(snapshot: UnloadedTabKeepsPaneTests.tree())
