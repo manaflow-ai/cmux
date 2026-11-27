@@ -23,5 +23,8 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   echo "windowserver-cost: the tagged reload printed no app path" >&2
   exit 1
 fi
+status=0
 python3 scripts/cmux-next/windowserver-bench.py --app "$app" --out "$out/runs" --json "$out/report.json" \
-  --scenarios "$scenarios" --rounds "$rounds" --idle-s "$idle_s" --tabs "$tabs" --samples "$samples"
+  --scenarios "$scenarios" --rounds "$rounds" --idle-s "$idle_s" --tabs "$tabs" --samples "$samples" || status=$?
+test -s "$out/report.json" || { echo "windowserver-cost: harness produced no report" >&2; exit 1; }
+exit "$status"
