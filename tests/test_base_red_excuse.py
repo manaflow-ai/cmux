@@ -10327,6 +10327,11 @@ class TreeReuseGitHub(FakeGitHub):
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
         if "nodes(ids:" in query:
+            if self.nodes == "unread":  # as main_fix_evidence's GitHub.run raises the broker's refusal: a failed gh
+                raise excuse.Unread("GitHub evidence request failed: gh api graphql query=... name=CI fast guards: "
+                                    "gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes "
+                                    "is refused (the broker reads the call's repo with a few fields only: "
+                                    "GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)")
             if not self.nodes:
                 raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
                                      "refused: graphql: root field nodes is refused")
@@ -10347,6 +10352,39 @@ class TreeReuseGitHub(FakeGitHub):
                       if route.endswith("/jobs?filter=latest&per_page=100"))
 
 
+class SuiteChecksBrokerRefusal(unittest.TestCase):
+    """The lane-gh broker's refused `nodes` arrives as a failed read (Unread, then UnreadRead through rate_limit_aware):
+    SuiteChecks reads by commit instead, and only another failed read stays "not judged" (cmux#60059, 2026-11-27)."""
+
+    class GitHub:
+        def __init__(self, nodes_error):
+            self.nodes_error, self.queries = nodes_error, []
+
+        def run(self, args, *, repo=None):
+            query = next(arg for arg in args if arg.startswith("query="))
+            self.queries.append(query)
+            if "nodes(ids:" in query:
+                raise self.nodes_error
+            return json.dumps({"data": {"repository": {"c0": {"checkSuites": {"pageInfo": {"hasNextPage": False},
+                               "nodes": [{"id": "CS_1", "checkRuns": {"pageInfo": {"hasNextPage": False},
+                                                                     "nodes": [{"conclusion": "FAILURE"}]}}]}}}}})
+
+    RUNS = [{"id": 1, "check_suite_node_id": "CS_1", "head_sha": "a" * 40}]
+
+    def test_a_refused_nodes_read_as_unread_is_read_by_commit(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
+                                       "refused: graphql: root field nodes is refused"))
+        suites = excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO)
+        self.assertEqual(suites.conclusions(self.RUNS, 0, "build"), frozenset({"failure"}))
+        self.assertTrue(suites.rooted)
+        self.assertEqual(len(gh.queries), 2)
+
+    def test_another_failed_read_stays_not_judged(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request exceeded 90 seconds: gh api graphql query=..."))
+        with self.assertRaises(excuse.UnreadRead):
+            excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO).conclusions(self.RUNS, 0, "build")
+
+
 class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
     BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
@@ -10355,7 +10393,8 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
 
     def test_the_base_run_behind_the_tree_reuse_runs_excuses_the_red(self):
-        for nodes in (True, False):
+        # "unread": the refusal as a lane VM's gh shim gives it, a failed read (cmux#60059 exited 3 on it, 2026-11-27).
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 gh = TreeReuseGitHub(nodes=nodes)
                 said = "\n".join(self.judge(gh))
@@ -10366,7 +10405,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                 self.assertLessEqual(len(gh.graphql), 4)  # 52 suites, 25 a request (plus a refused `nodes` once)
 
     def test_a_green_base_job_there_stays_not_excused(self):
-        for nodes in (True, False):
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 with self.assertRaisesRegex(excuse.Refused, f"'{re.escape(TreeReuseGitHub.MAC)}'.*not red on "
                                                             "feat-cmux-next run 20"):
