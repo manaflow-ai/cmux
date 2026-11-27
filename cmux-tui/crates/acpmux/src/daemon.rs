@@ -1125,6 +1125,21 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let prune_scope = cmux_scope::Scope::new("daemon prune");
     #[cfg(unix)]
     prune_scope.spawn_until_cancelled("daemon prune", prune::every_while_running());
+    // Sockets of masters that died without unlinking them (`ssh_master_sockets.rs`): removed
+    // when they refuse a connect, at start and every `EVERY`, off the workers.
+    #[cfg(unix)]
+    prune_scope.spawn_until_cancelled("ssh master sockets", {
+        let dir = home().join("run").join("ssh");
+        async move {
+            loop {
+                let pass = dir.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || crate::ssh_master_sockets::sweep(&pass))
+                        .await;
+                tokio::time::sleep(crate::ssh_master_sockets::EVERY).await;
+            }
+        }
+    });
     // Its home and lock, re-read during the shutdown too.
     #[cfg(unix)]
     let held_home = owned_home.clone();
