@@ -333,6 +333,9 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
+    /// Test transport belongs to this instance, even when another peer has the same name.
+    #[cfg(test)]
+    ssh_mux_override: std::sync::OnceLock<wanted::SshMux>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
