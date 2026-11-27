@@ -25,10 +25,29 @@ name: cmux-next compile preflight
 
 on:
   workflow_call:
+    inputs:
+      force_web:
+        description: A consumer needs the bundle even when only test inputs changed.
+        type: boolean
+        default: false
+      source_ref:
+        description: Exact consumer checkout; empty keeps the event merge commit.
+        type: string
+        default: ""
+      artifact_prefix:
+        description: Separate producers in one run use distinct artifact namespaces.
+        type: string
+        default: pr-web-bundles
+    outputs:
+      web_bundle_key:
+        value: ${{ jobs.web.outputs.key }}
+      web_bundle_transport:
+        value: ${{ jobs.web.outputs.transport }}
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   web:
@@ -37,6 +56,9 @@ jobs:
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
     timeout-minutes: 8
+    outputs:
+      key: ${{ steps.web-bundle-key.outputs.key }}
+      transport: ${{ steps.artifact-transport.outputs.transport }}
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
@@ -44,6 +66,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -68,8 +91,9 @@ jobs:
         id: touched
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FORCE_WEB: ${{ inputs.force_web }}
         run: |
-          if [ "$EVENT_NAME" = pull_request ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
+          if [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
             python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
           else
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
@@ -105,7 +129,7 @@ jobs:
           CI_CACHE_R2_NAMESPACE: any
         with:
           backend: r2
-          path: web-bundles-out
+          path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       # R2 holds only the keys a feat-cmux-next push built. The GitHub cache holds the keys this pull request already
@@ -185,6 +209,42 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
+
+      - name: Bind the artifact to its source key and output bytes
+        if: steps.touched.outputs.web == 'true'
+        env:
+          KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: python3 -I scripts/ci/compile_preflight.py web-artifact write "$RUNNER_TEMP/web-bundles-out" "$KEY"
+
+      # Run-scoped artifacts never write the trusted base-branch cache. Forks without an Actions identity
+      # use GitHub; a failed R2 upload with an identity is an error, not a silent second transport.
+      - name: Select the run artifact transport
+        id: artifact-transport
+        if: steps.touched.outputs.web == 'true'
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo transport=r2 >> "$GITHUB_OUTPUT"
+          else
+            echo transport=github >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish this run's web bundles to R2
+        if: steps.artifact-transport.outputs.transport == 'r2'
+        uses: ./.github/actions/r2-artifact/upload
+        with:
+          name: ${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-bundles-out
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 3
+      - name: Publish this run's web bundles without a fleet identity
+        if: steps.artifact-transport.outputs.transport == 'github'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-bundles-out
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
 
       - name: Verdict
         env:
