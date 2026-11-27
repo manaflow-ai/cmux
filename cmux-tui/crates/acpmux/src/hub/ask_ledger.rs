@@ -23,7 +23,8 @@ impl AskLedger {
     fn capture(&self, entry: Value, purged: Arc<AtomicBool>) {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.retain(|(_, gone)| !gone.load(Ordering::SeqCst));
-        if purged.load(Ordering::SeqCst) || rows.iter().any(|(row, _)| row["id"] == entry["id"]) {
+        let id = entry.get("id");
+        if purged.load(Ordering::SeqCst) || rows.iter().any(|(row, _)| row.get("id") == id) {
             return;
         }
         rows.push_front((entry, purged));
