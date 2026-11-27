@@ -182,10 +182,12 @@ pub(super) async fn submit(
         .await
         .map_err(|e| RpcError::internal(format!("could not persist team message: {e}")))?;
     if let Some(mesh) = mesh {
-        let (hub, mesh) = (hub.clone(), mesh.clone());
+        let (queue_hub, mesh) = (hub.clone(), mesh.clone());
         // Durable admission already succeeded. A slow hub or an older offline backlog must
         // not hold this RPC indefinitely; the replay task survives the bounded fast path.
-        let replay = tokio::spawn(async move { hub.flush_team_send_queue(mesh).await });
+        let replay = hub.scope.spawn_until_cancelled("team-send-admission", async move {
+            queue_hub.flush_team_send_queue(mesh).await
+        });
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), replay).await;
     }
     let receipt = hub

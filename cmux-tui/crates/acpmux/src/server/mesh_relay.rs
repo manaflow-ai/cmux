@@ -405,7 +405,7 @@ async fn heartbeats(
                     if let Some(hub) = hub.upgrade() {
                         let queue_hub = hub.clone();
                         let queue_client = client.clone();
-                        tokio::spawn(async move {
+                        hub.scope.spawn_until_cancelled("team-send-reconnect", async move {
                             queue_hub.flush_team_send_queue(queue_client).await;
                         });
                     }

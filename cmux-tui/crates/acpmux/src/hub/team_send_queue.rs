@@ -31,7 +31,6 @@ struct CompletedTeamSend {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct QueueFile {
     pending: VecDeque<QueuedTeamSend>,
     completed: VecDeque<CompletedTeamSend>,
