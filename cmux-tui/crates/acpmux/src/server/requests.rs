@@ -1583,10 +1583,11 @@ async fn dispatch_request_with_identity(
     {
         return crate::hub::file_uploads::web::handle(hub, m, params).await;
     }
-    // These methods can dispatch session/new while their own poll is still on the worker
+    // These methods can dispatch session/new or session/prompt while their poll is on the worker
     // stack. Enter the large method match only for the child, after ordinary routing above.
     match m {
         method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::MUX_STEER => heap(|| briefs::steer(hub, conn, params)).await,
         method::CHAT_FIX_FROM_LINK => {
             heap(|| super::fix_from_link::handle(hub, conn, params, false)).await
         }
@@ -1610,7 +1611,6 @@ async fn dispatch_method(
 ) -> Result<Value, RpcError> {
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
-        method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
