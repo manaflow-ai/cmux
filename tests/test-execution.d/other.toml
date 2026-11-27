@@ -147,6 +147,10 @@ path = "tests/test_cas_mac_update_replay.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_replay_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cas_web_ota_replay.py"
 lane = "linux-guard"
 
@@ -1042,6 +1046,11 @@ path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_ssvp_host_early_exit_ends_viewer.py"
+lane = "manual"
+reason = "Run by the lane that changes screen-share-vs-pair.sh: python3 tests/test_ssvp_host_early_exit_ends_viewer.py; needs only bash and python3 (a second)."
+
+[[test]]
 path = "tests/test_stable_next.py"
 lane = "manual"
 reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; kept manual under the 2026-10-23 no-new-CI rule, since lifted."
@@ -1055,6 +1064,11 @@ reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml'
 path = "tests/test_stage_table_signin.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_signin.py"
+
+[[test]]
+path = "tests/test_stage_table_viewer_done.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_viewer_done.py"
 
 [[test]]
 path = "tests/test_stale_agent_prs.py"
@@ -1158,6 +1172,11 @@ lane = "manual"
 reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
 
 [[test]]
+path = "tests/test_two_mac_viewer_bye.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_two_mac_viewer_bye.py"
+
+[[test]]
 path = "tests/test_ui_font.py"
 lane = "linux-guard"
 
@@ -1193,6 +1212,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_cas_replay_artifact.py"
 lane = "linux-guard"
 
 [[test]]

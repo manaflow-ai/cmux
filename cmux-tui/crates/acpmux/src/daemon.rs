@@ -126,6 +126,19 @@ mod restart_backoff;
 pub(crate) mod unused_exit;
 #[cfg(target_os = "linux")]
 mod watchdog;
+
+/// Holds systemd's watchdog of this daemon until the machine resumes (`_acpmux/watchdog_hold`,
+/// `daemon/watchdog.rs`): false when none is armed.
+pub(crate) fn watchdog_hold() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        watchdog::hold()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
 #[cfg(windows)]
 mod windows;
 
