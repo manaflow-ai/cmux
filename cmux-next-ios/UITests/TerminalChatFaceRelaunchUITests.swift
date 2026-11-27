@@ -77,14 +77,19 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         return face
     }
 
-    /// Closes the open page menu (or the keyboard) without a tap on the page: a tap on the terminal
-    /// lands on its text, and a path there opens Files and Links over the page.
+    /// Closes the open page menu (or the keyboard) with a tap beside the menu's column. A tap at mid
+    /// width lands on a menu row (at 20% height: "Files and Links", sim step 3b87a881), and a tap on
+    /// the status bar's strip goes to the status bar and leaves the menu open (sim step 291eb5a5).
     @MainActor
     func dismiss(_ app: XCUIApplication) {
-        // The status bar's strip: the menu's full-screen dismiss region covers it, the page has no text there.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
-        let files = app.staticTexts["Files and Links"].firstMatch
-        if files.exists { app.buttons["Done"].firstMatch.tap() }
+        let menuRow = app.buttons["Copy Tab ID"].firstMatch
+        for dx in [0.04, 0.96] {
+            app.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.55)).tap()
+            if !menuRow.exists || menuRow.waitForNonExistence(timeout: 2) { break }
+        }
+        // A tap that did open the Files and Links sheet: close it.
+        let sheet = app.navigationBars["Files and Links"].firstMatch
+        if sheet.exists, sheet.buttons["Done"].exists { sheet.buttons["Done"].tap() }
     }
 
     /// Waits until the open tab shows `wanted` (the kept face lands once the file is read).
