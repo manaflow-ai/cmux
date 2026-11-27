@@ -1,6 +1,30 @@
 use super::*;
 
 impl Mux {
+    /// Runs `seam` once in the next direct agent report, after its
+    /// projection commit and before its journal echo.
+    pub(crate) fn hold_agent_report_echo_for_test(&self, seam: Box<dyn FnOnce() + Send>) {
+        *self.agent_roster_worker.report_echo_seam.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(seam);
+    }
+
+    /// Runs `seam` once in the owner's deferred reconcile, after it read
+    /// the roster and before it takes the hook projector's lock.
+    pub(crate) fn hold_deferred_reconcile_for_test(&self, seam: Box<dyn FnOnce() + Send>) {
+        *self.agent_roster_worker.settle_seam.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(seam);
+    }
+
+    /// Fails the next `echoes` journal appends of direct reports' echoes.
+    pub(crate) fn fail_agent_report_echoes_for_test(&self, echoes: u32) {
+        rebuild_faults::fail_report_echoes(&self.session, echoes);
+    }
+
+    /// The injected echo failures not taken yet.
+    pub(crate) fn agent_report_echo_failures_left_for_test(&self) -> u32 {
+        rebuild_faults::report_echo_failures_left(&self.session)
+    }
+
     /// Starts a roster replay from zero in this running daemon, as a start
     /// whose snapshot does not restore does: the roster goes back to empty and
     /// the owner replays the journal in the background, `page` records per
