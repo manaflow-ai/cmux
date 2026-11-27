@@ -2279,9 +2279,9 @@ class IosJobTest(unittest.TestCase):
                 self.assertIn("git diff --exit-code -- cmux-next-ios/", step.run)
                 # The run text names no event variable, so a pass is still reused.
                 self.assertFalse([v for v in ci_steps.EVENT_VARS if v in step.run])
-        # The same inputs, so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
+        # The same inputs (bar the simulator leg's own helper and the pool phone's script), so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
         # macOS leg's verdict through the helper.
-        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py"})
+        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py", "scripts/ci/ios-sim-linux-test.sh"})
         self.assertEqual(set(macos.inputs) - set(kit.inputs), set())
         self.assertEqual(kit.ignore, macos.ignore)
         # The ordering rule both legs had in one step: a red macOS leg skips the simulator and fails ios-kit.

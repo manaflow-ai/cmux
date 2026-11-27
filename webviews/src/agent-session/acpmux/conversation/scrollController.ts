@@ -24,7 +24,8 @@ export type ScrollWriter =
   | "wheel"
   | "keys"
   | "minimap"
-  | "anchor";
+  | "anchor"
+  | "steps";
 
 type Node = Pick<HTMLElement, "scrollTop">;
 type Trace = { writer: ScrollWriter; from: number; to: number; at: number }[];
