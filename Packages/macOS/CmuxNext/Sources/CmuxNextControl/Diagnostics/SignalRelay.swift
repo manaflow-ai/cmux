@@ -54,7 +54,7 @@ public final class SignalRelay {
 
     /// The pid that last sent `signal`, when it is the last signal the relay caught and a process
     /// (not the kernel) sent it. Dispatch coalesces deliveries, so this is the latest sender.
-    public nonisolated static func lastSender(of signal: Int32) -> pid_t? {
+    public nonisolated static func lastSender(of signal: Int32) -> Int32? {
         let record = lastRelayedSignal.load(ordering: .relaxed)
         guard Int32(truncatingIfNeeded: record >> 32) == signal else { return nil }
         let pid = Int32(truncatingIfNeeded: record)
