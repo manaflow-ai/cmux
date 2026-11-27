@@ -36,7 +36,10 @@ fn memory_and_battery_come_from_the_verdict() {
     assert_eq!(signals(&here(), Some(&unknown)).memory, Pressure::Normal);
     // Charging at 5%: on AC is not on battery.
     let charging = read(r#"{"ok":true,"power":{"batteryPercent":5,"onAc":true}}"#);
-    assert_eq!(judge(Mode::Auto, &busy(), &here(), "s1", Some(&charging)).decision, AutoDecision::Stay);
+    assert_eq!(
+        judge(Mode::Auto, &busy(), &here(), "s1", Some(&charging)).decision,
+        AutoDecision::Stay
+    );
 }
 
 #[test]
@@ -70,7 +73,10 @@ fn no_shadow_without_cause() {
     let within = read(r#"{"ok":true,"over":[]}"#);
     // Within budget, or not yet sampled.
     assert_eq!(judge(Mode::Auto, &busy(), &here(), "s1", Some(&within)).shadow, None);
-    assert_eq!(judge(Mode::Auto, &busy(), &here(), "s1", Some(&read(r#"{"ok":null}"#))).shadow, None);
+    assert_eq!(
+        judge(Mode::Auto, &busy(), &here(), "s1", Some(&read(r#"{"ok":null}"#))).shadow,
+        None
+    );
     assert_eq!(judge(Mode::Auto, &busy(), &here(), "s1", None).shadow, None);
     // An idle chat, a chat not on Auto, one moving, one already in Cloud.
     assert_eq!(judge(Mode::Auto, &ChatState::default(), &here(), "s1", Some(&over)).shadow, None);

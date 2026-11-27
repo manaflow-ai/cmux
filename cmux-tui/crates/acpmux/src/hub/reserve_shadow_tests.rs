@@ -124,7 +124,10 @@ fn shadow_names_the_heaviest_agent_out_while_auto_is_off_and_moves_nothing() {
     let text = std::fs::read_to_string(&log).expect("log");
     assert_eq!(text.lines().count(), 1, "{text}");
     let line: ShadowLine = serde_json::from_str(text.trim()).expect("line");
-    assert_eq!(line.verdict, ReserveVerdict::MoveOut { session: "big".into(), reason: ReserveReason::Cpu });
+    assert_eq!(
+        line.verdict,
+        ReserveVerdict::MoveOut { session: "big".into(), reason: ReserveReason::Cpu }
+    );
 
     // The next status still says big is out, so a polling app sees a steady answer.
     let r = reserve_sample(30_000, Some(&mac()), None, Some(48 * GB), &a).expect("sample");

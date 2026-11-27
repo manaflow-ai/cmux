@@ -98,7 +98,12 @@ pub(crate) struct Shadow {
 impl Shadow {
     /// Judges one sample in shadow (the rule on, at the person's reserve) and returns
     /// `host_pressure.reserve`; a move or a return goes to `log` too.
-    pub(crate) fn judge(&mut self, person: ReserveSetting, sample: &ReserveSample, log: Option<&Path>) -> Value {
+    pub(crate) fn judge(
+        &mut self,
+        person: ReserveSetting,
+        sample: &ReserveSample,
+        log: Option<&Path>,
+    ) -> Value {
         let setting = ReserveSetting { enabled: true, ..person };
         let verdict = self.tracker.judge(&setting, sample);
         match &verdict {
