@@ -98,6 +98,7 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
 # unavailable (peer_tailnet.rs).
@@ -241,6 +242,7 @@ bytes.workspace = true
 tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
+jpeg-encoder.workspace = true
 cmux-image-linear.workspace = true
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true

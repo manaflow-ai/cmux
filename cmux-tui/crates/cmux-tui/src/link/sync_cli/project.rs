@@ -957,7 +957,11 @@ fn ask(
     if reader.read_line(&mut answer).map_err(unanswered)? == 0 {
         bail!(UNANSWERED);
     }
-    reader.get_ref().set_read_timeout(None)?;
+    // The machine pings every few seconds: a stream silent for `MAC_IDLE`, or one that takes an
+    // answer no further for as long, is dead without having ended (a half-open connection, a
+    // stalled carrier), and the server dials again rather than wait on it forever.
+    reader.get_ref().set_read_timeout(Some(cmux_projection::link::MAC_IDLE))?;
+    reader.get_ref().set_write_timeout(Some(cmux_projection::link::MAC_IDLE))?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
     Ok((reader, answer))

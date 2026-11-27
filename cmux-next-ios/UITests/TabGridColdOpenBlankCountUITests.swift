@@ -173,7 +173,10 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
             app.launchEnvironment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] = "1"
         }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmux-mobile-card-face-probe"]
+                                "-cmux-mobile-card-face-probe",
+                                // Every pane, browsers included: the grid hides browsers by default (#56982's
+                                // pane filter), and these cards are what this test counts.
+                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers"]
         return app
     }
 
