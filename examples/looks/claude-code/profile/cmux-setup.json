@@ -20,6 +20,8 @@
     "sidebar.groupHeader.background": "sections",
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
+    // The app's session rows carry no tab count.
+    "sidebar.workspaceRow.tabCount": false,
     "sidebar.workspaceRow.icon": false,
     "sidebar.showColors": false,
     "sidebar.showTimestamps": false,

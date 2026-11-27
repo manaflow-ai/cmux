@@ -375,9 +375,15 @@ export async function papercutPane(
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
-    await (
-      options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
-    ).waitFor({ timeout: 120_000 });
+    // The chat is up once its last seeded answer is in the DOM. Attached, not visible: a chat that
+    // grew past one window below it shelves that row (content-visibility: hidden, #58987
+    // conversation/shelvedRows.ts), which Playwright reads as hidden though the chat drew.
+    if (options.ready) await page.locator(options.ready).first().waitFor({ timeout: 120_000 });
+    else
+      await page
+        .getByText(`Answer ${options.turns}:`, { exact: false })
+        .first()
+        .waitFor({ state: "attached", timeout: 120_000 });
     // Rows place by their drawn heights a frame after they mount: wait until no animation runs and
     // the transcript has held its scroll position over three painted frames.
     await page.evaluate(async () => {

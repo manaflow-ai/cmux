@@ -7,6 +7,13 @@ import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelecto
 
 export const SWAP_PAGE = "/test/browser/send-stream-motion.html";
 
+/// The live-turn-work arm the hand-over is drawn under, a part of SWAP_PAGE's query. Since #51082
+/// (#50987) a running turn ships `folded`: its finished calls stay under a closed "Working for" and
+/// no call's row arrives over the live line, so there is no hand-over to draw. The reader who opens
+/// that "Working for" sees the turn as `open` draws it (liveTurnWork.experiment.ts), each finished
+/// call arriving on its own line: the hand-over these checks hold.
+export const SWAP_ARM_QUERY = "&liveTurnWork=open";
+
 /// One box in the viewport, px.
 export type Box = { top: number; bottom: number; left: number; right: number };
 
