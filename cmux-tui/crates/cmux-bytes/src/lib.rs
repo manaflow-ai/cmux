@@ -30,8 +30,8 @@ pub mod lanes;
 pub mod order;
 pub mod params;
 pub mod policy;
-pub mod serial;
 pub mod prefetch;
+pub mod serial;
 
 pub use frame::{Encoding, decode, encode};
 pub use params::Params;
