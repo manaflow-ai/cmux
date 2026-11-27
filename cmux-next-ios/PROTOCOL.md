@@ -731,6 +731,18 @@ and answer. Now it asks for the ticket at once:
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
   dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
   kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Offer before the gather** (RFD 0142 R1, disco over the relay): a
+  `first` dialer with plain UDP on sends `wg-init` at once, before its STUN
+  and TURN gather (timeline `wg_init_before_gather`). That `wg-init` carries
+  host endpoints, the relay offer and `ticketEarly`, and no
+  `relayed`/`relayedTls`. The gather runs beside the Mac's answer and both
+  joins. When the tunnel is up, the gathered endpoints (reflexive, mapped,
+  TURN-relayed) follow as the roam announcement: `wg-endpoints` through
+  signaling, and the sealed in-tunnel announcement, which rides the relay
+  when nothing else carries the tunnel (timeline `endpoints_trickled`).
+  Every build already takes both, so nothing new is negotiated. A dialer
+  without relay first, or with plain UDP off, gathers before its offer as
+  before.
 - **Join:** the dialer starts its relay join when `wg-ticket` arrives
   (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
   watch's first join takes that carrier instead of starting its own. A plan
