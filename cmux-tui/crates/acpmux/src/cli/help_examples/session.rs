@@ -55,27 +55,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "session place-set",
-        &[
-            (
-                "Pin a chat to a machine and move it there",
-                "acpmux session place-set review-27310 --mode machine --machine mini-3",
-            ),
-            (
-                "Let a chat run wherever placement decides",
-                "acpmux session place-set review-27310 --mode auto",
-            ),
-            (
-                "Say where a chat is pinned, changing nothing",
-                "acpmux session place-set review-27310 --status",
-            ),
-            (
-                "Move a chat back to where its last move came from",
-                "acpmux session place-set review-27310 --undo",
-            ),
-        ],
-    ),
-    (
         "session route",
         &[
             (
