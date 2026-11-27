@@ -1241,7 +1241,7 @@ mod tests {
     }
 
     /// The phone's first window (`list-workspaces-page-v1`, CmuxMobileLive
-    /// ListFirstWindow) and the pages after it are params of an allowed command,
+    /// ListFirstWindow), its slim rows (`list-workspaces-slim-v1`) and the pages after it are params of an allowed command,
     /// not a new command: they pass as the whole list does.
     #[test]
     fn allows_the_first_window_and_its_pages() {
@@ -1250,6 +1250,7 @@ mod tests {
             br#"{"cmd":"list-workspaces","id":"m2","limit":40}"#,
             br#"{"cmd":"list-workspaces","id":"m3","limit":40,"after":40}"#,
             br#"{"cmd":"list-workspaces","id":"m4","known":{},"limit":40,"after":0}"#,
+            br#"{"cmd":"list-workspaces","id":"m5","limit":40,"rows":"slim"}"#,
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }

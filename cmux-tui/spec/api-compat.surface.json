@@ -10304,6 +10304,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/rows": {
+        "ty": "string",
+        "nullable": true
+      },
       "/since": {
         "ty": "object",
         "nullable": true
@@ -19188,6 +19192,9 @@
       },
       "/data/removed/*": {
         "ty": "uint64"
+      },
+      "/data/rows": {
+        "ty": "string"
       },
       "/data/seq": {
         "ty": "uint64"

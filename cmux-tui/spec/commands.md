@@ -1614,6 +1614,18 @@ page that is not the last carries `next`, the `after` of the page that follows.
 A page that does not start at 0 never carries `tree_revision`. `after` without
 `limit` changes nothing.
 
+With `list-workspaces-slim-v1`, `rows: "slim"` (with `limit`) makes each row of
+the page slim: the workspace's `id`, `resource_id`, `key`, `name`, `title`,
+`group`, `color`, `icon`, `pinned`, `marked_unread`, `kind`, `app`,
+`unread_count` and `active`, and its screens (`id`, `active`, `active_pane`),
+panes (`id`, `dead`, `active_tab`, `focused_at`) and tabs (`surface`, `kind`,
+`name`, `title`, `cwd`, `git_branch`, `dead`, `pinned`, `notification`, and of
+`conversation` only `page` and `agent_session`), with no null field. That is
+what a phone's Home and Workspaces rows draw, so its first window holds every
+row it asks for. A slim page says `rows: "slim"` and never carries
+`tree_revision`; the whole tree comes from a request without `rows`. `rows`
+without `limit`, or any value but `"slim"`, changes nothing.
+
 A remote device's connection (`set-client-info {remote: true}`) never sees an
 incognito workspace (#31210). Its `limit` page and `total` are taken from the
 workspaces it may see, and once a workspace of the daemon was incognito, its
@@ -1650,6 +1662,7 @@ Params:
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 | `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
 | `since` | object | no | `workspace-list-delta-v1`: `{epoch, seq}` of the last reply applied; only the changed entries keyed by id |
+| `rows` | string | no | `list-workspaces-slim-v1`: `"slim"` with `limit`: slim rows, only what a phone's Home and Workspaces rows draw |
 
 Result:
 
