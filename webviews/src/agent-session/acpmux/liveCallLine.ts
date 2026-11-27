@@ -167,17 +167,18 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
   if (open) {
     // The turn's work drawn open: each of its rows the transcript drew is one the pass shaped, so a
     // call's change to one of them can go to that row alone (`callOnly`, `useLiveOpenRow`).
+    // A shape from before the pane's last draw still stands when that draw left the turn as it was:
+    // the pass kept its rows (`steadyRows`), so the turn is still the pane's own rows and the
+    // transcript drew each of its shaped rows. Before, such a draw (another row, the connection)
+    // let the turn go, and the next call under the open fold redrew the pane: 61 of 613 pane
+    // commits a replay window under load (replay-under-load RENDERS=1, `nodrawn(open:stamp)`).
     drawn =
-      line &&
-      basis &&
-      shape &&
-      shape.stamp === stamp &&
-      drewShaped(shape.shaped, open) &&
-      turnOf(shape.turn, basis.rows)
+      line && basis && shape && drewShaped(shape.shaped, open) && turnOf(shape.turn, basis.rows)
         ? { shape, line, basis, open }
         : undefined;
+    if (drawn && shape!.stamp !== stamp && acpmuxDebug) acpmuxDebug("open:kept-stale-stamp");
     if (!drawn)
-      lost = `open:${!line ? "noline" : !basis ? "nobasis" : !shape ? "noshape" : shape.stamp !== stamp ? "stamp" : !drewShaped(shape.shaped, open) ? `drewShaped/${shapedMiss(shape.shaped, open)}` : "turnOf"}`;
+      lost = `open:${!line ? "noline" : !basis ? "nobasis" : !shape ? "noshape" : !drewShaped(shape.shaped, open) ? `drewShaped/${shapedMiss(shape.shaped, open)}` : "turnOf"}`;
     return;
   }
   // The transcript draws the line `steadyRows` kept (turns.ts): an equal line drawn before stands
