@@ -143,7 +143,7 @@ jobs:
           status=0
           # A console session worker (gui-session-v1): the hosts capture the screen and post input.
           # Unpinned, the controller took any such Mac, and most hold no Screen Recording or Accessibility:
-          # run 46043765418 (2026-11-27) landed on cmux21 and measured nothing (grants false). So an empty
+          # run 46043765418 (2026-11-27) landed on one without them and measured nothing. So an empty
           # worker resolves to one whose heartbeat reports both granted (screen_share), cmux20-bench first:
           # the Mac whose eval launcher holds both grants (the 2026-11-26 18:06Z run measured there).
           if [ -z "$WORKER" ]; then
