@@ -23,8 +23,7 @@
 /* The floor is the name's own width up to 6em, never more: a floor of min(6em, 30%) held a short name
    ("Foxtrot", "Golf") wider than its words, and its 30% was of a sentence sized from those same chips
    before the floor, so two chips grew past the line and cut its end to "Foxtrot ▯ and Golf ▯ starte"
-   (Leo, 2026-11-22, on that line: "IF THIS IS THE CASE, THEN DON'T F***ING DISPLAY THIS ... LIKE
-   THIS"). The chip is a one-cell grid: its words add no width of their own (contain), a hidden copy
+   (Leo, 2026-11-22, on that line over his steer: it should not draw like this). The chip is a one-cell grid: its words add no width of their own (contain), a hidden copy
    of the name capped at 6em is its min-content, and a hidden copy that can break anywhere is its
    max-content, so the line's flex shrinks each name from its whole width down to min(name, 6em). A
    plain name (no chat to open, so no label or `data-name`) shrinks with the line, its own ellipsis. */

@@ -82,8 +82,7 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
       expect(row.right).toBeLessThanOrEqual(row.edge + 0.5);
     });
 
-    // Leo, 2026-11-22, on "Foxtrot ▯ and Golf ▯ starte" over his steer: "IF THIS IS THE CASE, THEN
-    // DON'T F***ING DISPLAY THIS ... LIKE THIS". A name shorter than the floor is as wide as its
+    // Leo, 2026-11-22, on "Foxtrot ▯ and Golf ▯ starte" over his steer: it should not draw like this. A name shorter than the floor is as wide as its
     // words, and the sentence ends whole while the row has room.
     test("short names are as wide as their words and the line ends whole", async () => {
       const pair = await chips(2, 600, true);
