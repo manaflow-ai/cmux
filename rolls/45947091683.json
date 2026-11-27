@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45947091683",
+  "recorded_at": "2026-11-27T05:44:42Z",
+  "reason": "cmux-tui f6b94b19b939 changes the image's cmux-tui (pinned f7b548a59a63)",
+  "dry_run": false,
+  "cmux_tui": "f6b94b19b939dc88842ae0b7f621c2183ca56c61",
+  "fixes": [
+    {
+      "sha": "651c2a7996a3301ce94789e788d9590487b8cc18",
+      "mergedAt": "2026-11-27T03:56:01Z",
+      "subject": "cmux chat: a failed turn says why; a mid-start send is never a false \"delivered\" (#56381)"
+    },
+    {
+      "sha": "c51968af874df5be5da795716d3274e9ec3ddef3",
+      "mergedAt": "2026-11-27T03:54:51Z",
+      "subject": "acpmux: carry a chat's hold and release through the mesh hub (#59098)"
+    },
+    {
+      "sha": "2a4234b7d8dcf3f185f5929491674c6ee9536895",
+      "mergedAt": "2026-11-27T03:54:38Z",
+      "subject": "cmux-window-rules: clear the four clippy errors in notification_rings_tests (#60303)"
+    },
+    {
+      "sha": "bd41dec898a201a744850746c33297685397b8bc",
+      "mergedAt": "2026-11-27T03:53:54Z",
+      "subject": "measure: bytes per terminal scroll step and session changes (#51253)"
+    },
+    {
+      "sha": "c84c282db7e9cba04a93afa7dfda945fa372b8cc",
+      "mergedAt": "2026-11-27T03:53:10Z",
+      "subject": "Cloud creation state and the rest of Cloud's app state into Rust (swift-out step A) (#58918)"
+    },
+    {
+      "sha": "f6173777178d912d65b2ca63f55641f986c7fc90",
+      "mergedAt": "2026-11-27T03:52:46Z",
+      "subject": "acpmux: a \"where you are\" card in every chat's system context (#56020)"
+    },
+    {
+      "sha": "55678120a83db6e49ef1b336f9fae84c45288960",
+      "mergedAt": "2026-11-27T03:52:41Z",
+      "subject": "cmux-message-preview: Home's pipe tables in Rust (home_table.* ops), step A (#56525)"
+    },
+    {
+      "sha": "7fd4633d892693c2daa76fe19f4d6e15c1107a0c",
+      "mergedAt": "2026-11-27T03:50:55Z",
+      "subject": "Cache desktop gallery references and native chrome crops by input and runtime (#58333)"
+    },
+    {
+      "sha": "50887c3bb710ba6beb08451f102773637e90b042",
+      "mergedAt": "2026-11-27T03:49:04Z",
+      "subject": "cmux env: Codex-style Cloud environments from the CLI (vars, host-bound secrets, files, project default, logs) (#40325)"
+    },
+    {
+      "sha": "f7f889d582bc1a277c3fd17bc841c3a849867837",
+      "mergedAt": "2026-11-27T03:48:57Z",
+      "subject": "acpmux: a warm idle chat holds a report up to 5 min for company (#60126)"
+    },
+    {
+      "sha": "efa7c36a1c22b271c687f8598d1cb403244c2aee",
+      "mergedAt": "2026-11-27T03:44:38Z",
+      "subject": "cmux-screenshots: the screenshots pane's sources in Rust (Step A) (#60347)"
+    },
+    {
+      "sha": "5d7d8d72823422a5a69249a1f38332ebf2a39fd4",
+      "mergedAt": "2026-11-27T03:42:59Z",
+      "subject": "acpmux: fix remaining base-red spec and SDK cases (#60239)"
+    },
+    {
+      "sha": "d4878a7eceda8af82fa84989a50bce8682daebd7",
+      "mergedAt": "2026-11-27T03:38:39Z",
+      "subject": "cmux-rd-core: Mac Screen device hub rules in Rust (rd_hub, step A) (#58523)"
+    },
+    {
+      "sha": "6ed491b2bd4362078e47aafe716ec07d8180cfa9",
+      "mergedAt": "2026-11-27T03:34:50Z",
+      "subject": "settings: a project layer, <project>/.cmux/cmux-next.json (settings get/set --project) (#51424)"
+    },
+    {
+      "sha": "24a576afc3de8bd7ebd1b45a8610ef3559e9d968",
+      "mergedAt": "2026-11-27T03:30:29Z",
+      "subject": "acpmux: offer ACP protocolVersion 2 with a v1 fallback (opt-in), plus handshake conformance tests (#55466)"
+    },
+    {
+      "sha": "68510112befb192a5b00ec84ed3de46d0c691cfa",
+      "mergedAt": "2026-11-27T03:30:24Z",
+      "subject": "Auto-archive ledger, sidebar item order, document listing and row index rules move to Rust (step A) (#57757)"
+    },
+    {
+      "sha": "520619055cb9c178ccf21fd926ec8db0532fb70e",
+      "mergedAt": "2026-11-27T03:28:05Z",
+      "subject": "acpmux machine load: memory stall in PSI's shape where PSI is off (RFD 0182 B1) (#59871)"
+    },
+    {
+      "sha": "f824ff2d62911da8eaf0f96098cff1fada051e35",
+      "mergedAt": "2026-11-27T03:25:49Z",
+      "subject": "cmux-remote: initialize outer path in redial test fixture (#60370)"
+    },
+    {
+      "sha": "62c046429590206e87fb7176c04d060aaf1171ae",
+      "mergedAt": "2026-11-27T03:22:02Z",
+      "subject": "cmux-computer-use: read a never-switched keyboard layout from HIToolbox's sources (#60375)"
+    },
+    {
+      "sha": "fb71b3213e539251e702484d319ab2a761ce7ddd",
+      "mergedAt": "2026-11-27T03:20:44Z",
+      "subject": "acpmux wip ref: a repo with no origin and no commit is a plain folder (#59361)"
+    },
+    {
+      "sha": "e93d9e232f77e7a65c5f49f13d546586c75543ec",
+      "mergedAt": "2026-11-27T03:18:52Z",
+      "subject": "fix: refresh daemon keep-awake compatibility snapshot (#60324)"
+    },
+    {
+      "sha": "ef06f1e2ca67a9aab199f99157041b641a5fadec",
+      "mergedAt": "2026-11-27T03:18:22Z",
+      "subject": "acpmux: conformance test for a registry agent added in one click (#58675)"
+    },
+    {
+      "sha": "83d3a04c126f7390d8f5ee80c9c467f77a47f8f3",
+      "mergedAt": "2026-11-27T03:10:00Z",
+      "subject": "cmux-layout-reducer: pane drop zones and dock targets in Rust (step A) (#57153)"
+    },
+    {
+      "sha": "58f15b1c51fa8df7872d06f2676e03653182676f",
+      "mergedAt": "2026-11-27T03:07:03Z",
+      "subject": "fix(acpmux): identify the phase that exhausted a wait deadline (#57398)"
+    },
+    {
+      "sha": "482fc63c96704c3d3a1b6d35a63366cc712ddb8d",
+      "mergedAt": "2026-11-27T03:04:04Z",
+      "subject": "acpmux: classify resume errors, each class with its own retry bound (carries #47424) (#54465)"
+    },
+    {
+      "sha": "77f9500350062ac05ce7ae53e64dbb08a30d8ea6",
+      "mergedAt": "2026-11-27T03:03:28Z",
+      "subject": "cli: tab show --json carries a Screen Sharing tab's mac_screen state (#57481)"
+    },
+    {
+      "sha": "550227ebd01d74520c12d115c603839c3785697e",
+      "mergedAt": "2026-11-27T03:03:21Z",
+      "subject": "acpmux: cut a stalled reader holding over its share so slow clients can't swap the daemon (bigchat ls p99 → 433 ms) (#59998)"
+    },
+    {
+      "sha": "52139d0ea3ee2aa57d6ec76ac9941763ffcba1fe",
+      "mergedAt": "2026-11-27T03:02:41Z",
+      "subject": "Team-signed cmux builds share one keychain access group for the sign-in session (#46910)"
+    },
+    {
+      "sha": "d828f153347c7f250f19fc0a8d7dc4bb175c50bf",
+      "mergedAt": "2026-11-27T03:01:05Z",
+      "subject": "Looks: every look's settings are ones this cmux has (Codex model picker menu) (#60295)"
+    },
+    {
+      "sha": "adaaf8a7979d7cc4e1a92806c58f578b4083fe0b",
+      "mergedAt": "2026-11-27T02:59:02Z",
+      "subject": "acpmux: a Cloud chat's Claude that started before its model route resolved restarts on it (#59819)"
+    },
+    {
+      "sha": "7cb633e8298ff497af617e6dca749aeec1bbbd5f",
+      "mergedAt": "2026-11-27T02:57:09Z",
+      "subject": "Fix cmux-vnc percent decode indexing (#60221)"
+    },
+    {
+      "sha": "594176f747a781b03611cb4e12b951786fe367c2",
+      "mergedAt": "2026-11-27T02:56:59Z",
+      "subject": "acpmux outbox: the test stall seam waits at most 30 s (#57478)"
+    },
+    {
+      "sha": "6b10f2a7f65d86b5ddaaa04c5221e3fa01c1c7de",
+      "mergedAt": "2026-11-27T02:56:55Z",
+      "subject": "acpmux: share span ids in each chat's time breakdown (#58742)"
+    },
+    {
+      "sha": "cf2be4d8cc3dee7582b638feb1693f881db3d680",
+      "mergedAt": "2026-11-27T02:55:45Z",
+      "subject": "Launch: read the app-owned Home mark in the smoke (#56542)"
+    },
+    {
+      "sha": "747d8326dab24c9209a34cb96ea24cf62a0b5f1a",
+      "mergedAt": "2026-11-27T02:54:39Z",
+      "subject": "screen-share-vs: a fleet pair job's clock probe rides TCP from the host to the viewer (#60102)"
+    },
+    {
+      "sha": "92b8cb0e3f0a0fe77a36291532583eddd5b08005",
+      "mergedAt": "2026-11-27T02:54:25Z",
+      "subject": "acpmux: split peer_forward.rs under 100 KB (pure move) (#59923)"
+    },
+    {
+      "sha": "e447acbfbc3dd7901fe1d84fb29dba72dfe03ad5",
+      "mergedAt": "2026-11-27T02:52:42Z",
+      "subject": "sync pull: Bring Back applies what merges, keeps the machine's commit as a ref (RFD 0066 piece 8) (#54339)"
+    },
+    {
+      "sha": "e72250953548fc294f92b5c3b06c3a8258e081e6",
+      "mergedAt": "2026-11-27T02:48:19Z",
+      "subject": "acpmux: five lib tests red on feat-cmux-next pass again (#58319)"
+    },
+    {
+      "sha": "94aaca2e38306c259d5455923b009b2ebdd3b824",
+      "mergedAt": "2026-11-27T02:47:10Z",
+      "subject": "RFD 0152: turn frames shoot the Swift live-code build's window while live mode runs (#59822)"
+    },
+    {
+      "sha": "2c6d1f29b4fb813c3983a7a24cb69109271b4c79",
+      "mergedAt": "2026-11-27T02:45:04Z",
+      "subject": "acpmux session move: a just-started daemon waits for its first hub book read before calling a target unlisted (#60143)"
+    },
+    {
+      "sha": "c58171265dc46b5de834230aa9383a5b5c547b3f",
+      "mergedAt": "2026-11-27T02:42:14Z",
+      "subject": "acpmux: a mesh stop or resume by name goes as the session's exact id (#59732)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T05:44:42Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
