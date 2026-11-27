@@ -25,6 +25,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
+| `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
@@ -539,7 +540,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLiveToggle` | boolean | `false` |  | Show Live Button. A Live button after the profile button turns presence on or off. Off: use the palette. |
 | `presence.live` | boolean | `false` |  | Live Presence. Show teammates and agents who are live, and let them see you. Off: you appear offline. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
-| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces. |
+| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs. |
 | `sidebar.chromeGroups` | boolean | `false` |  | Chrome-Style Groups. Groups get a colored rail with a rounded end, like Chrome's tab groups. |
 | `sidebar.sideBySide` | boolean | `false` |  | Workspaces Side by Side. Drag a workspace row onto a pane's edge to show it beside the current one. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. Stops the sidebar's edges fading and hides the bottom profile and search bar. |
@@ -913,7 +914,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.codexPersonality` | string | `"agent"` | `agent`, `pragmatic`, `friendly`, `none` | Codex Personality. The personality new Codex chats use. Agent’s Own keeps Codex’s setting. |
 | `agents.commitAttribution` | string | `"agent"` | `agent`, `strip` | Co-Author Line on Commits and PRs. Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting. |
 | `agents.claudeCodeInboxRelay` | boolean | `false` |  | Add Message Relay to Claude Code. Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards. |
-| `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model new cmux model router chats start on. |
 | `agents.cmuxMcp` | string | `"on"` | `on`, `off` | Give Agents cmux’s Tools. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings. |
 | `agents.cmuxMcpClaude` | boolean | `true` |  | Use in Claude Code. Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on. |
 | `agents.cmuxMcpCodex` | boolean | `true` |  | Use in Codex. Off: Codex you start in cmux never gets cmux’s tools, even when they are on. |

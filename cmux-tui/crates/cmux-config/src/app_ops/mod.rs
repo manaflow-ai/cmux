@@ -13,22 +13,18 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
-//! - The areas, each answering its own `area.*` ops (one per line, like the
-//!   `pub mod` list and the `.or_else` chain below, so two branches that each
-//!   add an area insert a line apiece and merge cleanly):
-//!   - [`theme`]
-//!   - [`effective`]
-//!   - [`looks`]
-//!   - [`home_table`]
-//!   - [`shortcut`]
-//!   - [`schema`]
-//!   - [`snapshot`]
+//! - The areas, each answering its own `area.*` ops: every `pub mod` below
+//!   but [`jsonc`], each listed once in `AREAS`. Both lists are kept in
+//!   name order, one per line, so branches that each add an area insert at
+//!   different places and merge cleanly; no area answers another's op, so
+//!   the order is only for merging.
 
 pub mod chrome_theme;
 pub mod effective;
 pub mod home_table;
 pub mod jsonc;
 pub mod looks;
+pub mod notifications;
 pub mod schema;
 pub mod shortcut;
 pub mod snapshot;
@@ -45,21 +41,28 @@ pub enum OpError {
     Invalid(String),
 }
 
+/// Each area's `call`, in name order, one per line: it answers `None` for an
+/// op that is not its own.
+type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
+const AREAS: &[AreaCall] = &[
+    chrome_theme::call,
+    effective::call,
+    home_table::call,
+    looks::call,
+    notifications::call,
+    schema::call,
+    shortcut::call,
+    snapshot::call,
+    theme::call,
+];
+
 /// Runs the op `op` on `request`.
 pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
     match op {
         "jsonc.parse" => jsonc::parse(request),
         "jsonc.strip" => jsonc::strip(request),
         "jsonc.position" => jsonc::position_of(request),
-        _ => theme::call(op, request)
-            .or_else(|| effective::call(op, request))
-            .or_else(|| looks::call(op, request))
-            .or_else(|| home_table::call(op, request))
-            .or_else(|| chrome_theme::call(op, request))
-            .or_else(|| snapshot::call(op, request))
-            .or_else(|| shortcut::call(op, request))
-            .or_else(|| schema::call(op, request))
-            .unwrap_or(Err(OpError::Unknown)),
+        _ => AREAS.iter().find_map(|call| call(op, request)).unwrap_or(Err(OpError::Unknown)),
     }
 }
 
