@@ -14,7 +14,11 @@
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
    are named as delegated to pr-pipeline's mac job, which runs them on the same head.
 4. Compare. Each screenshot is diffed against the newest passing ios-flows proof on a PR merged into the base (the
-   last green build's captures); a change is evidence, not a failure. No baseline yet is said as such.
+   last green build's captures). A screen whose changed pixels pass 1% (channel tolerance 16, ios_gate_screen_diff.py's
+   threshold) fails the proof unless a `Visual-change: <screen or family/screen or *>: <why>` line in the PR body (its
+   grammar) says it is wanted (Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those do we have
+   that kinda loop?"). Smaller changes, new and missing screens stay evidence. No baseline yet, a size change or an
+   unreadable screen judges nothing: missing screenshots never block.
 5. Post. The proof record (scripts/ci/proof_record.py, ci/proof-record/) goes on the PR keyed to the head, and the
    PR's `cmux/ios-fast` gate job is rerun so it reads it: the gate needs a passing proof at the current head.
 
@@ -43,6 +47,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
+import ios_gate_screen_diff  # noqa: E402
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
 
@@ -64,6 +69,8 @@ GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
+# Above this a changed screen needs a Visual-change line (ios_gate_screen_diff.CHANGED_RATIO).
+FAIL_RATIO = ios_gate_screen_diff.CHANGED_RATIO
 
 
 def now() -> str:
@@ -174,15 +181,20 @@ def diff_ratio(a: Path, b: Path) -> float | None:
     try:
         from PIL import Image, ImageChops
     except ImportError:
-        return None
+        # No Pillow: the gate's stdlib decoder; a size change or an unreadable file is not judged.
+        d = ios_gate_screen_diff.diff_images(a.read_bytes(), b.read_bytes())
+        return None if d.note else round(d.ratio, 4)
     with Image.open(a) as x, Image.open(b) as y:
         if x.size != y.size:
-            return 1.0
+            return None  # another device or scale: not comparable, so not judged
         d = ImageChops.difference(x.convert("RGB"), y.convert("RGB")).convert("L").point(lambda v: 255 if v > 16 else 0)
         return round(sum(1 for v in d.getdata() if v) / (x.size[0] * x.size[1]), 4)
 
 
-def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
+def compare(shots: list[Path], base: dict[str, Path], body: str = "") -> list[dict]:
+    """Each screen's verdict against BASE. A changed screen over FAIL_RATIO is marked `unjustified` unless a
+    Visual-change line in BODY covers it (then it carries the `why`); its family is the folder it was captured in."""
+    lines = ios_gate_screen_diff.justifications(body)
     out = []
     for s in shots:
         rec = {"name": s.name, "sha256": hashlib.sha256(s.read_bytes()).hexdigest()}
@@ -195,6 +207,12 @@ def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
             r = diff_ratio(s, b)
             rec["diff_ratio"] = r
             rec["verdict"] = "same" if r is not None and r <= SAME_RATIO else "changed"
+            if r is not None and r > FAIL_RATIO:
+                why = ios_gate_screen_diff.justify(s.parent.name, s.name, lines)
+                if why:
+                    rec["why"] = why
+                else:
+                    rec["unjustified"] = True
         out.append(rec)
     for name in sorted(set(base) - {s.name for s in shots}):
         out.append({"name": name, "verdict": "missing"})
@@ -273,14 +291,26 @@ def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> d
     changed = [c["name"] for c in captures if c["verdict"] in ("changed", "new", "missing")]
     return {"screens": sum(1 for c in captures if c["verdict"] != "missing"), "baselined": base_meta is not None,
             "baseline_source": (base_meta or {}).get("source", "none"),
-            "changed": changed, "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+            "changed": changed, "unjustified": unjustified(captures),
+            "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+
+
+def unjustified(captures: list[dict]) -> list[str]:
+    return [c["name"] for c in captures if c.get("unjustified")]
+
+
+def verdict(runs: list[dict], captures: list[dict]) -> str:
+    """fail when a run failed or a screen changed past FAIL_RATIO with no Visual-change line; else pass."""
+    if any(r["result"] in ("fail", "error") for r in runs) or unjustified(captures):
+        return "fail"
+    return "pass"
 
 
 # ---------- PR ----------
 
 def pr_view(pr: str | None, repo: str | None) -> dict:
     args = ["pr", "view"] + ([pr] if pr else []) + ["--json",
-            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository"]
+            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository,body"]
     if repo:
         args += ["--repo", repo]
     return gh_json(*args)
@@ -348,6 +378,10 @@ def summary_md(record: dict) -> str:
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
               (f"vs #{b['pr']} at `{b['sha'][:10]}`: {len(changed)} differ" + (f" ({', '.join(changed[:8])})" if changed else "")
                if b else "no baseline yet (no passing proof merged into the base)")]
+    bad = unjustified(record.get("captures", []))
+    if bad:
+        lines.append(f"**{len(bad)} screens changed over {FAIL_RATIO:.0%} with no `Visual-change:` line** "
+                     f"({', '.join(bad[:8])}): fix them, or add `Visual-change: <screen>: <why>` to the PR body and rerun.")
     if record.get("merged_base"):
         lines.append(f"The base was merged into the head first ({record['base_sha'][:10]}).")
     return "\n".join(lines)
@@ -417,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             shots += [p for p in got if p.suffix == ".png"]
             video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
     base_meta, base_shots = baseline(repo, view["baseRefName"], work)
-    captures = compare(shots, base_shots)
+    captures = compare(shots, base_shots, view.get("body") or "")
     proof_at = now()
     pushed = pushed_at(repo, head)
     p2p = int((dt.datetime.fromisoformat(proof_at.replace("Z", "+00:00"))
@@ -430,11 +464,13 @@ def main(argv: list[str] | None = None) -> int:
         "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
-        "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
+        "verdict": verdict(runs, captures),
         "timing": {"pushed_at": pushed, "proof_at": proof_at, "push_to_proof_s": p2p,
                    "verify_s": round(time.monotonic() - t_start)},
         "tool": "scripts/ci/ios_verify.py@" + git("rev-parse", "--short=12", "HEAD", check=False),
     }
+    for name in unjustified(captures):
+        print(f"FAIL {name}: changed over {FAIL_RATIO:.0%} of pixels vs the baseline, no Visual-change line", file=sys.stderr)
     for r in runs:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)

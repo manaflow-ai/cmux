@@ -2406,6 +2406,17 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
         self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"

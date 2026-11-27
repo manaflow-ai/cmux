@@ -8,6 +8,7 @@ import pathlib
 import re
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -334,6 +335,74 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SeededRegression(unittest.TestCase):
+    """A seeded visual regression (a bar painted over 5% of a screen) fails the proof unless the PR body justifies it;
+    no baseline, a size change and a change under 1% never fail."""
+
+    @staticmethod
+    def png(path, w, h, bar=False):
+        """An RGB PNG, stdlib only: a dark screen, with a blue bar over rows 40-49 when BAR (5% of 100x200)."""
+        import struct
+        import zlib
+        dark, blue = bytes((20, 20, 24)), bytes((40, 120, 255))
+        raw = b"".join(b"\0" + (blue if bar and 40 <= y < 50 else dark) * w for y in range(h))
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                         + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    def setUp(self):
+        import tempfile
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        (self.dir / "base" / "terminal").mkdir(parents=True)
+        (self.dir / "head" / "terminal").mkdir(parents=True)
+        self.base = self.dir / "base" / "terminal" / "attach.png"
+        self.head = self.dir / "head" / "terminal" / "attach.png"
+        self.png(self.base, 100, 200)
+        self.png(self.head, 100, 200, bar=True)  # the seeded regression
+
+    def run_compare(self, body="", base=True):
+        caps = ios_verify.compare([self.head], {"attach.png": self.base} if base else {}, body)
+        return caps, ios_verify.verdict([{"name": "sim", "result": "pass"}], caps)
+
+    def test_unjustified_change_fails(self):
+        caps, v = self.run_compare()
+        self.assertEqual(v, "fail")
+        self.assertEqual(ios_verify.unjustified(caps), ["attach.png"])
+        self.assertEqual(caps[0]["verdict"], "changed")
+        self.assertEqual(pr.problems({**RECORD, "captures": caps}), [])
+
+    def test_justified_change_passes(self):
+        for line in ("Visual-change: attach.png: new bar", "Visual-change: terminal/*: bar", "Visual-change: *: all"):
+            caps, v = self.run_compare(f"Summary\n\n{line}\n")
+            self.assertEqual(v, "pass", line)
+            self.assertTrue(caps[0]["why"])
+
+    def test_fenced_example_justifies_nothing(self):
+        self.assertEqual(self.run_compare("```\nVisual-change: *: example\n```")[1], "fail")
+
+    def test_no_baseline_passes(self):
+        caps, v = self.run_compare(base=False)
+        self.assertEqual((v, caps[0]["verdict"]), ("pass", "unbaselined"))
+
+    def test_same_and_size_change_pass(self):
+        self.png(self.head, 100, 200)
+        caps, v = self.run_compare()
+        self.assertEqual((v, caps[0]["verdict"]), ("pass", "same"))
+        self.png(self.head, 120, 200, bar=True)  # another device: not comparable, not judged
+        self.assertEqual(self.run_compare()[1], "pass")
+
+    def test_stdlib_decoder_agrees(self):
+        import builtins
+        real = builtins.__import__
+        no_pil = lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name)) if name == "PIL" else real(name, *a, **k)
+        with mock.patch.object(builtins, "__import__", no_pil):
+            self.assertEqual(ios_verify.diff_ratio(self.head, self.base), 0.05)
+            self.assertEqual(self.run_compare()[1], "fail")
+
+    def test_a_failed_run_still_fails(self):
+        self.assertEqual(ios_verify.verdict([{"name": "sim", "result": "error"}], []), "fail")
 
 
 if __name__ == "__main__":
