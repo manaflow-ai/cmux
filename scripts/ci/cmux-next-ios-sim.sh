@@ -122,6 +122,9 @@
 #           1290x2796) and written without an alpha channel (png_opaque.py),
 #           or the step fails, e.g.
 #             --arg shots --arg appstore=iphone-6.9 --arg 01-home=-cmux-mobile-tab,home
+#           The scene `statusbar=clean` (not a screen) overrides the status bar the same way on any
+#           iPhone, with no size or alpha checks: the screen-parity goldens
+#           (cmux-next-ios/verify/screen-parity/shots.sh fleet).
 #   clips   build, plus the What's New clip of one iPhone highlight
 #           (release-notes/next/clips/ID.json with "app": "iphone"): the app
 #           runs the spec's scene (DEBUG launch arguments, demo drivers, mock
@@ -165,7 +168,10 @@
 #           instead of ~150 MB), upload-random (random bytes, as a video's, not a
 #           sparse file), upload-relay (the phone's link relay only),
 #           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
-#           (seconds to wait for the probe's result, 60-3600, default 300).
+#           (seconds to wait for the probe's result, 60-3600, default 300),
+#           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
+#           its hostd freeze for each drop; the phone must reattach within 30 s
+#           with no tap; reconnect-after-drop.mp4 records the phone).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -351,8 +357,11 @@ if [[ "$mode" == screen-proof ]]; then
 fi
 scenes=()
 appstore=0
+clean_status_bar=0
 for scene in "${@:2}"; do
-  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
+  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; clean_status_bar=1
+  elif [[ "$mode" == shots && "$scene" == statusbar=clean ]]; then clean_status_bar=1
+  else scenes+=("$scene"); fi
 done
 theme_relaunches=10
 if [[ "$mode" == theme-relaunch ]]; then
@@ -393,7 +402,11 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
       upload-random) pair_upload+=(--upload-random) ;;
       upload-relay) pair_upload+=(--upload-relay-only) ;;
       upload-block-udp) pair_upload+=(--upload-block-udp) ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay and upload-block-udp, got '$word'" >&2; exit 2 ;;
+      reconnect-drops=*)
+        n="${word#reconnect-drops=}"
+        [[ "$n" =~ ^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,3}$ ]] || { echo "cmux-next-ios-sim.sh: reconnect-drops= wants up to 4 comma-separated seconds (1-999), got '$n'" >&2; exit 2; }
+        pair_upload+=(--reconnect-drops "$n") ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp and reconnect-drops=S,S, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -1270,6 +1283,12 @@ keep_test_logs() {
   local log=$1 bundle=$2 name=$3
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
   xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2> "$out/$name-console-error.txt" || true
+  # A bench test's own result lines go in the step log: a failed step uploads no
+  # artifact, and a run that missed its bound in one cell (heavy duress) is the
+  # number most worth reading (2026-11-26: an idle+heavy attach run on cmux9
+  # failed under heavy and left nothing readable for 4 h of queue and build).
+  grep -hoE 'attach first frame( median \(warm\))?: .*' "$log" "$out/$name-console.txt" 2>/dev/null |
+    awk '!seen[$0]++' | head -80 | sed "s/^/- $name: /" | tee -a "$summary" || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
   # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
   # manifest.json that maps each one to its test.
@@ -1951,11 +1970,15 @@ if [[ "$mode" == shots ]]; then
   note ""
   note "## Screens (mock data, DEBUG launch arguments)"
   note ""
-  if [[ "$appstore" == 1 ]]; then
-    # App Store screenshots: Apple's clean status bar (9:41, full signal, Wi-Fi and battery).
+  if [[ "$clean_status_bar" == 1 ]]; then
+    # Apple's clean status bar (9:41, full signal, Wi-Fi and battery): App Store screenshots and statusbar=clean.
     simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
       --cellularMode active --cellularBars 4 --operatorName "" --batteryState charged --batteryLevel 100
-    note "- App Store screenshots: ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    if [[ "$appstore" == 1 ]]; then
+      note "- App Store screenshots: ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    else
+      note "- ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    fi
   fi
   for scene in "${scenes[@]}"; do
     name="${scene%%=*}"

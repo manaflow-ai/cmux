@@ -78,6 +78,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "ubuntu-24.04 when unset; the selector keeps fork pull requests on the untrusted hosted runner",
+      "after_minutes": 5
+    },
     "CI_OVERFLOW_MAC": {
       "fallback": "an overflow switch, not a host: unset (the default), every own-branch Mac job that needs only a plain Mac with Xcode 26.6 takes cmux-mac, the label on the 60 shared Mac runners (vars.CI_OVERFLOW_MAC || 'cmux-mac'); an operator or the watchdog sets it to a bare Blacksmith macOS label only during an outage of those runners and deletes it after, which puts new runs back on cmux-mac",
       "after_minutes": 5,

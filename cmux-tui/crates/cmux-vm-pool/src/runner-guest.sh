@@ -26,6 +26,17 @@ state=$root/var/lib/fsr
 runner_home=$root/home/runner
 dir=$runner_home/actions-runner
 fail() { echo "runner-guest: $1" >&2; exit 1; }
+# The machine's GitHub release and archive cache (cmux-git-cache, RFD 0155), when it listens:
+# it answers with GitHub's own bytes or a redirect to GitHub, and any failure here retries GitHub
+# directly. CMUX_TRANSPORT_REWRITE=0 turns it off.
+cmux_cached_url() {
+  case "$1" in https://github.com/*/releases/download/* | https://codeload.github.com/*) ;; *) return 1 ;; esac
+  [ "${CMUX_TRANSPORT_REWRITE:-1}" != 0 ] && [ -r /run/cmux/git-cache/base ] || return 1
+  local proxy
+  proxy="$(cat /run/cmux/git-cache/base)" || return 1
+  case "$proxy" in http://127.0.0.1:[0-9]*) ;; *) return 1 ;; esac
+  printf '%s/%s\n' "$proxy" "${1#https://}"
+}
 
 # No background apt on a runner (cmux#48681). At boot, unattended-upgrades (apt-daily-upgrade.service) held the dpkg
 # lock while a job ran `apt-get install`, and the job failed "Could not get lock ... held by process N (unattended-upgr)"
@@ -74,9 +85,12 @@ prepare() {
   echo 'runner ALL=(ALL) NOPASSWD:ALL' > "$sudoers.tmp" && chmod 440 "$sudoers.tmp" && mv -f "$sudoers.tmp" "$sudoers" || fail "no runner sudoers entry"
   mkdir -p "$dir" && cd "$dir" || fail "no runner dir"
   if ! [[ -f "$archive" ]] || ! echo "$sha  $archive" | sha256sum -c --status -; then
-    curl -fsSL --retry 5 -o "$archive.tmp" \
-      "https://github.com/actions/runner/releases/download/v$ver/actions-runner-linux-x64-$ver.tar.gz" ||
-      fail "runner download failed"
+    url="https://github.com/actions/runner/releases/download/v$ver/actions-runner-linux-x64-$ver.tar.gz"
+    if ! { via="$(cmux_cached_url "$url")" && curl -fsSL --connect-timeout 5 -o "$archive.tmp" "$via" &&
+      echo "runner-guest: runner through the machine cache" >&2; }; then
+      [[ -n "${via:-}" ]] && echo "runner-guest: machine cache failed; GitHub directly" >&2
+      curl -fsSL --retry 5 -o "$archive.tmp" "$url" || fail "runner download failed"
+    fi
     echo "$sha  $archive.tmp" | sha256sum -c --status - || fail "runner checksum mismatch"
     mv -f "$archive.tmp" "$archive" || fail "could not cache verified runner"
   fi
