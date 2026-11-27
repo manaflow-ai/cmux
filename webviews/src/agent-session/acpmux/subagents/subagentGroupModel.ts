@@ -1,5 +1,5 @@
-import { createContext, useContext } from "react";
-import { usePageNow } from "../../../ui/pageClock";
+import { createContext, useContext, useCallback, useSyncExternalStore } from "react";
+import { usePageNow, subscribePageDeadline } from "../../../ui/pageClock";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
@@ -80,4 +80,27 @@ export function useNow(live: boolean): number {
   const offset = useContext(SubagentClockContext);
   const now = usePageNow(live);
   return now - offset;
+}
+
+/// For status changes such as becoming idle, wake at a boundary instead of on elapsed seconds.
+/// Boundaries use session time and are in ascending order.
+export function useSessionBoundary(boundaries: readonly number[]): number {
+  const offset = useContext(SubagentClockContext);
+  const position = useCallback(() => {
+    const now = Date.now() - offset;
+    let lo = 0;
+    let hi = boundaries.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (boundaries[mid]! <= now) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }, [boundaries, offset]);
+  const subscribe = useCallback((notify: () => void) => {
+    const next = () => (boundaries[position()] ?? Infinity) + offset;
+    return Number.isFinite(next()) ? subscribePageDeadline(notify, next) : () => {};
+  }, [boundaries, offset, position]);
+  const index = useSyncExternalStore(subscribe, position, position);
+  return boundaries[index - 1] ?? -Infinity;
 }

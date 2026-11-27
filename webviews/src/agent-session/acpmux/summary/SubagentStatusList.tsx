@@ -14,9 +14,9 @@ import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { SubagentHarnessContext } from "../subagents/subagentGroupModel";
-import { SubagentElapsed } from "../subagents/Elapsed";
-import { type Subagent } from "../subagents/subagentFold";
+import { SubagentHarnessContext, ticking } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
+import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
 import { WaitSpinner } from "../conversation/WaitSpinner";
@@ -123,7 +123,7 @@ export function SubagentStatusList({
           status={status}
           state={subagentStateText(t, agent, waiting, connectionQuiet)}
           working={Boolean(retrying(agent))}
-          time={<SubagentElapsed agent={agent} />}
+          time={<Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} ended={!ticking(agent)} />}
           iconSize={ROW_ICON}
           depth={depth}
           current={agent.id === current}

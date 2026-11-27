@@ -73,10 +73,10 @@ export function WorkflowCard({
   const elapsed =
     workflow.elapsedMs !== undefined ? (
       <Clock text={formatDuration(workflow.elapsedMs)} />
-    ) : workflow.startedAt !== undefined && running ? (
-      <Elapsed since={workflow.startedAt} />
+    ) : workflow.startedAt !== undefined ? (
+      <Elapsed since={workflow.startedAt} ended={!running} clock="" />
     ) : (
-      <Clock text="0s" />
+      <Clock text={formatDuration(0)} />
     );
   const count = cardCount(workflow);
   // The bar's scale: every agent known or reported started or queued, never only the ones seen.

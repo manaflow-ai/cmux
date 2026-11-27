@@ -6,10 +6,10 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
 import { Elapsed } from "../subagents/Elapsed";
-import { Clock } from "../../../ui/Typography";
+import { useSessionBoundary } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
-  workflowSignals,
+  workflowSignals, WORKFLOW_SIGNAL_MS,
   type WorkflowDetailRequest,
   type WorkflowCapacitySignal,
 } from "./foldWorkflows";
@@ -35,7 +35,14 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   daemonCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
-  const signals = useMemo(() => workflowSignals(workflows, Date.now(), daemonCapacity), [workflows, daemonCapacity]);
+  const ticking = workflows.some((workflow) => workflow.state === "running");
+  const boundaries = useMemo(() => [
+    ...workflows.flatMap(workflow => workflow.agents.flatMap(agent =>
+      agent.state === "running" && agent.lastProgressAt !== undefined ? [agent.lastProgressAt + WORKFLOW_SIGNAL_MS] : [])),
+    ...(daemonCapacity?.errors.flatMap(error => [error.at, error.at + WORKFLOW_SIGNAL_MS + 1]) ?? []),
+  ].sort((a, b) => a - b), [workflows, daemonCapacity]);
+  const now = useSessionBoundary(boundaries);
+  const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
   return (
     <>
       {ticking && signals.capacity && (
@@ -49,6 +56,7 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
           workflow={workflow}
           actions={actionsFor?.(workflow)}
           idle={signals.idle}
+          liveElapsed
         />
       ))}
     </>
@@ -84,10 +92,13 @@ export function WorkflowSummaryRow({
   workflow,
   actions = {},
   idle,
+  now, liveElapsed = false,
 }: {
   workflow?: WorkflowSummary;
   actions?: WorkflowActions;
   idle?: ReadonlySet<string>;
+  now?: number;
+  liveElapsed?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -113,12 +124,11 @@ export function WorkflowSummaryRow({
   if (!workflow) return null;
   const completed = workflow.counts?.done ?? workflow.agents.filter((agent) => agent.state === "completed").length;
   const total = workflow.counts?.started ?? workflow.agents.length;
-  const elapsed =
-    workflow.elapsedMs !== undefined ? (
-      <Clock text={formatDuration(workflow.elapsedMs)} />
-    ) : workflow.state === "running" && workflow.startedAt !== undefined ? (
-      <Elapsed since={workflow.startedAt} />
-    ) : null;
+  const elapsedMs =
+    workflow.elapsedMs ??
+    (workflow.state === "running" && workflow.startedAt !== undefined && now !== undefined
+      ? Math.max(0, now - workflow.startedAt)
+      : undefined);
   const selected = workflow.selectedAgentId
     ? workflow.agents.find((agent) => agent.id === workflow.selectedAgentId)
     : undefined;
@@ -156,7 +166,7 @@ export function WorkflowSummaryRow({
         )}
         <span className="acpmux-summary-meta">
           {total > 0 && `${completed}/${total}`}
-          {elapsed !== null && <> · {elapsed}</>}
+          {elapsedMs !== undefined ? ` · ${formatDuration(elapsedMs)}` : liveElapsed && workflow.state === "running" && workflow.startedAt !== undefined ? <> · <Elapsed since={workflow.startedAt} /></> : null}
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>

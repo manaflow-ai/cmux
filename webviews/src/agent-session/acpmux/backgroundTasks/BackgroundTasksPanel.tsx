@@ -41,12 +41,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { spanDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { Elapsed } from "../subagents/Elapsed";
+import { useNow } from "../subagents/subagentGroupModel";
 import { useOwnLog, type OwnLogChat, type ReadOwnLog } from "../subagents/subagentOwnLog";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
@@ -213,6 +213,7 @@ export function BackgroundTasksPanel({
             onExpand={onExpand}
             onClose={onClose}
           >
+            <ListVisible.Provider value={!drill}>
             <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
               {groups.length === 0 ? (
                 <p className="acpmux-bg__empty">
@@ -252,6 +253,7 @@ export function BackgroundTasksPanel({
                 ))
               )}
             </div>
+            </ListVisible.Provider>
             {drill?.workflow && workflow && (
               // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
               // them with no subagents); should one, it opens and stops as anywhere else in the panel.
@@ -485,23 +487,19 @@ function PanelFrame({
 
 /// Elapsed while it runs, as a leaf so a clock tick never redraws the panel list. Ended work keeps
 /// its fixed duration, and work whose end is unknown keeps the empty time slot.
-function TaskElapsed({
-  t,
-  from,
-  to,
-  running,
-  className,
-}: {
-  t: Translate;
-  from?: number;
-  to?: number;
-  running: boolean;
-  className: string;
-}) {
-  if (from === undefined) return null;
-  if (running) return <Elapsed since={from} clock={className} />;
-  if (to === undefined) return null;
-  return <Clock className={className} text={spanDuration(t, to - from)} />;
+const ListVisible = createContext(true);
+
+function PanelElapsed({ since, clock }: { since: number; clock?: string }) {
+  const visible = useContext(ListVisible);
+  const now = useNow(visible);
+  const text = formatDuration(Math.max(0, now - since));
+  return clock === undefined ? text : <Clock className={clock} text={text} />;
+}
+
+function taskTime(t: Translate, from: number | undefined, to: number | undefined, running: boolean, clock?: string) {
+  if (running && from !== undefined) return <PanelElapsed since={from} clock={clock} />;
+  const text = from !== undefined && to !== undefined && !running ? spanDuration(t, to - from) : undefined;
+  return clock === undefined ? text : <Clock className={clock} text={text ?? ""} />;
 }
 
 function GroupBlock({
@@ -558,7 +556,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <TaskElapsed t={t} from={group.startedAt} to={group.endedAt} running={live} className="acpmux-bg__time" />
+          taskTime(t, group.startedAt, group.endedAt, live, "acpmux-bg__time")
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -710,13 +708,7 @@ function TaskRow({
         processId={task.processId}
         state={task.state}
         time={
-          <TaskElapsed
-            t={t}
-            from={task.startedAt}
-            to={task.endedAt}
-            running={task.state === "running"}
-            className="acpmux-bg-card__time"
-          />
+          taskTime(t, task.startedAt, task.endedAt, task.state === "running")
         }
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
@@ -740,13 +732,7 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <TaskElapsed
-        t={t}
-        from={task.startedAt}
-        to={task.endedAt}
-        running={task.state === "running"}
-        className="acpmux-bg__time"
-      />
+      {taskTime(t, task.startedAt, task.endedAt, task.state === "running", "acpmux-bg__time")}
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );

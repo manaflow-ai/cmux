@@ -5,7 +5,7 @@
 // whole line click sending me to the subagent righ split"), no "Open chat" word beside it (Leo,
 // 2026-10-29: "Just have the thing be clickable, and then you can open it."). The caller reads its state live
 // (subsessions.ts) and adds a prompt or a reply below.
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -91,18 +91,9 @@ export function AgentCard({
     : undefined;
   const quiet = state === "working" && !slot && !stateLabel;
   const stateText = state ? (quiet ? "" : stateWord) : undefined;
-  const join = (parts: readonly (string | false | undefined | 0)[]) => parts.filter(Boolean).join(" · ");
-  const withTime = (parts: readonly (string | false | undefined | 0)[]) => (
-    <>
-      {join(parts)}
-      {time !== undefined && (
-        <>
-          {parts.some(Boolean) && " · "}
-          {time}
-        </>
-      )}
-    </>
-  );
+  const join = (parts: readonly ReactNode[]) => parts.filter(Boolean).map((part, index) => (
+    <Fragment key={index}>{index > 0 && " · "}{part}</Fragment>
+  ));
   if (disclosure) {
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
@@ -128,7 +119,7 @@ export function AgentCard({
           stateText !== undefined && (
             <span title={stateWord} aria-label={stateWord}>
               {state === "working" && !slot && <Spinner size={12} loading />}
-              {withTime([stateText, queued && t("subsession.queued", { n: queued }), liveDetail])}
+              {join([stateText, queued && t("subsession.queued", { n: queued }), time, liveDetail])}
             </span>
           )
         }
@@ -171,7 +162,7 @@ export function AgentCard({
       {state && (
         <span className="cv-agent-card__state" data-state={slot ? "slot" : state} title={stateWord}>
           {state === "working" && <Spinner size={12} loading />}
-          {withTime([stateText, queued && t("subsession.queued", { n: queued })])}
+          {join([stateText, queued && t("subsession.queued", { n: queued }), time])}
         </span>
       )}
       {actions}

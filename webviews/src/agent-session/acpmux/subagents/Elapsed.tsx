@@ -9,8 +9,8 @@
 import { useState, type ReactNode } from "react";
 import { Clock } from "../../../ui/Typography";
 import { formatDuration } from "../conversation/turns";
-import { groupElapsed, subagentTime, ticking, useNow } from "./subagentGroupModel";
-import type { Subagent } from "./subagentFold";
+import { subagentTime, ticking, useNow } from "./subagentGroupModel";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
 
 /// How long something has run, as formatDuration writes it: from `since` to `until`, or to now while
 /// `until` is unset, then ticking each second on the page clock (subagentGroupModel.ts `useNow`, which
@@ -38,18 +38,12 @@ export function Elapsed({
   return clock === undefined ? text : <Clock className={clock} text={text} />;
 }
 
-/// A subagent's elapsed label owns its page-clock subscription. The row that contains it can keep
-/// its identity and layout while this text changes once per second.
-export function SubagentElapsed({ agent, clock }: { agent: Subagent; clock?: string }): ReactNode {
-  const now = useNow(ticking(agent));
-  const text = subagentTime(agent, now);
-  return text === undefined ? null : clock === undefined ? text : <Clock className={clock} text={text} />;
-}
-
-/// The grouped transcript line's clock is a leaf too. Its header only re-renders when the group
-/// changes, while this label follows the shared page clock.
-export function GroupElapsed({ agents, clock }: { agents: readonly Subagent[]; clock?: string }): ReactNode {
-  const now = useNow(agents.some(ticking));
-  const text = formatDuration(groupElapsed(agents, now));
-  return clock === undefined ? text : <Clock className={clock} text={text} />;
+/// A duration that may be missing on a recovered end. Keep static values as strings so callers can
+/// omit their separators and trailing columns. A live value updates independently of its row.
+export function subagentElapsedLabel(agent: Subagent, sampledAt: number, clock?: string): ReactNode {
+  if (ticking(agent)) {
+    return <Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} clock={clock} />;
+  }
+  const text = subagentTime(agent, sampledAt);
+  return text === undefined || clock === undefined ? text : <Clock className={clock} text={text} />;
 }

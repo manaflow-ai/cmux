@@ -204,6 +204,8 @@ export function createWorkflowAdapter() {
   };
 }
 
+export const WORKFLOW_SIGNAL_MS = 120_000;
+
 export function workflowSignals(workflows: readonly WorkflowSummary[], now: number, daemon?: WorkflowCapacitySignal) {
   const idle = new Set<string>();
   const erroring = new Set(
@@ -212,7 +214,7 @@ export function workflowSignals(workflows: readonly WorkflowSummary[], now: numb
         (error) =>
           error.daemonId === daemon.daemonId &&
           now >= error.at &&
-          now - error.at <= 120_000 &&
+          now - error.at <= WORKFLOW_SIGNAL_MS &&
           /(?:\b503\b|\b429\b|exhausted)/i.test(error.reason),
       )
       .map((error) => error.agentId),
@@ -220,7 +222,7 @@ export function workflowSignals(workflows: readonly WorkflowSummary[], now: numb
   for (const workflow of workflows)
     for (const agent of workflow.agents) {
       const age = agent.lastProgressAt === undefined ? undefined : now - agent.lastProgressAt;
-      if (agent.state === "running" && age !== undefined && age >= 120_000) idle.add(agent.id);
+      if (agent.state === "running" && age !== undefined && age >= WORKFLOW_SIGNAL_MS) idle.add(agent.id);
     }
   return { capacity: erroring.size >= 2, idle };
 }
