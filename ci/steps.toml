@@ -246,8 +246,12 @@ title = "Compile preflight rules"
 about = "the compile preflight runs on every tier, never reports skipped, and names the bundler's errors"
 inputs = [
   ".github/workflows/cmux-next-compile-preflight.yml",
+  ".github/workflows/cmux-next-size-budget.yml",
+  ".github/workflows/pr-pipeline.yml",
   ".github/workflows/pr-router.yml",
+  ".github/actions/r2-artifact/**",
   "scripts/ci/compile_preflight.py",
+  "scripts/ci/react-apps-check-fleet.sh",
   "scripts/cmux-next/web-bundle-key.py",
   "scripts/cmux-next/build-web-bundles.sh",
   "tests/test_ci_compile_preflight.py",
