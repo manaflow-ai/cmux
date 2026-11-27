@@ -1270,9 +1270,12 @@ jobs:
             echo "| variant | key | files | outcome |"
             echo "|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
+          # The Rust the app links is keyed by what CmuxMobileLinkFFI reaches, not all of cmux-tui/crates.
+          ffi="$(python3 -I .github/scripts/ios_link_ffi_key.py --repo . --rev "$GATE_SHA" | sed -n 's/^key=//p')"
+          [[ -n "$ffi" ]] || { echo "::warning::no CmuxMobileLinkFFI input key at $GATE_SHA; no goldens filed"; exit 0; }
           for family in $FAMILIES; do
             keyjson="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family ios-gate \
-              --variant "$family" --rev "$GATE_SHA")" || { echo "::warning::$family: no input key"; continue; }
+              --variant "$family" --rev "$GATE_SHA" --extra "ffi=$ffi")" || { echo "::warning::$family: no input key"; continue; }
             key="$(jq -r .key <<<"$keyjson")"
             files="$(jq -r .files <<<"$keyjson")"
             name="golden-ios-gate-$family-$key"

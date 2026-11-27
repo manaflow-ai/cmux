@@ -8,7 +8,7 @@
   "version": 1,
   "families": {
     "ios-gate": {
-      "doc": "The App Review gate's reviewer-path stills (ios-review-gate.yml, one variant per device family): the app, the packages it can link, the Rust crates CmuxMobileLinkFFI.xcframework compiles (cmux-next-ios/rust and every cmux-tui crate it reaches, .github/scripts/ios_link_ffi_key.py), the UI test that walks it, the workflow steps that set appearance and status bar, and the Xcode and device pins.",
+      "doc": "The App Review gate's reviewer-path stills (ios-review-gate.yml, one variant per device family): the app, the packages it can link, the Rust crates CmuxMobileLinkFFI.xcframework compiles (cmux-next-ios/rust here; the cmux-tui crates it reaches by the caller's --extra ffi=<.github/scripts/ios_link_ffi_key.py key>, not a cmux-tui/crates/** glob that every daemon change moved), the UI test that walks it, the workflow steps that set appearance and status bar, and the Xcode and device pins.",
       "variants": [
         "iphone",
         "ipad",
@@ -21,17 +21,9 @@
         "vendor/stack-auth-swift-sdk-prerelease/**",
         "scripts/ci/xcode-pins.txt",
         "scripts/select-ci-xcode.sh",
+        ".github/scripts/ios_link_ffi_key.py",
         ".github/ios-review-gate-devices.json",
         ".github/workflows/ios-review-gate.yml",
-        "cmux-tui/crates/**",
-        "cmux-tui/vendor/**",
-        "cmux-tui/Cargo.toml",
-        "cmux-tui/Cargo.lock",
-        "cmux-tui/rust-toolchain.toml",
-        "cmux-tui/.cargo/**",
-        "Cargo.toml",
-        "rust-toolchain.toml",
-        ".cargo/**",
         ".github/scripts/ios_review_gate_devices.py",
         "!**/*.md",
         "!cmux-next-ios/verify/**",
@@ -41,7 +33,7 @@
       ]
     },
     "ios-screen-parity": {
-      "doc": "A8's screen-parity stills (cmux-next-ios/verify/screen-parity/screens.tsv: 16 iPhone 17 Pro surfaces, list-rig fixtures and signed-out, light and dark), rendered on a Mac by ios-sim-linux-build.yml (artifact ios-sim-mac-shots) and on Linux by the sim SDK image: the app build's inputs (the ios-gate family's, less its workflow and device pins), the screen list and rig, and the workflow that renders them.",
+      "doc": "A8's screen-parity stills (cmux-next-ios/verify/screen-parity/screens.tsv: 16 iPhone 17 Pro surfaces, list-rig fixtures and signed-out, light and dark), rendered on a Mac by ios-sim-linux-build.yml (artifact ios-sim-mac-shots) and on Linux by the sim SDK image: the app build's inputs (the ios-gate family's, less its workflow and device pins; the Rust it links by --extra ffi=<ios_link_ffi_key.py key>), the screen list and rig, and the workflow that renders them.",
       "variants": [
         "iphone-17-pro"
       ],
@@ -52,15 +44,7 @@
         "vendor/stack-auth-swift-sdk-prerelease/**",
         "scripts/ci/xcode-pins.txt",
         "scripts/select-ci-xcode.sh",
-        "cmux-tui/crates/**",
-        "cmux-tui/vendor/**",
-        "cmux-tui/Cargo.toml",
-        "cmux-tui/Cargo.lock",
-        "cmux-tui/rust-toolchain.toml",
-        "cmux-tui/.cargo/**",
-        "Cargo.toml",
-        "rust-toolchain.toml",
-        ".cargo/**",
+        ".github/scripts/ios_link_ffi_key.py",
         ".github/workflows/ios-sim-linux-build.yml",
         "!**/*.md",
         "!cmux-next-ios/AppStoreReview/**",

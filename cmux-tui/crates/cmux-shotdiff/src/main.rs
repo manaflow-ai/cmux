@@ -16,11 +16,13 @@ USAGE
   cmux-shotdiff batch --store DIR --heads DIR [--out DIR] [--summary FILE] [--title T]
                       [--allow-new] [--require-all]
   cmux-shotdiff get --store DIR (--name NAME | --hash HASH) OUT.png
-  cmux-shotdiff key --inputs FILE --family F [--variant V] [--rev REV] [--repo DIR]
+  cmux-shotdiff key --inputs FILE --family F [--variant V] [--rev REV] [--repo DIR] [--extra K=V]...
 
 key prints {family, variant, key, files, rev} (schema cmux-shotdiff.key/v1): the SHA-256 of family F's
 entry in FILE (.github/golden-inputs.json) and of every file at REV (HEAD) its paths match. Goldens rendered
-from those inputs are filed under it, so a Mac renders them once per change of what they depend on.
+from those inputs are filed under it, so a Mac renders them once per change of what they depend on. Each
+--extra is keyed too: an input no path names, such as ios_link_ffi_key.py's key over the Rust crates the app
+links (narrower than a cmux-tui/crates/** glob).
 
 compare/check print the verdict JSON (schema cmux-shotdiff.verdict/v1) to stdout or --json.
 batch checks every HEADS/<name>.png against the golden <name>; writes OUT/report.json
@@ -64,6 +66,13 @@ impl Args {
     }
     fn get(&self, name: &str) -> Option<&str> {
         self.flags.iter().rev().find(|(k, _)| k == name).and_then(|(_, v)| v.as_deref())
+    }
+    fn all(&self, name: &str) -> Result<Vec<String>, String> {
+        self.flags
+            .iter()
+            .filter(|(k, _)| k == name)
+            .map(|(_, v)| v.clone().ok_or_else(|| format!("{name} needs a value")))
+            .collect()
     }
     fn has(&self, name: &str) -> bool {
         self.flags.iter().any(|(k, _)| k == name)
@@ -238,7 +247,7 @@ fn run(raw: Vec<String>) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         "key" => {
-            args.check_known(&["--inputs", "--family", "--variant", "--rev", "--repo"])?;
+            args.check_known(&["--inputs", "--family", "--variant", "--rev", "--repo", "--extra"])?;
             if !args.positional.is_empty() {
                 return Err("key takes no positional arguments".into());
             }
@@ -251,6 +260,7 @@ fn run(raw: Vec<String>) -> Result<ExitCode, String> {
                 variant,
                 Path::new(args.get("--repo").unwrap_or(".")),
                 rev,
+                &args.all("--extra")?,
             )?;
             let out = serde_json::json!({
                 "schema": "cmux-shotdiff.key/v1",
