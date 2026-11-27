@@ -403,8 +403,12 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
             Answer::Now(response(&id, reply))
         }
         "tools/list" => {
+            // Moved in, not through `json!`, which copies a value it is given once more.
             let tools = served.list.as_ref().map_or_else(|| served.tools.clone(), |list| list());
-            Answer::Now(response(&id, json!({"tools": tools})))
+            Answer::Now(response(
+                &id,
+                Value::Object([("tools".to_owned(), tools)].into_iter().collect()),
+            ))
         }
         _ => {
             // An argument under another name than the schema's (`session` for `name`) is
@@ -420,8 +424,12 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
     }
 }
 
+/// `result` is moved into the reply: `json!` would copy it whole once more (a tool list's every
+/// string, the bulk of a connect's cost in `icount`'s `mcp_connect`).
 fn response(id: &Value, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+    let mut reply = json!({"jsonrpc": "2.0", "id": id});
+    reply.set("result", result);
+    reply
 }
 
 #[cfg(test)]
