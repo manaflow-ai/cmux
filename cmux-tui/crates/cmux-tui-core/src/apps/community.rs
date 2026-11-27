@@ -994,7 +994,7 @@ impl Supervisor {
         p: UpdatesListParams,
     ) -> Result<UpdatesListResult, ApiError> {
         let checked_at = (p.check == Some(true)).then(|| {
-            self.check_updates_now();
+            self.check_extension_updates_now();
             now_ms()
         });
         let status = self.community_status(p.refresh == Some(true));

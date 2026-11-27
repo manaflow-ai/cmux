@@ -28,7 +28,7 @@ impl Supervisor {
     /// Runs one update check now (network; off the request path) and answers
     /// every update known after it, by app id. A repository that does not
     /// answer keeps its earlier offer.
-    pub(crate) fn check_updates_now(&self) -> BTreeMap<String, UpdateRow> {
+    pub(crate) fn check_extension_updates_now(&self) -> BTreeMap<String, UpdateRow> {
         let mut changed = false;
         let community = self.community();
         if community.claim_due_refresh() {

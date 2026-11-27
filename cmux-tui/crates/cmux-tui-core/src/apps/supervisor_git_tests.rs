@@ -359,12 +359,12 @@ fn the_update_check_offers_a_newer_release_and_apps_update_installs_it() {
     let v1 = app_tarball("octo/hello", "1.0.0", json!({}));
     git.serve("octo", "hello", A, &[("refs/heads/main", A), ("refs/tags/v1.0.0", A)], &[(A, v1)]);
     install(&f, "github.com/octo/hello", "k1").unwrap();
-    assert!(f.supervisor.check_updates_now().is_empty(), "current: no offer");
+    assert!(f.supervisor.check_extension_updates_now().is_empty(), "current: no offer");
 
     let v2 = app_tarball("octo/hello", "1.1.0", json!({}));
     let refs = [("refs/heads/main", B), ("refs/tags/v1.0.0", A), ("refs/tags/v1.1.0", B)];
     git.serve("octo", "hello", B, &refs, &[(B, v2)]);
-    let offers = f.supervisor.check_updates_now();
+    let offers = f.supervisor.check_extension_updates_now();
     let offer = offers.get("octo/hello").expect("an offer for the newer release");
     assert_eq!(
         (offer.current_version.as_str(), offer.version.as_str(), offer.commit.as_str()),

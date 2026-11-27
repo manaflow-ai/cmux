@@ -54,7 +54,7 @@ fn enabled(mux: &Arc<Mux>) -> bool {
 fn check(mux: &Arc<Mux>) {
     let supervisor = mux.control_clients.apps.get_or_init(mux);
     let offers: BTreeMap<String, Offer> = supervisor
-        .check_updates_now()
+        .check_extension_updates_now()
         .into_values()
         .map(|row| {
             (
