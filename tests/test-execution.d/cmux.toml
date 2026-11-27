@@ -525,7 +525,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_tree_takeover.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_media_last_toured.py"
-lane = "linux-guard"

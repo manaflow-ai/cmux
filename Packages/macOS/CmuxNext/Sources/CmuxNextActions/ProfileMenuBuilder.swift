@@ -55,12 +55,16 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     ///
     /// `signInBackend` is what Sign In signs in to ("Signs in to cmux.com"): Sign In's second line where
     /// the system draws one (macOS 14.4), else a line of its own under it.
+    /// `accountFirst` (`sidebar.profileMenu.style: "account"`): the menu becomes ``makeAccount(who:avatar:spec:signInBackend:)``'s.
     public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
-                               signInBackend: String? = nil) {
+                               signInBackend: String? = nil, accountFirst: Bool = false) {
+        if accountFirst {
+            menu.removeAllItems()
+            Self.takeRows(of: makeAccount(who: who, avatar: avatar, spec: spec, signInBackend: signInBackend)).forEach(menu.addItem)
+            return
+        }
         defer { Self.keepOneTextColumn(menu) }
-        let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
-        if let item = registry.makeMenuItem(for: auth) {
-            item.image = registry.descriptor(for: auth).flatMap { Self.symbol($0.symbol, label: item.title) ?? registry.rowIcon($0.symbol) }
+        if let item = authRow(signedIn: who != nil) {
             // In Help's section, as the Codex menu's Log out; else a section of its own.
             if let last = menu.items.last, last.identifier?.rawValue != "profileMenu.help" { menu.addItem(.separator()) }
             menu.addItem(item)
@@ -75,6 +79,58 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         let person = personRow(name: name, email: who.count > 1 ? who[1] : nil, avatar: avatar, options: options, accounts: spec.accounts)
         menu.insertItem(person, at: 0)
+    }
+
+    /// The account menu (`sidebar.profileMenu.style: "account"`, Leo, ask-aad661801e: "make customization for codex,
+    /// t3code, claude code app (everything)"): the person first, as the Claude Code and Codex apps' account menus.
+    /// Signed in (`who` is the name, then the email), the first row is who it is: their picture, the name with the
+    /// email under it, opening Accounts… (every signed-in account, add one, switch). Under it, every team the
+    /// account may work in, the active one checked, a click switching to it (`teamRows`). Then Settings… and Usage,
+    /// then Help ›, then Sign Out. Signed out, the first row is Accounts… and the menu ends with Sign In. The app
+    /// rows (New Workspace, Extensions, History, Cloud, Check for Updates) stay in the app menu, the default.
+    public func makeAccount(who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
+                            signInBackend: String? = nil) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = true
+        let person = row(spec.accounts)
+        if let person, let who, let name = who.first {
+            person.title = name
+            if let avatar { person.image = avatar }
+            person.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
+            if #available(macOS 14.4, *), who.count > 1 { person.subtitle = who[1] }
+        }
+        let auth = authRow(signedIn: who != nil)
+        let sections: [[NSMenuItem]] = [
+            person.map { [$0] } ?? [],
+            who == nil ? [] : teamRows(),
+            [spec.settings, spec.usage].compactMap(availableRow),
+            helpRow(spec.help).map { [$0] } ?? [],
+            auth.map { [$0] } ?? [],
+        ]
+        for section in sections where !section.isEmpty {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            section.forEach(menu.addItem)
+        }
+        if who == nil, let signInBackend, let auth {
+            Self.addBackendLine(signInBackend, to: auth, in: menu)
+        }
+        Self.keepOneTextColumn(menu)
+        return menu
+    }
+
+    /// Sign In (signed out) or Sign Out, with the action's symbol; nil while the build does not bind it.
+    private func authRow(signedIn: Bool) -> NSMenuItem? {
+        let auth: ActionID = signedIn ? "palette.auth.signOut" : "palette.auth.signIn"
+        guard let item = registry.makeMenuItem(for: auth) else { return nil }
+        item.image = registry.descriptor(for: auth).flatMap { Self.symbol($0.symbol, label: item.title) ?? registry.rowIcon($0.symbol) }
+        return item
+    }
+
+    /// `row(_:)` for an action this build can run now: a feature the build lacks (Usage without a local Chief) is
+    /// left out, not drawn disabled.
+    private func availableRow(_ spec: ProfileMenuSpec.Row) -> NSMenuItem? {
+        guard registry.unavailableReason(for: spec.action) == nil else { return nil }
+        return row(spec)
     }
 
     /// Sign In's backend line: its subtitle on macOS 14.4, else a disabled row under it.

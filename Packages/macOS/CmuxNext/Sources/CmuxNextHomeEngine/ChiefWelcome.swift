@@ -36,18 +36,6 @@ public nonisolated struct ChiefWelcome: Sendable {
         public let typing: Duration
     }
 
-    /// The client id of the greeting.
-    public static let helloClientID = "chief-welcome-hello-v2"
-    /// The client id of what Chief can do.
-    public static let aboutClientID = "chief-welcome-about-v2"
-    /// The client id of the background offer.
-    public static let backgroundClientID = "chief-welcome-background-v1"
-    /// The link in the background offer: it opens the background picker (`appearance.changeBackground`).
-    public static let backgroundLink = "cmux://settings/background"
-    /// The quiet before the first dots: Home's window and transcript are on screen and still, so the
-    /// dots visibly grow in rather than being there on the first frame.
-    public static let leadIn: Duration = .milliseconds(600)
-
     /// The conversation the welcome goes to: the person's only Chief's.
     public let conversation: String
     /// The Chief participant that writes it.
@@ -70,92 +58,152 @@ public nonisolated struct ChiefWelcome: Sendable {
         self.author = author
         self.owner = owner
         self.showsTyping = showsTyping
-        self.text = text ?? Self.aboutText
+        self.text = text ?? HomeStrings.chiefWelcomeAbout
     }
 
-    /// The greeting: "Welcome to cmux! 👋 I'm Chief."
-    public static var helloText: String { HomeStrings.chiefWelcomeHello }
-
-    /// What Chief can do, and that the person can just ask.
-    public static var aboutText: String { HomeStrings.chiefWelcomeAbout }
-
-    /// The background offer's text, with its picker link.
-    public static var backgroundText: String { HomeStrings.chiefWelcomeBackground(link: backgroundLink) }
-
-    /// The welcome's messages in order, each with its quiet pause and typing time.
-    public static var beats: [Beat] {
-        makeBeats(about: aboutText)
+    /// The welcome's messages in order, each with its quiet pause and typing time (`welcome.beats`).
+    /// - Parameter about: What Chief can do, with the person's shortcuts.
+    /// - Returns: The greeting, `about`, then the background offer.
+    static func beats(about: String) -> [Beat] {
+        let reply: BeatsReply = welcomeRule("welcome.beats", Texts(about: about), fallback: BeatsReply(beats: []))
+        return reply.beats.map(\.beat)
     }
 
-    private static func makeBeats(about: String) -> [Beat] {
-        let texts = [(helloClientID, helloText), (aboutClientID, about), (backgroundClientID, backgroundText)]
-        var above: String?
-        return texts.map { key, text in
-            defer { above = text }
-            return Beat(clientID: key, text: text, quiet: above.map(readingPause(after:)) ?? leadIn, typing: typingTime(for: text))
-        }
-    }
-
-    /// How long Chief types `text`: 1.2 s for a greeting (Messages' short reply shows its dots 1.6 s; a
-    /// prepared greeting is quicker), 4 ms more per character, at most 2 s so the welcome never drags.
-    /// - Parameter text: The message's text.
-    /// - Returns: The dots' time on screen.
-    public static func typingTime(for text: String) -> Duration {
-        .milliseconds(min(2000, max(1200, 1000 + 4 * text.count)))
-    }
-
-    /// How long the person reads `text` before Chief types again: 0.6 s to 1 s, longer for a longer
-    /// bubble, and always past the bubble's 0.3 s arrival and the dots' 0.27 s exit.
-    /// - Parameter text: The message that just landed.
-    /// - Returns: The quiet before the next dots.
-    public static func readingPause(after text: String) -> Duration {
-        .milliseconds(min(1000, max(600, 400 + 3 * text.count)))
-    }
-
-    /// The import that stores `beats`, dated `now`.
+    /// The import that stores `beats`, dated `now` (`welcome.importRequest`).
     /// - Parameters:
     ///   - beats: The messages to store.
     ///   - now: The messages' time (the owner refuses a time in the future).
     /// - Returns: One request with the messages in order.
     public func request(_ beats: [Beat], now: Date) -> ConversationImportRequest {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        let time = formatter.string(from: now)
-        return ConversationImportRequest(conversation: conversation, messages: beats.map { beat in
-            ConversationImportedMessage(id: nil, clientMsgID: beat.clientID, author: author,
-                                        parts: [.object(["type": .string("text"), "text": .string(beat.text)])], createdAt: time)
+        let input = ImportInput(conversation: conversation, author: author, beats: beats.map(WireBeat.init), now: now.timeIntervalSince1970)
+        let reply: ImportReply = welcomeRule("welcome.importRequest", input,
+                                             fallback: ImportReply(request: .init(conversation: conversation, messages: [])))
+        return ConversationImportRequest(conversation: reply.request.conversation, messages: reply.request.messages.map {
+            ConversationImportedMessage(id: $0.id, clientMsgID: $0.clientMsgID, author: $0.author, parts: $0.parts, createdAt: $0.createdAt)
         })
     }
 
     /// Plays the welcome: for each beat, its quiet, Chief's dots for its typing time, then its message.
-    /// Without typing, all messages land in one import, at once.
+    /// Without typing, all messages land in one import, at once (`welcome.playSteps`).
     /// - Parameters:
     ///   - now: The messages' clock (each is dated when it lands).
     ///   - wait: Waits out a pause (the host's one-shot deadline; tests record it).
     /// - Throws: The owner's import error; the dots are gone and the later messages are not sent.
     public func play(now: @Sendable () -> Date = { Date() }, wait: @Sendable (Duration) async -> Void) async throws {
-        let beats = Self.makeBeats(about: text)
-        guard showsTyping else {
-            try await send(beats, now: now())
-            return
-        }
-        for beat in beats {
-            await wait(beat.quiet)
-            await owner.showChiefTyping(true)
-            await wait(beat.typing)
-            try await send([beat], now: now())
+        let plan: PlayReply = welcomeRule("welcome.playSteps", PlayInput(texts: Texts(about: text), showsTyping: showsTyping),
+                                          fallback: PlayReply(beats: [], steps: []))
+        let beats = plan.beats.map(\.beat)
+        for step in plan.steps {
+            switch step {
+            case .wait(let ms): await wait(.milliseconds(ms))
+            case .typing(let on): await owner.showChiefTyping(on)
+            case .importBeats(let indexes):
+                do {
+                    try await owner.importWelcome(request(indexes.filter(beats.indices.contains).map { beats[$0] }, now: now()))
+                } catch {
+                    await owner.showChiefTyping(false)
+                    throw error
+                }
+            }
         }
     }
+}
 
-    /// Stores `beats`, then takes the dots away (also when the import fails).
-    private func send(_ beats: [Beat], now: Date) async throws {
-        do {
-            try await owner.importWelcome(request(beats, now: now))
-        } catch {
-            await owner.showChiefTyping(false)
-            throw error
+// The welcome ops' wire shapes (cmux-home-rules `welcome/script.rs`).
+private nonisolated struct Texts: Encodable {
+    var hello = HomeStrings.chiefWelcomeHello
+    var about: String
+    var backgroundFormat = HomeStrings.chiefWelcomeBackgroundFormat
+}
+
+private nonisolated struct WireBeat: Codable {
+    var clientID: String
+    var text: String
+    var quietMs: Int64
+    var typingMs: Int64
+
+    init(_ beat: ChiefWelcome.Beat) {
+        clientID = beat.clientID
+        text = beat.text
+        quietMs = Self.milliseconds(beat.quiet)
+        typingMs = Self.milliseconds(beat.typing)
+    }
+
+    var beat: ChiefWelcome.Beat {
+        ChiefWelcome.Beat(clientID: clientID, text: text, quiet: .milliseconds(quietMs), typing: .milliseconds(typingMs))
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int64 {
+        duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
+    }
+}
+
+private nonisolated struct BeatsReply: Decodable {
+    var beats: [WireBeat]
+}
+
+private nonisolated struct PlayInput: Encodable {
+    var texts: Texts
+    var showsTyping: Bool
+
+    func encode(to encoder: any Encoder) throws {
+        try texts.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(showsTyping, forKey: .showsTyping)
+    }
+
+    private enum CodingKeys: String, CodingKey { case showsTyping }
+}
+
+private nonisolated struct PlayReply: Decodable {
+    var beats: [WireBeat]
+    var steps: [Step]
+
+    nonisolated enum Step: Decodable {
+        case wait(Int64)
+        case typing(Bool)
+        case importBeats([Int])
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: Keys.self)
+            switch try container.decode(String.self, forKey: .kind) {
+            case "wait": self = .wait(try container.decode(Int64.self, forKey: .ms))
+            case "typing": self = .typing(try container.decode(Bool.self, forKey: .on))
+            case "import": self = .importBeats(try container.decode([Int].self, forKey: .beats))
+            case let kind: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown step \(kind)")
+            }
         }
-        await owner.showChiefTyping(false)
+
+        private enum Keys: String, CodingKey { case kind, ms, on, beats }
+    }
+}
+
+private nonisolated struct ImportInput: Encodable {
+    var conversation: String
+    var author: String
+    var beats: [WireBeat]
+    var now: Double
+}
+
+private nonisolated struct ImportReply: Decodable {
+    var request: Request
+
+    nonisolated struct Request: Decodable {
+        var conversation: String
+        var messages: [Message]
+    }
+
+    nonisolated struct Message: Decodable {
+        var id: String?
+        var clientMsgID: String
+        var author: String
+        var parts: [JSONValue]
+        var createdAt: String
+
+        private enum CodingKeys: String, CodingKey {
+            case id, author, parts
+            case clientMsgID = "client_msg_id"
+            case createdAt = "created_at"
+        }
     }
 }
