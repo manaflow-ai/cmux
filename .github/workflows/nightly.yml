@@ -1299,6 +1299,8 @@ jobs:
           GHOSTTYKIT_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         run: |
           ./scripts/install-rust-ci.sh
+          # The Zig install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR), as the helper job.
+          export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
@@ -1597,6 +1599,9 @@ jobs:
           set -euo pipefail
           # Keep the pinned archives across jobs on this Mac. The installer checks their hashes on every hit.
           export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"
+          # The verified, patched Zig install itself, at its version-pinned path: a warm Mac reuses it with no
+          # download or extraction (install-zig-ci.sh ZIG_KEEP_DIR; 2.6 min cold in run 45562645699).
+          export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
 
@@ -2472,7 +2477,9 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
-          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache
+          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache,
+          # from the install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR).
+          export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
@@ -2570,7 +2577,8 @@ jobs:
           # Job-local install: this warm mini also runs classic jobs that need
           # the Zig 0.16.0 in /usr/local/bin, so never replace it from here.
           ZIG_FORCE_LOCAL_INSTALL: "1"
-        run: ./scripts/install-zig-ci.sh
+        # Reuses the Zig install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR); downloads only on a cold Mac.
+        run: ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig" ./scripts/install-zig-ci.sh
 
       - name: Build fast arm64 cmux-tui client
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
@@ -3290,9 +3298,9 @@ jobs:
     name: nightly webview checks
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.track == 'nightly-next' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha != '' && needs.decide.outputs.one_job != 'true'
-    # route-visual-gate-nightly's route: the all-nightly reservation, then the Linux pool, then Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 20 }}
+    # Bun, Node and Python only, no secret: the Linux pool, never a Mac (docs/ci/nightly-workflow-notes.md#note-51).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -3411,9 +3419,9 @@ jobs:
     name: nightly webview checks before the signer
     needs: decide
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.one_job == 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.head_sha != ''
-    # check-nightly-webviews' route: no secret, never the signing Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 15 }}
+    # check-nightly-webviews' route: no secret, never a Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
