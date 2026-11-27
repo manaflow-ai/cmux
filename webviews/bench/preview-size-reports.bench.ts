@@ -11,6 +11,7 @@
 //   bun bench/preview-size-reports.bench.ts [--runs 5]
 /// <reference types="bun" />
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 
 const runsArg = process.argv.indexOf("--runs");
 const runCount = runsArg > 0 ? Number(process.argv[runsArg + 1]) : 5;
@@ -46,8 +47,7 @@ function run(): number {
     addEventListener: (type: string, callback: () => void) => void (listeners[type] ??= []).push(callback),
     Element: class {},
   };
-  // oxlint-disable-next-line no-implied-eval -- runs the built report script against the stub scope above, on purpose.
-  new Function(...Object.keys(scope), script)(...Object.values(scope));
+  runInNewContext(script, scope);
   observers.forEach((callback) => callback());
   listeners.load?.forEach((callback) => callback());
   for (let frame = 0; frame < 120; frame++) {
