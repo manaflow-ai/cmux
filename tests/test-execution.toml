@@ -2479,6 +2479,10 @@ path = "tests/test_ci_risk_tier_grades_once.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_risk_tier_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prt_raw_base_files.py"
 lane = "linux-guard"
 
