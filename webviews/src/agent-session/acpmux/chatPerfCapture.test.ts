@@ -86,11 +86,11 @@ describe("chat perf capture: pure parts", () => {
 
   test("script time sums every script in long animation frames, not only the top list", () => {
     const scripts = Array.from({ length: 8 }, () => ({ invoker: "i", sourceURL: "u", duration: 10 }));
-    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame");
+    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame"); // motion-allow: a long-task entry's length, not motion
     expect(report.script_ms).toBe(80);
     expect(report.top_scripts).toHaveLength(1);
     // A longtask entry carries no script attribution: no number, not zero.
-    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull();
+    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull(); // motion-allow: a long-task entry's length, not motion
   });
 
   test("keydown-to-frame is the p95 of keydown entries, null when nobody typed", () => {
