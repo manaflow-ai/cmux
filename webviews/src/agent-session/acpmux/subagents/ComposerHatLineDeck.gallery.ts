@@ -53,6 +53,45 @@ const snapshotOf = (agents: readonly Subagent[], withCommand: boolean) =>
 
 const THREE = snapshotOf(AGENTS.slice(0, 3), false);
 const EIGHT = snapshotOf(AGENTS, true);
+/// Ten subagents, as in Leo's 2026-11-27 screenshot: eight marks and "+2 more" after the sentence.
+const TEN = snapshotOf(
+  [
+    ...AGENTS,
+    running("Trace the reconnect after relaunch", 2, "Read reconnect.rs", "claude"),
+    running("Measure the sidebar's first paint", 1, "Run bench:sidebar", "codex"),
+    running("Check every locale has the new strings", 1, "Grep xcstrings"),
+  ],
+  false,
+);
+
+/// Leo's screenshot (2026-11-27, ask-b6fc7a81c2): fourteen subagents and six background commands, so
+/// the deck shows eight marks and "+12 more", with the header open and its panel button showing.
+const FOURTEEN: readonly Subagent[] = [
+  ...AGENTS,
+  ...AGENTS.map((agent, index) => ({
+    ...agent,
+    id: `${agent.id}-again`,
+    task: `${agent.task}, second pass`,
+    startedAt: minutesAgo(index + 1),
+  })),
+];
+const TWENTY = chat([
+  user("Fan the review out and keep the checks running while I look", 12),
+  row(SUBAGENTS, 12, { subagents: [...FOURTEEN] }),
+  activity(
+    [
+      command("bun test --watch", "Watch the tests", 8),
+      command("bun run dev", "Run the dev server", 8),
+      command("cargo watch -x check", "Check the daemon", 7),
+      command("tail -f logs/app.log", "Follow the app log", 6),
+      command("bun run gallery", "Run the gallery", 5),
+      command("bun run typecheck --watch", "Typecheck", 4),
+    ],
+    11,
+  ),
+  assistant("The reviewers keep running in the background.", 1),
+  summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
+]);
 
 /// Each variant pins the one line and its arm, so a later default never changes what it shows.
 const pins = (arm: HatLineArm) => ({ "subagent-tray-fold-head": "line", "composer-hat-line-deck": arm });
@@ -69,6 +108,28 @@ const pointedAt = (n: number) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(MARK(n)));
   await ctx.hover({ selector: MARK(1) });
   await ctx.hover({ selector: MARK(n) });
+};
+
+/// Words win over marks (Leo, 2026-11-27: "compact these and drop them away in favour of text when
+/// things shrink"): the sentence is whole while any mark shows, and every mark shown is whole (a mark
+/// that no longer fits wraps out of the strip's one clipped row, never cut in half).
+const wordsWin = async (ctx: PlayContext) => {
+  await folded(ctx);
+  const TITLE = ".acpmux-running-tray[data-line] .acpmux-running-tray__title";
+  await ctx.waitFor(() => ctx.document.querySelector(TITLE) && ctx.document.querySelector(".acpmux-hat-deck"));
+  const title = ctx.find({ selector: TITLE }) as HTMLElement;
+  const deck = ctx.find({ selector: ".acpmux-hat-deck" }) as HTMLElement;
+  const box = deck.getBoundingClientRect();
+  const shown = [...deck.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark:not([data-blank])")].filter((mark) => {
+    const r = mark.getBoundingClientRect();
+    return r.top < box.bottom - 1 && r.left < box.right - 1;
+  });
+  for (const mark of shown) {
+    const r = mark.getBoundingClientRect();
+    if (r.right > box.right + 0.5) throw new Error("a mark is cut in half at the strip's end");
+  }
+  if (shown.length > 0 && title.scrollWidth > title.clientWidth + 1)
+    throw new Error(`the words truncate while ${shown.length} mark(s) still show`);
 };
 
 const arms: [HatLineArm, string][] = [
@@ -122,10 +183,32 @@ export default agentPaneEntry({
         ],
       ]),
     ),
+    "trail-ten": {
+      note: "Ten subagents, the pick: the sentence whole, then as many whole marks as fit. In the narrow pane the marks give way before a word does (Leo, 2026-11-27: \"drop them away in favour of text when things shrink\").",
+      play: wordsWin,
+      snapshot: TEN,
+      experiments: pins("trail"),
+    },
+    "lead-ten": {
+      note: "Ten subagents, marks leading: the marks give way before the sentence does.",
+      play: wordsWin,
+      snapshot: TEN,
+      experiments: pins("lead"),
+    },
     "trail-pointer-eight": {
       note: "The pick, the pointer on the fifth mark: the sentence stays (Leo, 2026-11-27: no hover swap); a click opens that subagent.",
       play: pointedAt(5),
       snapshot: EIGHT,
+      experiments: pins("trail"),
+    },
+    "trail-twenty-open": {
+      note: "Leo's case (ask-b6fc7a81c2): fourteen subagents and six commands, opened. The words turn ink, never the accent, with no chip; the panel button sits at the row's end, clear of \"+12 more\".",
+      play: async (ctx: PlayContext) => {
+        await folded(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__open"));
+      },
+      snapshot: TWENTY,
       experiments: pins("trail"),
     },
     "lead-pointer-eight": {
