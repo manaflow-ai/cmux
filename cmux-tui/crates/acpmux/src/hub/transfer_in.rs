@@ -773,6 +773,7 @@ impl Hub {
         } else {
             None
         };
+        steps.step("fence");
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
