@@ -27,7 +27,10 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
-  groupElapsed, ticking, useNow, STACK,
+  groupElapsed,
+  ticking,
+  useNow,
+  STACK,
 } from "./subagentGroupModel";
 import { Elapsed, subagentElapsedLabel } from "./Elapsed";
 import { Clock } from "../../../ui/Typography";

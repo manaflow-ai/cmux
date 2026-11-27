@@ -113,7 +113,9 @@ export function TasksSection({
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {typeof time === "string" ? (
             <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
-          ) : time}
+          ) : (
+            time
+          )}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (

@@ -26,7 +26,8 @@ const agent = (state: string): Subagent => ({
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
-    url: "http://localhost/", pretendToBeVisual: true,
+    url: "http://localhost/",
+    pretendToBeVisual: true,
   });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
@@ -81,8 +82,14 @@ test("a running subagent clock updates its leaf without re-rendering the row par
   let groupReads = 0;
   const liveAgent = agent("running");
   const row: AcpmuxRow = {
-    id: "group", version: 1, kind: "subagents", at: STARTED,
-    get subagents() { groupReads++; return [liveAgent]; },
+    id: "group",
+    version: 1,
+    kind: "subagents",
+    at: STARTED,
+    get subagents() {
+      groupReads++;
+      return [liveAgent];
+    },
   };
   const container = await render(<SubagentGroupHeader row={row} expanded={false} onToggle={() => {}} />);
   const time = () => container.querySelector(".cv-subagents__time")?.textContent;
@@ -99,7 +106,15 @@ test("a subagent that ended without a measurable span keeps the unknown time bla
   now = STARTED + 1_000;
   Date.now = () => now;
   const container = await render(
-    <SubagentListRow row={{ id: "end", version: 1, kind: "subagent", at: STARTED, subagents: [{ ...agent("completed"), endedAt: STARTED }] }} />,
+    <SubagentListRow
+      row={{
+        id: "end",
+        version: 1,
+        kind: "subagent",
+        at: STARTED,
+        subagents: [{ ...agent("completed"), endedAt: STARTED }],
+      }}
+    />,
   );
   expect(container.querySelector(".cv-subagent__time")).toBeNull();
 });

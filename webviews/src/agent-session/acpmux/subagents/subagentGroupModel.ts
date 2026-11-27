@@ -97,10 +97,13 @@ export function useSessionBoundary(boundaries: readonly number[]): number {
     }
     return lo;
   }, [boundaries, offset]);
-  const subscribe = useCallback((notify: () => void) => {
-    const next = () => (boundaries[position()] ?? Infinity) + offset;
-    return Number.isFinite(next()) ? subscribePageDeadline(notify, next) : () => {};
-  }, [boundaries, offset, position]);
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const next = () => (boundaries[position()] ?? Infinity) + offset;
+      return Number.isFinite(next()) ? subscribePageDeadline(notify, next) : () => {};
+    },
+    [boundaries, offset, position],
+  );
   const index = useSyncExternalStore(subscribe, position, position);
   return boundaries[index - 1] ?? -Infinity;
 }

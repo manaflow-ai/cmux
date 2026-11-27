@@ -385,12 +385,16 @@ function CommandList({
     <ul className="acpmux-session-info-list acpmux-workflow-commands">
       {ordered.map((command) => {
         const running = command.state === "running";
-        const duration = command.endedAt !== undefined && command.startedAt !== undefined
-          ? spanDuration(t, command.endedAt - command.startedAt)
-          : undefined;
-        const time = running && command.startedAt !== undefined
-          ? <Elapsed since={command.startedAt} clock="acpmux-session-info-task__time" />
-          : !running && duration !== undefined ? <Clock className="acpmux-session-info-task__time" text={duration} /> : null;
+        const duration =
+          command.endedAt !== undefined && command.startedAt !== undefined
+            ? spanDuration(t, command.endedAt - command.startedAt)
+            : undefined;
+        const time =
+          running && command.startedAt !== undefined ? (
+            <Elapsed since={command.startedAt} clock="acpmux-session-info-task__time" />
+          ) : !running && duration !== undefined ? (
+            <Clock className="acpmux-session-info-task__time" text={duration} />
+          ) : null;
         const label = sendLabel(t, command) ?? commandLabel(command);
         return (
           <li
@@ -418,7 +422,8 @@ function CommandList({
 /// bridge when one is supplied; without it they remain inert.
 export function WorkflowAgentRow({
   workflow,
-  agent, now,
+  agent,
+  now,
   shared,
   commands = NO_COMMANDS,
   onStopCommand,
@@ -504,9 +509,13 @@ export function WorkflowAgentRow({
             <Icon name={outputOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
         )}
-        <WorkflowAgentButton agent={agent} now={now} className={className}
+        <WorkflowAgentButton
+          agent={agent}
+          now={now}
+          className={className}
           label={[agent.name, modelLabel, message, state].filter(Boolean).join(", ")}
-          onOpen={openable ? () => onOpenWorkflowAgent?.(agent) : undefined}>
+          onOpen={openable ? () => onOpenWorkflowAgent?.(agent) : undefined}
+        >
           {content}
         </WorkflowAgentButton>
       </div>
@@ -527,19 +536,38 @@ export function WorkflowAgentRow({
 
 // The button's accessible name includes the same elapsed text as its last column. Its stable
 // children (identity, message and state) pass through untouched when the label ticks.
-function WorkflowAgentButton({ agent, now, className, label, onOpen, children }: {
-  agent: WorkflowAgent; now?: number; className: string; label: string; onOpen?: () => void; children: ReactNode;
+function WorkflowAgentButton({
+  agent,
+  now,
+  className,
+  label,
+  onOpen,
+  children,
+}: {
+  agent: WorkflowAgent;
+  now?: number;
+  className: string;
+  label: string;
+  onOpen?: () => void;
+  children: ReactNode;
 }) {
   const live = agent.state === "running" && agent.startedAt !== undefined && agent.elapsedMs === undefined;
   const sample = useNow(live && now === undefined);
   const ms = agent.elapsedMs ?? (live ? Math.max(0, (now ?? sample) - agent.startedAt!) : undefined);
-  const time = agent.state === "waiting" || agent.state === "pending" || ms === undefined ? undefined : formatDuration(ms);
+  const time =
+    agent.state === "waiting" || agent.state === "pending" || ms === undefined ? undefined : formatDuration(ms);
   const elapsed = <span className="acpmux-session-info-task__time">{time}</span>;
   return onOpen ? (
     <button type="button" className={className} aria-label={time ? `${label}, ${time}` : label} onClick={onOpen}>
-      {children}{elapsed}
+      {children}
+      {elapsed}
     </button>
-  ) : <div className={className}>{children}{elapsed}</div>;
+  ) : (
+    <div className={className}>
+      {children}
+      {elapsed}
+    </div>
+  );
 }
 
 /// A finished agent's output at the row's detail size: its first lines, Show more opening the rest

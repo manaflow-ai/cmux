@@ -91,9 +91,13 @@ export function AgentCard({
     : undefined;
   const quiet = state === "working" && !slot && !stateLabel;
   const stateText = state ? (quiet ? "" : stateWord) : undefined;
-  const join = (parts: readonly ReactNode[]) => parts.filter(Boolean).map((part, index) => (
-    <Fragment key={index}>{index > 0 && " · "}{part}</Fragment>
-  ));
+  const join = (parts: readonly ReactNode[]) =>
+    parts.filter(Boolean).map((part, index) => (
+      <Fragment key={index}>
+        {index > 0 && " · "}
+        {part}
+      </Fragment>
+    ));
   if (disclosure) {
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (

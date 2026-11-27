@@ -123,7 +123,13 @@ export function SubagentStatusList({
           status={status}
           state={subagentStateText(t, agent, waiting, connectionQuiet)}
           working={Boolean(retrying(agent))}
-          time={<Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} ended={!ticking(agent)} />}
+          time={
+            <Elapsed
+              since={agent.startedAt}
+              until={awaitsOwnWork(agent) ? undefined : agent.endedAt}
+              ended={!ticking(agent)}
+            />
+          }
           iconSize={ROW_ICON}
           depth={depth}
           current={agent.id === current}

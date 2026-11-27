@@ -214,45 +214,45 @@ export function BackgroundTasksPanel({
             onClose={onClose}
           >
             <ListVisible.Provider value={!drill}>
-            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
-              {groups.length === 0 ? (
-                <p className="acpmux-bg__empty">
-                  {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
-                </p>
-              ) : (
-                sections.map((section) => (
-                  <Section
-                    key={section.id}
-                    id={section.id}
-                    count={section.groups.length + section.commands.length}
-                    openAt={focusedIn(section.commands, target)}
-                  >
-                    {section.commands.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        openAt={focusedIn([task], target)}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                    {section.groups.map((group, index) => (
-                      <GroupBlock
-                        key={group.id}
-                        group={group}
-                        look={look}
-                        startsOpen={section.id === "running" && index === 0}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenSession={onOpenSession}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                  </Section>
-                ))
-              )}
-            </div>
+              <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+                {groups.length === 0 ? (
+                  <p className="acpmux-bg__empty">
+                    {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
+                  </p>
+                ) : (
+                  sections.map((section) => (
+                    <Section
+                      key={section.id}
+                      id={section.id}
+                      count={section.groups.length + section.commands.length}
+                      openAt={focusedIn(section.commands, target)}
+                    >
+                      {section.commands.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          openAt={focusedIn([task], target)}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                      {section.groups.map((group, index) => (
+                        <GroupBlock
+                          key={group.id}
+                          group={group}
+                          look={look}
+                          startsOpen={section.id === "running" && index === 0}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenSession={onOpenSession}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                    </Section>
+                  ))
+                )}
+              </div>
             </ListVisible.Provider>
             {drill?.workflow && workflow && (
               // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
@@ -707,9 +707,7 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={
-          taskTime(t, task.startedAt, task.endedAt, task.state === "running")
-        }
+        time={taskTime(t, task.startedAt, task.endedAt, task.state === "running")}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
         openAt={openAt}

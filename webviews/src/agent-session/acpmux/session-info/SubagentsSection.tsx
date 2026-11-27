@@ -43,9 +43,15 @@ import { IDLE_AFTER_MS } from "../subagents/idle";
 import { subagentElapsedLabel } from "../subagents/Elapsed";
 
 function useIdleBoundary(agents: readonly Subagent[]) {
-  const boundaries = useMemo(() => agents.flatMap(agent =>
-    running(agent) && agent.quietSince !== undefined ? [agent.quietSince + IDLE_AFTER_MS] : []
-  ).sort((a, b) => a - b), [agents]);
+  const boundaries = useMemo(
+    () =>
+      agents
+        .flatMap((agent) =>
+          running(agent) && agent.quietSince !== undefined ? [agent.quietSince + IDLE_AFTER_MS] : [],
+        )
+        .sort((a, b) => a - b),
+    [agents],
+  );
   return useSessionBoundary(boundaries);
 }
 
