@@ -1548,12 +1548,6 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
-          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
-
       # The sysroot must be the reviewed archive (sha256) with mingw-w64 13.0.0, UCRT and GCC
       # 15.2.0's runtime (package_notices.py check-windows-sysroot), and every binary may name
       # no GCC build but the reviewed one (check-windows-binary); the script runs both.
