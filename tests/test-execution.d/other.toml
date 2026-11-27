@@ -115,10 +115,6 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cas_acpmux_update_replay.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cas_derived_data_replay.py"
 lane = "linux-guard"
 
@@ -235,10 +231,6 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_egress_new_sites.py"
 
 [[test]]
-path = "tests/test_egress_seeded.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
@@ -311,10 +303,6 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_git_mirror_bundle.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_github_git_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -696,8 +684,7 @@ reason = "Static check run by the author on the fleet; kept manual under the 202
 
 [[test]]
 path = "tests/test_png_opaque.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_png_opaque.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
@@ -858,8 +845,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_rivals_restart.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rivals_restart.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_checks_concurrently.py"
@@ -977,10 +963,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_sparse_checkout_keeps_gitmodules.py"
 lane = "linux-guard"
 
 [[test]]

@@ -64,6 +64,9 @@ class ReportTest(unittest.TestCase):
             self.assertIn("**No base rows**: `transcript-replay: long FAILED: page never attached`", text)
             self.assertIn("| token | - → 5 | - → 6 |", text)
             self.assertIn("| head | - | 50 ms |", text)
+            (d / "duress-before.json").write_text(json.dumps({"frame_p95_ms": None, "error": "error: no playwright\nBun"}))
+            text = "\n".join(report_mod.report(str(d), "a" * 40, "b" * 40, "c")[0])
+            self.assertIn("**base duress reading failed**: `error: no playwright`", text)
             self.assertEqual(report_mod.main([str(d)]), 0)
             self.assertEqual(report_mod.main([str(d / "missing")]), 0)
 

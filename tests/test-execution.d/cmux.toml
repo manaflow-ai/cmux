@@ -111,10 +111,6 @@ path = "tests/test_cmux_next_dev_daily_notify_cli.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_next_dev_daily_sign_ephemeral.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_dev_daily_tree_wait.py"

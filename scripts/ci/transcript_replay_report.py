@@ -145,6 +145,10 @@ def report(directory: str, base: str, head: str, klass: str) -> tuple[list[str],
             out.append(f"| {label} | {fmt(d.get('frame_p50_ms'), ' ms')} | {fmt(d.get('frame_p95_ms'), ' ms')} | "
                        f"{fmt(d.get('frame_p99_ms'), ' ms')} | {fmt(d.get('renderer_main_busy_pct'), '%')} | "
                        f"{fmt(d.get('long_tasks'))} | {fmt(d.get('load_per_core'))} |")
+        for label, d in duress.items():
+            if d.get("frame_p95_ms") is None and d.get("error"):
+                why = str(d["error"]).strip().splitlines()[0][:300]
+                out.append(f"\n**{label} duress reading failed**: `{why}`")
     else:
         out.append("Duress not run on this class (no stress-ng on the runner).")
     out += ["", f"A kind reads as a regression when its head ms p95 is past {MS_BOUND:g} ms and {MS_SHARE:.0%} of "
