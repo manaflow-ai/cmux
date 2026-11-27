@@ -82,11 +82,15 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "allow_unadvertised_capability",
-    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
+    "name", "doc", "order", "fields", "legacy_fields", "legacy_inits", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
+_LEGACY_FIELD_KEYS = frozenset({"type", "doc", "default", "optional"})
+_LEGACY_INIT_KEYS = frozenset({"availability", "params", "body"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 WHEN_TRUE = "when_true"
+DECIMAL_STRING = "decimal_string"
+LEFT_SIDE = "left_side"
 _FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
 _FLATTEN_KEYS = frozenset({"type", "doc", "default", "optional"})
 MUTATION = "mutation"
@@ -224,6 +228,8 @@ class _Field:
     encode_when: str | None = None
     # A flattened value encoded into the request object.
     flat: str | None = None
+    # A compatibility-only stored property may provide its own encoding statement.
+    custom_encode: str | None = None
 
     @property
     def custom_read(self) -> bool:
@@ -243,9 +249,13 @@ class _Field:
 
     @property
     def keyed(self) -> bool:
-        return not self.mutation and self.flat is None
+        return self.on_wire and not self.mutation and self.flat is None
 
     def encode_line(self) -> str:
+        if self.custom_encode is not None:
+            return f"        {self.custom_encode}"
+        if not self.on_wire:
+            return ""
         if self.mutation:
             return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
         if self.flat is not None:
@@ -378,6 +388,10 @@ class _Renderer:
                 f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
             )
             encode_when = override.get("encode_when")
+            field_name = _escaped(override["name"]) if "name" in override else swift_name(wire)
+            when_true = False
+            decimal_string = False
+            custom_encode = None
             swift_type = override.get("type") or self.swift_type(
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
@@ -402,17 +416,32 @@ class _Renderer:
                     optional = override["optional"]
                 always = required
                 when_true = override.get("encode") == WHEN_TRUE
+                decimal_string = override.get("encode") == DECIMAL_STRING
                 if when_true:
                     if (required or spec["type"] != {"kind": "scalar", "name": "boolean"} or update
                             or "optional" in override or override.get("type", "Bool") != "Bool"):
                         raise BindingError(f"{where}.{wire}: encode when_true is only for an optional boolean")
                     swift_type, optional, always = "Bool", False, True
-                elif "encode" in override:
+                elif "encode" in override and not decimal_string:
                     if override["encode"] not in _ENCODE_MODES or update:
                         raise BindingError(
                             f"{where}.{wire}: encode is always, if_present or when_true, and not with update"
                         )
                     always = _ENCODE_MODES[override["encode"]]
+                elif decimal_string:
+                    if update or not optional or swift_type not in {"UInt64", "Int64", "UInt32", "Int32", "Int"}:
+                        raise BindingError(
+                            f"{where}.{wire}: encode decimal_string needs an optional integer Swift type"
+                        )
+                    always = False
+                elif override.get("encode") == LEFT_SIDE:
+                    if wire != "side" or update or not optional:
+                        raise BindingError(f"{where}.{wire}: encode left_side is only for optional side")
+                    always = False
+                    custom_encode = (
+                        'if left { try container.encode("left", forKey: .side) } '
+                        'else { try container.encodeIfPresent(side, forKey: .side) }'
+                    )
                 if not optional and not always:
                     raise BindingError(f"{where}.{wire}: a field that is not Optional is always encoded")
                 default = override.get("default", "false" if when_true else None)
@@ -439,7 +468,7 @@ class _Renderer:
                 )
             result.append(_Field(
                 wire=wire,
-                name=_escaped(override["name"]) if "name" in override else swift_name(wire),
+                name=field_name,
                 swift_type=swift_type,
                 optional=optional,
                 always_encoded=always,
@@ -451,6 +480,11 @@ class _Renderer:
                 update=update,
                 when_true=when_true if not read else False,
                 encode_when=encode_when if not read else None,
+                custom_encode=custom_encode or (
+                    f"if let {field_name} {{ try container.encode(String({field_name}), "
+                    f"forKey: .{_bare(field_name)}) }}"
+                    if decimal_string and not read else None
+                ),
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:
@@ -576,8 +610,40 @@ class _Renderer:
                 doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
                 mutation=True,
             )
+        legacy = binding.get("legacy_fields", {})
+        if not isinstance(legacy, Mapping):
+            raise BindingError(f"{command}.legacy_fields must be an object")
+        for name, spec in legacy.items():
+            if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
+                raise BindingError(f"{command}.legacy_fields: {name!r} is not a Swift property name")
+            if name in synthetic:
+                raise BindingError(f"{command}.legacy_fields.{name}: property is already generated")
+            spec = _check_keys(f"{command}.legacy_fields.{name}", spec, _LEGACY_FIELD_KEYS)
+            if "type" not in spec or not isinstance(spec["type"], str) or not spec["type"].strip():
+                raise BindingError(f"{command}.legacy_fields.{name}: type is a Swift type expression")
+            optional = spec.get("optional", False)
+            if not isinstance(optional, bool):
+                raise BindingError(f"{command}.legacy_fields.{name}: optional is true or false")
+            default = spec.get("default")
+            if default is not None and (not isinstance(default, str) or not default):
+                raise BindingError(f"{command}.legacy_fields.{name}: default is a Swift expression")
+            synthetic[name] = _Field(
+                wire=name,
+                name=_escaped(name),
+                swift_type=spec["type"],
+                optional=optional,
+                always_encoded=False,
+                doc=list(spec.get("doc", ())),
+                default=default,
+                on_wire=False,
+            )
+        unknown_legacy_order = set(name for name in legacy if name not in order)
+        if unknown_legacy_order:
+            order.extend(sorted(unknown_legacy_order))
         schema_order = [wire for wire in order if wire not in synthetic]
         generated = self.fields(command, schema_fields, binding.get("fields", {}), schema_order, nested)
+        if binding.get("fields", {}).get("side", {}).get("encode") == LEFT_SIDE and "left" not in synthetic:
+            raise BindingError(f"{command}.fields.side: encode left_side needs legacy_fields.left")
         if set(synthetic) & {_bare(item.name) for item in generated}:
             raise BindingError(f"{command}: a field already has the name of a flattened or mutation property")
         ordered, rest = iter(generated[:len(schema_order)]), generated[len(schema_order):]
@@ -618,7 +684,26 @@ class _Renderer:
             if keyed:
                 out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
             flat = [item for item in fields if item.flat is not None]
-            out += [item.encode_line() for item in [*keyed, *flat, *(item for item in fields if item.mutation)]]
+            out += [item.encode_line() for item in [*(item for item in keyed if item.custom_encode is None), *flat,
+                                                     *(item for item in fields if item.mutation),
+                                                     *(item for item in fields if item.custom_encode is not None)]]
+            out.append("    }")
+        for init in binding.get("legacy_inits", ()):
+            init = _check_keys(f"{command}.legacy_inits", init, _LEGACY_INIT_KEYS)
+            params = init.get("params")
+            body = init.get("body")
+            if not isinstance(params, list) or any(not isinstance(item, str) or not item.strip() for item in params):
+                raise BindingError(f"{command}.legacy_inits.params must be a list of Swift parameter declarations")
+            if not isinstance(body, list) or any(not isinstance(item, str) or not item.strip() for item in body):
+                raise BindingError(f"{command}.legacy_inits.body must be a list of Swift statements")
+            availability = init.get("availability")
+            if availability is not None and (not isinstance(availability, str) or not availability.strip()):
+                raise BindingError(f"{command}.legacy_inits.availability must be a Swift declaration")
+            out.append("")
+            if availability:
+                out.append(f"    {availability}")
+            out.append(f"    public init({', '.join(params)}) {{")
+            out += [f"        {line}" for line in body]
             out.append("    }")
         if response == GENERATE:
             out += ["", *self.response(command, schema["result"], binding)]
