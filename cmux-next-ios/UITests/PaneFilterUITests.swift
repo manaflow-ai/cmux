@@ -15,7 +15,8 @@ final class PaneFilterUITests: XCTestCase {
     func testTheFilterShowsBrowsersByDefaultAndCanHideThem() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
+        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
+                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers"]
         app.launch()
 
         let choose = app.scrollViews["setup.teams.choose"]
@@ -63,6 +64,13 @@ final class PaneFilterUITests: XCTestCase {
         dismissMenu(app)
         expectCards(cards, 2, "agents and browsers")
         attach(app, "5-agents-browsers")
+
+        more.tap()
+        let allPanes = app.buttons["Agents and Terminals"].firstMatch
+        XCTAssertTrue(allPanes.waitForExistence(timeout: 5), "Agents and Terminals\n\(app.debugDescription)")
+        allPanes.tap()
+        dismissMenu(app)
+        expectCards(cards, 3, "restored default")
     }
 
     @MainActor

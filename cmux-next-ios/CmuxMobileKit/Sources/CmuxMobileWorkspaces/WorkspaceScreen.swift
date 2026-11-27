@@ -417,6 +417,7 @@ struct WorkspaceGridHeader: View {
             .lineLimit(1)
             .frame(maxWidth: .infinity)
             Color.clear.frame(width: metrics.overviewTopControl, height: 1)
+                .allowsHitTesting(false)
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)

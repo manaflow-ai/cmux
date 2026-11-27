@@ -23,7 +23,7 @@ public struct PaneFilterControl: View {
 
         var title: String {
             switch self {
-            case .menu: "A · Menu beside More (shipped)"
+            case .menu: "A · Menu"
             case .segmented: "B · Segmented row under the title"
             case .chips: "C · Filter chips"
             }
@@ -102,20 +102,8 @@ public struct PaneFilterControl: View {
                     Label("Show Browsers", systemImage: "globe")
                 }
             } footer: {
-                if let hidden = hiddenLine { Text(hidden) }
+                if let hidden = paneFilterHiddenLine(result) { Text(hidden) }
             }
-        }
-
-        private var hiddenLine: String? {
-            guard let result, result.filtering else { return nil }
-            var parts: [String] = []
-            if result.hiddenTerminals > 0 {
-                parts.append(result.hiddenTerminals == 1 ? "1 terminal" : "\(result.hiddenTerminals) terminals")
-            }
-            if result.hiddenBrowsers > 0 {
-                parts.append(result.hiddenBrowsers == 1 ? "1 browser" : "\(result.hiddenBrowsers) browsers")
-            }
-            return parts.joined(separator: ", ") + " hidden"
         }
     }
 
@@ -184,15 +172,7 @@ public struct PaneFilterControl: View {
     }
 
     private var hiddenLine: String? {
-        guard let result, result.filtering else { return nil }
-        var parts: [String] = []
-        if result.hiddenTerminals > 0 {
-            parts.append(result.hiddenTerminals == 1 ? "1 terminal" : "\(result.hiddenTerminals) terminals")
-        }
-        if result.hiddenBrowsers > 0 {
-            parts.append(result.hiddenBrowsers == 1 ? "1 browser" : "\(result.hiddenBrowsers) browsers")
-        }
-        return parts.joined(separator: ", ") + " hidden"
+        paneFilterHiddenLine(result)
     }
 
     private var accessibilityValue: String {
@@ -239,10 +219,25 @@ public struct PaneFilterGallery: View {
         HStack(spacing: 12) {
             PaneFilterControl(setting: setting, style: style,
                               result: PaneFilterResult(shown: [0], hiddenTerminals: hidden.terminals,
-                                                       hiddenBrowsers: hidden.browsers, filtering: true))
+                                                       hiddenBrowsers: hidden.browsers,
+                                                       filtering: hidden.terminals + hidden.browsers > 0))
             Text(caption).font(.footnote).foregroundStyle(theme.colors.label2.color)
         }
     }
 }
 #endif
+#endif
+
+#if os(iOS)
+private func paneFilterHiddenLine(_ result: PaneFilterResult?) -> String? {
+    guard let result, result.filtering else { return nil }
+    var parts: [String] = []
+    if result.hiddenTerminals > 0 {
+        parts.append(result.hiddenTerminals == 1 ? "1 terminal" : "\(result.hiddenTerminals) terminals")
+    }
+    if result.hiddenBrowsers > 0 {
+        parts.append(result.hiddenBrowsers == 1 ? "1 browser" : "\(result.hiddenBrowsers) browsers")
+    }
+    return parts.joined(separator: ", ") + " hidden"
+}
 #endif

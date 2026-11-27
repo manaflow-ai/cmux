@@ -82,7 +82,7 @@ import CmuxTabsKit
         setting.showsBrowsers = false
         #expect(source.tabs.map(\.id) == ["t-claude"])
         setting.filter = paneFilterDefault()
-        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
     }
 
     @Test func theChoiceIsKeptAcrossLaunches() throws {
@@ -91,7 +91,12 @@ import CmuxTabsKit
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = PaneFilterSetting(defaults: defaults)
         #expect(first.filter == paneFilterDefault())
-        first.filter = PaneFilter(scope: .agents, showBrowsers: true)
+        #expect(first.showsBrowsers)
+        first.filter = PaneFilter(scope: .agentsAndTerminals, showBrowsers: false)
+        let reloaded = PaneFilterSetting(defaults: defaults)
+        #expect(reloaded.filter == PaneFilter(scope: .agentsAndTerminals, showBrowsers: false))
+        #expect(!reloaded.showsBrowsers)
+        reloaded.filter = PaneFilter(scope: .agents, showBrowsers: true)
         #expect(PaneFilterSetting(defaults: defaults).filter == PaneFilter(scope: .agents, showBrowsers: true))
         defaults.set("from-a-newer-build", forKey: PaneFilterSetting.key)
         #expect(PaneFilterSetting(defaults: defaults).filter == paneFilterDefault())
