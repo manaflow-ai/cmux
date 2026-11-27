@@ -162,27 +162,18 @@ class PlanTest(unittest.TestCase):
     def test_status_posts_the_context_capped(self) -> None:
         seen = []
 
-        class Resp:
-            status = 201
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        def fake(req, timeout=0):
+        def fake(req, seconds=0, **kw):
             seen.append((req.full_url, json.loads(req.data), req.headers["Authorization"]))
             if len(seen) == 1:
                 raise OSError("spent")
-            return Resp()
+            return 201, b"{}", {}
 
-        old = fv.urllib.request.urlopen
-        fv.urllib.request.urlopen = fake
+        old = fv.gh_http.request
+        fv.gh_http.request = fake
         try:
             self.assertTrue(fv.post_status("pending", "d" * 300, "o/r", "abc", ["t1", "t2"], pause=0))
         finally:
-            fv.urllib.request.urlopen = old
+            fv.gh_http.request = old
         self.assertEqual([s[2] for s in seen], ["Bearer t1", "Bearer t2"])
         self.assertEqual(seen[1][0], "https://api.github.com/repos/o/r/statuses/abc")
         self.assertEqual(seen[1][1]["context"], "cmux/ios-fast")
@@ -241,6 +232,62 @@ class RouterStatusTest(unittest.TestCase):
         for args in ((["docs/a.md"], [], ""), ([KIT + "P.swift"], ["pr-pipeline.yml"], ""),
                      ([KIT + "P.swift"], [], "success"), ([KIT + "P.swift"], [], "pending")):
             self.assertLessEqual(len(self.status(self.event(), *args)[1]), 140)
+
+
+class LandAffectedRouteTest(unittest.TestCase):
+    """pr_router.route on a landing head the hourly full tier rule keeps on the affected tier: an iOS-affecting one
+    starts pr-pipeline.yml for the ios fast verdict alone, so nothing iOS merges uncompiled (Leo, 2026-11-27: "like
+    idk if he just kept getting bottled on random stuff that we can juts fix fundamentally")."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import head_tier
+        import pr_router
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+        cls.affected = ("cheap", head_tier.LAND_AFFECTED_REASON + ": the full tier runs once an hour")
+
+    def event(self) -> dict:
+        return {"action": "synchronize", "pull_request": {
+            "draft": False, "labels": [{"name": "ready-to-land"}],
+            "base": {"ref": "feat-cmux-next", "repo": {"full_name": "o/r"}},
+            "head": {"ref": "lane/x", "repo": {"full_name": "o/r"}}}}
+
+    def route(self, files: list[str] | None, decided: tuple[str, str] | None = None) -> tuple[list[str], dict]:
+        return self.router.route(self.event(), self.callees, files, decided=decided or self.affected)
+
+    def test_an_ios_landing_head_starts_the_verdict(self) -> None:
+        start, why = self.route([KIT + "Tests/CmuxMobileKitTests/A.swift"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("ios fast verdict", why["pr-pipeline.yml"])
+        # No table job: linux, web-browser, ios and mac stay off (pr-pipeline.yml's job ifs read `[]`).
+        self.assertEqual(self.router.table_jobs_routed(self.callees, [KIT + "Package.swift"], full=False), [])
+        self.assertEqual(self.router.ios_status(self.event(), [KIT + "Package.swift"], start, "success")[0],
+                         "pending")
+
+    def test_an_ffi_crate_landing_head_starts_the_verdict(self) -> None:
+        self.assertIn("pr-pipeline.yml", self.route(["cmux-tui/crates/cmux-wg/src/a.rs"])[0])
+
+    def test_unknown_files_start_the_verdict(self) -> None:
+        self.assertIn("pr-pipeline.yml", self.route(None)[0])
+
+    def test_a_landing_head_off_ios_starts_nothing(self) -> None:
+        self.assertNotIn("pr-pipeline.yml", self.route(["web/app/page.tsx"])[0])
+
+    def test_a_cheap_head_not_landing_still_waits(self) -> None:
+        start, why = self.route([KIT + "Package.swift"], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+
+    def test_the_switch_off_starts_nothing(self) -> None:
+        old = os.environ.get("CI_IOS_FAST_VERDICT")
+        os.environ["CI_IOS_FAST_VERDICT"] = "0"
+        try:
+            self.assertNotIn("pr-pipeline.yml", self.route([KIT + "Package.swift"])[0])
+        finally:
+            if old is None:
+                os.environ.pop("CI_IOS_FAST_VERDICT")
+            else:
+                os.environ["CI_IOS_FAST_VERDICT"] = old
 
 
 class WorkflowTest(unittest.TestCase):
