@@ -18,8 +18,27 @@ pub(super) const FILE: &str = "cmux-design.json";
 /// The format a design system file declares.
 const FORMAT: &str = "cmux.design/1";
 
+/// The SDK's scales, each step tied to the app scale it comes from: the file
+/// `scripts/cmux-next/gen-type-scale.py` writes the SDK's `SPACE` from (its `--check` fails when
+/// the two drift), so the check holds a scene to the steps the SDK names.
+const SCENE_SCALE: &str = include_str!("../../../../../../schemas/design-scale/scene-scale.json");
+
 /// cmux's spacing scale, in points (the SDK's `SPACE`): a 4 pt grid with 2 and 6 for tight rows.
-const CMUX_SPACE: [f64; 11] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
+fn cmux_space() -> Vec<f64> {
+    static SPACE: std::sync::OnceLock<Vec<f64>> = std::sync::OnceLock::new();
+    // Built in and read by the tests, so a file that does not read is caught there; at run time it
+    // leaves the check with no steps rather than ending the CLI.
+    SPACE
+        .get_or_init(|| {
+            serde_json::from_str::<Value>(SCENE_SCALE)
+                .ok()
+                .and_then(|scale| {
+                    scale["space"].as_array()?.iter().map(|step| step["px"].as_f64()).collect()
+                })
+                .unwrap_or_default()
+        })
+        .clone()
+}
 
 /// The cmux color roles a person's color names may stand for (the ones that keep contrast).
 const COLOR_ROLES: [&str; 8] =
@@ -81,7 +100,7 @@ impl System {
                     weight: role.weight.clone(),
                 })
                 .collect(),
-            space: CMUX_SPACE.to_vec(),
+            space: cmux_space(),
             colors: BTreeMap::new(),
             max_roles: 4,
             max_accents: 2,

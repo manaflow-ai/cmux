@@ -23,7 +23,11 @@ import {
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
+  type CloudUsage,
+  type CloudSurge,
 } from "./ops";
+
+import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
 
 export { sampleMachines } from "./mockData";
 
@@ -104,6 +108,8 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
   machines: CloudMachine[] = sampleMachines();
+  /** The latest surge the list's last page reports (the server computes it); absent: no surge. */
+  surge?: CloudSurge;
   snapshots: CloudSnapshot[] = sampleSnapshots();
   account = sampleAccount();
   /** Machines whose daemon reports `fs-v1`; file ops on the others answer `unsupported`. */
@@ -117,6 +123,8 @@ export class MockCloudProvider implements PageClient {
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
+  /** Every call of this op fails as `failNext` does, until cleared (a read that stays down). */
+  failAlways?: string;
   /** The code (and backend text "raw backend text") of the `failNext` failure; default upstream_error. */
   failCode?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
@@ -157,6 +165,10 @@ export class MockCloudProvider implements PageClient {
    * create answers `spend_cap_reached`. Unset: a server without the cap.
    */
   spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The plan's hours and the spend limit past them as `cloud.plan.get` answers them (RFD 0081, pool.ts). */
+  pool?: PoolStanding;
+  /** The spend limit's setter answers `spend_limit_forbidden` (the caller is not a team admin). */
+  spendLimitForbidden = false;
   /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
   memberBudget?: { spent_usd: number; limit_usd: number };
   /**
@@ -164,6 +176,13 @@ export class MockCloudProvider implements PageClient {
    * true answers `{payment_past_due: true}`; `"fail"` makes the read fail.
    */
   paymentPastDue: boolean | "fail" = false;
+  /**
+   * This month's usage (`cloud.usage.current`): a record answers it, `"fail"` makes the read fail, `"hold"`
+   * never answers (the loading state). Unset: a server that does not serve it.
+   */
+  usage?: CloudUsage | "fail" | "hold";
+  /** Checkout answers `cloud.billing.off` (payments not open yet). */
+  billingOff = false;
   /** How many times Manage Billing (`billing.openPortal`) ran. */
   billingPortalOpens = 0;
   holdTransfers: boolean;
@@ -201,8 +220,8 @@ export class MockCloudProvider implements PageClient {
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (this.failNext === op) {
-      this.failNext = undefined;
+    if (this.failNext === op || this.failAlways === op) {
+      if (this.failNext === op) this.failNext = undefined;
       if (this.failCode) throw pageError(this.failCode, "raw backend text", false);
       throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
@@ -213,6 +232,13 @@ export class MockCloudProvider implements PageClient {
     if (op === ACTION_RUN && p.action === CloudActions.manageBilling)
       return ((this.billingPortalOpens += 1), { ran: true }) as R;
     if (op === ACTION_RUN) return this.runAction(p) as R;
+    if (op === CloudOps.usageCurrent) {
+      if (this.usage === undefined) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+      if (this.usage === "fail")
+        throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
+      if (this.usage === "hold") return new Promise<R>(() => {});
+      return structuredClone(this.usage) as R;
+    }
     if (op === CloudOps.billingStatus) {
       if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
       if (this.paymentPastDue === "fail") throw pageError("cmux.cloud.unavailable", "cmux.com did not answer", true);
@@ -273,7 +299,8 @@ export class MockCloudProvider implements PageClient {
       },
       ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
       ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
-    };
+      ...(this.pool ? { pool: { ...this.pool } } : {}),
+    } as CloudPlan;
   }
 
   /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
@@ -379,7 +406,12 @@ export class MockCloudProvider implements PageClient {
 
   /** The account stream's event: the auth status plus the user. */
   private accountEvent() {
-    return { ...this.authStatus(), user: this.signedIn ? this.user : null };
+    // Signed out, the app's line under Sign In (a dev build's, as the gallery shows it).
+    return {
+      ...this.authStatus(),
+      user: this.signedIn ? this.user : null,
+      ...(!this.signedIn && { signInBackend: "Signs in to Development backend · dev-abc.cmux.dev" }),
+    };
   }
 
   private machine(params: Params): CloudMachine {
@@ -538,6 +570,7 @@ export class MockCloudProvider implements PageClient {
           machines: this.machines.slice(start, end),
           next_cursor: end < this.machines.length ? `cur_${end}` : null,
           revision: this.revision,
+          ...(end >= this.machines.length && this.surge ? { surge: this.surge } : {}),
         };
         this.onList?.();
         return result;
@@ -679,7 +712,8 @@ export class MockCloudProvider implements PageClient {
         return this.plan;
       case CloudOps.billingCheckout:
         only(p, ["plan"]);
-        return { url: `https://checkout.example.test/c/${String(p.plan)}` };
+        if (this.billingOff) throw pageError("cmux.cloud.billing_off", "payments are not open yet");
+        return { url: `https://checkout.example.test/c/${p.plan === undefined ? "card" : String(p.plan)}` };
       case CloudOps.migrationStatus:
         only(p, []);
         return { ...a.migration };
@@ -709,9 +743,26 @@ export class MockCloudProvider implements PageClient {
     return this.fs.serve(op, p, machine.id);
   }
 
+  /**
+   * The spend limit's setter, as the platform answers it: an admin's, parsed like PoolLimit.ts, `{pool}`. With no pool
+   * the server's switch is off (`cloud.spend_limit.off`).
+   */
+  private setSpendLimit(args: Params): unknown {
+    if (!this.pool) throw pageError("cmux.cloud.spend_limit_off", "the spend limit is not on for this server");
+    if (this.spendLimitForbidden)
+      throw pageError("cmux.cloud.spend_limit_forbidden", "only a team admin sets the spend limit");
+    const limit = parseSpendLimit(String(args.spend_limit_usd));
+    if (limit === null) throw pageError("cmux.cloud.spend_limit_invalid", "spend_limit_usd must be 0 to 10000");
+    const pool = this.pool;
+    const mayRun = pool.percent < 100 || pool.overage_usd < limit;
+    this.pool = { ...pool, spend_limit_usd: limit, may_run: mayRun };
+    return { confirmed: true, pool: this.pool };
+  }
+
   /** The host's native confirmation: on yes it runs the op as origin user and answers its result. */
   private runAction(p: Params): unknown {
     const action = String(p.action);
+    if (action === SPEND_LIMIT_SET) return this.setSpendLimit((p.args ?? {}) as Params);
     if (action === HostActions.browserTabOpen) {
       if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
       if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");

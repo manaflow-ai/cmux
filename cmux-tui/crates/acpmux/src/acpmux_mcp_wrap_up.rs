@@ -38,14 +38,14 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "End a turn with the next-step box the person sees under your answer: a short recap of what changed and where things stand and, when the turn leaves them a decision, one question with one or two answer buttons. A button's click is sent as their next message. Call it once, as the turn's last step.",
+        "description": "Finish with a recap below your answer. An answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep or revert.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "recap": {"type": "string", "description": format!("Two or three short sentences, at most {MAX_RECAP} characters: what is now true or changed, then where it stands, including what is not done or not verified. One past {RECAP_CEILING} is cut at a sentence end, and the result says so.")},
-                "ask": {"type": "string", "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them. A longer one is cut, and the result says so.")},
-                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask: one or two answers, a few words each and at most {MAX_ACTION} characters, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now. Longer ones, or more than {MAX_ACTIONS}, are cut, and the result says so.")},
-                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"), each at most {MAX_FACT} characters. Each is shown to the person to accept or dismiss. Longer ones, extra lines or more than {MAX_LEARNED} facts are cut, and the result says so.")}
+                "recap": {"type": "string", "description": format!("Two or three sentences: changes, verification, unfinished work; at most {MAX_RECAP} characters (trimmed above {RECAP_CEILING}).")},
+                "ask": {"type": "string", "description": format!("Only a decision the person must make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered one still waits: do not ask it again.")},
+                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert"]}, "target": {"type": "string", "description": "pr:N, branch:B, sha:S, dir:PATH or a profile."}, "minutes": {"type": "integer", "description": "How long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} buttons of at most {MAX_ACTION} characters, preferred first (default Yes, Not now). After a customization, run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert); or customize keep or revert.")},
+                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then working command: up to {MAX_LEARNED} one-line project facts to accept, at most {MAX_FACT} characters each.")}
             },
             "required": ["recap"]
         }
@@ -114,6 +114,19 @@ fn canonical(args: &Value) -> (Value, Vec<String>) {
     (Value::Object(map), said)
 }
 
+/// A typed `run` of an action, checked against `customize_run`'s allowlist and cut to its own
+/// keys, or why it is not allowed.
+fn typed_run(run: &Value) -> Result<Value, String> {
+    crate::customize_run::argv(run)?;
+    let mut out = serde_json::Map::new();
+    for key in ["customize", "target", "minutes"] {
+        if let Some(v) = run.get(key).filter(|v| !v.is_null()) {
+            out.insert(key.to_owned(), v.clone());
+        }
+    }
+    Ok(Value::Object(out))
+}
+
 /// The call's input checked: a recap, and an ask with its answers when there is one. A field
 /// past its bound is cut (`trim_to`), never refused; each cut is one line of the second value.
 /// A field sent under another name (ALIASES) is taken as that field.
@@ -171,13 +184,63 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             Some(_) => Err(what.to_owned()),
         }
     };
-    let mut actions = list("actions", "actions is a list of one or two short strings", &mut notes)?;
+    // An answer is a string, or `{label, run}` where `run` is a typed customize request
+    // (`customize_run.rs`) the card runs on a click. A run that is not allowed is dropped, and the
+    // button stays an ordinary answer.
+    let mut actions: Vec<Value> = match args.get("actions") {
+        Some(Value::Array(list)) => list
+            .iter()
+            .filter_map(|item| match item {
+                Value::Object(_) => Some(item.clone()),
+                other => other.as_str().map(str::trim).filter(|v| !v.is_empty()).map(|v| json!(v)),
+            })
+            .collect(),
+        _ => list("actions", "actions is a list of one or two short answers", &mut notes)?
+            .into_iter()
+            .map(|a| json!(a))
+            .collect(),
+    };
     if actions.len() > MAX_ACTIONS {
         notes.push(format!("{} actions given; the first {MAX_ACTIONS} kept", actions.len()));
         actions.truncate(MAX_ACTIONS);
     }
-    let actions: Vec<String> = (actions.iter().enumerate())
-        .map(|(n, a)| cut(&format!("action {}", n + 1), a, MAX_ACTION, &mut notes))
+    let actions: Vec<Value> = (actions.iter().enumerate())
+        .filter_map(|(n, a)| {
+            let what = format!("action {}", n + 1);
+            let Some(object) = a.as_object() else {
+                return Some(json!(cut(&what, a.as_str()?, MAX_ACTION, &mut notes)));
+            };
+            let run = object.get("run").map(typed_run);
+            let verb = |run: &Value| match run["customize"].as_str() {
+                Some("try") => "Try it on",
+                Some("keep") => "Keep",
+                _ => "Revert",
+            };
+            let label = object
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty());
+            match (label, run) {
+                (label, Some(Ok(run))) => {
+                    let label = label.map_or_else(
+                        || verb(&run).to_owned(),
+                        |l| cut(&what, l, MAX_ACTION, &mut notes),
+                    );
+                    Some(json!({"label": label, "run": run}))
+                }
+                (Some(label), run) => {
+                    if let Some(Err(why)) = run {
+                        notes.push(format!("{what} run dropped: {why}"));
+                    }
+                    Some(json!(cut(&what, label, MAX_ACTION, &mut notes)))
+                }
+                (None, _) => {
+                    notes.push(format!("{what} has no label and no allowed run; dropped"));
+                    None
+                }
+            }
+        })
         .collect();
     if !actions.is_empty() && ask.is_none() {
         return Err("actions answer an ask; add the question, or leave actions out".to_owned());
@@ -233,168 +296,5 @@ pub(super) fn call(args: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn shown(args: Value) -> Value {
-        check(&args).unwrap().0
-    }
-
-    #[test]
-    fn a_recap_with_an_ask_and_two_answers_is_shown() {
-        let (got, notes) = check(&json!({"recap": " Done. ", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]}))
-            .unwrap();
-        assert_eq!(
-            got,
-            json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]})
-        );
-        assert!(notes.is_empty());
-        assert_eq!(shown(json!({"recap": "Done."}))["ask"], Value::Null);
-    }
-
-    #[test]
-    fn a_missing_recap_answers_without_a_question_or_wrong_types_are_refused() {
-        for bad in [
-            json!({}),
-            json!({"recap": "  "}),
-            json!({"recap": "Done.", "actions": ["Yes"]}),
-            json!({"recap": "Done.", "learned": 3}),
-            json!({"recap": "Done.", "ask": "Open?", "actions": {"a": "Yes"}}),
-        ] {
-            assert!(check(&bad).is_err(), "{bad}");
-        }
-    }
-
-    /// Length is never a refusal (tool-call bounces, 2026-11-21): a recap up to the ceiling is
-    /// kept whole, a longer one is cut at a sentence end, and the result says so in one line.
-    #[test]
-    fn a_long_recap_is_kept_whole_or_cut_at_a_sentence_and_said_so() {
-        let long = "This sentence is forty characters long. ".repeat(20);
-        let long = long.trim_end();
-        assert!(long.chars().count() > MAX_RECAP && long.chars().count() <= RECAP_CEILING);
-        let (got, notes) = check(&json!({"recap": long})).unwrap();
-        assert_eq!((got["recap"].as_str().unwrap(), notes.len()), (long, 0));
-        let longer = "This sentence is forty characters long. ".repeat(40);
-        let result = call(&json!({"recap": longer}));
-        assert_eq!(result["isError"], false, "{result}");
-        let recap = result["structuredContent"]["recap"].as_str().unwrap();
-        assert!(recap.ends_with("long.") && recap.chars().count() <= RECAP_CEILING, "{recap}");
-        let text = result["content"][0]["text"].as_str().unwrap();
-        let note = format!(
-            "recap trimmed from {} to {} characters",
-            longer.trim().chars().count(),
-            recap.chars().count()
-        );
-        assert!(text.ends_with(&format!("{note}.")), "{text}");
-        // One unbroken run of words is cut at a space, with an ellipsis.
-        let words = "word ".repeat(400);
-        let recap = shown(json!({"recap": words}))["recap"].as_str().unwrap().to_owned();
-        assert!(recap.ends_with("word…") && recap.chars().count() <= RECAP_CEILING, "{recap}");
-    }
-
-    /// Every other bound cuts too: a long ask or answer, a third answer, a long or two-line
-    /// fact, a fourth fact; each cut is named.
-    #[test]
-    fn long_asks_answers_and_facts_are_cut_and_named() {
-        let (got, notes) = check(&json!({
-            "recap": "Done.",
-            "ask": format!("Open {}?", "a PR ".repeat(60)),
-            "actions": ["x".repeat(MAX_ACTION + 5), "Not now", "Later"],
-            "learned": ["Use pnpm.\nAlso yarn.", "f".repeat(MAX_FACT + 1), "c", "d"],
-        }))
-        .unwrap();
-        assert!(got["ask"].as_str().unwrap().chars().count() <= MAX_ASK);
-        assert_eq!(got["actions"].as_array().unwrap().len(), MAX_ACTIONS);
-        assert!(got["actions"][0].as_str().unwrap().chars().count() <= MAX_ACTION);
-        assert_eq!(got["learned"][0], "Use pnpm.");
-        assert!(got["learned"][1].as_str().unwrap().chars().count() <= MAX_FACT);
-        assert_eq!(got["learned"].as_array().unwrap().len(), MAX_LEARNED);
-        let said = notes.join("; ");
-        for part in [
-            "ask trimmed from",
-            "3 actions given; the first 2 kept",
-            "action 1 trimmed from 85 to",
-            "4 learned facts given; the first 3 kept",
-            "learned fact 1 cut to its first line",
-            "learned fact 2 trimmed from 201 to",
-        ] {
-            assert!(said.contains(part), "{part}: {said}");
-        }
-        assert_eq!(got["trimmed"], json!(notes));
-    }
-
-    #[test]
-    fn learned_facts_are_kept_trimmed_and_left_out_when_empty() {
-        let kept = shown(json!({"recap": "Done.", "learned": [" Use pnpm, not npm. "]}));
-        assert_eq!(kept["learned"], json!(["Use pnpm, not npm."]));
-        assert!(shown(json!({"recap": "Done.", "learned": []})).get("learned").is_none());
-    }
-
-    /// The schema says each bound in words and carries no maxLength or maxItems, so no harness
-    /// refuses a call the tool would take.
-    #[test]
-    fn the_schema_says_every_bound_and_enforces_none() {
-        let tool = tool();
-        let props = &tool["inputSchema"]["properties"];
-        for (key, max) in
-            [("recap", MAX_RECAP), ("ask", MAX_ASK), ("actions", MAX_ACTION), ("learned", MAX_FACT)]
-        {
-            let said = props[key]["description"].as_str().unwrap();
-            assert!(said.contains(&format!("at most {max} characters")), "{key}: {said}");
-            assert!(props[key].get("maxLength").is_none() && props[key].get("maxItems").is_none());
-            assert!(props[key]["items"].get("maxLength").is_none(), "{key}");
-        }
-        let at = "x".repeat(RECAP_CEILING);
-        assert_eq!(shown(json!({"recap": at}))["recap"], at);
-    }
-
-    /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
-    /// 54 wrap_up calls in 48 h on one VM sent `learned` as one string and were refused "learned
-    /// is a list". A string is a list of it (of its lines, or the list a JSON string spells), and
-    /// the result says so.
-    #[test]
-    fn a_string_where_a_list_goes_is_read_as_a_list_and_said_so() {
-        let one = call(&json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
-        assert_eq!(one["isError"], false, "{one}");
-        assert_eq!(one["structuredContent"]["learned"], json!(["Use pnpm, not npm."]), "{one}");
-        let text = one["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("learned given as one string; read as a list of it"), "{text}");
-        let lines = shown(json!({"recap": "Done.", "learned": "Use pnpm.\n\n  Rebase first.\n"}));
-        assert_eq!(lines["learned"], json!(["Use pnpm.", "Rebase first."]));
-        let spelled = shown(json!({"recap": "Done.", "learned": "[\"a\", \"b\"]"}));
-        assert_eq!(spelled["learned"], json!(["a", "b"]));
-        let asked = shown(json!({"recap": "Done.", "ask": "Merge?", "actions": "Yes"}));
-        assert_eq!(asked["actions"], json!(["Yes"]));
-        assert!(shown(json!({"recap": "Done.", "learned": "  "})).get("learned").is_none());
-    }
-
-    /// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
-    #[test]
-    fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
-        let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
-        let result = call(&json!({"summary": summary}));
-        assert_eq!(result["isError"], false, "{result}");
-        assert_eq!(result["structuredContent"]["recap"], summary);
-        assert!(result["structuredContent"].get("trimmed").is_none());
-        let text = result["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("summary taken as recap"), "{text}");
-        assert_eq!(
-            shown(
-                json!({"message": "Done.", "question": "Open a PR?", "options": ["Yes", "No"], "lessons": ["Use pnpm."]})
-            ),
-            json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes", "No"], "learned": ["Use pnpm."]})
-        );
-        // The field itself wins over an alias sent beside it.
-        assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
-        assert!(check(&json!({"summary": "  "})).is_err());
-    }
-
-    #[test]
-    fn the_call_answers_with_what_it_showed() {
-        let result = call(&json!({"recap": "Done.", "ask": "Open a PR?"}));
-        assert_eq!(result["isError"], false);
-        assert_eq!(result["structuredContent"]["ask"], "Open a PR?");
-        assert!(result["content"][0]["text"].as_str().unwrap().contains("End your turn now"));
-        assert_eq!(call(&json!({}))["isError"], true);
-    }
-}
+#[path = "acpmux_mcp_wrap_up_tests.rs"]
+mod tests;

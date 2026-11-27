@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.hoverCards.groups.sections.status.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show how many members work, wait, failed or have unread items."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إظهار عدد الأعضاء الذين يعملون أو ينتظرون أو فشلوا أو لديهم عناصر غير مقروءة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži koliko članova radi, čeka, nije uspjelo ili ima nepročitane stavke."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis hvor mange medlemmer arbejder, venter, mislykkedes eller har ulæste elementer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt, wie viele Mitglieder arbeiten, warten, fehlgeschlagen sind oder Ungelesenes haben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra cuántos miembros trabajan, esperan, fallaron o tienen elementos sin leer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indique combien de membres travaillent, attendent, ont échoué ou ont des éléments non lus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra quanti membri lavorano, attendono, non sono riusciti o hanno elementi non letti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業中、待機中、失敗、未読のメンバー数を表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញចំនួនសមាជិកដែលកំពុងធ្វើការ រង់ចាំ បរាជ័យ ឬមានធាតុមិនទាន់អាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 중, 대기 중, 실패 또는 읽지 않은 항목이 있는 구성원 수를 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis hvor mange medlemmer som arbeider, venter, mislyktes eller har uleste elementer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje, ilu członków pracuje, czeka, zakończyło się błędem lub ma nieprzeczytane elementy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra quantos membros trabalham, aguardam, falharam ou têm itens não lidos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает, сколько участников работают, ждут, завершились с ошибкой или имеют непрочитанное."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงจำนวนสมาชิกที่กำลังทำงาน รอ ล้มเหลว หรือมีรายการที่ยังไม่อ่าน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kaç üyenin çalıştığını, beklediğini, başarısız olduğunu veya okunmamış öğesi olduğunu gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує, скільки учасників працюють, чекають, завершилися з помилкою або мають непрочитане."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện số thành viên đang làm, đang chờ, thất bại hoặc có mục chưa đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示有多少成员在工作、等待、失败或有未读项。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示有多少成員在工作、等待、失敗或有未讀項目。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

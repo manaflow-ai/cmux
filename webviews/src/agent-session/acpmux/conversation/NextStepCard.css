@@ -1,32 +1,40 @@
-/* A tagged ask at the end of a turn (NextStepCard.tsx), as Claude desktop's next-step box: a quiet
-   bordered card in the question card's tokens, the question in the text colour, a muted line under
-   it, then the answers as pills in one row. The first is filled and carries its ⌘↩ keycap; the
-   rest are a neutral fill. Answered, it is the answered question card (styles.css
-   .acpmux-question-answered). No transition: a click sends at once. */
-.acpmux-next-step:not(.acpmux-next-step--answered) {
+/* A tagged ask at the end of a turn (NextStepCard.tsx), drawn as the question card (question/
+   questionCard.css, Lucas 2026-11-24): one 8 px inset, the corner concentric with the rows, the
+   "Needs your input" line, the question as the title, the answers as numbered rows with the arrow on
+   the row ⌘↩ sends (the first, or the one under the pointer), and a last row for a typed answer.
+   Answered, it is the answered question card (styles.css .acpmux-question-answered). No transition:
+   a click sends at once. */
+/* :where keeps this base at one class, so the pinned copy's stack material (PendingAsks.css) wins
+   whatever order the sheets load in. */
+.acpmux-next-step:where(:not(.acpmux-next-step--answered):not(.acpmux-next-step--recap)) {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
   margin: 0;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
-  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: 12px;
+  padding: var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: calc(var(--ds-radius-control, 8px) + var(--ds-space-2, 8px));
   background: var(--acpmux-question-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge);
   color: var(--agent-text);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
 }
+/* Its × is the question card's (question/CardDismiss.tsx; questionCard.css sizes it in the bar). */
 .acpmux-next-step__question,
 .acpmux-next-step__detail {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.acpmux-next-step__question {
+  font-size: var(--text-content);
+  line-height: calc(20 / 14);
+  text-wrap: pretty;
+}
 .acpmux-next-step__detail {
-  margin-top: calc(var(--ds-space-1, 4px) * -1);
   color: var(--agent-muted);
 }
 /* The whole ask, wrapped at word breaks, as Claude's question card: only a very long question stops
@@ -35,8 +43,9 @@
 .acpmux-next-step__text {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--grid-half-step);
   min-width: 0;
+  padding: var(--grid-half-step) var(--ds-space-2) var(--ds-space-2);
 }
 .acpmux-next-step__text > .acpmux-next-step__question,
 .acpmux-next-step__text > .acpmux-next-step__detail {
@@ -47,7 +56,6 @@
   overflow-wrap: break-word;
 }
 .acpmux-next-step__text > .acpmux-next-step__detail {
-  margin-top: 0;
   -webkit-line-clamp: var(--acpmux-next-step-detail-lines, 4);
 }
 .acpmux-next-step__text[data-whole] > * {
@@ -57,7 +65,7 @@
 }
 .acpmux-next-step__more {
   align-self: flex-start;
-  margin-top: calc(var(--ds-space-1, 4px) * -1);
+  margin: calc(var(--ds-space-1, 4px) * -1) 0 var(--ds-space-2, 8px) var(--ds-space-2, 8px);
   padding: 0;
   border: 0;
   background: none;
@@ -76,57 +84,109 @@
 }
 .acpmux-next-step__answers {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--ds-space-2, 8px);
-  padding-top: var(--ds-space-1, 4px);
+  flex-direction: column;
+  gap: var(--grid-half-step);
 }
 .acpmux-next-step__answer {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
-  min-height: var(--ds-control-primary, 32px);
-  max-width: 100%;
+  gap: calc(var(--ds-space-2) + var(--grid-half-step));
+  width: 100%;
+  min-height: calc(var(--ds-control-primary) + var(--ds-space-1));
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: var(--ds-space-2, 8px);
   border: 0;
-  border-radius: 8px;
-  background: var(--acpmux-question-hover);
+  border-radius: var(--ds-radius-control, 8px);
+  background: transparent;
   color: var(--agent-text);
   font: inherit;
   text-align: left;
   cursor: default;
 }
-.acpmux-next-step__answer:hover {
-  background: var(--acpmux-question-highlight);
+.acpmux-next-step__label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
+.acpmux-next-step__arrow {
+  flex: none;
+  color: var(--agent-muted);
+  visibility: hidden;
+}
+/* The row ⌘↩ sends (the first) holds the highlight and the arrow; the pointer gives another row a
+   lighter fill, as the question card's rows (the lab's one-click ask). */
+.acpmux-next-step__answer.is-primary,
 .acpmux-next-step__answer:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: 1px;
+  background: var(--acpmux-question-highlight);
+  outline: none;
 }
-/* The ink is the page's opaque base (--acpmux-base, the theme's accentText), never --agent-page-bg:
-   that one is the translucent glass page, so under a see-through window the label drew in the
-   fill's own white (Leo 2026-11-03: "that "YES" was styled bad it was white font on white button"). */
-.acpmux-next-step__answer.is-primary {
-  background: var(--agent-text);
-  color: var(--acpmux-base);
+/* The keyboard on another row takes the highlight from the first, so only one row reads as chosen. */
+.acpmux-next-step__answers:focus-within > .is-primary:not(:focus-visible) {
+  background: transparent;
 }
-.acpmux-next-step__answer.is-primary:hover {
-  opacity: 0.9;
+.acpmux-next-step__answers:focus-within > .is-primary:not(:focus-visible) .acpmux-next-step__arrow {
+  visibility: hidden;
 }
-.acpmux-next-step__answer.is-primary .acpmux-keycap {
-  margin: 0 -4px 0 2px;
-  border-color: color-mix(in srgb, var(--acpmux-base) 30%, transparent);
-  color: inherit;
-  opacity: 0.7;
+.acpmux-next-step__answer:not(.is-primary):hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-next-step__answer.is-primary .acpmux-next-step__arrow {
+  visibility: visible;
+}
+.acpmux-next-step__answer:is(.is-primary, :focus-visible) .acpmux-question-number {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
 }
 .acpmux-next-step__answer:disabled {
   opacity: 0.6;
+}
+/* A pane that cannot send (NextStepCard.tsx `blocked`): the same card, read only, as tall as the one
+   that can. The answers are a plain list with no fill, hover or arrow; the last row says why in the
+   muted ink, on one line, so the card's height never depends on the reason. */
+.acpmux-next-step__answers[data-read-only] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-next-step__answers[data-read-only] > .acpmux-next-step__answer:hover {
+  background: transparent;
+}
+.acpmux-next-step__reason {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The typed answer: the question card's last row (questionCard.css .acpmux-question-footer). */
+.acpmux-next-step__other input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  caret-color: var(--cmux-caret, var(--agent-text));
+}
+.acpmux-next-step__other input::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-next-step:not(.acpmux-next-step--answered):not(.acpmux-next-step--recap) > .acpmux-next-step__recap {
+  padding: var(--grid-half-step) var(--ds-space-2) 0;
+}
+.acpmux-next-step > output.acpmux-next-step__detail {
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px) 0;
 }
 /* Answered, the box keeps its width and inset, so it folds in place instead of shrinking to the
    answered question card's fit-content width (Leo's answered reference keeps the full box). */
 .acpmux-next-step.acpmux-next-step--answered {
   align-self: stretch;
   width: auto;
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
 }
 /* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the

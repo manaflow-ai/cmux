@@ -34,4 +34,30 @@ import Testing
         #expect(list.others.map(\.id) == ["b"])
         #expect(list.others.first?.ids == ["b", "a"])
     }
+
+    static func mac(_ id: String, _ name: String, machine: String, online: Bool = false) -> HubDevice {
+        HubDevice(id: id, name: name, platform: .macos, lastSeenAt: now, macScreenShared: true, online: online, machineId: machine)
+    }
+
+    /// Whether the linked app FFI groups by `machineId` (cmux#44770): two machine ids under one name stay
+    /// two devices. Until the FFI pin carries that release the name rule decides, and the case below waits.
+    static let ffiGroupsByMachineID: Bool = {
+        let devices = [mac("a", "Mac mini", machine: "m-a"), mac("b", "Mac mini", machine: "m-b")]
+        return DeviceList.make(thisID: "me", thisName: "Laptop", platform: .macos, devices: devices).others.count == 2
+    }()
+
+    /// The hub's machine id makes one Mac one row even when its builds' records carry different names
+    /// (a DEV renamed in Settings), and marks this Mac's other builds by machine, not by name.
+    @Test(.enabled(if: ffiGroupsByMachineID)) func recordsOfOneMachineListOnceWhateverTheirNames() {
+        let devices = [
+            Self.mac("this-nightly", "Studio", machine: "m-this", online: true),
+            Self.mac("this-dev", "Studio (DEV)", machine: "m-this"),
+            Self.mac("mini-nightly", "Office mini", machine: "m-mini", online: true),
+            Self.mac("mini-dev", "Renamed mini", machine: "m-mini"),
+        ]
+        let list = DeviceList.make(thisID: "this-nightly", thisName: "Studio", platform: .macos, thisMachineID: "m-this", devices: devices)
+        #expect(list.thisDevice == ["this-nightly", "this-dev"])
+        #expect(list.others.map(\.id) == ["mini-nightly"])
+        #expect(list.others.first?.ids == ["mini-nightly", "mini-dev"])
+    }
 }

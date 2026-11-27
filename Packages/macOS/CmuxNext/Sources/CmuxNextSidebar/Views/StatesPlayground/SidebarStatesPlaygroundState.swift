@@ -19,8 +19,6 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case error
     /// A program asks a question through OSC 7501 (the detailed needs-input mark).
     case needsInput
-    /// A runaway agent chat: the usage warning triangle.
-    case usageWarning
     /// A pinned workspace: its row in the Pinned band (`SidebarItemRowView`).
     case pinned
     /// The active workspace: the selection fill.
@@ -29,7 +27,7 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case hovered
     /// The inline rename editor over the title.
     case renaming
-    /// Archived: the dimmed row under the open Archive section.
+    /// Archived: the dimmed row (drawn in place only here; the sidebar lists no archived row).
     case archived
     /// A workspace on an SSH machine, in that machine's section.
     case remote
@@ -71,8 +69,6 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
         case .error: String(localized: "sidebar.statesPlayground.state.error", defaultValue: "Error (red warning)", bundle: .localizedModule)
         case .needsInput:
             String(localized: "sidebar.statesPlayground.state.needsInput", defaultValue: "Needs input (question)", bundle: .localizedModule)
-        case .usageWarning:
-            String(localized: "sidebar.statesPlayground.state.usageWarning", defaultValue: "Usage warning", bundle: .localizedModule)
         case .pinned: String(localized: "sidebar.statesPlayground.state.pinned", defaultValue: "Pinned", bundle: .localizedModule)
         case .selected: String(localized: "sidebar.statesPlayground.state.selected", defaultValue: "Selected", bundle: .localizedModule)
         case .hovered: String(localized: "sidebar.statesPlayground.state.hovered", defaultValue: "Hovered", bundle: .localizedModule)

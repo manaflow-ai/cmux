@@ -55,6 +55,12 @@ import Testing
         var withItems = group("ia", [])
         withItems.setMembers([.workspace(ws("ia0")), .item(link), .workspace(ws("ia1"))])
         let items: [SidebarNode] = [.group(withItems), .item(app), .group(group("ib", [ws("ib0"), ws("ib1")])), .workspace(ws("i-loose"))]
+        // cmux#51635: an archived link in a live group draws nowhere, so a drag into the group must not draw it back.
+        var oldLink = SidebarListItem(id: "itm_old", ref: .builtIn(.chief), title: "Old link")
+        oldLink.isArchived = true
+        var withArchivedLink = group("xa", [])
+        withArchivedLink.setMembers([.workspace(ws("xa0")), .item(oldLink), .workspace(ws("xa1"))])
+        let archivedLink: [SidebarNode] = [.group(withArchivedLink), .group(group("xb", [ws("xb0"), ws("xb1")])), .workspace(ws("x-loose"))]
         let done: [SidebarNode] = [.group(group("da", [ws("da0"), ws("da1", done: true), ws("da2")])),
                                    .group(group("db", [ws("db0"), ws("db1")])), .workspace(ws("d-loose"))]
         let doneLoose: [SidebarNode] = [.workspace(ws("dl0")), .workspace(ws("dl1", done: true)), .group(group("dg", [ws("dg0"), ws("dg1")]))]
@@ -67,6 +73,7 @@ import Testing
             ("collapsed parent", [machineSection(collapsedParent)], nil),
             ("sole member", [machineSection(sole)], nil),
             ("items", [machineSection(items)], nil),
+            ("archived link in a group", [machineSection(archivedLink)], nil),
             ("done fold in a group", [machineSection(done)], nil),
             ("done fold at the top level", [machineSection(doneLoose)], nil),
             ("pinned and a machine", [pinned, machineSection(loose)], nil),

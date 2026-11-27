@@ -46,7 +46,7 @@ public struct CloudMachineRoute: Sendable {
 
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
     /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
-    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+    public init(api: CloudDaemon, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
         self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
     }
 
@@ -339,6 +339,37 @@ public struct CloudMachineRoute: Sendable {
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict
         guard verdict.map(Self.isReport) == true, await Self.serviceRuns(stdout) else { return nil }
         return stdout
+    }
+
+    /// The machine-side command that makes the reserved folder of the machine's first home chat and warms an agent in it
+    /// (`cmux-tui acp --json warm-home --wait`, acpmux `hub/pool/reserved.rs`), run as the work user as ``report()``'s is.
+    /// Prints `{"accepted":true,"state":"ready",...}` once the agent is up; prints nothing when the machine's cmux-tui
+    /// predates the verb.
+    static let warmHomeCommand = "c=/home/cmux/.cmux/bin/cmux-tui; [ -x \"$c\" ] || c=cmux-tui; "
+        + "if [ \"$(id -u)\" = 0 ] && id cmux >/dev/null 2>&1; then "
+        + "set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; "
+        + "else set --; fi; \"$@\" \"$c\" acp --json warm-home --wait 2>/dev/null; true"
+
+    private struct WarmHomeRequest: Encodable { var acpmuxHome: String? }
+    private struct WarmHomeReply: Decodable { var command: String }
+
+    /// Warms the first home chat of a spare machine ahead of its claim (leo: "a cmux Cloud chat's create-to-first-text p50
+    /// <= 3000 ms"): whether its agent is ready in the folder that chat will take. Never starts the machine.
+    /// `acpmuxHome` is this Mac's acpmux home: Rust (`cloud_warm_home`, cmux-cloud-start-core `spare_shapes`) reads the
+    /// person's recent harnesses and models there and the command warms a spare of each beside the default
+    /// (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+    public func warmHome(acpmuxHome: String? = nil) async -> Bool {
+        let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
+            .command ?? Self.warmHomeCommand
+        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else { return false }
+        return Self.warmHomeReady(stdout)
+    }
+
+    /// Whether `stdout` is the warm-home answer of an agent that is ready.
+    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+        guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"
     }
 
     /// Whether the report in `stdout` says the machine's agent service runs (`daemon.running`), read off the main actor

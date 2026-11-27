@@ -2,7 +2,8 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// Where the Chief runs, as a small chip (the Chief card's Runs On row, ``ChiefRunsOnChip``): This
+/// Where the Chief runs, as a small chip (the Chief Teleport playground; the Chief card has no Runs On row since
+/// 2026-11-23, and moves run from the command palette's `chief.moveTo` and `chief.moveRollback`): This
 /// Mac, cmux Cloud or the host's name, or the running move's step. A click
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.priorityView.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جرس يعرض كل محادثة وكيل، والتي تنتظرك أولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zvono koje prikazuje svaki razgovor s agentom, prvo one koji čekaju tebe."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En klokke, der viser alle agentchats, først dem, der venter på dig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Glocke listet jeden Agent-Chat auf, zuerst die, die auf dich warten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A bell listing every agent chat, the ones waiting on you first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una campana que muestra todos los chats de agentes, primero los que te esperan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une cloche qui liste toutes les conversations d’agents, celles qui vous attendent d’abord."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una campanella che elenca tutte le chat degli agenti, prima quelle che ti aspettano."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべてのエージェントチャットを対応待ちを先頭に一覧表示するベル。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កណ្ដឹងដែលបង្ហាញការជជែកភ្នាក់ងារទាំងអស់ ដែលរង់ចាំអ្នកមុនគេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 에이전트 채팅을 보여 주는 종 아이콘으로, 확인이 필요한 채팅이 먼저 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En bjelle som viser alle agentchatter, de som venter på deg først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dzwonek z listą wszystkich czatów agentów, najpierw tych, które czekają na ciebie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um sino que lista todos os chats de agentes, primeiro os que esperam por você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колокольчик со всеми чатами агентов, сначала ждущие вас."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กระดิ่งที่แสดงแชตเอเจนต์ทุกรายการ โดยแสดงรายการที่รอคุณก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Önce seni bekleyenler olmak üzere tüm ajan sohbetlerini listeleyen bir zil."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дзвоник зі списком усіх чатів агентів, спершу ті, що чекають на вас."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chuông liệt kê mọi cuộc trò chuyện tác tử, những cuộc đang chờ bạn trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "列出所有代理聊天的铃铛，等你处理的排在最前。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "鈴鐺會列出所有代理聊天，等你處理的排在最前。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

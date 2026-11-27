@@ -2,22 +2,29 @@
 // localized (`cmux.settings.accounts.state`, live through `cmux.settings.accounts.changed`) and
 // runs each gesture (`cmux.settings.accounts.run`); the page only draws and forwards. A pasted key
 // lives in this component's state until it is sent, never in the store, and is cleared after.
-import { useCallback, useEffect, useId, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useKeptItems } from "../keptItems";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { SignInBackend } from "../../../ui/SignInButton";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
+import type { SettingsState } from "../store";
 import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
 import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
+import { SlackAccountsCard } from "./SlackAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
+import { useSettingsSignIn } from "./useSettingsSignIn";
+
+const accountsOf = (state: SettingsState) => state.accounts;
 
 export function AccountsSection() {
   const store = useStore();
-  const { accounts } = useSettingsState();
+  const accounts = useSettingsSelector(accountsOf);
   // Like the Swift view's onAppear: detection runs again when the section mounts (a stable
   // callback ref runs once per mount).
   const mounted = useCallback(
@@ -49,7 +56,16 @@ export function AccountsSection() {
 
 function AccountsBody() {
   const store = useStore();
-  const accounts = useSettingsState().accounts!;
+  // Only the accounts part: another part of the page's state changing does not draw the section.
+  const accounts = useSettingsSelector(accountsOf)!;
+  const signIn = useSettingsSignIn();
+  // The host sends the whole screen on every change: a provider's row that did not change keeps
+  // its object, so its memo row skips the push.
+  const rows = useKeptItems(
+    useMemo(() => accounts.groups.flatMap((group) => group.rows), [accounts.groups]),
+    (row) => row.provider,
+  );
+  const kept = useMemo(() => new Map(rows.map((row) => [row.provider, row])), [rows]);
   return (
     <>
       <section className="group">
@@ -72,17 +88,18 @@ function AccountsBody() {
           </output>
         )}
       </section>
-      <AccountSignInSection />
+      <GitHubAccountsCard signIn={signIn} />
+      <AccountSignInSection signIn={signIn} />
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
-      <GitHubAccountsCard />
+      <SlackAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
           <div className="rows">
             {group.rows.map((row) => (
-              <AccountRow key={row.provider} row={row} removeTitle={accounts.removeTitle} />
+              <AccountRow key={row.provider} row={kept.get(row.provider) ?? row} removeTitle={accounts.removeTitle} />
             ))}
           </div>
         </section>
@@ -161,6 +178,7 @@ function CmuxAccountRow({ cmux }: { cmux: AccountsCmux }) {
         <div className="accounts-buttons">
           <Buttons buttons={cmux.buttons} onRun={(id) => void store.runAccounts({ action: id })} />
         </div>
+        {cmux.signInBackend && <SignInBackend line={cmux.signInBackend} />}
         {cmux.note && <div className="row-help">{cmux.note}</div>}
         {cmux.error && (
           <div className="row-error" data-outcome="danger">
@@ -188,7 +206,9 @@ function Buttons({ buttons, onRun }: { buttons: AccountsButton[]; onRun: (id: st
   ));
 }
 
-function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: string }) {
+/** One provider's account row, a memo row: a host push that left the provider alone keeps its row
+ * object (useKeptItems), so it draws only the rows it changed. */
+const AccountRow = memo(function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: string }) {
   const store = useStore();
   const run = (action: string, extra: { account?: string; secret?: string } = {}) =>
     store.runAccounts({ action, provider: row.provider, ...extra });
@@ -251,7 +271,7 @@ function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: strin
       </div>
     </div>
   );
-}
+});
 
 function PasteForm({ row, paste }: { row: AccountsRow; paste: NonNullable<AccountsRow["paste"]> }) {
   const store = useStore();

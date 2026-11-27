@@ -10,7 +10,7 @@
   "appearance.appTheme": "followTerminal",
   // background: the page (surface). foreground: on-surface. selection: primary-container.
   // accent: primary, so Send, focus rings and links are the one strong color.
-  "colors": { "background": "#1a110f", "foreground": "#ede0db", "selection": "#812807", "accent": "#ffb59e" },
+  "colors": { "background": "#1a110f", "foreground": "#ede0db", "selection": "#d9430c", "accent": "#ffb59e" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the primary, and sixteen ANSI colors at one
   // chroma, each tone solved over the page (1-6 at least 6.23:1, 9-14 at least 10.88:1,
@@ -20,8 +20,8 @@
     "foreground = #ede0db",
     "cursor-color = #ffb59e",
     "cursor-text = #5b1a04",
-    "selection-background = #812807",
-    "selection-foreground = #fddbd1",
+    "selection-background = #d9430c",
+    "selection-foreground = #1a110f",
     "palette = 0=#4f4441",
     "palette = 1=#e47569",
     "palette = 2=#68a54a",

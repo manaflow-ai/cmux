@@ -42,6 +42,7 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        registry.bindEffect("agentPaneReload", effect: { focusedAgentView("agentPaneReload", context, $0)?.reloadForPerson(); return .done })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
             try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
@@ -82,6 +83,7 @@ enum AgentHandlers {
                              }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
+                             if let parked = context.parkedPane(invocation) { return context.services.macScreenTabs.open(try record(), parkedIn: parked, byPerson: byPerson) }
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)
@@ -109,6 +111,9 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // Capture Screenshot to Chat: its key, the palette, and the same key from any app while
+        // `app.captureScreenshotGlobalHotKey` is on, into the chat route from other apps.
+        context.services.externalOpen.captureToChat.bind(into: registry)
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
@@ -323,8 +328,7 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
-        return view
+        chatView(context, invocation) ?? context.registry.refuse(.noChat, id)
     }
 
     /// The agent chat of the invocation's tab, else its pane's selected tab; nil (no refusal) when it is none.
@@ -373,7 +377,7 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu, the pane's "…": a tab here
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu: a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {
