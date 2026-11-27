@@ -14,6 +14,7 @@ import {
   DEFAULT_CREATE_CONCURRENCY,
   DEFAULT_CREATE_QUEUE_WAIT_MS,
   INITIAL_HOLD_MS,
+  PROVIDER_CREATE_BUDGET_MS,
   parseCreateAdmission,
   type CreateAdmission,
   type CreateAdmissionSettings,
@@ -169,6 +170,20 @@ describe("CreateAdmissionQueue", () => {
     const waiting = queue.admit("next", lease);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(await waiting).toMatchObject({ admitted: true, waitedMs: 10_000 });
+  });
+
+  it("keeps a slot whose create is still polled as a background request (cmux#61044, up to the 240 s budget): no fourth create in", async () => {
+    expect(CREATE_SLOT_LEASE_MS).toBeGreaterThan(PROVIDER_CREATE_BUDGET_MS);
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    for (const holder of ["a", "b", "c"]) expect(await queue.admit(holder, SETTINGS)).toMatchObject({ admitted: true });
+    // Every slot is still inside its provider call for the whole of the next create's wait; the old 130 s lease had
+    // freed all three long before.
+    await vi.advanceTimersByTimeAsync(PROVIDER_CREATE_BUDGET_MS - DEFAULT_CREATE_QUEUE_WAIT_MS - 1_000);
+    const waiting = queue.admit("d", SETTINGS);
+    await settle();
+    expect(queue.state.inFlight).toBe(3);
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await waiting).toMatchObject({ admitted: false });
   });
 
   it("keeps the slots it handed out across a restart of its object", async () => {
