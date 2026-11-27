@@ -1284,7 +1284,7 @@ impl Hub {
         let params = rec.msg.get("params").unwrap_or(&Value::Null);
         let changed = {
             let mut table = self.process_table(session);
-            let i = if rec.seq > table.through {
+            if rec.seq > table.through {
                 if table.fold_needs_history(session, params) {
                     self.read_whole(session, &mut table);
                 }
@@ -1313,8 +1313,7 @@ impl Hub {
                 }
                 i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
                     .map(|i| table.log(i))
-            };
-            i
+            }
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));

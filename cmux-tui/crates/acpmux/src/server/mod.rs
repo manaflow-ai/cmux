@@ -1284,6 +1284,7 @@ impl Conn {
         true
     }
     /// This daemon's own chats this connection is attached to.
+    #[allow(dead_code)]
     fn local_attached_ids(&self) -> Vec<String> {
         let subs = self.subs.lock_or_recover();
         subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()

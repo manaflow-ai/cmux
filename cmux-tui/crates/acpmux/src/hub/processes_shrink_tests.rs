@@ -88,7 +88,7 @@ fn a_shrunk_table_answers_calls_it_holds_and_names_the_dropped_ones() {
     assert_eq!(calls(&partial, &held), calls(&whole, &held));
     let gone =
         whole.processes.iter().find(|p| partial.find_tool(&p.tool_call_id).is_none()).unwrap();
-    assert!(!partial.answers_calls(&[gone.tool_call_id.clone()]));
+    assert!(!partial.answers_calls(std::slice::from_ref(&gone.tool_call_id)));
     assert!(partial.id_needs_history(&gone.id));
     assert!(!partial.id_needs_history(&held_id(&partial)));
     assert!(partial.upsert_needs_history(gone));

@@ -101,6 +101,7 @@ static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshM
 /// A test's ssh program and socket directory for the peer named `peer` (never PATH, which
 /// every test shares).
 #[cfg(test)]
+#[allow(dead_code)] // the hook tests set when they need a fake ssh
 pub(crate) fn override_for_tests(peer: &str, mux: SshMux) {
     let mut overrides = OVERRIDES.lock().unwrap_or_else(|e| e.into_inner());
     overrides.get_or_insert_with(Default::default).insert(peer.to_owned(), mux);
