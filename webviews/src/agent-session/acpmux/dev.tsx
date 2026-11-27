@@ -115,6 +115,7 @@ if (devHost) {
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 // Prepare the standalone mock daemon before the pane can paint its first handshake.
 // Keep main's import first in source order: the shipped stylesheet order is derived from it.
+performance.mark("diag:dev-before-main");
 const mountPane = () => import("./main");
 if (!devHost && params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   prepareMockTransport(await import("./mock"));

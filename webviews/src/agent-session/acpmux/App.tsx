@@ -7166,6 +7166,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     });
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
   const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
+  {
+    const w = window as unknown as { __diagN?: number; __diagSeen?: Set<string> };
+    w.__diagN = (w.__diagN ?? 0) + 1;
+    const seen = (w.__diagSeen ??= new Set());
+    const once = (name: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      performance.mark(`diag:${name} r${w.__diagN}`);
+    };
+    if (w.__diagN <= 30)
+      performance.mark(
+        `diag:render r${w.__diagN} hs=${handshaken} rows=${clientSnapshot.rows.length} read=${clientSnapshot.chatRead === true} att=${clientSnapshot.chatAttached === true} ds=${draftSettled !== undefined} dw=${draftWaitOver !== undefined} rt=${restoredTailSession !== undefined} copy=${showsChatSnapshot()} swiw=${showsWhatItIs}`,
+      );
+    if (handshaken) once("handshaken");
+    if (clientSnapshot.chatRead === true) once("chatRead");
+    if (draftSettled !== undefined) once("draftSettled");
+    if (draftWaitOver !== undefined) once("draftWaitOver");
+    if (showsWhatItIs) once("showsWhatItIs");
+  }
+  useLayoutEffect(() => {
+    performance.mark("diag:layoutCommit");
+  });
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
@@ -7328,6 +7350,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
+    if (first) performance.mark("diag:swapCall");
     if (first) swapChatSnapshot();
     // A chat's first paint, unless its saved copy drew first and started it: what moves from here is the
     // launch's settle, reported once (launchSettle.ts). Not a New Tab page's.

@@ -280,6 +280,7 @@ export function swapChatSnapshot(doc: Document = document): void {
     const root = doc.getElementById("root");
     const waited = performance.now() - start;
     const matched = !host.shadowRoot || !root || liveMatchesCopy(host.shadowRoot, root);
+    performance.mark(`diag:swapStep matched=${matched} steps=${liveStepsBack(doc)}`);
     if (!matched && waited < SWAP_MATCH_MS) {
       view.requestAnimationFrame(step);
       return;
