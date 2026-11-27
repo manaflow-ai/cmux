@@ -135,6 +135,10 @@ enum Change {
     /// As `UdpBlocked`, but the Mac moves to that network and roams (the
     /// phone's network stays as it was).
     MacUdpBlocked(std::sync::Arc<TestTurn>, Option<Duration>),
+    /// Wi-Fi to cell (connectivity-map 7.1's `wificell`): its network goes
+    /// away, it roams at once to a new socket, and the link takes this
+    /// profile from then on (needs [`Duress::shaped`] options).
+    Cell(LinkProfile),
 }
 
 /// Stream through an echo channel, take the phone's network away at 1 s
@@ -200,8 +204,9 @@ async fn stream_across(
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
 
-    // Terminal-like output: 1 KB every 10 ms.
-    const CHUNK: usize = 1000;
+    // Terminal-like output: 1 KB every 10 ms (`ROAM_CHUNK_BYTES` raises it:
+    // 20000 keeps more in flight than a datagram replay resends).
+    let chunk: usize = std::env::var("ROAM_CHUNK_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let writer = {
         let stop = std::sync::Arc::clone(&stop);
@@ -210,8 +215,8 @@ async fn stream_across(
             let mut tick = tokio::time::interval(Duration::from_millis(10));
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                 tick.tick().await;
-                sender.send(Bytes::from(pattern(sent, CHUNK))).await.expect("send");
-                sent += CHUNK;
+                sender.send(Bytes::from(pattern(sent, chunk))).await.expect("send");
+                sent += chunk;
             }
             // Dropping the sender would close the channel before the echo
             // of the last bytes arrives.
@@ -268,6 +273,12 @@ async fn stream_across(
             assert!(wireguard::rehome(&fresh) >= 1);
             _new_phone = Some(fresh);
             None
+        }
+        Change::Cell(profile) => {
+            set_link_profile(Some(profile), 7);
+            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            let session_id = session_id.clone();
+            Some(tokio::spawn(async move { wireguard::roam_session(&session_id, true).await }))
         }
         Change::TurnStream => {
             assert_eq!(wireguard::simulate_turn_loss(Some(&session_id), true), 1);
@@ -1166,7 +1177,17 @@ async fn wireguard_link_closes_after_a_60s_blackout() {
     let run = blackout(Duration::from_secs(60), false).await;
     eprintln!("BLACKOUT 60s: {run:?}");
     assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
-    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+    // Both keepalives run out about together, and the signaling socket is not
+    // dark: when the Mac's fires first, its `bye` reaches the phone over
+    // signaling, the phone drops the tunnel, and its link reads "peer closed
+    // the link". Either way one side's keepalive ended it.
+    match run.phone_closed.as_deref() {
+        Some("keepalive timed out") => {}
+        Some("peer closed the link") => {
+            assert_eq!(run.mac_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+        }
+        other => panic!("the phone's link closed with {other:?}: {run:?}"),
+    }
 }
 
 static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
@@ -1836,4 +1857,49 @@ async fn foreground_probe_cost() {
             d(6)
         );
     }
+}
+
+fn wificell_profile(name: &str, rtt_ms: u64, loss_percent: f64) -> LinkProfile {
+    LinkProfile { name: name.into(), up_kbit: 20_000, down_kbit: 20_000, rtt_ms, jitter_ms: 0, loss_percent }
+}
+
+/// connectivity-map 7.1's `wificell` row in-process: the link is on Wi-Fi at
+/// 50 ms / 0 %, then the phone moves to a new socket and the link to cell,
+/// 80 ms / 1 %, while 1 KB goes each way every 10 ms. Prints each run's
+/// stall and roam marks, then p50 and max. Runs one at a time (the shaper
+/// is process-wide).
+/// `WIFICELL_RUNS=10 cargo test -p cmux-mobile-link --test roaming wificell_timeline -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: run by hand for the PR's numbers"]
+async fn wificell_timeline() {
+    let runs: u64 = std::env::var("WIFICELL_RUNS").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+    let shaped = duress_options(Duress { shaped: true, stream: false });
+    let mut stalls = Vec::new();
+    for run in 0..runs {
+        set_link_profile(Some(wificell_profile("wifi", 50, 0.0)), 100 + run);
+        let result = stream_across(
+            shaped.clone(),
+            shaped.clone(),
+            Change::Cell(wificell_profile("cell", 80, 1.0)),
+            Duration::from_secs(4),
+        )
+        .await;
+        set_link_profile(None, 0);
+        let marks: Vec<String> =
+            result.marks.iter().map(|(name, at)| format!("{name}@{}", at.as_millis())).collect();
+        eprintln!(
+            "WIFICELL run={run} stall_ms={} after={:?} mac_after={:?} marks={}",
+            result.stall.as_millis(),
+            result.after,
+            result.mac_after,
+            marks.join(",")
+        );
+        stalls.push(Some(result.stall));
+    }
+    let ms = |p: f64| {
+        let mut v: Vec<u128> = stalls.iter().flatten().map(Duration::as_millis).collect();
+        v.sort_unstable();
+        v[((v.len() as f64 - 1.0) * p).round() as usize]
+    };
+    eprintln!("WIFICELL n={runs} stall p50={} ms max={} ms", ms(0.5), ms(1.0));
 }
