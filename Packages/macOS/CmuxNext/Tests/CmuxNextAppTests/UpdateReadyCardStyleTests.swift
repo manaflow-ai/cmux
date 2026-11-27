@@ -101,7 +101,8 @@ import CmuxNextTestSupport
         // The switch on the left, then the label (Leo 2026-10-22: "he preferred the checkbox on the left").
         #expect(track.frame.minX == 0, "the switch is not at the start of the row")
         #expect(control.label.frame.minX >= track.frame.maxX + Metrics.space2, "the label is not after the switch")
-        #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
+        // Ink when on, never the accent's hue (Leo 2026-11-27: "we dont need it to be blue or highlighted").
+        #expect(track.backgroundColor == control.performWithTheme { Palette.textPrimary.cgColor })
         #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
         #expect(control.accessibilitySubrole() == .switch)
         // The switch's centre is on the label's cap-height midline (2026-10-22), not the row box's centre.
@@ -157,13 +158,12 @@ import CmuxNextTestSupport
         button.fixedStyle = .primary
         button.configure(title: "Restart to Update", enabled: true, help: nil)
         button.updateLayer()
-        // The theme's accent when one is chosen; with none, the prominent neutral, never the
-        // primary text as a white slab (2026-10-22: "just make it look better").
-        let (chosen, accent, neutral, slab) = button.performWithTheme {
-            (Palette.hasChosenAccent, Palette.accentFill.cgColor, Palette.selectionFill.cgColor, Palette.textPrimary.cgColor)
-        }
-        #expect(button.layer?.backgroundColor == (chosen ? accent : neutral))
-        if !chosen { #expect(button.layer?.backgroundColor != slab, "Restart to Update is the white slab again") }
+        // The prominent neutral in every theme, never the accent's hue (Leo 2026-11-27: "dont put this
+        // garish blue in man we dont need it to be blue or highlighted") and never the primary text as a
+        // white slab (2026-10-22: "just make it look better").
+        let (neutral, slab) = button.performWithTheme { (Palette.selectionFill.cgColor, Palette.textPrimary.cgColor) }
+        #expect(button.layer?.backgroundColor == neutral)
+        #expect(button.layer?.backgroundColor != slab, "Restart to Update is the white slab again")
         #expect(button.layer?.borderWidth == 0, "the primary button draws the bordered button's hairline")
     }
 

@@ -92,13 +92,14 @@ import Testing
     }
 
     /// Leo 2026-11-03, on the Downloading Update card: "will this be themeed properly?". The
-    /// download's bar is the theme's accent (`Palette.accentFill`) in a dark and a light theme, with
-    /// and without a chosen accent, never the fixed secondary-text gray it was.
+    /// download's bar is the theme's ink (`Palette.textPrimary`, the theme's foreground) in a dark and
+    /// a light theme, with and without a chosen accent, never the fixed secondary-text gray it was, and
+    /// never the accent's hue (Leo 2026-11-27: "dont put this garish blue in man").
     @Test(arguments: [BarTheme(background: 0x2B1650, foreground: 0xF4E3FF, accent: .neutral),
                       BarTheme(background: 0x2B1650, foreground: 0xF4E3FF, accent: .magenta),
                       BarTheme(background: 0xF7F2FF, foreground: 0x2B1650, accent: .neutral),
                       BarTheme(background: 0xF7F2FF, foreground: 0x2B1650, accent: .magenta)])
-    func theDownloadBarIsTheThemesAccent(_ theme: BarTheme) throws {
+    func theDownloadBarIsTheThemesInk(_ theme: BarTheme) throws {
         _ = NSApplication.shared
         let scope = ThemeScope(level: .room)
         var input = ThemeInput(background: ThemeRGB(hex: theme.background), foreground: ThemeRGB(hex: theme.foreground))
@@ -114,9 +115,12 @@ import Testing
         card.configure(SidebarNoticeCard(id: "update", title: "Downloading Update", detail: "57.3 MB of 257.1 MB · 22%",
                                          progress: .fraction(0.22)))
         card.layoutSubtreeIfNeeded()
-        let (accentFill, gray) = scope.perform { (Palette.accentFill.cgColor, Palette.textSecondary.cgColor) }
+        let (ink, accentFill, chosen, gray) = scope.perform {
+            (Palette.textPrimary.cgColor, Palette.accentFill.cgColor, Palette.hasChosenAccent, Palette.textSecondary.cgColor)
+        }
         let bar = try #require(card.bar.backgroundColor, "the download bar has no color")
-        #expect(bar == accentFill, "the download bar is \(bar), not the theme's accent \(accentFill)")
+        #expect(bar == ink, "the download bar is \(bar), not the theme's ink \(ink)")
+        if chosen { #expect(bar != accentFill, "the download bar is the accent's hue again") }
         #expect(bar != gray, "the download bar is the fixed secondary-text gray")
         #expect(card.track.backgroundColor == scope.perform { Palette.hoverFill.cgColor }, "the bar's track is not the theme's hover fill")
     }
