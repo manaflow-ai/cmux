@@ -35,7 +35,6 @@ chief-usage
 chief-views
 cloud
 cloud-progress
-coderouter
 debug-settings
 feed
 files
@@ -46,7 +45,6 @@ history
 home-channels
 icon-picker
 keybindings
-machines
 onboarding
 passwords
 server-cards
@@ -67,7 +65,7 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
-SPLIT_STRINGS="settings home-channels"
+SPLIT_STRINGS="settings home-channels onboarding"
 # Pages that also carry a subset of the agent pane's table (generated/pane-strings.json, for the
 # pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
 SPLIT_PANE_STRINGS="home-channels"
@@ -89,6 +87,15 @@ bun scripts/pages/gen-strings.mjs
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.
 if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then export CMUX_ARTIFACT_RUNTIME_METAFILE; fi
+# A listed page with no source is a stale list, not a page fault: fail every build here, before
+# ci-oops isolation below would drop it on a pull request build and let the PR go green while the
+# strict builds (main, the Linux pool rewarm) fail (#59661 deleted machines; #60348 took it off).
+missing=""
+for page in $PAGES; do [ -f "$ROOT/webviews/src/pages/$page/main.tsx" ] || missing="$missing $page"; done
+if [ -n "$missing" ]; then
+  echo "error: build-pages-web.sh lists pages with no webviews/src/pages/<page>/main.tsx:$missing; take them off PAGES" >&2
+  exit 1
+fi
 # ci-oops fault isolation (scripts/ci/oops/isolate.py): on a pull request build only, a page that
 # optional-units.json lists and that alone fails to bundle is left out and the rest is bundled again;
 # the job prints a CI_OOPS line for its follow-up. Every other build runs the bundler as it is.

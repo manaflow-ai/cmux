@@ -11,7 +11,7 @@ name: Billing E2E (development, Stripe test mode)
 # Secrets come from cmux-next-vm-image-dev (feat-cmux-next only by GitHub's branch policy), the environment that
 # already holds the agent test account, so nothing is copied by hand (GitHub secrets are write-only). Names only;
 # values never reach the log:
-#   CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD  the agent test account (already there)
+#   CMUX_DOGFOOD_STACK_EMAIL, _PASSWORD                the agent test account (already there)
 #   E2E_STRIPE_TEST_KEY     the development Stripe sandbox's test-mode key (sk_test_ or rk_test_), the one
 #                           cmux-api-development's STRIPE_USAGE_KEY is (a Worker secret: a maintainer puts it here once)
 #   DEV_BILLING_LEVELS_KEY  cmux-api-development's BILLING_LEVELS_KEY (cmux-platform's development environment,
@@ -37,13 +37,13 @@ jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: cmux-next-vm-image-dev
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 60
     env:
       E2E_STRIPE_TEST_KEY: ${{ secrets.E2E_STRIPE_TEST_KEY }}
       E2E_BILLING_LEVELS_KEY: ${{ secrets.DEV_BILLING_LEVELS_KEY }}
-      E2E_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
-      E2E_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
+      E2E_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+      E2E_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
       E2E_STATE: /tmp/billing-e2e-state.json
       E2E_BIG_CALLS: ${{ inputs.calls }}
     # pipefail: a phase piped to tee fails its step when bun fails (#40356 F3).
@@ -51,12 +51,13 @@ jobs:
       run:
         shell: bash -eo pipefail {0}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: backend/scripts
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Secrets present
         run: |
@@ -69,8 +70,8 @@ jobs:
         run: PHASE=a bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
       - name: Use past the included amount (PHASE=more until both levels pass it)
         run: |
-          for round in 1 2 3 4 5 6; do
-            PHASE=more bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+          for _ in 1 2 3 4 5 6; do
+            PHASE='more' bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
             # The e2e set includes 1 USD per team and 2 x 0.5 per seat: both levels must pass 1 USD.
             if bun -e 'const s = JSON.parse(require("fs").readFileSync(process.env.E2E_STATE, "utf8")); process.exit(s.team.level.micros > 1e6 && s.seat.level.micros > 1e6 ? 0 : 1)'; then exit 0; fi
           done

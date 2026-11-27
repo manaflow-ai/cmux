@@ -46,7 +46,9 @@
     {"id": "mcpServers", "note": "Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers."},
     {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."},
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
+    {"id": "cloudCompute", "note": "Settings > Cloud > Compute (Labs labs.teamCompute, off by default: the card draws nothing and reads nothing): the team's monthly Cloud allotment and each member's use, the Ledger layout of ComputeCard, read-only while the app serves only `cmux.settings.cloud.allotment.get` (the Cloud app server's cloud.allotment.get)."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
+    {"id": "developerTokens", "note": "Settings > Developer: cmux API tokens (cmux platform /v1/tokens): personal tokens with New Token and Revoke, and for a person who manages the team, Team Tokens (CI, not tied to a person) and GitHub Actions (allowed repositories sign in with GitHub's identity token, no stored secret) with a copyable workflow. A new token is shown once with Copy and the lines to paste; `cmux.settings.tokens.*`, from the bundled `cmux token ... --json`. Deep link: #/settings/developer."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
     {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
@@ -138,13 +140,15 @@
             {"group": "settings.group.colorTransition"},
             {"group": "settings.group.windowBackground"},
             {"group": "settings.group.statusIndicator"},
+            {"group": "settings.group.agentSignature"},
             {"group": "settings.group.surfaces"},
-            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "keys": [
+            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "note": "Dim Inactive Windows and Tint with Desktop Wallpaper are claimed here so Window Background stays under max_rows_per_card.", "keys": [
               "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",
               "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity",
               "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity",
               "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity",
-              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"
+              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity",
+              "appearance.inactiveWindowDim", "appearance.wallpaperTint"
             ]},
             {"title": {"key": "settings.pageGroup.viewerSurfaces", "text": "Surfaces: Viewers"}, "keys": [
               "appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity",
@@ -165,15 +169,19 @@
           "symbol": "sidebar.left",
           "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf), Sidebar Side and Workspace List Extension (cmux.sidebar/1, which swaps the whole list) are claimed here so the Sidebar card stays under it too.", "keys": [
               "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover"
+              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped", "sidebar.workspaceListApp"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
-              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
-              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
+              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.relativeTimestamps",
+              "sidebar.settleFinished", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background"
+            ]},
+            {"title": {"key": "settings.pageGroup.sidebarPriority", "text": "Priority View"}, "note": "The Priority view's keys (the Codex app's activity list) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
+              "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+              "sidebar.priorityView.filters", "sidebar.priorityView.showIdle", "sidebar.priorityView.statusWords"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
               "sidebar.sections.hidden", "sidebar.sections.order"
@@ -181,7 +189,7 @@
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "appearance.metrics.spaceButtonSpacing",
-              "sidebar.showProfileControl",
+              "sidebar.showProfileControl", "sidebar.profileMenu.style",
               "sidebar.showSearchButton", "sidebar.showLiveToggle", "presence.live", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ]},
@@ -221,10 +229,11 @@
               "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
             ]},
             {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
-              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
+              "layout.focusFollowsMouse", "layout.fadeInactivePanes", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
-            {"group": "settings.group.focusRing"}
+            {"group": "settings.group.focusRing"},
+            {"group": "settings.group.themeFlourishes"}
           ]
         }
       ]
@@ -239,6 +248,7 @@
           "symbol": "terminal",
           "groups": [
             {"group": "settings.group.terminalFont"},
+            {"group": "settings.group.terminalCursor"},
             {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
             {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
               "terminal.linkOpener.default", "terminal.linkOpener.rules"
@@ -308,21 +318,22 @@
           "symbol": "bubble.left",
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
-            {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
-              "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.sendPop",
+            {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "note": "Unread Banner is here, not in Chat Layout, so Chat Layout stays under max_rows_per_card.", "keys": [
+              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.sendScrollsToTop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
-              "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
+              "agentPane.display.streaming", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
-              "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"
+              "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings",
+              "agentPane.display.unreadBanner"
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked",
+              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
               "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb", "agentPane.display.subagentOf",
-              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
+              "agentPane.display.sessionInfo.sections.environment", "agentPane.display.sessionInfo.sections.context", "agentPane.display.sessionInfo.sections.subagents", "agentPane.display.sessionInfo.sections.tasks", "agentPane.display.sessionInfo.sections.sources", "agentPane.display.sessionInfo.sections.outputs", "agentPane.display.sessionInfo.sections.changes", "agentPane.display.sessionInfo.sections.usage", "agentPane.display.sessionInfo.sections.connectors", "agentPane.display.sessionInfo.sections.carried",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",
               "agentPane.display.layout.composer",
@@ -337,8 +348,8 @@
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerVimKeys",
-              "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.queueing",
+              "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.composerPlaceholder",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -364,6 +375,7 @@
             {"group": "settings.group.agentGuidance", "note": "cmux's guidance for the agents it runs and the person's own skills."},
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
             {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
+            {"group": "settings.group.agentSettle", "note": "Whether chats settle on their own when their pull requests merge or close, or after idle days."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."},
             {"group": "settings.group.agentTools", "note": "Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (on by default); the agentTools card under it lists the agents with Turn On once turned off."}
           ],
@@ -544,7 +556,7 @@
           "groups": [
             {"group": "settings.group.cloudWorkspaces"}
           ],
-          "lead": ["cloudModels", "cloudEnvironments"]
+          "lead": ["cloudModels", "cloudEnvironments", "cloudCompute"]
         },
         {
           "id": "keys",
@@ -561,6 +573,14 @@
           "note": "The integrations hub (Leo 2026-11-23: \"an aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you etc.\"): linked accounts, the approvals waiting for the person, the rules, the pause switch and the audit log.",
           "groups": [],
           "lead": ["integrationsHub"]
+        },
+        {
+          "id": "developer",
+          "title": {"key": "settings.category.developer", "text": "Developer"},
+          "symbol": "chevron.left.forwardslash.chevron.right",
+          "note": "API tokens for scripts, CI and GitHub Actions (Leo 2026-11-25: \"Should we be offering tokens/api keys for people to be accessing our stuff with?\" and \"Convienient beats all. Just make good ui for it so people flow.\").",
+          "groups": [],
+          "lead": ["developerTokens"]
         },
         {
           "id": "import",

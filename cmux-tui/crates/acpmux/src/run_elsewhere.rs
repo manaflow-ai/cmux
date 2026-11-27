@@ -105,6 +105,53 @@ pub fn command_refusal(command: &str) -> Option<String> {
     None
 }
 
+/// What a command downloads, when it is a big fetch: a package install, a dependency fetch, an
+/// image pull or a model download (`npm`, `pip`, `cargo`, `docker`, `model`). Such a command runs
+/// better on a machine with a datacenter link and a warm package cache, and its output (node_modules,
+/// target/) need not come back (download bridge, Leo-Ask-Trace: ask-70d77cbccc), so the plan names it
+/// for a caller that wants to offer the run before the normal slow-command delay.
+pub fn fetch_kind(command: &str) -> Option<&'static str> {
+    let parts = command.split(['|', ';', '&', '\n', '(', ')', '`']);
+    for part in parts {
+        let words: Vec<&str> = part
+            .split_whitespace()
+            .skip_while(|w| {
+                (w.contains('=') && !w.starts_with('='))
+                    || matches!(*w, "env" | "time" | "nice" | "exec" | "command" | "then" | "do")
+            })
+            .collect();
+        let Some(first) = words.first() else { continue };
+        let program = first.rsplit('/').next().unwrap_or(first).trim_matches(['"', '\'']);
+        let sub = words.get(1).copied().unwrap_or("");
+        let kind = match program {
+            // A bare `yarn` installs.
+            "yarn" if sub.is_empty() => Some("npm"),
+            "npm" | "pnpm" | "yarn" | "bun" => {
+                matches!(sub, "install" | "i" | "ci" | "add").then_some("npm")
+            }
+            "pip" | "pip3" | "uv" | "poetry" => {
+                let uv_pip = program == "uv" && sub == "pip" && words.get(2) == Some(&"install");
+                (matches!(sub, "install" | "sync") || uv_pip).then_some("pip")
+            }
+            "python" | "python3" => {
+                (sub == "-m" && words.get(2) == Some(&"pip") && words.get(3) == Some(&"install"))
+                    .then_some("pip")
+            }
+            "cargo" => {
+                matches!(sub, "build" | "fetch" | "install" | "test" | "check").then_some("cargo")
+            }
+            "docker" | "podman" => matches!(sub, "pull" | "build").then_some("docker"),
+            "huggingface-cli" | "hf" => (sub == "download").then_some("model"),
+            "ollama" => (sub == "pull").then_some("model"),
+            _ => None,
+        };
+        if kind.is_some() {
+            return kind;
+        }
+    }
+    None
+}
+
 /// The program each simple command of a pipeline or list starts with, past `VAR=value`
 /// assignments, `env`, `time`, `nice` and `exec`, without a leading path (`/usr/bin/vim`: `vim`).
 fn programs(command: &str) -> Vec<String> {

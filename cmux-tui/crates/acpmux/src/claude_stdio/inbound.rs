@@ -84,6 +84,11 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // A user line of the chat's own (the prompt's echo, a steer, tool results, a hook's
+        // feedback) goes out as its next model call's request (`model_calls.rs`).
+        if kind == "user" && parent.is_none() {
+            self.model_clock.requested(super::prompt_cache::now_ms());
+        }
         // The turn's last assistant line on the main loop: Claude Code's own API error or not.
         if kind == "assistant" && parent.is_none() {
             *self.api_error.lock().await = super::api_error::text(line);
@@ -98,6 +103,14 @@ impl Translator {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
                     *self.session_id.lock().await = Some(s.to_owned());
+                }
+                // A durable cron this conversation made in an earlier process (`loops.rs`).
+                if let (Some(cwd), Some(s)) = (
+                    line.get("cwd").and_then(Value::as_str),
+                    line.get("session_id").and_then(Value::as_str),
+                ) && let Some(goal) = self.durable_loops(cwd, s).await
+                {
+                    out.push(upd(goal));
                 }
                 if let Some(m) = line.get("model").and_then(Value::as_str) {
                     *self.model.lock().await = m.to_owned();
@@ -161,6 +174,8 @@ impl Translator {
                         if parent.is_none() {
                             let model = ev.pointer("/message/model").and_then(Value::as_str);
                             self.call_started(ev.pointer("/message/usage"), model).await;
+                            // The call's first byte (`model_calls.rs`).
+                            self.model_clock.started(super::prompt_cache::now_ms());
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -203,6 +218,8 @@ impl Translator {
                             Some("thinking_delta") => {
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
+                                } else {
+                                    self.model_clock.thought();
                                 }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
@@ -271,22 +288,6 @@ impl Translator {
                         // A call of the chat's own that blocks its turn (`foreground_work.rs`).
                         if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
                             self.foreground_call(name, id, &input).await;
-                        }
-                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
-                        // draw it as a checklist.
-                        if name == "TodoWrite"
-                            && let Some(plan) = todo_plan(&input)
-                        {
-                            out.push(upd(plan));
-                        }
-                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
-                        // instead: each call lands on its result (`task_plan.rs`). The
-                        // list is the main session's; a subagent's tasks stay its own.
-                        if main_line
-                            && super::task_plan::TaskPlan::follows(name)
-                            && let Some(id) = c.get("id").and_then(Value::as_str)
-                        {
-                            self.task_plan.lock().await.call(name, id, &input);
                         }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84). A Monitor runs its
@@ -523,14 +524,6 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
-                        // A task call's result redraws the task list (`task_plan.rs`).
-                        if let Some(plan) = self.task_plan.lock().await.result(
-                            tool,
-                            is_err,
-                            line.get("tool_use_result"),
-                        ) {
-                            out.push(upd(plan));
-                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
@@ -631,6 +624,21 @@ impl Translator {
                             == Some(dedupe::DEDUPE_CALLBACK) =>
                     {
                         self.dedupe_hook(&rid, req).await;
+                    }
+                    // Harness magic: a repo's rule for a path the call touched (path_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(path_rules::PATH_RULES_CALLBACK) =>
+                    {
+                        self.path_rules_hook(&rid, req).await;
+                    }
+                    // Harness magic: a directory's rules, the first time it is touched
+                    // (dir_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dir_rules::DIR_RULES_CALLBACK) =>
+                    {
+                        self.dir_rules_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
@@ -966,6 +974,14 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // And its path rules' counts, while that feature is on (path_rules.rs).
+                let path_rule_counts =
+                    Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
+                let dir_rule_counts =
+                    Some(self.dir_rules.turn_ended()).filter(|_| dir_rules::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -995,8 +1011,21 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(counts) = path_rule_counts {
+                        hm.insert(path_rules::FEATURE.into(), counts.to_json());
+                    }
+                    if let Some(rules) = dir_rule_counts {
+                        hm.insert("dirRules".into(), rules.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
@@ -1033,6 +1062,9 @@ impl Translator {
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // What was read before is in the summary at most (dedupe.rs).
                 self.dedupe.reset();
+                // The rules said before it are gone from the context: due again (path_rules.rs).
+                self.path_rules.reset();
+                self.dir_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
@@ -1292,27 +1324,6 @@ impl Translator {
         }
         update
     }
-}
-
-/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
-/// (pending, in_progress or completed, as ACP names them). Nil for input
-/// that is not a todo list.
-fn todo_plan(input: &Value) -> Option<Value> {
-    let entries: Vec<Value> = input
-        .get("todos")?
-        .as_array()?
-        .iter()
-        .filter_map(|todo| {
-            let content = todo.get("content").and_then(Value::as_str)?;
-            let status = todo
-                .get("status")
-                .and_then(Value::as_str)
-                .filter(|status| matches!(*status, "in_progress" | "completed"))
-                .unwrap_or("pending");
-            Some(json!({"content": content, "status": status, "priority": "medium"}))
-        })
-        .collect();
-    Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
 /// A `compaction` update: a compaction of the chat's context `state`

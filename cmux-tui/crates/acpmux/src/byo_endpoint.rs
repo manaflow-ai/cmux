@@ -439,6 +439,8 @@ pub async fn fetch_models(
         UrlError::Invalid(m) | UrlError::Secret(m) => m,
     })?;
     let url = models_url(kind, &base);
+    // The person typed this endpoint: the gate lets it through (docs/privacy.md "hosts you name").
+    cmux_egress::allow_named(&url);
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = crate::happy_dial::http_client()
         .timeout(timeout)
