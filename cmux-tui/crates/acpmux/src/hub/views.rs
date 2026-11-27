@@ -182,18 +182,16 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
+        _ if crate::session_liveness::sandbox_failed(summary) => Some("failed"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
-        // A sub-session below it waits on the person: its run stalls there until someone answers,
-        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
-        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
-        // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
@@ -294,7 +292,7 @@ pub fn lane(summary: &Value) -> Value {
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "failed" => crate::session_liveness::failure_error(summary),
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
@@ -845,6 +843,7 @@ impl Hub {
             }),
             harness_sandbox_failed: m.harness_sandbox.first_at,
             harness_sandbox_failing: m.harness_sandbox.failing,
+            harness_sandbox_error: m.harness_sandbox.error.clone(),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -1660,6 +1659,7 @@ mod time_breakdown_tests {
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
-#[cfg(test)]
+// Times thread CPU with clock_gettime, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;
