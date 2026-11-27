@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: fix
-            ref: f9479d65b983c0fd7afb703a6d3468df02821c82
+          - leg: cells
+            ref: 752c2dccc2a83484f4e52d47f1ce868dcdeb5c81
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
