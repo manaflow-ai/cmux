@@ -512,6 +512,14 @@ def trace_steps(steps):
 POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 
 
+# A start trace's `kind`, who the start was for (cmux-platform CloudCore.ts startKind: a person's, CLOUD_SPARE_RUNNING_MS's
+# window resume, the channel refresh's, a warm's), and `before`, the VM's state before the call (Driver.ts powerBefore).
+# hq#31259 (2026-11-26): a paused VM's start p50 6.6 s, max 121 s, and the slow ones matched no person's submit or
+# claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
+START_KINDS = frozenset({"person", "window", "refresh", "warm"})
+START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+
+
 def power_split(power):
     """{listed key: ms} from a trace's power split; a non-int or unlisted key is dropped. None when nothing is left."""
     if not isinstance(power, dict):
@@ -858,6 +866,12 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.start.trace":
+        out.pop("kind", None)
+        if j.get("kind") in START_KINDS:
+            out["kind"] = j["kind"]
+        if j.get("before") in START_BEFORE:
+            out["before"] = j["before"]
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
