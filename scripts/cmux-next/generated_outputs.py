@@ -73,6 +73,8 @@ DAEMON_ABI_INPUTS = (r"cmux-tui/spec/|cmux-tui/crates/cmux-api-compat/"
                      r"|cmux-tui/(Cargo\.(toml|lock)|rust-toolchain\.toml)$")
 CAPABILITY_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
+    r"|cmux-tui/spec/gui-capabilities\.json$"
+    r"|scripts/cmux-next/gen-daemon-capabilities\.py$"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
     r"|scripts/cmux-next/check-daemon-capabilities-fresh\.py$"
     r"|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh$"

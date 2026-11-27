@@ -336,6 +336,25 @@ fn a_drained_lane_host_is_never_a_placement_candidate() {
     }
 }
 
+/// A machine that is never a lane host (`lanes.lane_host` false: big-red, Leo's own box; Leo,
+/// 2026-11-27: "then please don't rely on big-red") is refused even while it accepts new lanes.
+#[test]
+fn a_machine_that_is_never_a_lane_host_is_refused() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(true);
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert_eq!(host(&v, "big")["refused"], "never a lane host (lanes.lane_host false)");
+    reg["machines"]["big"]["lanes"]["lane_host_why"] = json!("Leo's personal box");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "never a lane host: Leo's personal box");
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(true);
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}
+
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
 /// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
 #[test]
@@ -771,6 +790,19 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+#[test]
+fn a_hub_only_host_with_a_pushed_reading_is_weighed_not_unknown() {
+    // The row `mesh_book_hosts` builds from the address book: via the hub, health pushed.
+    let row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "health": health(40.0, 12, 1.0, 300.0, 1), "healthAt": 1});
+    let cand = Candidate::peer(&row).unwrap();
+    assert!(cand.via_hub);
+    let v = place(&[cand], Some(&registry()), Work::Agent);
+    let why = host(&v, "big")["why"].as_str().unwrap_or_default().to_owned();
+    assert!(!why.contains("resources unknown"), "{why}");
+    assert_eq!(v["pick"], "big", "{v:#}");
 }
 
 #[test]

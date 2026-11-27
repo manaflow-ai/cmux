@@ -1025,6 +1025,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_style_guards_level.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_submit_fleet_test.py"
 lane = "linux-guard"
 

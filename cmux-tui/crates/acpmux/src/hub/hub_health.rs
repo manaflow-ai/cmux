@@ -93,13 +93,17 @@ impl HubHealth {
     }
 }
 
-impl Hub {
-    /// The machines only the hub lists (`mesh_book_hosts`), by name.
-    pub(crate) fn hub_only_hosts(&self) -> Vec<String> {
-        self.mesh_book_hosts()
-            .iter()
-            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect()
+/// One address-book snapshot. Fresh pushes suppress pulls but still belong to the cache.
+#[derive(Default)]
+pub(crate) struct HealthHosts {
+    pub(crate) listed: BTreeSet<String>,
+    pub(crate) pull: Vec<String>,
+}
+
+impl HealthHosts {
+    pub(crate) fn due(&self, cache: &mut HubHealth, now: u64) -> Vec<String> {
+        cache.retain(&self.listed);
+        cache.due(&self.pull, now)
     }
 }
 

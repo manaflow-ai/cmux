@@ -106,15 +106,14 @@ export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
 }
 
-function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
-  return async (ctx: PlayContext) => {
-    const doc = ctx.document;
-    const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
-    // The three earlier questions only put finished turns behind the send: the mock agent answers them
-    // at 20 ms a step, not its 350 ms (mock.ts cmuxAcpmuxMockStepMs). At 350 ms they were ~10 s of the
-    // play, and the 15-line arms ran past the runner's 20 s and never reported ready.
-    win.cmuxAcpmuxMockStepMs = 20;
-    for (const line of ["first question", "second question", "third question"]) {
+/// Seed completed turns at the mock's fast setup pace. The send we sample keeps its normal timing.
+export async function seedCompletedTurns(ctx: PlayContext, questions: string[]) {
+  const doc = ctx.document;
+  const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
+  const previous = win.cmuxAcpmuxMockStepMs;
+  win.cmuxAcpmuxMockStepMs = 20;
+  try {
+    for (const line of questions) {
       await ctx.type(line, EDITOR);
       await ctx.press("Enter");
       await ctx.waitFor(() =>
@@ -122,9 +121,17 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       );
       await settle(ctx);
     }
+  } finally {
+    if (previous === undefined) delete win.cmuxAcpmuxMockStepMs;
+    else win.cmuxAcpmuxMockStepMs = previous;
+  }
+}
+
+function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
+  return async (ctx: PlayContext) => {
+    const doc = ctx.document;
+    await seedCompletedTurns(ctx, ["first question", "second question", "third question"]);
     await pause(400);
-    // The running turn and the send itself stream at the agent's own pace.
-    delete win.cmuxAcpmuxMockStepMs;
     if (busy) {
       await ctx.type("a running question", EDITOR);
       await ctx.press("Enter");

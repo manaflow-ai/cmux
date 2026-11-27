@@ -11,7 +11,13 @@ fn hub() -> Arc<Hub> {
 }
 
 fn daemon(id: &str, host: &str, user: &str) -> BookDaemon {
-    BookDaemon { daemon_id: id.into(), host: host.into(), user: user.into(), last_seen_at: 5 }
+    BookDaemon {
+        daemon_id: id.into(),
+        host: host.into(),
+        user: user.into(),
+        last_seen_at: 5,
+        ..Default::default()
+    }
 }
 
 fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookSession {
@@ -397,6 +403,59 @@ fn a_machine_read_goes_through_one_of_its_own_listed_sessions() {
     assert_eq!(hub.mesh_book_session_on("machine-c"), None);
     hub.set_mesh_book(Default::default(), Vec::new());
     assert_eq!(hub.mesh_book_session_on("machine-b"), None);
+}
+
+/// A machine only the hub reaches that pushed its health on its heartbeat reads as a reading in
+/// the host row (`health`, `healthAt`), is not pulled, and a pull newer than the push wins
+/// (RFD 0181 T1). One that sent none, or sent long ago, keeps the pull.
+#[tokio::test]
+async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
+    let hub = hub();
+    let now = crate::store::now_ms();
+    let mut b = book();
+    let d = b.daemons.iter_mut().find(|d| d.daemon_id == "d-b").unwrap();
+    d.health = Some(json!({"cpus": 8, "liveSessions": 2}));
+    d.health_at = Some(now);
+    // A teammate's push is no one of ours.
+    let t = b.daemons.iter_mut().find(|d| d.daemon_id == "d-t").unwrap();
+    t.health = Some(json!({"cpus": 1}));
+    t.health_at = Some(now);
+    hub.apply_mesh_book(b, "person-1", Some("d-a"));
+    let rows = hub.mesh_book_hosts();
+    let machine_b = rows.iter().find(|row| row["name"] == "machine-b").expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 8, "liveSessions": 2}));
+    assert_eq!(machine_b["healthAt"], json!(now));
+    assert!(
+        !hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()),
+        "no ask for a machine that pushed"
+    );
+
+    assert!(hub.mesh_health_hosts(now).listed.contains("machine-b"));
+
+    // A pull newer than the push survives the next refresh and replaces it.
+    hub.hub_health.lock().unwrap().answered("machine-b", Some(json!({"cpus": 16})), now + 1);
+    hub.mesh_health_hosts(now).due(&mut hub.hub_health.lock().unwrap(), now);
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 16}));
+
+    // A push gone stale is ignored: the pull is the fallback again.
+    let hub = self::hub();
+    let mut old = book();
+    let d = old.daemons.iter_mut().find(|d| d.daemon_id == "d-b").unwrap();
+    d.health = Some(json!({"cpus": 8}));
+    d.health_at = Some(now - 10 * 60_000);
+    hub.apply_mesh_book(old, "person-1", Some("d-a"));
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert!(machine_b.get("health").is_none());
+    assert!(hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()));
 }
 
 /// A just-started daemon's `transfer_hub {resolve}` waits for its first book read rather than

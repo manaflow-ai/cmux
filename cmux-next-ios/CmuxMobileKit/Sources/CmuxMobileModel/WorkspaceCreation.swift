@@ -610,6 +610,9 @@ public final class WorkspaceCreator {
     public var cloudTaskTargets: [CloudTaskTarget] = []
     /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
     @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
+    /// Where ``loadCloudTaskTargets`` reads from now (the live link and its focused Mac). Read in
+    /// a view body it is observed, so New Task reads the machines again when it changes.
+    @ObservationIgnored public var cloudTaskTargetsSource: (@MainActor () -> String?)?
     /// Opens a started Cloud task: its machine and the first message.
     @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).

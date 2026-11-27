@@ -47,7 +47,7 @@ declare namespace Cmux {
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ChatState = "working" | "input" | "idle" | "failed" | "lost"
-  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; preview?: string | null }
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; branch: string | null; preview?: string | null }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }

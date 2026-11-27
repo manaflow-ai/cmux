@@ -1810,7 +1810,12 @@ impl Hub {
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
         // task moves it when it ends.
-        if session.route_switch.load(Ordering::SeqCst) && carried.is_none() {
+        // Work below it (a background subagent, a sub-session) would end with the agent: then
+        // it waits for quiet (`route_switch.rs` `restart_waits_for_work_below`).
+        if session.route_switch.load(Ordering::SeqCst)
+            && carried.is_none()
+            && !self.restart_waits_for_work_below(session)
+        {
             let _ = self.restart_on_route(session).await;
         }
         drop(guard);

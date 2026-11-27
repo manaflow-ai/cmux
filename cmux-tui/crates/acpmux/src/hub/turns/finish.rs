@@ -461,6 +461,8 @@ impl Hub {
         self.save_meta(session);
         // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
         self.settle_view_at_turn_end(session);
+        // Where the next daemon's adoption of its host reads the log from (`hosts/checkpoint.rs`).
+        self.checkpoint_at_turn_end(session, child);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);

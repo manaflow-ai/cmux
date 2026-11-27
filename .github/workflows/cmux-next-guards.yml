@@ -198,8 +198,15 @@ jobs:
           git config gc.auto 0
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
@@ -2187,6 +2194,14 @@ jobs:
         id: tt-tip-test-compile
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tip-test-compile ')) }}
         run: python3 tests/test_ci_tip_test_compile.py
+
+      # The step table's rules (ci/steps.toml against the workflows it carries, pr-pipeline.yml, web_subareas.py). It ran
+      # only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips (ci-guard-group runs on the push), so
+      # a tt- step with no shard line (#56816) and subarea paths with no step glob (#49458) landed and turned the base red.
+      - name: The step table's rules (test_ci_step_table.py)
+        id: tt-ci-step-table
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ci-step-table ')) }}
+        run: python3 tests/test_ci_step_table.py
 
       # What a later head of this pull request reuses (scripts/ci/tooling_reuse.py): the merge tree and the steps that
       # ran and passed here, failed run or not. Reused and skipped steps' outcome is skipped, so a pass never chains.

@@ -582,6 +582,13 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     if merged.returncode != 0:
         raise SystemExit(f"ci-receipt: {head} does not merge cleanly into {BRANCH} ({base}); merge {BRANCH} into the "
                          f"branch and push: {merged.stdout.strip()} {merged.stderr.strip()}")
+    # A head already in the base (an empty commit's parent, which tested_head takes for fast-checks' snapshot) leaves
+    # `merge --no-ff` "Already up to date" with no merge commit, and fast-gates then refuses the checkout. GitHub's
+    # merge ref is still a two-parent merge with the base's tree: make that one.
+    if git(into, "rev-parse", "HEAD").stdout.strip() == base:
+        merge = git(into, *MERGE_IDENTITY, "commit-tree", f"{base}^{{tree}}", "-p", base, "-p", head,
+                    "-m", f"Merge {head} into {BRANCH}").stdout.strip()
+        git(into, "checkout", "--quiet", "--detach", merge)
     return base
 
 
@@ -675,36 +682,125 @@ def lane_records(args: argparse.Namespace, env=os.environ) -> bool:
     return args.job in LANE_JOBS and getattr(args, "record", True) and env.get("GITHUB_ACTIONS") != "true"
 
 
+# The controller answers a lane VM over a relayed tailnet path: 16 s on 2026-11-27 09:1xZ, and from 08:16Z to 08:40Z
+# that day every record from one lane VM ran past the old 20 s deadline, so 7 green passes in a row were thrown away
+# and their PRs' land dispatches re-ran the gates ("no lane receipt for this head tree"). A pass is worth recording
+# until its PR lands, not only at push time: a record with no answer (or a 5xx) is spooled and a detached `flush`
+# retries it every RETRY_EVERY_S for SPOOL_FOR_S. A refusal (4xx) is final and not retried.
+RECORD_DEADLINE_S = 60
+RETRY_EVERY_S = 120
+SPOOL_FOR_S = 3600
+
+
+def spool_dir(env=os.environ) -> Path:
+    return Path(env.get("CI_RECEIPT_SPOOL") or Path.home() / ".cache" / "ci-receipt" / "spool")
+
+
+def controller_post(target: str, data: bytes) -> tuple[int, bytes]:
+    request = urllib.request.Request(target, data=data, method="POST", headers={
+        "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+    status, body, _ = deadline_http.request(request, RECORD_DEADLINE_S)
+    return status, body
+
+
+def post_receipt(url: str, payload: dict, post: Callable[[str, bytes], tuple[int, bytes]]) -> tuple[str, str]:
+    """("recorded", producer), ("refused", why) or ("retry", why)."""
+    try:
+        status, body = post(url, json.dumps(payload).encode())
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        return "retry", f"the controller did not answer ({error})"
+    if status >= 500:
+        return "retry", f"the controller answered {status}: {body[:300]!r}"
+    if status >= 300:
+        return "refused", f"the controller refused the lane receipt ({status}: {body[:300]!r})"
+    try:
+        producer = (json.loads(body or b"{}").get("receipt") or {}).get("producer", "?")
+    except ValueError:
+        producer = "?"
+    return "recorded", producer
+
+
+def spawn_flush(env=os.environ) -> None:
+    """A detached `flush` (its own session, so the push that ran produce does not wait on it or kill it)."""
+    with (spool_dir(env) / "flush.log").open("a") as out:  # what each retry did, for a later read
+        subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "flush"], stdin=subprocess.DEVNULL,
+                         stdout=out, stderr=out, start_new_session=True, env=dict(env))
+
+
 def record_lane(job: str, *, head: str, head_tree: str, base: str, merge_tree: str, seconds: float,
-                post: Callable[[str, bytes], tuple[int, bytes]] | None = None, env=os.environ) -> int:
+                post: Callable[[str, bytes], tuple[int, bytes]] | None = None, env=os.environ,
+                spawn: Callable[[], None] | None = None) -> int:
     """POST the pass to the controller's /v1/ci/lane-receipt. The controller names the producer (the tailnet node)
-    and signs it. A refusal or no answer is no receipt (exit 0: the pass stands and the PR's gates simply run)."""
+    and signs it. No answer spools it for a detached retry; a refusal is no receipt. Exit 0 either way: the pass
+    stands and, until a receipt is recorded, the PR's gates simply run."""
     controller = (env.get("CMUX_CI_CONTROLLER") or LANE_CONTROLLER).rstrip("/")
     payload = {"repo": env.get("CI_RECEIPT_REPO", "manaflow-ai/cmux"), "check": job, "head": head,
                "head_tree": head_tree, "base": base, "merge_tree": merge_tree, "command": CANONICAL[job], "exit": 0,
                "log_sha256": "", "seconds": seconds,
                "session": env.get("ACPMUX_SESSION_NAME") or env.get("CMUX_AGENT_NAME") or ""}
     url = f"{controller}/v1/ci/lane-receipt"
-    if post is None:
-        def post(target: str, data: bytes) -> tuple[int, bytes]:
-            request = urllib.request.Request(target, data=data, method="POST", headers={
-                "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-            status, body, _ = deadline_http.request(request, 20)
-            return status, body
-    try:
-        status, body = post(url, json.dumps(payload).encode())
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        log(f"ci-receipt: passed, but the controller did not answer ({error}); no lane receipt, the PR's gates run")
+    outcome, detail = post_receipt(url, payload, post or controller_post)
+    if outcome == "retry":
+        folder = spool_dir(env)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            entry = folder / f"{job}-{head_tree}-{base[:12]}.json"
+            tmp = entry.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"url": url, "payload": payload, "until": time.time() + SPOOL_FOR_S}))
+            tmp.replace(entry)
+            (spawn or (lambda: spawn_flush(env)))()
+        except OSError as error:
+            log(f"ci-receipt: passed, but {detail} and the spool is unwritable ({error}); no lane receipt, the PR's "
+                "gates run")
+            return 0
+        log(f"ci-receipt: passed, but {detail}; spooled ({entry}), retried every {RETRY_EVERY_S} s for "
+            f"{SPOOL_FOR_S} s by a detached `ci_receipt.py flush`")
         return 0
-    if status >= 300:
-        log(f"ci-receipt: passed, but the controller refused the lane receipt ({status}: {body[:300]!r}); the PR's "
-            "gates run")
+    if outcome == "refused":
+        log(f"ci-receipt: passed, but {detail}; the PR's gates run")
         return 0
-    producer = (json.loads(body or b"{}").get("receipt") or {}).get("producer", "?")
     print(f"ci-receipt: passed and recorded: lane receipt for head tree {head_tree} on base {base[:12]} by "
-          f"{producer}. Push this tree (any commit with it): the PR's fast gates take the receipt instead of "
+          f"{detail}. Push this tree (any commit with it): the PR's fast gates take the receipt instead of "
           "re-running.", flush=True)
     return 0
+
+
+def flush(env=os.environ, post: Callable[[str, bytes], tuple[int, bytes]] | None = None,
+          sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.time,
+          once: bool = False) -> int:
+    """Retry every spooled record until each is recorded, refused or past its `until`. One flusher at a time
+    (an flock on the spool); a second exits at once, the first picks up the new entry on its next round."""
+    import fcntl  # noqa: PLC0415  (POSIX: lanes are Linux)
+    folder = spool_dir(env)
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / ".lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0
+        while True:
+            entries = sorted(folder.glob("*.json"))
+            for entry in entries:
+                try:
+                    item = json.loads(entry.read_text())
+                    url, payload, until = item["url"], item["payload"], float(item["until"])
+                except (OSError, ValueError, KeyError, TypeError):
+                    entry.unlink(missing_ok=True)
+                    continue
+                outcome, detail = post_receipt(url, payload, post or controller_post)
+                if outcome == "recorded":
+                    log(f"ci-receipt: spooled lane receipt for head tree {payload.get('head_tree')} recorded by {detail}")
+                elif outcome == "refused":
+                    log(f"ci-receipt: spooled lane receipt for head tree {payload.get('head_tree')}: {detail}")
+                elif now() < until:
+                    continue
+                else:
+                    log(f"ci-receipt: gave up on the spooled lane receipt for head tree {payload.get('head_tree')} "
+                        f"({detail})")
+                entry.unlink(missing_ok=True)
+            if once or not any(folder.glob("*.json")):
+                return 0
+            sleep(RETRY_EVERY_S)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -731,7 +827,10 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--lane", action="store_true", help="also ask the controller for a lane receipt of this head "
                        "tree (needs id-token: write)")
     check.add_argument("--workspaces", type=Path, help=".github/rust-workspaces.toml (rust-workspaces, from the base)")
+    sub.add_parser("flush", help="retry the lane receipts the controller did not answer for (spawned by produce)")
     args = parser.parse_args(argv)
+    if args.mode == "flush":
+        return flush()
     if args.mode == "produce":
         return produce(args)
     result = verify(args)
