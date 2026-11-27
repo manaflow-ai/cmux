@@ -42,7 +42,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
         return false;
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
-        .and_then(Value::as_bool)
+        .and_then(|v| v.as_bool())
         .unwrap_or(false)
 }
 
@@ -227,7 +227,7 @@ fn exit_code(update: &Map<String, Value>, output: &str) -> Option<i64> {
 
 /// The command a call runs: its `rawInput.command` (a string, or Codex's argv list).
 fn command_of(update: &Map<String, Value>) -> Option<String> {
-    match update.pointer("/rawInput/command")? {
+    match update.get("rawInput")?.get("command")? {
         Value::String(s) => Some(s.clone()),
         Value::Array(argv) => {
             let words: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
