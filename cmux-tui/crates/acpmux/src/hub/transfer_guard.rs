@@ -70,18 +70,7 @@ impl Guard {
             .and_then(Value::as_array)
             .filter(|r| !r.is_empty() && r.len() <= MAX_ROOTS)
             .ok_or_else(|| bad(format!("roots must be 1 to {MAX_ROOTS} folders")))?;
-        let home = match dirs::home_dir() {
-            Some(h) => {
-                let spelling = spelled(&h).await;
-                spelling.unwrap_or(h)
-            }
-            None => return Err(bad("this daemon has no home folder".into())),
-        };
-        let mut stores = Vec::new();
-        for store in [home.join(".claude"), home.join(".codex"), crate::config::home()] {
-            let spelling = spelled(&store).await;
-            stores.push(spelling.unwrap_or(store));
-        }
+        let (home, stores) = home_and_stores().await?;
         let mut roots = Vec::new();
         for r in raw {
             let s = r.as_str().ok_or_else(|| bad(format!("root {r} is not a path")))?;
@@ -93,6 +82,36 @@ impl Guard {
             }
         }
         Ok(Guard { control, roots, owner: false })
+    }
+
+    /// A hub move's guard (`transfer_pull.rs`, `transfer_hub_precopy.rs`), built from this
+    /// daemon's own `webRoots`: each root that passes the same checks as `parse` is kept, and one
+    /// that fails (a `/tmp` a probe wrote, a folder since deleted) is left out rather than
+    /// refusing every move, so the guard only narrows. With no root left, the refusal names
+    /// every left-out root and why.
+    pub(super) async fn from_config_roots(raw: &[String]) -> Result<Guard, RpcError> {
+        let (home, stores) = home_and_stores().await?;
+        let mut roots = Vec::new();
+        let mut skipped = Vec::new();
+        for s in raw {
+            match checked_root(s, &home, &stores).await {
+                Ok(root) if !roots.contains(&root) && roots.len() < MAX_ROOTS => roots.push(root),
+                Ok(_) => {}
+                Err(why) => skipped.push(format!("root {s:?} {why}")),
+            }
+        }
+        if roots.is_empty() {
+            let why =
+                if skipped.is_empty() { "no webRoots".to_string() } else { skipped.join("; ") };
+            return Err(guard_error(
+                "guard",
+                format!("this machine has no usable webRoots: {why}"),
+            ));
+        }
+        if !skipped.is_empty() {
+            tracing::warn!("hub move guard left out webRoots: {}", skipped.join("; "));
+        }
+        Ok(Guard { control: Control::Peer, roots, owner: false })
     }
 
     pub(super) fn to_value(&self) -> Value {
@@ -142,6 +161,23 @@ impl Guard {
         let inside = canonical.is_dir() && self.roots.iter().any(|r| canonical.starts_with(r));
         inside.then_some(canonical)
     }
+}
+
+/// This daemon's home folder and the agent stores no root may hold, as the filesystem spells them.
+async fn home_and_stores() -> Result<(PathBuf, Vec<PathBuf>), RpcError> {
+    let home = match dirs::home_dir() {
+        Some(h) => {
+            let spelling = spelled(&h).await;
+            spelling.unwrap_or(h)
+        }
+        None => return Err(guard_error("guard", "this daemon has no home folder")),
+    };
+    let mut stores = Vec::new();
+    for store in [home.join(".claude"), home.join(".codex"), crate::config::home()] {
+        let spelling = spelled(&store).await;
+        stores.push(spelling.unwrap_or(store));
+    }
+    Ok((home, stores))
 }
 
 /// `path` resolved and spelled as the filesystem stores it (`remote_guard.rs`).
@@ -509,3 +545,7 @@ mod durable_harness_tests;
 #[cfg(test)]
 #[path = "transfer_guard_retired_root_tests.rs"]
 mod retired_root_tests;
+
+#[cfg(test)]
+#[path = "transfer_guard_config_root_tests.rs"]
+mod config_root_tests;
