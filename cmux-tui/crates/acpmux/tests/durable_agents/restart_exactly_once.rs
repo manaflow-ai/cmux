@@ -327,7 +327,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     }
     let mut completed = 0;
     let mut caller_failures = Vec::new();
-    for (i, mut child) in children.into_iter().enumerate() {
+    for (i, child) in children.into_iter().enumerate() {
         let output = child.wait_with_output().expect("wait CLI send");
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -339,12 +339,34 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         }
     }
 
-    let read = wire(&daemon.home.join("wire.jsonl"));
+    // A failed baseline caller exits before its durable queued turn finishes. Give those
+    // turns one bounded completion window so caller failures are not mistaken for lost work.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while sessions.iter().any(|(session, _, _, prompt_id)| {
+        !daemon
+            .events(session)
+            .iter()
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+    }) && Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let read = wire(&log);
     let mut execution_loss = Vec::new();
     let mut duplicated = Vec::new();
     for (i, (session, _, _, prompt_id)) in sessions.iter().enumerate() {
         let events = daemon.events(session);
-        let executions = read.iter().filter(|line| line["promptId"] == prompt_id).count();
+        let marker = format!("queued-cli-{i}");
+        let executions = read
+            .iter()
+            .filter(|line| {
+                line["method"] == "session/prompt"
+                    && (line["promptId"] == prompt_id
+                        || line["text"]
+                            .as_str()
+                            .is_some_and(|text| text.split_whitespace().any(|word| word == marker)))
+            })
+            .count();
         let starts = events
             .iter()
             .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id)
