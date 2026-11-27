@@ -816,7 +816,7 @@ impl Engine {
         let seen =
             lock(&self.seen).get(&(ctx.session.clone(), format!("w:{window_id}"))).map(|(g, _)| *g);
         if let Some(geometry) = seen {
-            super::rewrite_frames(&mut tree.root, &geometry);
+            rewrite_frames(&mut tree.root, &geometry);
         }
         outline::build(&tree.root, tree.truncated, opts)
     }
