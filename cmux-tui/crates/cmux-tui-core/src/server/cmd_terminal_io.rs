@@ -372,6 +372,7 @@ fn send_unkeyed(
         })?;
     }
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 
@@ -601,6 +602,7 @@ pub(super) fn send_key(
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes_replying(&encoded, reply)?;
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 
