@@ -272,6 +272,37 @@ class Provision(unittest.TestCase):
         self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"], pk, sk), PASSWORD)
         self.assertIn("production test account", logs[-1])
 
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_control_target_has_its_own_teamless_account_sealed_beside_the_probes(self):
+        # cmuxterm-hq cloud-chat-replies-production's control: its own (team, user) spare, so the other probes on the
+        # production account stop claiming it. Personal scope: no team_id, and the probe's account is untouched.
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["production-control"]
+        self.assertEqual(target.project, provision.PRODUCTION_PROJECT_ID)
+        self.assertIsNone(target.team_id)
+        self.assertNotIn(target.email, [t.email for n, t in provision.TARGETS.items() if n != "production-control"])
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")
+        self.assertFalse([r for r in fake.requests if r[1].startswith("/team-memberships")])
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-prod-control@manaflow.dev")
+        self.assertEqual(created[0][3]["client_read_only_metadata"], {"cmuxVmPlan": "pro"})
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmuxterm-hq", "cloud-capture"))
+        self.assertEqual(sorted(bundle["secrets"]), ["CLOUD_PROBE_PRODUCTION_CONTROL_STACK_EMAIL",
+                                                     "CLOUD_PROBE_PRODUCTION_CONTROL_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_CONTROL_STACK_PASSWORD"], pk, sk),
+                         PASSWORD)
+
     def test_the_workflow_offers_production_team_with_the_production_key_and_no_grant_only(self):
         text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
         options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
@@ -786,6 +817,39 @@ class GrantOnly(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(provision.main(["--grant-only", ""]), 1)
         rotate.assert_not_called()
+
+
+class PlanOnly(unittest.TestCase):
+    TARGET = provision.TARGETS["journey-production"]
+
+    def prod(self, fake):
+        return stack(fake, provision.PRODUCTION_PROJECT_ID)
+
+    def test_it_sets_only_the_plan_and_keeps_the_rest(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.TARGET.email, "password": PASSWORD,
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro", "keep": 1}}])
+        provision.plan_only(self.prod(fake), self.TARGET, "next_pro", log=lambda _: None)
+        self.assertEqual(fake.users["u1"]["client_read_only_metadata"], {"cmuxVmPlan": "next_pro", "keep": 1})
+        self.assertEqual(fake.users["u1"]["password"], PASSWORD)
+        patches = [b for m, _, _, b in fake.requests if m == "PATCH"]
+        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxVmPlan": "next_pro", "keep": 1}}])
+
+    def test_other_plans_other_targets_and_missing_accounts_are_refused_without_a_write(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.TARGET.email, "client_read_only_metadata": {}}])
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(fake), self.TARGET, "next_max", log=lambda _: None)
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(fake), provision.TARGETS["production"], "next_pro", log=lambda _: None)
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(FakeStack()), self.TARGET, "next_pro", log=lambda _: None)
+        self.assertFalse([r for r in fake.requests if r[0] in ("POST", "PATCH")])
+
+    def test_the_workflow_runs_it_only_for_the_journey_account_and_skips_provisioning(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        step = text.split("- name: Set the journey account's plan only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.target == 'journey-production'", step)
+        seal = text.split("- name: Provision and seal", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.plan_only == ''", seal)
 
 
 class Guards(unittest.TestCase):

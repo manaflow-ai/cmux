@@ -939,7 +939,14 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
         Some((_, start, None)) => duration_label(now_ms().saturating_sub(*start)).to_string(),
         _ => "…".to_owned(),
     };
-    let mut label = format!("Working ({elapsed} · Esc to interrupt)");
+    // A /compact reads as one from its first frame (cmux#55784).
+    let verb = if crate::live_line::compacting(t) { "Compacting conversation" } else { "Working" };
+    let mut label = format!("{verb} ({elapsed} · Esc to interrupt)");
+    // Silent and idle, it names what it waits on (cmux#50146).
+    if let Some(wait) = crate::live_line::waiting(t, now_ms()) {
+        label.push_str(" · ");
+        label.push_str(&wait);
+    }
     if let Some(activity) = t.activity.as_deref().filter(|s| !s.is_empty()) {
         label.push_str(" · ");
         label.push_str(activity);

@@ -45,11 +45,12 @@ import ios_link_ffi_key  # noqa: E402
 # The app's manifests: the XcodeGen project and the kit package.
 APP_MANIFESTS = ("cmux-next-ios/project.yml", "cmux-next-ios/CmuxMobileKit/Package.swift")
 
-# Workflows whose pull_request and push filters must name exactly the app's packages.
-WORKFLOWS = (".github/workflows/ios-review-gate.yml", ".github/workflows/cmux-next-ios-kit.yml")
-# The triggers each workflow filters. The kit workflow keeps only its push: a feat-cmux-next pull request runs
-# the kit as TABLE_STEP (pr-pipeline.yml's ios job).
-WORKFLOW_EVENTS = {".github/workflows/cmux-next-ios-kit.yml": ("push",)}
+# Workflows whose pull_request and push filters must name exactly the app's packages. cmux-next-ios-kit.yml has
+# no path filter left: a feat-cmux-next pull request runs the kit as TABLE_STEP (pr-pipeline.yml's ios job) and the
+# push runs it in the post-merge batch (suite pr-pipeline-ios, gated on the same step inputs).
+WORKFLOWS = (".github/workflows/ios-review-gate.yml",)
+# The triggers each workflow filters (default: both).
+WORKFLOW_EVENTS: dict[str, tuple[str, ...]] = {}
 # The step table and its step whose `inputs` must name exactly the app's packages.
 TABLE = "ci/steps.toml"
 TABLE_STEP = "ios-kit"

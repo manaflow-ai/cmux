@@ -12,7 +12,6 @@
 import { useState } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 
@@ -26,7 +25,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
+import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -160,7 +159,7 @@ export function SubagentsSection({
       status,
       state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
+      time: subagentTime(agent, now),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
