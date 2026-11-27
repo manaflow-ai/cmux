@@ -206,7 +206,7 @@ public final class UpdaterService {
     /// Files a failed check after an update (the App's crash reporter's non-fatal report).
     @ObservationIgnored var healthCheckFile: UpdateHealthFailure.File?
     /// A shared `SUEnableAutomaticChecks = false` from the classic updater remains an explicit opt-out in NEXT.
-    @ObservationIgnored private let preservesSharedAutomaticChecksOptOut: Bool
+    @ObservationIgnored let preservesSharedAutomaticChecksOptOut: Bool
     /// When this updater was made, early in the launch: the check counts relay refusals since then.
     @ObservationIgnored let launchedAt = Date()
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
@@ -415,6 +415,18 @@ public final class UpdaterService {
             in: defaults,
             resolvedAutomaticChecks: identity.track == .development ? nil : automaticChecksAtLaunch,
             paused: pausesAutomaticUpdates)
+        let automaticChecksOverride: Bool?
+        if identity.track == .development {
+            automaticChecksOverride = nil
+        } else if pausesAutomaticUpdates {
+            automaticChecksOverride = false
+        } else if let automaticChecksAtLaunch {
+            automaticChecksOverride = automaticChecksAtLaunch && !preservesSharedAutomaticChecksOptOut
+        } else {
+            // A bare launch may not have a settings snapshot yet. Preserve a classic updater's
+            // explicit opt-out instead of letting UpdateSettings' first-run migration replace it.
+            automaticChecksOverride = preservesSharedAutomaticChecksOptOut ? false : nil
+        }
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
         starPrompt = StarPromptCenter(defaults: defaults, now: now)
@@ -435,6 +447,7 @@ public final class UpdaterService {
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
+                                              automaticChecksOverride: automaticChecksOverride,
                                               isDisabledByPolicy: { policy.disablesUpdates })
             // No Sparkle window: the found and staged steps are the sidebar's cards.
             // Set on this updater only; no defaults change, so the legacy app

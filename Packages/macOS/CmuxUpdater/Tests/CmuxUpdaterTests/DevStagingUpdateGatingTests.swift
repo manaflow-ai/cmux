@@ -125,6 +125,22 @@ import Testing
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == true)
     }
 
+    /// A host-resolved setting is applied after the legacy migration, before Sparkle is built.
+    @Test func hostAutomaticChecksOverrideRunsAfterMigration() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        _ = UpdateController(
+            log: NoopUpdateLog(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: false,
+            automaticChecksOverride: false
+        )
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
+    }
+
     /// Builds a minimal valid `SUAppcastItem` for a version string (nested helper, not API).
     private func makeAppcastItem(version: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [

@@ -40,7 +40,7 @@ import Testing
 
         defaults.set(false, forKey: key)
         _ = Self.updater(paused: false, defaults: defaults, bundleIdentifier: nightly)
-        #expect(defaults.object(forKey: key) as? Bool == false, "the person's own automatic-checks off was cleared")
+        #expect(defaults.object(forKey: key) as? Bool == false, "the person's own automatic-checks off survives")
     }
 
     @Test func anExistingClassicOptOutSurvivesTheNextSetting() {

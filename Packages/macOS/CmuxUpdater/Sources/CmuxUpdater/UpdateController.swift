@@ -101,6 +101,9 @@ public final class UpdateController {
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
     ///     which derives it from `hostBundle.bundleIdentifier` via ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
+    ///   - automaticChecksOverride: A host application's resolved automatic-check setting, applied
+    ///     after the legacy migration and before Sparkle is constructed. `nil` keeps the package's
+    ///     normal migration behavior.
     /// - Parameter isDisabledByPolicy: The host's `DisableAutoUpdate` managed
     ///   policy. While it returns true the updater is never started and manual
     ///   checks are suppressed; the package stays free of the settings
@@ -112,6 +115,7 @@ public final class UpdateController {
                             defaults: UserDefaults = .standard,
                             fileManager: FileManager = .default,
                             isDevLikeBundle: Bool? = nil,
+                            automaticChecksOverride: Bool? = nil,
                             isDisabledByPolicy: @escaping () -> Bool = { false }) {
         self.init(log: log,
                   clock: clock,
@@ -120,6 +124,7 @@ public final class UpdateController {
                   defaults: defaults,
                   fileManager: fileManager,
                   isDevLikeBundle: isDevLikeBundle,
+                  automaticChecksOverride: automaticChecksOverride,
                   isDisabledByPolicy: isDisabledByPolicy,
                   updaterFactory: { driver, hostBundle in
                       SPUUpdater(
@@ -144,6 +149,7 @@ public final class UpdateController {
          defaults: UserDefaults = .standard,
          fileManager: FileManager = .default,
          isDevLikeBundle: Bool? = nil,
+         automaticChecksOverride: Bool? = nil,
          isDisabledByPolicy: @escaping () -> Bool = { false },
          updaterFactory: (UpdateDriver, Bundle) -> any UpdaterHandle) {
         self.log = log
@@ -164,6 +170,11 @@ public final class UpdateController {
             // `automaticallyChecksForUpdates` guard. Foreground checks are gated separately by
             // `requestUpdateCheck(_:)`.
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        }
+        if let automaticChecksOverride {
+            // The host's resolved NEXT setting wins over the legacy migration, but is applied
+            // before SPUUpdater reads the preference for its launch check and schedule.
+            defaults.set(automaticChecksOverride, forKey: UpdateSettings.automaticChecksKey)
         }
 
         self.installWatchdog = InstallWatchdog(clock: clock)

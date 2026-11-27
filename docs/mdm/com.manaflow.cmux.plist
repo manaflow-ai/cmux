@@ -210,6 +210,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.</string>
+			<key>pfm_name</key>
+			<string>app.captureScreenshotGlobalHotKey</string>
+			<key>pfm_title</key>
+			<string>Capture Screenshot to Chat from Any App</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>cmux stays in the menu bar until a window opens.</string>
 			<key>pfm_name</key>
 			<string>app.hideDockIconWithoutWindows</string>
@@ -1520,6 +1532,18 @@
 			<string>New Cloud Workspaces Start In</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.useMyGitHubLogin</string>
+			<key>pfm_title</key>
+			<string>Use My GitHub Login on Cloud Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -6908,6 +6932,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>words</string>
+			<key>pfm_description</key>
+			<string>How an agent's reply text appears as it arrives.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.streaming</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>words</string>
+				<string>lines</string>
+				<string>instant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Reply Streaming</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>cadenced</string>
 			<key>pfm_description</key>
 			<string>How the light band moves across the live status line.</string>
@@ -8199,7 +8241,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.</string>
+			<string>Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.</string>
 			<key>pfm_name</key>
 			<string>sidebar.workspacesAsTabs</string>
 			<key>pfm_title</key>
@@ -12232,6 +12274,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Teammates you share a chat with show when they view it and when they type.</string>
+			<key>pfm_name</key>
+			<string>labs.chatMultiplayer</string>
+			<key>pfm_title</key>
+			<string>Chat Multiplayer</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Send browser and terminal comments to the chat as threads that show the agent's reply.</string>
 			<key>pfm_name</key>
 			<string>labs.commentThreads</string>
@@ -12736,6 +12790,18 @@
 			<string>experiments.browserProfileCard</string>
 			<key>pfm_title</key>
 			<string>Browser Profile Card</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show when Claude automatically compacted a chat and how to lower the context it carries between turns.</string>
+			<key>pfm_name</key>
+			<string>experiments.compactionThresholdInsight</string>
+			<key>pfm_title</key>
+			<string>Compaction Threshold Insight</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -13252,25 +13318,6 @@
 			<string>Add Message Relay to Claude Code</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>deepseek/deepseek-v4.1-flash-1017</string>
-			<key>pfm_description</key>
-			<string>The model new cmux model router chats start on.</string>
-			<key>pfm_name</key>
-			<string>agents.modelRouter.model</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>deepseek/deepseek-v4.1-flash-1017</string>
-				<string>deepseek/deepseek-v4.1-flash</string>
-				<string>deepseek/deepseek-v4-flash</string>
-				<string>deepseek/deepseek-v4-pro</string>
-			</array>
-			<key>pfm_title</key>
-			<string>cmux Model Router Model</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
