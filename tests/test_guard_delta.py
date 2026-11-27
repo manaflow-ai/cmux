@@ -146,10 +146,6 @@ class OutboundHosts(Case):
                          {A: swift("api.cmux.dev", "new.cmux.dev")}, 1)
         self.assertIn("new.cmux.dev: not in docs/privacy.md", got[0])
 
-    def test_a_new_name_already_present_in_an_untouched_file_is_allowed(self):
-        self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift(), B: swift("api.cmux.dev")},
-                   {A: swift("api.cmux.dev")}, 0)
-
     def test_a_host_still_named_elsewhere_is_not_stale(self):
         self.check({DOC: doc("api.cmux.dev"), A: swift("api.cmux.dev"), B: swift("api.cmux.dev")},
                    {A: swift()}, 0)
@@ -217,6 +213,10 @@ class NetworkAllowlist(Case):
         self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift("api.cmux.dev")},
                    {A: swift("api.cmux.dev", "new.cmux.dev")}, 1)
         self.check({ALLOW: allow(), ICE_FILE: ice()}, {ICE_FILE: ice("stun.cmux.dev")}, 1)
+
+    def test_a_new_name_already_present_in_an_untouched_file_is_allowed(self):
+        self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift(), B: swift("api.cmux.dev")},
+                   {A: swift("api.cmux.dev")}, 0)
 
     def test_a_host_still_named_elsewhere_is_not_stale(self):
         self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift("api.cmux.dev"), B: swift("api.cmux.dev")},
