@@ -24,6 +24,10 @@ pub struct IceConfig {
 pub struct DeviceRegistration {
     pub device_id: String,
     pub kind: String,
+    /// The model/device kind for the remote icon (for example `macbook` or `mac-mini`).
+    /// Omitted for older callers; the backend preserves an existing value when omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_kind: Option<String>,
     pub name: String,
     pub team_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

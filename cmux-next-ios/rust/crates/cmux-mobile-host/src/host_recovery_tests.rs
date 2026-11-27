@@ -92,6 +92,7 @@ async fn recovery_sample(wake: bool) -> Duration {
         team_id: "team".into(),
         device_id: "mac".into(),
         device_name: "Test Mac".into(),
+        device_kind: None,
         host_uuid: None,
         machine_id_override: None,
         app_support: dir.path().into(),

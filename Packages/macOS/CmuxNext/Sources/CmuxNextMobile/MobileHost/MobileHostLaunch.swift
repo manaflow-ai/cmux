@@ -16,6 +16,8 @@ public struct MobileHostLaunch: Sendable, Equatable {
     public var deviceID: String
     /// How phones list this Mac: the computer name.
     public var deviceName: String
+    /// The daemon hardware model kind (`macbook`, `mac-mini`, etc.) for remote glyphs.
+    public var deviceKind: String?
     /// The app's own cmux-tui daemon socket.
     public var daemonSocket: String
     /// hostd's state directory (the app's, per bundle id).
@@ -54,13 +56,14 @@ public struct MobileHostLaunch: Sendable, Equatable {
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
-                agentTabHost: String? = nil) {
+                agentTabHost: String? = nil, deviceKind: String? = nil) {
         self.executable = executable
         self.baseURL = baseURL
         self.teamID = teamID
         self.userID = userID
         self.deviceID = deviceID
         self.deviceName = deviceName
+        self.deviceKind = deviceKind
         self.daemonSocket = daemonSocket
         self.stateDirectory = stateDirectory
         self.fileRoots = fileRoots
@@ -115,6 +118,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
             "CMUX_MOBILE_EXCLUDE_CGNAT": "1",
             "NO_COLOR": "1",
         ]) { $1 }
+        if let deviceKind, !deviceKind.isEmpty { environment["CMUX_MOBILE_DEVICE_KIND"] = deviceKind }
         if let agentTabHost, !agentTabHost.isEmpty { environment["CMUX_MOBILE_AGENT_TAB_HOST"] = agentTabHost }
         if let chiefSession, !chiefSession.isEmpty { environment["CMUX_MOBILE_CHIEF_SESSION"] = chiefSession }
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }

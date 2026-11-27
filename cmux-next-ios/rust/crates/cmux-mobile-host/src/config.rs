@@ -92,6 +92,9 @@ pub struct HostConfig {
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
+    /// The model kind reported by the local daemon (`macbook`, `mac-mini`, etc.).
+    /// Sent as the registration's optional `modelKind` for remote device glyphs.
+    pub device_kind: Option<String>,
     /// The computer this build runs on (`gethostuuid`), never sent raw: see
     /// [`machine_id`]. None when the OS gives none (Linux, a sandbox, tests).
     pub host_uuid: Option<HostUuid>,
@@ -421,6 +424,7 @@ impl HostConfig {
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),
+            device_kind: env("CMUX_MOBILE_DEVICE_KIND"),
             host_uuid: host_uuid(),
             machine_id_override: env("CMUX_MOBILE_MACHINE_ID").and_then(|value| {
                 let id = normalize_machine_id(&value);

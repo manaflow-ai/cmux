@@ -1,7 +1,10 @@
 //! A Mac's machine id and its other builds' device ids (PROTOCOL.md "Devices"):
 //! what lets the phone list one computer once, whatever the names.
 
-use cmux_mobile_host::config::{HostUuid, MACHINE_MARKER, MAX_SIBLINGS, machine_id, normalize_machine_id, registration_machine, registration_siblings, sibling_device_ids};
+use cmux_mobile_host::config::{
+    HostUuid, MACHINE_MARKER, MAX_SIBLINGS, machine_id, normalize_machine_id, registration_machine,
+    registration_siblings, sibling_device_ids,
+};
 use cmux_mobile_link::api::DeviceRegistration;
 
 const HOST: [u8; 16] = *b"0123456789abcdef";
@@ -62,6 +65,7 @@ fn a_mac_registration_carries_its_machine_id_and_siblings() {
     let mut registration = DeviceRegistration {
         device_id: "d".into(),
         kind: "mac".into(),
+        model_kind: Some("macbook".into()),
         name: "Mac".into(),
         team_id: "t".into(),
         wg_public_key: None,
@@ -70,6 +74,7 @@ fn a_mac_registration_carries_its_machine_id_and_siblings() {
     };
     let body = serde_json::to_value(&registration).unwrap();
     assert_eq!(body["machineId"], "ab".repeat(16));
+    assert_eq!(body["modelKind"], "macbook");
     assert_eq!(body["siblingDeviceIds"], serde_json::json!(["s"]));
     registration.machine_id = None;
     registration.sibling_device_ids.clear();
@@ -121,7 +126,10 @@ fn an_overridden_machine_id_claims_no_siblings() {
     let path = root.path().join("old.build/cmux-mobile-host/device-id");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, "88888888-8888-4888-8888-888888888888").unwrap();
-    assert_eq!(registration_siblings(root.path(), "own", MINE, false), vec!["88888888-8888-4888-8888-888888888888".to_owned()]);
+    assert_eq!(
+        registration_siblings(root.path(), "own", MINE, false),
+        vec!["88888888-8888-4888-8888-888888888888".to_owned()]
+    );
     assert!(registration_siblings(root.path(), "own", MINE, true).is_empty());
 }
 

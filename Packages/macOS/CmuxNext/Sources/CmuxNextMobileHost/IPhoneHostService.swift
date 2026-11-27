@@ -62,6 +62,8 @@ public final class IPhoneHostService {
         /// a phone's New Agent Chat starts there (``MobileHostApproverSync/updateNewChatPicks(_:)``).
         var newChatPicks: @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() }
         var computerName: @Sendable () async -> String
+        /// The local daemon hardware model kind for remote device glyphs.
+        var deviceKind: @MainActor @Sendable () -> String? = { nil }
         /// The app's acpmux, for the phones' approval keys; nil without agents.
         var acpmuxEnvironment: AcpmuxEnvironment?
         /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
@@ -101,6 +103,7 @@ public final class IPhoneHostService {
             deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket,
             stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
             stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+        launch.deviceKind = dependencies.deviceKind()
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false

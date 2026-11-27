@@ -266,6 +266,7 @@ async fn connect_once(
         .register_device(&DeviceRegistration {
             device_id: config.device_id.clone(),
             kind: "mac".into(),
+            model_kind: config.device_kind.clone(),
             name: config.device_name.clone(),
             team_id: config.team_id.clone(),
             wg_public_key: None,
@@ -281,8 +282,11 @@ async fn connect_once(
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));
-    let mut lifetime =
-        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
+    let mut lifetime = ConnectionLifetime {
+        signaling: signaling.clone(),
+        tasks: Vec::new(),
+        published: signaling_now.clone(),
+    };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
