@@ -48,5 +48,17 @@ export default componentEntry<{ scene: CommandTitlesScene }>({
       props: { scene: "subagent" },
       play: open,
     },
+    // Leo, 2026-11-25, on the idle hat: "this background command completed just sorta sits in the
+    // ether sometimes". A daemon-run background command had no registry row, so with no turn running
+    // the hat showed nothing while it ran.
+    "idle-before": {
+      note: "Before: a background command the daemon runs, with no turn running, had no process row; the hat is empty while it runs.",
+      props: { scene: "idleBefore" },
+    },
+    "idle-after": {
+      note: "After: the daemon notes its task as a process row, so the idle hat reads '1 background command running' until it ends.",
+      props: { scene: "idleAfter" },
+      play: open,
+    },
   },
 });
