@@ -395,6 +395,25 @@ impl Backoff {
         step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
     }
 
+    /// The first wait after ssh refused the machine's host key.
+    pub const HOST_KEY_REFUSED_BASE: Duration = Duration::from_secs(15);
+    /// The longest wait between refused host keys.
+    pub const HOST_KEY_REFUSED_CAP: Duration = Duration::from_secs(2 * 60);
+
+    /// The least wait after the `refusals`-th refused host key in a row (1 for the first):
+    /// doubling from `HOST_KEY_REFUSED_BASE` to `HOST_KEY_REFUSED_CAP`, plus up to a fifth more
+    /// with `jitter`. ssh stops before it logs in, so no attempt counts against a ban tool, and
+    /// the cause is often brief: a peer whose ssh works again links within minutes. Under the
+    /// refused login's hour a host-key error held cosmic-gray's link down for about 2 h after
+    /// ssh worked again (Air-Blue, 2026-11-26).
+    pub fn host_key_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step = Self::HOST_KEY_REFUSED_BASE
+            .saturating_mul(1u32 << doublings)
+            .min(Self::HOST_KEY_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
+    }
+
     /// Steps drawn since the last `reset`.
     pub fn failures(&self) -> u32 {
         self.failures
@@ -1149,6 +1168,20 @@ pub fn state_label(peer: &Value, now: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused host key waits seconds, then minutes, and never past its cap: unlike a
+    /// refused login it costs the remote nothing, and an hour's wait kept a link down for 2 h.
+    #[test]
+    fn a_refused_host_key_waits_a_bounded_backoff() {
+        assert_eq!(Backoff::host_key_refused(1, 0.0), Backoff::HOST_KEY_REFUSED_BASE);
+        assert_eq!(Backoff::host_key_refused(2, 0.0), 2 * Backoff::HOST_KEY_REFUSED_BASE);
+        let cap = Backoff::HOST_KEY_REFUSED_CAP;
+        for n in 1..1_000 {
+            assert!(Backoff::host_key_refused(n, 1.0) <= cap + cap / 5);
+        }
+        assert_eq!(Backoff::host_key_refused(u32::MAX, 0.0), cap);
+        assert!(Backoff::host_key_refused(1, 1.0) < Backoff::login_refused(1, 0.0));
+    }
 
     #[test]
     fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {

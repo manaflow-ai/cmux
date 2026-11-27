@@ -121,6 +121,8 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            host_key_refused: AtomicBool::new(false),
+            remote_listen: StdMutex::new(None),
             link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
@@ -476,10 +478,12 @@ impl Peer {
         ),
         String,
     > {
-        let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let (host, url_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let to = tunnel_target(url_port, *self.remote_listen.lock_or_recover());
+        let remote_port = to.port();
         let mut command = self.ssh_command();
         command
-            .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
+            .args(tunnel_argv_to(&host, to, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -518,9 +522,55 @@ impl Peer {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
         }
-        if ssh_errors::login_refused(reason) {
+        if ssh_errors::host_key_refused(reason) {
+            self.host_key_refused.store(true, Ordering::SeqCst);
+        } else if ssh_errors::login_refused(reason) {
             self.login_refused.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// The address the machine's daemon recorded at the last read, kept for the next tunnels.
+    pub(super) fn note_remote_listener(&self, recorded: Option<std::net::SocketAddr>) {
+        let mut kept = self.remote_listen.lock_or_recover();
+        if *kept != recorded {
+            tracing::info!(peer = %self.name, ?recorded, "the machine's daemon listener, as recorded");
+        }
+        *kept = recorded;
+    }
+
+    /// The forward to `tried` (a port on the machine) was refused: read the machine's
+    /// `listener.json` again, keep it, and return it when it names another port. A daemon that
+    /// found its port taken as it started serves on a free one, and only its record says which
+    /// (`listener_record.rs`). None when the URL names its own port, when the read fails, or when
+    /// the record is gone or names `tried` (the daemon is down).
+    pub(super) async fn reread_listener(&self, tried: u16) -> Option<std::net::SocketAddr> {
+        let (host, url_port) = self.ssh_parts()?;
+        if url_port != SSH_PEER_PORT || self.stop.load(Ordering::SeqCst) {
+            return None;
+        }
+        let mut command = self.ssh_command();
+        command
+            .args(read_listener_argv(&host, self.ssh_connect_secs()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let child = command.spawn().ok()?;
+        let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
+        let out = tokio::select! {
+            out = read => out.ok()?.ok()?,
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+                return None;
+            }
+        };
+        if !out.status.success() && out.stdout.is_empty() {
+            return None;
+        }
+        let recorded = remote_listener_text(&out.stdout);
+        self.note_remote_listener(recorded);
+        recorded.filter(|addr| addr.port() != tried)
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -575,6 +625,7 @@ impl Peer {
             ));
         }
         let (config, peer) = split_remote_read(&out.stdout);
+        self.note_remote_listener(remote_read_listener(&out.stdout));
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
