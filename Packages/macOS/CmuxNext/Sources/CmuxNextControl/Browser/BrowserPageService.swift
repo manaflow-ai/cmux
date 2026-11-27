@@ -50,7 +50,7 @@ public struct BrowserPageService: Sendable {
     public func install(on router: ControlRouter) {
         let engine = engine
         let leases = leases
-        let register: ([ControlMethod]) -> Void = { router.register($0.map(self.leasing)) }
+        let register: ([ControlMethod]) -> Void = { router.register($0.map { Self.intending(self.leasing($0)) }) }
         func page(_ name: String, _ operation: @escaping @Sendable (ControlCall) throws -> BrowserPageOperation) -> ControlMethod {
             .async("browser.page.\(name)") { call in
                 let tab = try Self.tab(call)
@@ -125,6 +125,16 @@ public struct BrowserPageService: Sendable {
         register(browserUseMethods())
         register(cookieAndStorageMethods())
         register([mirrorMethod()])
+    }
+
+    /// `method`, telling the engine while it runs whether the call only reads its page (``BrowserPageIntent``).
+    static func intending(_ method: ControlMethod) -> ControlMethod {
+        guard method.name.hasPrefix("browser.page.") else { return method }
+        return method.wrappingAsync { call, body in
+            // concurrency-allow: the async overload of withValue binds inside the handler's task (always current in an
+            // async function), never in the thread's fallback storage that cx-bpcj is about.
+            try await BrowserPageIntent.$current.withValue(BrowserPageIntent.of(call)) { try await body(call) }
+        }
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.

@@ -125,6 +125,169 @@ async fn the_bridge_runs_the_codex_path_the_family_configures() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A CLI client changes the advertised speed without changing the model or its effort.
+#[tokio::test]
+async fn cli_changes_codex_speed_without_switching_model() {
+    let d = dir("cli-speed");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let model = "gpt-6.2-astra";
+    let catalog = d.join("models.json");
+    std::fs::write(
+        &catalog,
+        json!([{
+            "id": model, "model": model, "displayName": "GPT-6.2 Astra", "isDefault": true,
+            "serviceTiers": [{"id": "priority", "name": "Fast"}],
+            "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+            "defaultReasoningEffort": "high"
+        }])
+        .to_string(),
+    )
+    .unwrap();
+    let hub = hub_with(json!({
+        "harnesses": {"codex": {
+            "argv": [codex, "app-server"],
+            "env": {"FAKE_CODEX_CATALOG": catalog},
+        }},
+        "defaultHarness": "codex",
+        "permissionPolicy": "ask",
+    }));
+    let mut client = Client::local(&hub);
+    let (session, _) = harness_of_new(&mut client, &d, "codex").await;
+    let (other, _) = harness_of_new(&mut client, &d, "codex").await;
+    let mut agent = Client::local(&hub);
+    let proof = acpmux::hub::person::caller_token(&session);
+    let init = agent
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                "callerSession": {"sessionId": session, "token": proof}
+            }}}),
+        )
+        .await;
+    assert!(init.get("error").is_none(), "{init}");
+    // Speed needs no person (`web_modes::cli_config_id`), so an agent may set it on another
+    // chat too; that chat keeps its own model.
+    let other_speed = agent
+        .call(
+            "session/set_config_option",
+            json!({
+                "sessionId": other, "configId": "fast-mode", "value": "priority"
+            }),
+        )
+        .await;
+    let other_options = other_speed["result"]["configOptions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{other_speed}"));
+    for (id, expected) in [("model", model), ("fast-mode", "priority")] {
+        assert!(
+            other_options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+            "{other_speed}"
+        );
+    }
+    for tier in ["priority", "default"].into_iter().cycle().take(10) {
+        let client = if tier == "priority" { &mut agent } else { &mut client };
+        let reply = client
+            .call(
+                "session/set_config_option",
+                json!({"sessionId": session, "configId": "fast-mode", "value": tier}),
+            )
+            .await;
+        let options =
+            reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+        for (id, expected) in [("model", model), ("fast-mode", tier)] {
+            assert!(
+                options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+                "{reply}"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Two profiles use the same executable. A model offered only on the second
+/// provider page can be selected and accepts its own effort and tier.
+#[tokio::test]
+async fn running_chat_uses_its_own_providers_later_model_page() {
+    let d = dir("provider-page");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let profiles = [("work", "gpt-6.2-astra"), ("personal", "personal-model")];
+    let harnesses: serde_json::Map<_, _> = profiles
+        .iter()
+        .map(|(name, model)| {
+            (
+                (*name).to_owned(),
+                json!({"family": "codex", "argv": [codex, "-p", model, "app-server"]}),
+            )
+        })
+        .collect();
+    let hub = hub_with(
+        json!({"harnesses": harnesses, "defaultHarness": "work", "permissionPolicy": "ask"}),
+    );
+    // Both profiles run the same older binary. Only the work account already advertises Astra.
+    let release_rows = profiles
+        .iter()
+        .map(|(name, _)| {
+            serde_json::from_value(json!({
+            "id": name, "program": "codex", "channel": "npm", "package": "@openai/codex",
+            "auth": "unknown", "version": "0.164.0", "latest": "0.171.0",
+            "outdated": true, "checkedAt": 1, "newCodexModels": {"gpt-6.2-astra": "GPT-6.2 Astra"}
+        })).unwrap()
+        })
+        .collect();
+    hub.health.attach(acpmux::harness_health::Settings {
+        fixture: Some(release_rows),
+        ..Default::default()
+    });
+    let mut c = Client::local(&hub);
+    let catalog = c.call("_acpmux/models", json!({"refresh": true})).await;
+    for (name, model) in profiles {
+        let row = catalog["result"]["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["harness"] == name)
+            .unwrap();
+        assert!(row["models"].as_array().unwrap().iter().any(|m| m["id"] == model), "{row}");
+        let other = profiles.iter().find(|(n, _)| *n != name).unwrap().1;
+        let models = row["models"].as_array().unwrap();
+        let astra = models.iter().find(|m| m["id"] == "gpt-6.2-astra").expect("release row");
+        if name == "personal" {
+            assert_eq!(astra["codexUpdateVersion"], "0.171.0", "{row}");
+            assert!(astra["unavailable"].is_string(), "{row}");
+        } else {
+            assert!(astra.get("unavailable").is_none(), "{row}");
+            assert!(!models.iter().any(|m| m["id"] == other), "{row}");
+        }
+        let (session, _) = harness_of_new(&mut c, &d, name).await;
+        for (key, value) in
+            [("model", model), ("reasoning_effort", "high"), ("fast-mode", "priority")]
+        {
+            let reply = c
+                .call(
+                    "session/set_config_option",
+                    json!({"sessionId": session, "configId": key, "value": value}),
+                )
+                .await;
+            let options =
+                reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+            assert!(
+                options.iter().any(|o| o["id"] == "model" && o["currentValue"] == model),
+                "{reply}"
+            );
+            if key == "fast-mode" {
+                assert!(
+                    options
+                        .iter()
+                        .any(|o| o["id"] == "fast-mode" && o["currentValue"] == "priority"),
+                    "{reply}"
+                );
+                assert!(options.iter().any(|o| o["currentValue"] == "high"), "{reply}");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A chat's Codex starts with its agent-thread limits lifted (Leo
 /// 2026-10-14, no caps on subagents): `-c` overrides before `app-server`,
 /// so a new chat has them without a restart. A key the profile's command
@@ -162,7 +325,7 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         "-c",
         "agents.max_concurrent_threads_per_session=1000",
         "-c",
-        "tools.update_plan.enabled=true",
+        "tools.update_plan.enabled=false",
         "-c",
         "agents.max_depth=2",
         "app-server"
@@ -173,6 +336,9 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         starts.iter().any(|s| s.to_string().contains(acpmux::agent_tools::CONCURRENT_WORK_RULE)),
         "{starts:?}"
     );
+    // Every override, the rules included, before the subcommand: none after it, or a codex that
+    // drops the root ones then would lose the limits and a launcher's own (cmux#48354).
+    assert!(!starts.iter().any(config_after_subcommand), "{starts:?}");
 
     // A key the project's codex config sets wins too.
     let project = d.join("project");
@@ -204,23 +370,141 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
     let lifted =
-        json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=true", "app-server"]);
+        json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=false", "app-server"]);
     assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// A start's arguments without the `-c developer_instructions=...` a chat's start ends with
+/// Every `app-server` start recorded in `recorded` once a chat answered a prompt (other codex
+/// runs the fake records, such as an `mcp get` check, are left out).
+async fn starts_of_a_chat(hub: &Arc<Hub>, d: &Path, recorded: &Path) -> Vec<Value> {
+    let mut c = Client::local(hub);
+    let (s, _) = harness_of_new(&mut c, d, "codex").await;
+    let r = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": "1+1"}]}),
+        )
+        .await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    std::fs::read_to_string(recorded)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .map(|s| without_rules(&s))
+        .filter(|s| s.as_array().is_some_and(|w| w.iter().any(|a| a == "app-server")))
+        .collect()
+}
+
+/// A GUI chat's Codex starts with the model codex's config.toml names on its command line
+/// (cmux#48354), as `codex` in a terminal does: a launcher that routes by `-m` (a subrouter
+/// wrapper installed as `codex`) otherwise sent the model, which the chat only names later over
+/// the protocol, to the plain provider, and the turn failed with 400 `model_not_found`. The active
+/// codex profile's model wins over the top-level one; a model the profile's command line names
+/// is kept and never doubled.
+#[tokio::test]
+async fn a_chat_starts_codex_with_the_configured_model_on_its_command_line() {
+    let d = dir("model-argv");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let home = d.join("codex-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "model = \"gpt-6.2-sol\"\nmodel_reasoning_effort = \"high\"\n",
+    )
+    .unwrap();
+    let hub_on = |argv: Vec<Value>, recorded: &Path| {
+        hub_with(json!({
+            "harnesses": {"codex": {
+                "argv": argv,
+                "env": {"FAKE_CODEX_ARGS": recorded, "CODEX_HOME": home},
+            }},
+            "defaultHarness": "codex",
+            "permissionPolicy": "ask",
+        }))
+    };
+    let first_model = |start: &Value| -> Option<String> {
+        let words = start.as_array()?;
+        (words.first()? == "-m").then(|| words.get(1)?.as_str().map(str::to_owned)).flatten()
+    };
+
+    // The config's model, first, before acpmux's overrides and the subcommand.
+    let recorded = d.join("config-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    // Each start of the app-server, the chat's among them (a model probe, which has no chat,
+    // may start one too, without acpmux's launch arguments).
+    let chat = starts
+        .iter()
+        .find(|s| first_model(s).is_some())
+        .unwrap_or_else(|| panic!("no start named a model: {starts:?}"));
+    assert_eq!(first_model(chat).as_deref(), Some("gpt-6.2-sol"), "{starts:?}");
+    assert_eq!(chat.as_array().unwrap().last().unwrap(), "app-server", "{chat}");
+    assert!(starts.iter().filter_map(first_model).all(|m| m == "gpt-6.2-sol"), "{starts:?}");
+
+    // The active profile's model.
+    std::fs::write(
+        home.join("config.toml"),
+        "model = \"gpt-6.2-sol\"\nprofile = \"astra\"\n[profiles.astra]\nmodel = \"gpt-6-astra\"\n",
+    )
+    .unwrap();
+    let recorded = d.join("profile-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    let models: Vec<String> = starts.iter().filter_map(first_model).collect();
+    assert!(!models.is_empty() && models.iter().all(|m| m == "gpt-6-astra"), "{starts:?}");
+
+    // A model the harness's own command line names stays the only one.
+    let recorded = d.join("own-args.json");
+    let hub = hub_on(
+        vec![json!(codex), json!("--model"), json!("gpt-6.1-sol"), json!("app-server")],
+        &recorded,
+    );
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    for s in &starts {
+        let words: Vec<&str> = s.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(!words.contains(&"-m"), "{s}");
+        assert_eq!(words.iter().filter(|w| **w == "gpt-6.1-sol").count(), 1, "{s}");
+    }
+
+    // No model configured: the launch is as before.
+    std::fs::write(home.join("config.toml"), "").unwrap();
+    let recorded = d.join("none-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    assert!(starts.iter().all(|s| first_model(s).is_none()), "{starts:?}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A start's arguments without the `-c developer_instructions=...` a chat's start carries
 /// (`context_inventory::launch_args`): cmux's rules, which the limits leave alone.
 fn without_rules(start: &Value) -> Value {
-    let mut words = start.as_array().cloned().unwrap_or_default();
-    let n = words.len();
-    if n >= 2
-        && words[n - 2] == "-c"
-        && words[n - 1].as_str().is_some_and(|w| w.starts_with("developer_instructions="))
-    {
-        words.truncate(n - 2);
+    let words = start.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let rules = words[i] == "-c"
+            && words
+                .get(i + 1)
+                .and_then(Value::as_str)
+                .is_some_and(|w| w.starts_with("developer_instructions="));
+        if rules {
+            i += 2;
+        } else {
+            out.push(words[i].clone());
+            i += 1;
+        }
     }
-    Value::Array(words)
+    Value::Array(out)
+}
+
+/// Whether `start` has a config override after its `app-server` word, which some codex builds
+/// (0.160, the cmux fork) answer by dropping every override before the subcommand (cmux#48354).
+fn config_after_subcommand(start: &Value) -> bool {
+    let words: Vec<&str> = start.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    words.iter().position(|w| *w == "app-server").is_some_and(|at| {
+        words[at + 1..].iter().any(|w| w.starts_with("-c") || w.starts_with("--config"))
+    })
 }
 
 #[tokio::test]

@@ -120,6 +120,13 @@ public struct GitRepositoryActions {
                     }
                 }
             })
+            // A tab with no folder, or a worktree write on another machine's tab: the row leaves the menus and the
+            // palette row is disabled, from the same place the run looks up (never a toast; a CLI run is told why).
+            ActionTargetVisibility.gate(id, in: registry) { invocation in
+                guard let request = Request.make(id, arguments: invocation.arguments) else { return nil }
+                guard let found = place(invocation), found.cwd.hasPrefix("/") else { return GitRepositoryStrings.noFolder }
+                return found.link.isLocal || !request.localOnly ? nil : GitRepositoryStrings.thisMacOnly
+            }
         }
     }
 }
@@ -142,6 +149,7 @@ extension GitRepositoryActions {
 
 nonisolated enum GitRepositoryStrings {
     static var noFolder: String {
+        // retry-prompt-ok: refuses a git action (side effect) until the person focuses a repository terminal
         text("git.noFolder", "This tab has no folder on this machine. Focus a terminal in the repository, then try again.")
     }
 
@@ -168,6 +176,6 @@ nonisolated enum GitRepositoryStrings {
     }
 
     static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "GitActions", bundle: .module)
+        String(localized: key, defaultValue: english, table: "GitActions", bundle: .localizedModule)
     }
 }

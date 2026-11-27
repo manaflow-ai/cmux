@@ -31,6 +31,19 @@ impl HistoryKind {
             Self::Agent => "agent",
         }
     }
+
+    /// The kind a search's `is:` names: the wire name, its plural, or the
+    /// History page's chip words (`pages`, `agents`, `chat`).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "page" | "pages" => Some(Self::Page),
+            "location" | "locations" => Some(Self::Location),
+            "closed" => Some(Self::Closed),
+            "command" | "commands" => Some(Self::Command),
+            "agent" | "agents" | "chat" | "chats" => Some(Self::Agent),
+            _ => None,
+        }
+    }
 }
 
 /// What a `closed` entry reopens.

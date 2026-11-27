@@ -1,4 +1,5 @@
 /// The host's dictation update (`cmuxAcpmuxBridge.dictation`, Swift `AgentPaneDictation.payload`).
+import { intl } from "../../ui/intl";
 export type DictationState = "idle" | "starting" | "listening" | "finalizing" | "failed" | "denied";
 export type DictationUpdate = {
   state: DictationState;
@@ -215,7 +216,7 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
 }
 
 const graphemes = (text: string) =>
-  Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+  Array.from(intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
 
 /// Where `handed` ends in `next`, or -1 when that is unclear (a revision then adds nothing): where
 /// its last item follows its second-to-last one, when the revision has that pair as often as the

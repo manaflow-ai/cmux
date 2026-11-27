@@ -28,6 +28,7 @@ import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -185,7 +186,6 @@ async function render(initial: {
         calls.push(`cancel ${id}`);
         setPending((chips) => chips.filter((chip) => chip.id !== id));
       },
-      retry: (id) => calls.push(`retry ${id}`),
       revive: (id) => {
         calls.push(`revive ${id}`);
         const chip = initial.pending?.find((each) => each.id === id);
@@ -233,7 +233,7 @@ async function render(initial: {
           isInlineAttachment={inline.known}
         />
         {inline.chips}
-        {initial.strip && <AttachmentStrip attachments={attachments} onRemove={() => {}} />}
+        {initial.strip && <AttachmentStrip attachments={attachments} pending={pending} onRemove={() => {}} />}
         {/* The inline view's strip: only what is not placed in the text (ComposerBox.tsx). */}
         <div
           data-unplaced={attachments
@@ -431,28 +431,22 @@ for (const [label, attachment] of [
     expect(controls.attachments()).toEqual([]);
   });
 
-test("an image in the text that cannot be drawn says so, with Retry and Remove that work", async () => {
+test("an image in the text that cannot be drawn says so, with only a Remove that works", async () => {
   const { controls } = await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
-  const fail = () =>
-    act(async () => void inlineChip(IMAGE.id)!.querySelector("img")!.dispatchEvent(new Event("error")));
   const fallback = () => inlineChip(IMAGE.id)?.querySelector<HTMLElement>(".acpmux-attachment-image-failed");
-  await fail();
+  // A thumbnail that fails falls back to the image's own bytes first; only bytes that cannot be
+  // drawn show the fallback (the same bytes would fail the same way: no Retry).
+  for (let tries = 0; tries < 3 && !fallback(); tries++) {
+    const img = inlineChip(IMAGE.id)?.querySelector("img");
+    if (img) await act(async () => void img.dispatchEvent(new Event("error")));
+    await settle();
+  }
   await until(() => !!fallback());
   expect(fallback()?.querySelector(".acpmux-attachment-failed-text")?.textContent).toBe(translate("image.failed"));
   expect(inlineChip(IMAGE.id)!.querySelector("img")).toBeNull();
-  // Retry draws it again.
-  // One small retry glyph button, named Retry, never a text link.
-  const retry = fallback()!.querySelector<HTMLButtonElement>(".acpmux-attachment-retry") ?? undefined;
-  expect(retry?.getAttribute("aria-label")).toBe(translate("composer.retryAttachment"));
-  expect(retry?.textContent).toBe("");
-  expect(retry).toBeDefined();
-  await act(async () => retry!.click());
-  await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
-  expect(fallback()).toBeFalsy();
+  expect(fallback()!.querySelectorAll("button").length).toBe(1);
   // Remove takes it out of the prompt.
-  await fail();
-  await until(() => !!fallback());
   const remove = fallback()!.querySelector<HTMLButtonElement>(
     `button[aria-label="${translate("composer.removeAttachment", { name: "shot.png" })}"]`,
   );
@@ -463,7 +457,57 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
   expect(controls.attachments()).toEqual([]);
 });
 
-const LOADING: PendingAttachment = { id: "loading-zip", name: "build-logs.zip", image: false };
+const LOADING = { id: "loading-zip", name: "build-logs.zip", image: false, fileSize: 2048 } satisfies PendingAttachment;
+
+test("native lookup shows the file and movie glyphs in both views; a byte transfer shows progress", async () => {
+  const waiting = [
+    { ...LOADING, resolvingPath: true },
+    {
+      id: VIDEO.id,
+      name: VIDEO.name,
+      image: false,
+      video: true,
+      videoShape: 1.6,
+      resolvingPath: true,
+    },
+  ];
+  const { controls } = await render({
+    text: waiting.map((chip) => inlineToken(chip.id)).join(" "),
+    pending: waiting,
+    strip: true,
+  });
+  expect(host.querySelectorAll(".acpmux-attachment-pending").length).toBe(4);
+  expect(host.querySelectorAll(".acpmux-file-chip > svg").length).toBe(2);
+  expect(host.querySelectorAll("[data-video-shape] > svg").length).toBe(2);
+  expect(host.querySelector(".acpmux-paste-loading, .acpmux-paste-late, progress")).toBeNull();
+  expect(host.querySelectorAll('[aria-busy="true"]').length).toBe(4);
+  await act(async () =>
+    controls.setPending(waiting.map((chip) => ({ ...chip, resolvingPath: false, uploading: true, progress: 0.5 }))),
+  );
+  expect(host.querySelectorAll(".acpmux-paste-loading").length).toBe(4);
+  expect([...host.querySelectorAll("progress")].map((ring) => ring.value)).toEqual([50, 50, 50, 50]);
+});
+
+test("an inline file keeps its chip layout as the upload becomes ready", async () => {
+  const { controls } = await render({ text: `logs ${inlineToken(LOADING.id)} here`, pending: [LOADING] });
+  const tile = () => inlineChip(LOADING.id)?.querySelector(".acpmux-attachment-file");
+  const body = () => tile()?.querySelector(".acpmux-file-chip--removable");
+  await until(() => tile()?.getAttribute("aria-busy") === "true");
+  const metadata = () => [
+    body()?.querySelector(".acpmux-file-chip__name")?.textContent,
+    body()?.querySelector(".acpmux-file-chip__size")?.textContent,
+  ];
+  expect(metadata()).toEqual([LOADING.name, "2 kB"]);
+
+  await act(async () => {
+    controls.setPending([]);
+    controls.setAttachments([
+      { ...FILE, id: LOADING.id, name: LOADING.name, size: LOADING.fileSize, path: `/tmp/${LOADING.name}` },
+    ]);
+  });
+  expect(tile()?.getAttribute("aria-busy")).toBeNull();
+  expect(metadata()).toEqual([LOADING.name, "2 kB"]);
+});
 
 for (const revives of [true, false])
   test(`a loading chip's node deleted, then undone, ${revives ? "loads again in its place" : "leaves the text"}`, async () => {
@@ -483,30 +527,39 @@ for (const revives of [true, false])
     expect(calls).toEqual([`cancel ${LOADING.id}`, `revive ${LOADING.id}`]);
     if (revives) {
       expect(nodes()).toEqual([LOADING.id]);
-      await until(() => !!host.querySelector(".acpmux-md-inline-chip[data-state='loading']"));
-      expect(host.querySelector(".acpmux-md-inline-chip[data-state='loading']")).not.toBeNull();
+      await until(() => !!inlineChip(LOADING.id)?.querySelector("[aria-busy='true']"));
+      expect(inlineChip(LOADING.id)?.querySelector("[aria-busy='true']")).toBeTruthy();
     } else expect(nodes()).toEqual([]);
     expect(text()).toContain("logs");
   });
 
 // Review of #26545 at a29c21e7: inline is the default view, so an image whose original failed to
-// upload must show its Retry in the text, as the strip's chip does (#28833).
-test("an image in the text whose original failed to upload shows Retry, which retries it", async () => {
-  const { calls } = await render({
-    text: `look ${inlineToken(IMAGE.id)} here`,
-    attachments: [IMAGE],
-    originalFailures: { [IMAGE.id]: "The disk is full." },
-  });
-  await until(() => !!inlineChip(IMAGE.id)?.querySelector(".acpmux-attachment-original-retry"));
-  const retry = inlineChip(IMAGE.id)!.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!;
-  await act(async () => retry.click());
-  expect(calls).toContain(`retry ${IMAGE.id}`);
+// upload shows in the text what the strip's chip shows (#28833): since 2026-11-22 its original is
+// asked again on its own (composer/uploadRetry.ts), and a lasting failure is a quiet mark, no button.
+test("an image in the text whose original keeps failing shows a quiet still-trying mark, never a button", async () => {
+  setLastingGrace(0);
+  try {
+    await render({
+      text: `look ${inlineToken(IMAGE.id)} here`,
+      attachments: [IMAGE],
+      originalFailures: { [IMAGE.id]: "The disk is full." },
+    });
+    await until(() => !!inlineChip(IMAGE.id)?.querySelector(".acpmux-attachment-original-still"));
+    const mark = inlineChip(IMAGE.id)!.querySelector<HTMLElement>(".acpmux-attachment-original-still")!;
+    expect(mark.tagName).not.toBe("BUTTON");
+    expect(mark.getAttribute("title")).toContain("The disk is full.");
+    // An <output> is a live status region by itself.
+    expect(mark.tagName).toBe("OUTPUT");
+    expect(mark.getAttribute("aria-label")).toBeTruthy();
+  } finally {
+    setLastingGrace(LASTING_MS);
+  }
 });
 
-test("an image in the text whose original did not fail shows no Retry", async () => {
+test("an image in the text whose original did not fail shows no still-trying mark", async () => {
   await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
-  expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-still")).toBeNull();
 });
 
 /// Every kind a person adds, as its read makes it.

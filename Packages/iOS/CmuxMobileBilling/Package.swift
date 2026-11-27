@@ -1,5 +1,6 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
 
 // Billing domain for the phone: StoreKit 2 subscriptions for cmux personal
@@ -12,10 +13,22 @@ import PackageDescription
 // delivery and `finish()`. `CmuxMobileBillingUI` holds the plans screen.
 // Tests drive the model through fake StoreKit and API seams, so the package
 // builds and tests on macOS without the app host or real StoreKit.
+//
+// The same tests run on Linux (scripts/ci/swift-linux-packages.txt): the
+// model, the wire contract and the HTTP client need only Foundation. The
+// plans screen is SwiftUI and its CmuxMobileSupport dependency is UIKit, so
+// the Linux package jobs, which set CMUX_SWIFTPM_TARGET_LINUX, leave that
+// target out. A build for an Apple platform on a Linux host keeps it.
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("ExistentialAny"),
 ]
+
+#if os(Linux)
+let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
+#else
+let targetsLinux = false
+#endif
 
 let package = Package(
     name: "CmuxMobileBilling",
@@ -25,24 +38,19 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxMobileBilling", targets: ["CmuxMobileBilling"]),
+    ] + (targetsLinux ? [] : [
         .library(name: "CmuxMobileBillingUI", targets: ["CmuxMobileBillingUI"]),
-    ],
+    ]),
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+    ] + (targetsLinux ? [] : [
         .package(path: "../CmuxMobileSupport"),
-    ],
+        .package(path: "../../Shared/CmuxSpinner"),
+    ]),
     targets: [
         .target(
             name: "CmuxMobileBilling",
             dependencies: ["CMUXMobileCore"],
-            swiftSettings: swiftSettings
-        ),
-        .target(
-            name: "CmuxMobileBillingUI",
-            dependencies: [
-                "CmuxMobileBilling",
-                "CmuxMobileSupport",
-            ],
             swiftSettings: swiftSettings
         ),
         .testTarget(
@@ -50,5 +58,15 @@ let package = Package(
             dependencies: ["CmuxMobileBilling", "CMUXMobileCore"],
             swiftSettings: swiftSettings
         ),
-    ]
+    ] + (targetsLinux ? [] : [
+        .target(
+            name: "CmuxMobileBillingUI",
+            dependencies: [
+                "CmuxMobileBilling",
+                "CmuxMobileSupport",
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            ],
+            swiftSettings: swiftSettings
+        ),
+    ])
 )

@@ -1,0 +1,40 @@
+{
+  "family": "sso",
+  "ops": {
+    "sso.connection.activate": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "b1276df399f92e25"
+    },
+    "sso.connection.create": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "824d75f8332c7f27"
+    },
+    "sso.connection.disable": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "305736ed00ff6c9e"
+    },
+    "sso.connection.list": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "2842f2401f52906c"
+    },
+    "sso.connection.set_secret": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "e38aa565533da408"
+    }
+  }
+}

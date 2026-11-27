@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.hub.stripeHelp" : {
+      "comment" : "Settings > Integrations: explains the Stripe restricted key to paste.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make a restricted key in Stripe with Charges: read and Refunds: write, then paste it here. Test keys (rk_test_) only for now."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أنشئ مفتاحًا مقيّدًا في Stripe بصلاحيتَي Charges: read وRefunds: write، ثم الصقه هنا. مفاتيح الاختبار (rk_test_) فقط حاليًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Napravite ograničeni ključ u Stripeu s Charges: read i Refunds: write, pa ga zalijepite ovdje. Za sada samo testni ključevi (rk_test_)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Opret en begrænset nøgle i Stripe med Charges: read og Refunds: write, og indsæt den her. Kun testnøgler (rk_test_) indtil videre."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erstelle in Stripe einen eingeschränkten Schlüssel mit Charges: read und Refunds: write und füge ihn hier ein. Vorerst nur Testschlüssel (rk_test_)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Crea una clave restringida en Stripe con Charges: read y Refunds: write y pégala aquí. Por ahora solo claves de prueba (rk_test_)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Créez une clé restreinte dans Stripe avec Charges: read et Refunds: write, puis collez-la ici. Clés de test (rk_test_) uniquement pour l'instant."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Crea una chiave limitata in Stripe con Charges: read e Refunds: write, poi incollala qui. Per ora solo chiavi di test (rk_test_)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stripe で Charges: read と Refunds: write を持つ制限付きキーを作成し、ここに貼り付けてください。現在はテストキー (rk_test_) のみです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្កើតសោដែលមានការកំណត់ក្នុង Stripe ជាមួយ Charges: read និង Refunds: write រួចបិទភ្ជាប់វានៅទីនេះ។ សម្រាប់ពេលនេះ មានតែសោសាកល្បង (rk_test_) ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stripe에서 Charges: read와 Refunds: write 권한이 있는 제한된 키를 만들어 여기에 붙여 넣으세요. 지금은 테스트 키(rk_test_)만 지원합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lag en begrenset nøkkel i Stripe med Charges: read og Refunds: write, og lim den inn her. Bare testnøkler (rk_test_) foreløpig."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utwórz w Stripe klucz z ograniczeniami z uprawnieniami Charges: read i Refunds: write, a potem wklej go tutaj. Na razie tylko klucze testowe (rk_test_)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Crie uma chave restrita no Stripe com Charges: read e Refunds: write e cole aqui. Por enquanto, só chaves de teste (rk_test_)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Создайте в Stripe ограниченный ключ с правами Charges: read и Refunds: write и вставьте его сюда. Пока только тестовые ключи (rk_test_)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สร้างคีย์แบบจำกัดสิทธิ์ใน Stripe ที่มี Charges: read และ Refunds: write แล้ววางที่นี่ ตอนนี้รองรับเฉพาะคีย์ทดสอบ (rk_test_)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stripe'ta Charges: read ve Refunds: write izinli kısıtlı bir anahtar oluşturup buraya yapıştırın. Şimdilik yalnızca test anahtarları (rk_test_)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Створіть у Stripe обмежений ключ із Charges: read і Refunds: write і вставте його сюди. Поки що лише тестові ключі (rk_test_)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tạo một khóa hạn chế trong Stripe với Charges: read và Refunds: write, rồi dán vào đây. Hiện chỉ hỗ trợ khóa thử nghiệm (rk_test_)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 Stripe 中创建一个带 Charges: read 和 Refunds: write 权限的受限密钥，然后粘贴到这里。目前仅支持测试密钥 (rk_test_)。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 Stripe 中建立一個具備 Charges: read 與 Refunds: write 權限的受限金鑰，然後貼到這裡。目前僅支援測試金鑰 (rk_test_)。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

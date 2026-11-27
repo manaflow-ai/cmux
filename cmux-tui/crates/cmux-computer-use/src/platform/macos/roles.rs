@@ -212,14 +212,40 @@ pub fn web_engine(bundle_id: Option<&str>) -> WebEngine {
     if chromium { WebEngine::Chromium } else { WebEngine::Other }
 }
 
+/// Apps that draw Chromium pages inside their own windows and build those
+/// pages' accessibility trees only while a client asks, by bundle id: an
+/// exact id, or a prefix ending in `.` (any case). cmux draws its agent
+/// chats in Chromium (CEF): until `AXManualAccessibility` or
+/// `AXEnhancedUserInterface` is set on its application element
+/// (`CmuxApplication`, `CEFAccessibility` in the app), a chat page shows
+/// nothing to accessibility, so get_ui_tree saw no message or composer.
+pub const CHROMIUM_EMBEDDERS: &[&str] = &["com.cmuxterm.app", "com.cmuxterm.app."];
+
+/// Whether the app with `bundle_id` embeds Chromium pages ([`CHROMIUM_EMBEDDERS`]).
+pub fn embeds_chromium(bundle_id: Option<&str>) -> bool {
+    bundle_id.is_some_and(|id| {
+        let id = id.to_ascii_lowercase();
+        CHROMIUM_EMBEDDERS.iter().any(|p| {
+            let p = p.to_ascii_lowercase();
+            if p.ends_with('.') { id.starts_with(&p) } else { id == p }
+        })
+    })
+}
+
 /// The app attribute that makes an app show its web content to
-/// accessibility, if it needs one: Chromium builds its pages' accessibility
-/// trees only for an assistive client that sets `AXEnhancedUserInterface`
-/// (Chrome 157 on macOS 26.6 and 27.0.1: no page elements without it, the
-/// page within 2 s with it; it refuses `AXManualAccessibility`). WebKit
-/// shows its pages to any client.
-pub fn web_accessibility_attribute(engine: WebEngine) -> Option<&'static str> {
-    match engine {
+/// accessibility, if it needs one. A Chromium browser builds its pages'
+/// accessibility trees only for an assistive client that sets
+/// `AXEnhancedUserInterface` (Chrome 157 on macOS 26.6 and 27.0.1: no page
+/// elements without it, the page within 2 s with it; it refuses
+/// `AXManualAccessibility`). An app that embeds Chromium
+/// ([`embeds_chromium`]: cmux) takes `AXManualAccessibility`, the automation
+/// driver's attribute, which leaves the app's own behavior for screen readers
+/// alone. WebKit shows its pages to any client.
+pub fn web_accessibility_attribute(bundle_id: Option<&str>) -> Option<&'static str> {
+    if embeds_chromium(bundle_id) {
+        return Some("AXManualAccessibility");
+    }
+    match web_engine(bundle_id) {
         WebEngine::Chromium => Some("AXEnhancedUserInterface"),
         WebEngine::Other => None,
     }
@@ -567,6 +593,10 @@ pub enum WebKind {
     /// A text area: a native `<textarea>` or a contenteditable, which
     /// Safari shows alike.
     Area,
+    /// A slider: an `<input type="range">` (WebKit gives it a thumb
+    /// child). Its value is a number the element owns, so set_value writes
+    /// it directly; nothing types into it.
+    Range,
     /// Anything else (a combobox, a group).
     Other,
 }
@@ -582,6 +612,7 @@ pub fn web_kind(role: &str, kids: usize) -> WebKind {
         "AXTextField" | "AXSearchField" if kids == 0 => WebKind::Plain,
         "AXTextField" | "AXSearchField" => WebKind::Rich,
         "AXTextArea" => WebKind::Area,
+        "AXSlider" => WebKind::Range,
         _ => WebKind::Other,
     }
 }
@@ -607,7 +638,8 @@ pub const WEB_FIELD_MIN: f64 = 10.0;
 /// Whether a value write may be made into a web field: a plain text input
 /// (see [`web_kind`]), not tiny, off screen or hidden (an input helper, whose
 /// value is not the content), and not a password field unless `secure`
-/// allows it.
+/// allows it. A slider passes only for set_value (`secure` is
+/// [`SecureField::Allow`] only there): typing has no text to put in it.
 pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &'static str> {
     let Some(f) = f else { return Err(WEB_FIELD_UNREAD) };
     if f.secure && secure == SecureField::Refuse {
@@ -617,6 +649,12 @@ pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &
     }
     match f.kind {
         WebKind::Plain => {}
+        WebKind::Range if secure == SecureField::Allow => {}
+        WebKind::Range => {
+            return Err(
+                "this web element is a slider; text is not typed into it. Set its number with set_value",
+            );
+        }
         WebKind::Rich => {
             return Err(
                 "this web text field holds rich content (a rich editor), so its value is not written through accessibility; use delivery foreground",
@@ -656,6 +694,18 @@ pub fn scroll_into_view_first(f: &WebField, secure: SecureField) -> bool {
 /// the page's focus, whichever one was addressed, and returns success.
 pub fn holds_page_focus(focused: Option<bool>) -> bool {
     focused == Some(true)
+}
+
+/// Whether a set_value write into this web element must wait for it to
+/// hold its page's focus ([`holds_page_focus`]). Only text inputs: the page
+/// routes a text value write through its editing, into the focused field.
+/// A slider's value write is applied to that slider (WebKit's
+/// AccessibilitySlider::setValue sets its own input's value and fires its
+/// input and change events; Chromium's set-value action targets the node),
+/// and a slider takes no caret, so the focus write the text route makes
+/// first (a selection write in WebKit) cannot move the focus onto it.
+pub fn web_write_needs_page_focus(kind: Option<WebKind>) -> bool {
+    kind != Some(WebKind::Range)
 }
 
 /// Whether a failed value write certainly wrote nothing: the app refused
@@ -1731,6 +1781,100 @@ pub fn keys_reach_target(
     is_key || (standard_windows <= 1 && target_is_standard && !other_key_window)
 }
 
+/// The app's focused text element when it sits in no window of its own: an
+/// inline editor (Finder's rename field, a table cell being edited) that
+/// AppKit draws as a small window of its own over its window. Measured with
+/// Finder on macOS 27.0: while the rename field is open the app reports no
+/// focused window, its main window is the Finder window, its windows list
+/// the text field itself (role AXTextField, parent the app, a CG window of
+/// its own), and keys posted to the app go into the field.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OverlayEditor {
+    /// The focused element's role.
+    pub role: String,
+    /// Whether its AXWindow names a window other than the target.
+    pub in_other_window: bool,
+    /// Its frame (global points), if it could be read.
+    pub frame: Option<Rect>,
+}
+
+/// Whether background keys meant for `target` go to an inline editor lying
+/// over it, which is where the person's keys would go: the app has no
+/// focused window (the editor took it), its main window is the target, and
+/// the focused element is a text input in no other window whose frame lies
+/// inside the target's. A sheet, an alert or another document's window as
+/// focused window never passes (those are the cases the key-window rule
+/// guards).
+pub fn keys_reach_overlay_editor(
+    focused_window_present: bool,
+    main_is_target: bool,
+    editor: Option<&OverlayEditor>,
+    target: &Rect,
+) -> bool {
+    let Some(editor) = editor else { return false };
+    !focused_window_present
+        && main_is_target
+        && is_text_input(&editor.role)
+        && !editor.in_other_window
+        && editor.frame.as_ref().is_some_and(|f| rect_within(f, target))
+}
+
+/// Whether `inner` lies inside `outer` (one point of slack for rounding),
+/// and is smaller than it (an editor, not a second window over it).
+pub fn rect_within(inner: &Rect, outer: &Rect) -> bool {
+    const SLACK: f64 = 1.0;
+    inner.width > 0.0
+        && inner.height > 0.0
+        && inner.x >= outer.x - SLACK
+        && inner.y >= outer.y - SLACK
+        && inner.x + inner.width <= outer.x + outer.width + SLACK
+        && inner.y + inner.height <= outer.y + outer.height + SLACK
+        && inner.width * inner.height < outer.width * outer.height
+}
+
+/// The answer for a window id that names an inline editor (see
+/// [`OverlayEditor`]) instead of a window: where keys for it go.
+pub fn overlay_editor_window_hint(id: u32, role: &str, over: Option<u32>) -> String {
+    // "AXTextField" -> "text field".
+    let mut what = String::new();
+    for c in role.strip_prefix("AX").unwrap_or(role).chars() {
+        if c.is_uppercase() && !what.is_empty() {
+            what.push(' ');
+        }
+        what.extend(c.to_lowercase());
+    }
+    match over {
+        Some(over) => format!(
+            "window {id} is an inline editor (a {what} the app draws over window {over}), not a window of its own; it has the app's keyboard focus, so type_text or press_key with window_id {over} type into it (Return applies it, Escape cancels it)"
+        ),
+        None => format!(
+            "window {id} is an inline editor (a {what} the app draws over one of its windows), not a window of its own; type_text or press_key on the window it lies over type into it"
+        ),
+    }
+}
+
+/// Whether set_value gives a native text field the focus before writing
+/// it. An AppKit field that is not being edited takes an AXValue write as
+/// its text, but the app's end-of-editing handler never runs, so a value
+/// the app applies when editing ends (Finder's Get Info name) is never
+/// applied, and even AXConfirm afterwards does nothing; measured on macOS
+/// 27.0. Focused first, the write lands in the field's editor, and
+/// AXConfirm, Return or Tab then applies it. Never in web content (its own
+/// focus rule), never in the person's app (it would move their caret), only
+/// for a field that is not focused and offers AXConfirm.
+pub fn focus_before_value_write(
+    role: &str,
+    web: bool,
+    persons_app: bool,
+    focused: Option<bool>,
+    has_confirm: bool,
+) -> bool {
+    !web && !persons_app && role == "AXTextField" && focused == Some(false) && has_confirm
+}
+
+/// The note when set_value focused the field first.
+pub const FOCUSED_FOR_EDIT: &str = "the field was given focus first, so it is being edited with the value; an app that applies a field only when editing ends (a name in a Get Info window, a setting) applies it on perform_action confirm on the field, or press_key Tab";
+
 /// One step of stepping a value toward `target`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {
@@ -1842,6 +1986,49 @@ pub fn layout_of(input_source_id: Option<&str>, enabled_sources_recorded: bool) 
         ) => Layout::LettersDigits,
         Some(_) => Layout::Other,
     }
+}
+
+/// One entry of HIToolbox's `AppleSelectedInputSources` or
+/// `AppleEnabledInputSources`: its `InputSourceKind` and, for a keyboard
+/// layout, its `KeyboardLayout Name`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputSourceEntry {
+    pub kind: Option<String>,
+    pub layout_name: Option<String>,
+}
+
+/// The current keyboard layout's input source ID when HIToolbox recorded no
+/// `AppleCurrentKeyboardLayoutInputSourceID` (macOS writes that key only after
+/// a layout switch, so a Mac that was never switched has none): the one
+/// keyboard layout among the selected sources, else the one enabled layout
+/// (the only one, so the current one). None, which fails closed, when either
+/// list holds an input method (it can translate keys its own way) or the
+/// chosen list holds more than one layout. Only the layout's name is known
+/// here; a name that is not its ID's last part (`U.S.` is `US`) makes an ID
+/// `layout_of` does not know, so it fails closed too.
+pub fn layout_id_from_sources(
+    selected: &[InputSourceEntry],
+    enabled: &[InputSourceEntry],
+) -> Option<String> {
+    let layout = |e: &InputSourceEntry| e.kind.as_deref() == Some("Keyboard Layout");
+    // Emoji & Symbols and other palettes do not type keys.
+    let method =
+        |e: &InputSourceEntry| !layout(e) && e.kind.as_deref() != Some("Non Keyboard Input Method");
+    if selected.iter().chain(enabled).any(method) {
+        return None;
+    }
+    let list = if selected.iter().any(layout) { selected } else { enabled };
+    let mut layouts = list.iter().filter(|e| layout(e));
+    let only = layouts.next()?;
+    if layouts.next().is_some() {
+        return None;
+    }
+    let name = only.layout_name.as_deref()?;
+    let id = match name {
+        "U.S." => "US",
+        other => other,
+    };
+    Some(format!("com.apple.keylayout.{id}"))
 }
 
 /// Whether the Services check can place `key` on `layout`: arrows, function

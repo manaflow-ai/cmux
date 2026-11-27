@@ -29,6 +29,9 @@
 #   --head <rev>        history to search (default HEAD).
 # Env: CMUX_TUI_CLIENT_MANIFEST_BASE (default https://files.cmux.com/cmux-tui),
 #      CMUX_TUI_CLIENT_REMOTE (default origin; where a shallow clone deepens from),
+#      CMUX_TUI_CLIENT_MIRROR (default /Users/Shared/cmux-build-fleet/git/cmux.git when it is
+#      a git directory; a local mirror each deepen tries first, so a GitHub 403 or outage does
+#      not fail the nightly; empty turns it off),
 #      CMUX_TUI_CLIENT_FETCH_ATTEMPTS (default 5; tries per deepen before giving up),
 #      CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS (default 2; first backoff, doubles per try),
 #      CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS (default 3; wait between manifest probes after
@@ -39,6 +42,10 @@ set -euo pipefail
 PATHS=(cmux-tui ghostty ghostty-next .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)
 BASE="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
 REMOTE="${CMUX_TUI_CLIENT_REMOTE:-origin}"
+MIRROR="${CMUX_TUI_CLIENT_MIRROR-/Users/Shared/cmux-build-fleet/git/cmux.git}"
+if [[ -n "$MIRROR" ]] && ! git --git-dir="$MIRROR" rev-parse --git-dir >/dev/null 2>&1; then
+  MIRROR=""
+fi
 MAX_FALLBACK=0
 HEAD_REV=HEAD
 
@@ -141,8 +148,18 @@ spans_enough_versions() {
 # 40-minute build on a release runner. A transient failure there (DNS blip,
 # connection reset) must not fail the release, so retry with bounded backoff.
 # Release run 34851108495 died on "Could not resolve host: github.com".
+# 2026-11-26 (Nightly macOS build runs 45734242541 through 45738487881): every deepen from
+# github.com answered 403 for an hour while the fleet hammered GitHub, and four nightlies in a
+# row failed here. The runner's local mirror (glaeda-git-mirror) holds the same history, so
+# a deepen asks it first and only goes to the remote when the mirror lacks the commits.
 fetch_deepen() {
   local attempt=1 delay="$FETCH_RETRY_SECONDS"
+  if [[ -n "$MIRROR" ]]; then
+    if git fetch --quiet --deepen="$deepen" "$MIRROR" "$head_sha" 2>/dev/null; then
+      return 0
+    fi
+    log "the local mirror $MIRROR could not deepen to $head_sha; deepening from $REMOTE"
+  fi
   while :; do
     if git fetch --quiet --deepen="$deepen" "$REMOTE" "$head_sha" 2>/dev/null \
        || git fetch --quiet --deepen="$deepen" "$REMOTE"; then

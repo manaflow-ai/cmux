@@ -31,7 +31,8 @@ struct Machine {
 impl Machine {
     fn start() -> Self {
         let dir = tempfile::Builder::new().prefix("cmux-wf-").tempdir_in("/tmp").unwrap();
-        for path in ["home/.config/cmux", "acpmux", "work/.cmux/workflows", "no-bin"] {
+        let config = format!("home/.config/{}", cmux_config::NEXT_DIR);
+        for path in [config.as_str(), "acpmux", "work/.cmux/workflows", "no-bin"] {
             fs::create_dir_all(dir.path().join(path)).unwrap();
         }
         fs::set_permissions(dir.path().join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
@@ -48,7 +49,7 @@ impl Machine {
         )
         .unwrap();
         fs::write(
-            dir.path().join("home/.config/cmux/cmux-next.json"),
+            dir.path().join("home/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json"),
             json!({"mcp":{"enabled":true}}).to_string(),
         )
         .unwrap();
@@ -163,7 +164,14 @@ impl Machine {
         let mut command = self.command(&["mcp", "serve"]);
         command
             .envs(env.iter().map(|(key, value)| (key, value)))
-            .env("CMUX_NEXT_CONFIG_FILE", self.dir.path().join("home/.config/cmux/cmux-next.json"))
+            .env(
+                "CMUX_NEXT_CONFIG_FILE",
+                self.dir
+                    .path()
+                    .join("home/.config")
+                    .join(cmux_config::NEXT_DIR)
+                    .join("cmux-next.json"),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
         let mut child = command.spawn().unwrap();

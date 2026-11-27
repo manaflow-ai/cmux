@@ -48,6 +48,7 @@ enum PaneRingConfigParser {
         if let value = reader.bool("flashOnTyping") { settings.flashesOnTyping = value }
         if let value = reader.bool("showOnTab") { settings.showsOnTab = value }
         if let value = reader.bool("showOnSidebar") { settings.showsOnSidebar = value }
+        if let value = reader.choice("mark", AttentionMarkLook.self) { settings.mark = value }
         if let value = reader.bool("moveToTop") { settings.movesToTop = value }
         if let value = reader.bool("moveToTopOnAgentFinish") { settings.movesToTopOnAgentFinish = value }
         diagnostics += reader.diagnostics

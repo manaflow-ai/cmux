@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceHibernation.freeingEnabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينهي الصدفات الخاملة في مساحات العمل غير المستخدمة طويلًا؛ وتبدأ من جديد في المجلد نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Završava neaktivne shellove dugo nekorištenih radnih prostora; ponovo se pokreću u istoj mapi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afslutter inaktive shells i længe ubrugte arbejdsområder; de starter igen i samme mappe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beendet inaktive Shells lange ungenutzter Workspaces; sie starten im selben Ordner neu."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ends idle shells of long-unused workspaces; they restart in the same folder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cierra los shells inactivos de espacios sin usar desde hace tiempo; se reinician en la misma carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Termine les shells inactifs des espaces inutilisés depuis longtemps ; ils redémarrent dans le même dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiude le shell inattive degli spazi di lavoro inutilizzati da molto; ripartono nella stessa cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "長く使っていないワークスペースのアイドル状態のシェルを終了します。同じフォルダで再起動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បញ្ចប់ shell ទំនេរនៃកន្លែងធ្វើការដែលមិនបានប្រើយូរ; ពួកវាចាប់ផ្តើមឡើងវិញក្នុងថតដដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "오래 사용하지 않은 워크스페이스의 유휴 셸을 종료합니다. 같은 폴더에서 다시 시작됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avslutter inaktive skall i arbeidsområder som ikke er brukt på lenge; de starter igjen i samme mappe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kończy bezczynne powłoki dawno nieużywanych obszarów; uruchamiają się ponownie w tym samym folderze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Encerra shells ociosos de espaços sem uso há muito tempo; eles recomeçam na mesma pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Завершает простаивающие оболочки давно неиспользуемых пространств; они перезапускаются в той же папке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิดเชลล์ที่ว่างของเวิร์กสเปซที่ไม่ได้ใช้มานาน เชลล์จะเริ่มใหม่ในโฟลเดอร์เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uzun süredir kullanılmayan çalışma alanlarının boştaki kabuklarını sonlandırır; aynı klasörde yeniden başlarlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Завершує неактивні оболонки давно невикористовуваних робочих просторів; вони перезапускаються в тій самій теці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kết thúc shell nhàn rỗi của các workspace lâu không dùng; chúng khởi động lại trong cùng thư mục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "结束长时间未使用的工作区中闲置的 shell；它们会在同一文件夹中重新启动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "結束長時間未使用的工作區中閒置的 shell；它們會在同一檔案夾重新啟動。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

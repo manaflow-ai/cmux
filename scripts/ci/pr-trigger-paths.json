@@ -1,0 +1,43 @@
+{
+  "//": [
+    "Which pull request workflows start a run on every head, and why (scripts/ci/pr_trigger_paths.py).",
+    "A workflow run takes a queue slot even when every job in it skips, so a workflow that decides by the changed",
+    "paths gets them as its trigger `paths:` (derived: generated from its decider's own source, `check` keeps them",
+    "equal). Every other pull_request or pull_request_target workflow without `paths:` is listed under every_pr with",
+    "the reason it must start on every head; `detect` fails on one that is in neither list."
+  ],
+  "derived": {
+    ".github/workflows/classic-api-guard.yml": {
+      "decider": "classic_api",
+      "why": "fails into main and warns into feat-cmux-next only when a guarded classic auto-deploy path changes"
+    },
+    ".github/workflows/classic-frozen-guard.yml": {
+      "decider": "classic_frozen",
+      "why": "holds a pull request into main only when it changes a classic-frozen path"
+    },
+    ".github/workflows/rust-workspaces.yml": {
+      "decider": "rust_workspaces",
+      "why": "checks Cargo manifests and locks, then builds the run workspaces a change reaches; the feat-cmux-next push still runs it whole"
+    }
+  },
+  "every_pr": {
+    ".github/workflows/backend-migrations.yml": "produces `backend migrations applied`, required on main: a required context must report on every pull request (tests/test_ci_required_checks_have_no_path_filters.py; #17415 scoped it and every other PR went unmergeable)",
+    ".github/workflows/ci-pr-closed-cancel.yml": "closed only: one run per pull request, not per head, cancelling the closed PR's queued CI",
+    ".github/workflows/ci-pr-superseded-cancel.yml": "synchronize only: it cancels the pull request's runs on its older heads, whatever the push changed; its job skips (no runner) on a fork or a no-janitor pull request",
+    ".github/workflows/cloud-resume-matrix.yml": "runs only on a `resume-matrix:` body marker or label, which paths cannot express; its plan job skips (no runner) on every other event",
+    ".github/workflows/cloud-wake-echo.yml": "runs only on a `wake-echo: run` body marker, which paths cannot express; its job skips (no runner) on every other event",
+    ".github/workflows/cmux-next-batch.yml": "the batch queue's debounce: every pull request event into feat-cmux-next feeds next_batch.py, whatever it changes",
+    ".github/workflows/cmux-next-closes-issues.yml": "closed only: one run per merged pull request, closing the issues it fixes, whatever it changed",
+    ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": "closed only: one run per pull request, not per head",
+    ".github/workflows/cmux-next-pr-closed-cancel.yml": "closed only: one run per pull request, not per head",
+    ".github/workflows/cmux-next-react-doctor.yml": "produces `React Doctor (changed React projects)`, required on feat-cmux-next: it must report on every head",
+    ".github/workflows/cmux-tui-spec.yml": "produces `clippy (changed cmux-tui packages)`, required on feat-cmux-next: it must report on every head",
+    ".github/workflows/docs-only-fallback.yml": "unfiltered by design (scripts/ci/docs_only_paths.py FALLBACK): its gate runs only for a pull request of more than 300 files or a full-ci/dev-build label, which `paths:` cannot see, and calls the filtered workflows that should have started",
+    ".github/workflows/ios-e2e.yml": "builds the Mac and iOS apps, which read most of the tree; its route skips only prose and images, and docs paths-ignore belongs to the desktop lane",
+    ".github/workflows/language-boundaries.yml": "judges the language of every added or changed source file anywhere in the tree",
+    ".github/workflows/merge-freeze.yml": "`merge freeze` is a merge gate on feat-cmux-next: it reads open freeze issues for every pull request, whatever it changes",
+    ".github/workflows/pr-body-checks.yml": "reads the pull request body and labels, which no paths filter sees",
+    ".github/workflows/pr-router.yml": "the router itself: it reads every changed path of each feat-cmux-next head to decide which workflows start, so it starts on every head",
+    ".github/workflows/private-names.yml": "checks the title, body and every added line and path of the pull request for private project names, and edited reruns it on a title or body change: no paths filter can express that; its job skips (no runner) on a fork"
+  }
+}

@@ -16,6 +16,7 @@ nonisolated struct AgentPaneNewTabShared: Encodable, Equatable {
         var actions: [AgentPaneOmnibar.Action]
         var commands: [String]
         var history: [AgentPaneOmnibar.Page]
+        var bookmarks: [AgentPaneOmnibar.Page]
         var uses: [String: Double]
         var profiles: [AgentPaneOmnibar.Profile]?
     }
@@ -35,7 +36,8 @@ nonisolated struct AgentPaneNewTabShared: Encodable, Equatable {
         warm = page.warm
         let bar = page.omnibar
         omnibar = Bar(workspaces: bar.workspaces, folders: bar.folders, projects: bar.projects, actions: bar.actions,
-                      commands: bar.commands, history: bar.history, uses: bar.uses, profiles: bar.profiles)
+                      commands: bar.commands, history: bar.history, bookmarks: bar.bookmarks, uses: bar.uses,
+                      profiles: bar.profiles)
     }
 }
 

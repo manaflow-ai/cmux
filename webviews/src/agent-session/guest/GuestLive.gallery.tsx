@@ -11,6 +11,7 @@ import {
   joinFrames,
   memoryStorage,
   workingRecords,
+  queuedRecords,
 } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
@@ -58,9 +59,36 @@ export default componentEntry<GuestPageProps>({
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
       },
     },
+    driving: {
+      props: { ...live(joinFrames(workingRecords())), role: "drive", invite: true },
+      note: "A named Drive invite can send a message or stop the current turn.",
+    },
     "guest-messages": {
       props: live(joinFrames(guestMessageRecords(), "Uploader retries")),
       note: 'Two signed-in guests\' approved messages as prompts under their 20px picture (else initials) and name (guest); Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture instead".',
+    },
+    "owner-queued": {
+      props: live(joinFrames(queuedRecords(["Then run the whole suite 20 times to be sure."]))),
+      note: "The owner sent a follow-up while the agent works: the guest sees it at once above the composer, marked Queued, before it becomes a row.",
+    },
+    "owner-queued-several": {
+      props: live(
+        joinFrames(
+          queuedRecords([
+            "Then run the whole suite 20 times to be sure.",
+            "Also check the download retry: it uses the same backoff helper and probably has the same real-clock wait.",
+            "Open a pull request when both pass.",
+          ]),
+        ),
+      ),
+      note: "Three follow-ups waiting, in the order they will run; the list scrolls past its height and the composer stays put.",
+    },
+    "owner-queued-view-only": {
+      props: {
+        ...live(joinFrames(queuedRecords(["Then run the whole suite 20 times to be sure."]))),
+        role: "view",
+      },
+      note: "A guest who may only watch sees the owner's waiting follow-up too.",
     },
     asking: {
       props: live(joinFrames(askingRecords())),
@@ -79,8 +107,9 @@ export default componentEntry<GuestPageProps>({
         ...live(joinFrames(workingRecords())),
         role: "view",
         loadTranscript: () => Promise.reject(new Error("offline")),
+        reloadPage: () => undefined,
       },
-      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
+      note: "The transcript's chunk could not load (a dropped connection): the page keeps trying on its own (and reloads once, since a browser may keep the failed fetch), with no Retry; past 25 s one quiet line, Still loading the chat… (Leo, 2026-11-22).",
     },
     "view-only": {
       props: { ...live(joinFrames(workingRecords())), role: "view" },

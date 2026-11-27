@@ -24,8 +24,14 @@ public struct LinkPairing: Sendable {
     /// has no shared keychain group (or in tests): pushes stay unsealed.
     public let push: PushKeys?
 
-    /// A scanned pairing code waiting for its Mac's challenge (``PairInvite``).
-    public let invites: PairInvites
+    /// This app's bundle id, sent with `auth` as `bundleId` (PROTOCOL.md "Pairing"): a tagged dev
+    /// Mac pairs its own tag's phone app (`dev.cmux.mobile.<tag>`) without its Allow prompt
+    /// (SECURITY.md "Dev auto-approve"). Every other Mac ignores it. Nil sends none.
+    public var bundleID: String? = Bundle.main.bundleIdentifier
+
+    /// This app's build number (CFBundleVersion), sent with `auth` as `appBuild` so the Mac's log
+    /// says which build connected. Nil sends none.
+    public var appBuild: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
 
     // Network exchange and the Mac's Allow prompt have different budgets.
     static let defaultHandshakeTimeout: Duration = .seconds(15)
@@ -36,20 +42,17 @@ public struct LinkPairing: Sendable {
     var approvalTimeout: Duration = defaultApprovalTimeout
     private let clockNow: @Sendable () -> Duration
 
-    public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil,
-                invites: PairInvites = PairInvites()) {
-        self.init(keys: keys, phoneID: phoneID, name: name, pins: pins, push: push, invites: invites,
-                  clock: ContinuousClock())
+    public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil) {
+        self.init(keys: keys, phoneID: phoneID, name: name, pins: pins, push: push, clock: ContinuousClock())
     }
 
     init<C: Clock<Duration>>(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins,
-                             push: PushKeys?, invites: PairInvites, clock: C) {
+                             push: PushKeys?, clock: C) {
         self.keys = keys
         self.phoneID = phoneID
         self.name = name
         self.pins = pins
         self.push = push
-        self.invites = invites
         let start = clock.now
         self.clockNow = { start.duration(to: clock.now) }
     }
@@ -82,21 +85,23 @@ public struct LinkPairing: Sendable {
         }
     }
 
-    /// What the phone says for a refusal `code` from the Mac's `auth`.
+    /// What the phone says for a refusal `code` from the Mac's `auth`. It names no retry: the phone asks
+    /// the Mac again by itself (``retryDelay(after:attempt:)``) for every refusal but the person's own.
     public static func refusalText(_ error: LinkError) -> String {
         switch error.code {
-        case "timeout": "nobody answered the Mac's prompt. Retry, then allow this iPhone on the Mac"
+        case "timeout": "nobody answered the Mac's prompt. Allow this iPhone on the Mac"
         case "rate_limited": "the Mac asked about this iPhone recently: \(error.message)"
         case "busy": "the Mac is already pairing this iPhone"
         case "mac_identity_changed": identityChanged
-        case "unavailable": "the Mac isn't ready to pair. Retry in a moment"
+        case "unavailable": "the Mac isn't ready to pair yet"
         // Never a raw code or an unreadable message (LinkError's display mapping).
         default: error.displayReason
         }
     }
 
     /// Said when pairing fails with an error that has no sentence of its own.
-    static let pairingFailed = "The Mac couldn't pair with this iPhone. Try again."
+    /// The phone asks again on its own (``retryDelay(after:attempt:)``), so it names no retry.
+    static let pairingFailed = "The Mac couldn't pair with this iPhone."
 
     /// When the phone asks the Mac again by itself after `auth` refused it on a live link.
     ///
@@ -106,19 +111,7 @@ public struct LinkPairing: Sendable {
     /// app restarted (2026-11-03). Every attempt still proves both keys; a retry trusts nothing the
     /// first one did not. Nil: wait for the person (they refused this phone on the Mac).
     public static func retryDelay(after code: String, attempt: Int) -> Duration? {
-        switch code {
-        // The person refused this phone on the Mac.
-        case "denied": return nil
-        // This host proved another identity than the one pinned, or answered for another Mac, or
-        // the exchange itself was malformed: asking again on the same link cannot change that, and
-        // the warning stays up. A new link (foreground, network change, Retry) pairs from the start.
-        case "mac_identity_changed", "bad_mac_proof", "wrong_mac", "bad_request", "unpaired": return nil
-        // The Mac asks about one phone a few times per 10 minutes; asking sooner is refused again.
-        case "rate_limited": return .seconds(60)
-        default:
-            let backoff = [1, 2, 4, 8, 15]
-            return .seconds(attempt < backoff.count ? backoff[max(attempt, 0)] : 30)
-        }
+        LinkPairingRetry.retryDelay(after: code, attempt: attempt)
     }
 
     /// What pairing found.
@@ -137,6 +130,9 @@ public struct LinkPairing: Sendable {
         let approval: String
         /// This phone's nonce for the Mac's identity proof.
         let macNonce: String
+        /// The keys of the tunnel this `auth` runs on (nil: not a tunnel): this
+        /// `auth` asked for v2 proofs over them.
+        var tunnel: TunnelKeys?
         /// Whether this `auth` sent the push key (the Mac then proves its box key).
         var sentPushKey = false
 
@@ -157,6 +153,11 @@ public struct LinkPairing: Sendable {
             ]
             let pushArgs = macID.flatMap { pushKeyArgs(mac: $0) }
             if let pushArgs { args.merge(pushArgs) { a, _ in a } }
+            if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
+            if let appBuild, !appBuild.isEmpty { args["appBuild"] = appBuild }
+            // On a tunnel, both identity proofs cover the keys it handshook with.
+            let tunnel = link.tunnelKeys
+            if tunnel != nil { args["proofVersion"] = Self.proofV2 }
             let channelArgs = args
             let channel = try await LinkDeadline.run(
                 timeout: handshakeTimeout,
@@ -165,6 +166,7 @@ public struct LinkPairing: Sendable {
             )
             var opened = Opened(channel: channel, identity: identity, approval: approval, macNonce: macNonce)
             opened.sentPushKey = pushArgs != nil
+            opened.tunnel = tunnel
             return .success(opened)
         } catch let error as LinkError {
             return .failure(error)
@@ -218,6 +220,8 @@ public struct LinkPairing: Sendable {
         let pinned = pins.key(for: macID)
         /// The key this Mac proved in this `auth`, pinned once the Mac lets this phone in.
         var proven: String?
+        /// The tunnel keys both proofs of this `auth` covered (a v2 challenge).
+        var bound: TunnelKeys?
         /// The box key that key vouched for (sealed replies go to it), and its signature.
         var boxKey: String?
         var boxSignature: String?
@@ -236,6 +240,7 @@ public struct LinkPairing: Sendable {
                 if value["ok"] == .bool(true) {
                     if pinned != nil, proven == nil { return .refused(Self.changed) }
                     if pinned == nil, let proven { pins.pin(proven, for: macID) }
+                    if bound != nil, proven != nil { pins.pinTunnelBinding(for: macID) }
                     // The service extension opens this Mac's sealed pushes with the push key
                     // this `auth` sent, checked against the pinned identity key.
                     if let push, let user = keys.userID, let identity = proven ?? pinned {
@@ -260,24 +265,28 @@ public struct LinkPairing: Sendable {
                 guard mac == macID else {
                     return .refused(LinkError(code: "wrong_mac", message: "The Mac answered with another device id"))
                 }
+                // v2: both proofs cover this phone's own tunnel keys. A Mac that proved them
+                // once never gets a v1 tunnel `auth` again, and a v2 challenge needs a tunnel here.
+                switch (value["proofVersion"]?.stringValue == Self.proofV2, opened.tunnel) {
+                case (true, let tunnel?): bound = tunnel
+                case (true, nil): return .refused(Self.changed)
+                case (false, _?) where pins.bindsTunnel(macID): return .refused(Self.changed)
+                case (false, _): bound = nil
+                }
                 // The Mac's identity key: its proof must hold, and match the pin.
-                var provenNow: String?
-                switch Self.check(value, mac: mac, phone: phoneID, macNonce: opened.macNonce, challenge: nonce, pinned: pinned) {
+                switch Self.check(value, mac: mac, phone: phoneID, macNonce: opened.macNonce, challenge: nonce, pinned: pinned,
+                                  tunnel: bound) {
                 case .proven(let key):
                     proven = key
-                    provenNow = key
                 case .unproven: break
                 case .refused(let error): return .refused(error)
                 }
                 boxKey = Self.boxKey(value, mac: mac, identityKey: proven)
                 boxSignature = boxKey == nil ? nil : value["macBoxSignature"]?.stringValue?.lowercased()
                 let payload = LinkAuthPayload(mac: mac, phone: phoneID, nonce: nonce, identityKey: identity,
-                                              approvalKey: approval, action: "pair")
+                                              approvalKey: approval, action: "pair", tunnel: bound)
                 let signature = try keys.signIdentity(payload.message)
-                var reply: [String: JSONValue] = ["signature": .string(ApprovalPayload.hex(signature))]
-                // A scanned code stands in for the Mac's Allow prompt, only on the Mac that just
-                // proved the key the code names (never in `open`'s args, sent before any proof).
-                if let token = invites.token(mac: mac, provenKey: provenNow) { reply["pairToken"] = .string(token) }
+                let reply: [String: JSONValue] = ["signature": .string(ApprovalPayload.hex(signature))]
                 let bytes = try JSONEncoder().encode(JSONValue.object(reply))
                 try await exchange(channel, until: deadline, approval: waitingForApproval,
                                    operation: { try await channel.send(bytes) })
@@ -290,6 +299,8 @@ public struct LinkPairing: Sendable {
     }
 
     static let changed = LinkError(code: "mac_identity_changed", message: identityChanged)
+    /// `proofVersion` of an `auth` whose identity proofs cover the tunnel keys.
+    static let proofV2 = "2"
 
     /// What a challenge says about the Mac's identity.
     enum MacProof: Equatable {
@@ -302,11 +313,11 @@ public struct LinkPairing: Sendable {
 
     /// Checks the challenge's `macKey` / `macSignature` against this phone's nonce and the pin.
     static func check(_ value: JSONValue, mac: String, phone: String, macNonce: String, challenge: String,
-                      pinned: String?) -> MacProof {
+                      pinned: String?, tunnel: TunnelKeys? = nil) -> MacProof {
         guard let key = value["macKey"]?.stringValue, let signature = value["macSignature"]?.stringValue else {
             return pinned == nil ? .unproven : .refused(changed)
         }
-        let message = MacPins.proofMessage(mac: mac, phone: phone, phoneNonce: macNonce, challenge: challenge)
+        let message = MacPins.proofMessage(mac: mac, phone: phone, phoneNonce: macNonce, challenge: challenge, tunnel: tunnel)
         guard MacPins.verify(key: key, signature: signature, message: message) else {
             return .refused(pinned == nil ? LinkError(code: "bad_mac_proof", message: "The Mac's identity proof is invalid") : changed)
         }
@@ -348,7 +359,7 @@ public struct LinkPairing: Sendable {
         try await LinkDeadline.run(
             timeout: deadline - clockNow(),
             timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
-                                   message: "The Mac didn't answer. Retry."),
+                                   message: "pairing reply timed out"),
             operation: operation,
             onCancel: { await channel.close(code: "eof", reason: "pairing ended") }
         )

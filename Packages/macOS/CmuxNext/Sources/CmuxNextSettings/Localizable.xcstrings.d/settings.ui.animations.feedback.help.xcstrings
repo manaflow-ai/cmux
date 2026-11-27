@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.ui.animations.feedback.help" : {
+      "comment" : "Settings > Appearance > Motion: the help text under a motion switch (ui.animations.*).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تظهر تغييرات التمرير والضغط والتركيز وألوان السمة بسلاسة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prelazak, pritisak, fokus i promjene boja teme pojavljuju se postepeno."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Farveskift ved svæv, tryk, fokus og tema glider ind."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hover, Klick, Fokus und Farbwechsel des Themas blenden weich ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hover, press, focus and theme color changes ease in."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los resaltados al pasar y pulsar, el foco y los cambios de color del tema aparecen suavemente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les changements de survol, d’appui, de focus et de couleur du thème apparaissent en douceur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passaggio, pressione, focus e cambi di colore del tema compaiono gradualmente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ホバー、押下、フォーカス、テーマの色の変化をなめらかに表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការប្ដូរពេលដាក់ទស្សន៍ទ្រនិច ចុច ផ្ដោត និងពណ៌រចនាប័ទ្ម លេចឡើងបន្តិចម្ដងៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "호버, 누르기, 포커스, 테마 색상 변경이 부드럽게 나타납니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Endringer ved sveving, trykk, fokus og temafarger tones inn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zmiany przy najechaniu, naciśnięciu, fokusie i kolorach motywu pojawiają się płynnie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Realces ao passar e pressionar, foco e mudanças de cor do tema surgem suavemente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Подсветка при наведении и нажатии, фокус и смена цветов темы появляются плавно."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การชี้ การกด โฟกัส และการเปลี่ยนสีธีม จะค่อย ๆ ปรากฏ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Üzerine gelme, basma, odak ve tema renk değişiklikleri yumuşakça belirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Підсвічування під час наведення й натискання, фокус і зміни кольорів теми з’являються плавно."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thay đổi khi di chuột, nhấn, tiêu điểm và màu chủ đề hiện dần."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "悬停、按下、焦点和主题颜色变化都会平滑出现。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "懸停、按下、焦點與主題顏色變化都會平滑出現。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,17 @@
+/* Gel's chat: filled tonal containers, large soft corners, no hairlines. Every color is made from the
+   theme's own (--agent-text, --agent-accent), which Gel's theme file sets to the seed's tones for light
+   and dark (DESIGN.md), so the stylesheet follows the appearance and the person's theme edits.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 90%, var(--agent-accent)) 85%, transparent);
+  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 95%, var(--agent-accent)) 66%, transparent);
+  --cv-link: var(--agent-accent);
+  --agent-link: var(--agent-accent);
+  --cv-card-fill: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 65%, var(--agent-accent)) 6%, transparent);
+  --cv-card-ring: transparent;
+  --cv-user-bubble-tint: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 5%, var(--agent-accent)) 21%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 14px;
+}

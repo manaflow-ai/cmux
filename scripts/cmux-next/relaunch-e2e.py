@@ -34,6 +34,8 @@ the app it started at the end (the tag's daemon and its terminals stay; stop
 them as the brief's cleanup says). Exit 1 on any failed check.
 """
 import argparse, glob, json, os, random, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -202,16 +204,21 @@ def setup():
     # inside an escape sequence: panes on a screen that is not shown have no
     # view, and a relaunch shows them later.
     cli("select-workspace", "--workspace", first)
-    time.sleep(opts.settle)
+    wait_shown(first)
     before = {ref for ref, _ in surfaces(first)}
     rpc("action.run", {"id": "screen.new"})
     added = wait(lambda: [ref for ref, _ in surfaces(first) if ref not in before], 20)
     if not added:
         sys.exit("screen.new made no terminal")
     cli("send", "--surface", added[0], "echo relaunch-reader-screen2; " + READER + "\n")
-    time.sleep(1)
+    # The command ran: its echo is on the daemon's screen as a line of its own (the typed line has more on it).
+    wait_until(lambda: re.search(r"^relaunch-reader-screen2\s*$", cli("read-screen", "--surface", added[0]).stdout, re.M),
+               "the second screen's reader to start", timeout=15)
+    screen_before = shown_screen()[0]
     rpc("action.run", {"id": "screen.previous"})
-    time.sleep(3)
+    # The first screen is shown again: the active screen changes, then settles.
+    wait_until(lambda: shown_screen()[0] not in (None, screen_before), "screen.previous to show the first screen", timeout=15)
+    wait_stable(shown_screen, "the shown screen after screen.previous", timeout=10, interval=0.25)
 
 
 def view_rows(workspace_key=None):
@@ -402,13 +409,23 @@ def link(pane_key):
     return (mirror(pane_key) or {}).get("link") or ""
 
 
+def wait_shown(workspace, timeout=20):
+    """After select-workspace: one of the workspace's selected terminals is in a visible pane (best-effort; the
+    checks after it say what is missing)."""
+    def shown():
+        refs = {ref for ref, _ in surfaces(workspace)}
+        return bool(refs & set(pane_keys()))
+    if not wait_until(shown, f"{workspace} to be shown", timeout=timeout, interval=0.25, raise_on_timeout=False):
+        print(f"  note: {workspace} not shown {timeout:.0f} s after select-workspace")
+
+
 def check_disconnect(label):
     """A view dropped by the daemon shows disconnected, stays so without an
     event, and re-attaches on a key press and on being shown again."""
     refs = workspaces()
     first = refs[0]
     cli("select-workspace", "--workspace", first)
-    time.sleep(opts.settle)
+    wait_shown(first)
     idle = next((s for s, title in surfaces(first) if not title.startswith(("top", "vim"))), None)
     pane_key = idle and pane_for(idle)
     problems = []
@@ -422,7 +439,7 @@ def check_disconnect(label):
     if not detach_view(pane_key) or not wait(lambda: link(pane_key).startswith("disconnected"), 5):
         problems.append(f"{label}: {idle} did not show disconnected after detach-client (link {link(pane_key)!r})")
     else:
-        time.sleep(3)
+        time.sleep(3)  # sleep-ok: the check is that the view stays disconnected for 3 s with no event
         if not link(pane_key).startswith("disconnected"):
             problems.append(f"{label}: {idle} re-attached without an event ({link(pane_key)!r})")
         token = f"tok{TOKENS.randrange(1 << 30)}"
@@ -436,7 +453,7 @@ def check_disconnect(label):
         problems.append(f"{label}: second detach-client not seen")
     elif len(refs) > 1:
         cli("select-workspace", "--workspace", refs[1])
-        time.sleep(opts.settle)
+        wait_shown(refs[1])
         cli("select-workspace", "--workspace", first)
         if not wait(lambda: link(pane_key) == "connected", 10):
             problems.append(f"{label}: showing {idle} again did not re-attach it (link {link(pane_key)!r})")
@@ -460,7 +477,9 @@ def long_top(seconds):
     surface = wait(lambda: surfaces(ref), 20)[0][0]
     cli("send", "--surface", surface, "top -s 1\n")
     cli("select-workspace", "--workspace", ref)
-    time.sleep(3)
+    # top is up: its header (the PID column) is on the daemon's screen. The waits below need the view.
+    wait_until(lambda: "PID" in cli("read-screen", "--surface", surface).stdout, "top to start", timeout=20,
+               interval=0.25, raise_on_timeout=False)
     pane_key = wait(lambda: pane_for(surface), 20)
     if not pane_key or not wait(lambda: mirror(pane_key), 20):
         failures.append(f"long top: {surface} never showed a view")

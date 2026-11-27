@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -28,7 +29,7 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
 
     /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
     /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
-    public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
+    public static func read(cloudMachine machine: String, api: CloudDaemon) async -> RemoteAgentDaemonStatus? {
         guard let result = try? await api.exec(machine, command: cloudStatusCommand, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
         return RemoteAgentDaemonStatus(json: result.stdout)
     }
@@ -146,33 +147,81 @@ extension SSHHost {
 public actor RemoteApprovalPreparations {
     public static let shared = RemoteApprovalPreparations()
     private var running: [String: Task<Bool, Never>] = [:]
+    /// How long a Cloud start waits on approvals preparation it does not own (another's in-flight key, a status read): past
+    /// it the chat starts unkeyed (its Allow shows the restart notice). A prod start took 37 s with 13 s here and a 15 s keyed
+    /// retry in the start step; Leo's budget is <30 s from start to response.
+    public static let startWait: Duration = .seconds(5)
     private var busyUntil: [String: ContinuousClock.Instant] = [:]
+    /// Machines whose preparation is in its keyed restart (a start that joins it waits it out), and machines a start gave up
+    /// waiting on (their preparation restarts nothing after that: the start's chat may be on the daemon by then).
+    private var restarting: Set<String> = [], gaveUp: Set<String> = []
 
-    public func run(machine: String, keepBusy: Bool, _ work: @escaping @Sendable () async -> Bool) async -> Bool {
+    /// Called by a preparation right before its keyed restart: false when a start gave up on it (no restart then), else the
+    /// restart is marked begun.
+    func mayRestart(_ machine: String) -> Bool {
+        guard !gaveUp.contains(machine) else { return false }
+        restarting.insert(machine)
+        return true
+    }
+
+    /// `joinBudget` (a Cloud start): a caller that finds another's preparation running waits at most that long for it, then
+    /// answers false (its chat starts unkeyed); the preparation itself keeps running for its owner.
+    public func run(machine: String, keepBusy: Bool, joinBudget: Duration? = nil, _ work: @escaping @Sendable () async -> Bool) async -> Bool {
         if keepBusy, let until = busyUntil[machine], ContinuousClock.now < until { return false }
-        if let task = running[machine] { return await task.value }
+        if let task = running[machine] {
+            guard let joinBudget else { return await task.value }
+            if let answer = await Self.value(of: task, within: joinBudget) { return answer }
+            // Its restart already began: the daemon is going down under it, so a chat started now would die with it. Wait it out.
+            if restarting.contains(machine), running[machine] == task { return await task.value }
+            // Not restarting yet: it never will (`mayRestart`), so this chat starts on the daemon as it is.
+            if running[machine] == task { gaveUp.insert(machine) }
+            return false
+        }
         // task-owner: the machine's one preparation; every caller awaits it
+        gaveUp.remove(machine)
         let task = Task { await work() }
         running[machine] = task
         let bound = await task.value
         running[machine] = nil
+        restarting.remove(machine)
+        gaveUp.remove(machine)
         if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
         return bound
     }
 
     /// A new chat's keyed restart. `daemonSaidSafe` (the daemon answered that it may restart): at once. Else (an older
     /// daemon, or a start turning approvals on ahead of its chat): done when a run already holds the key (`held`), and
-    /// only an `idle` daemon restarts, a busy answer kept for a minute. False: the chat starts unkeyed, and its Allow
-    /// shows the normal restart notice.
-    public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
-                        restart: @escaping @Sendable () async -> Bool) async -> Bool {
-        let keyed = Self.timed("approvals.key", restart), idleNow = Self.timed("approvals.status", idle)
-        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, keyed) }
+    /// only an `idle` daemon restarts, a busy answer kept for a minute (unless `cacheBusy` is false: a start's early read
+    /// beside its connect, asked again after it). False: the chat starts unkeyed, and its Allow shows the normal restart notice.
+    public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, joinBudget: Duration? = nil, idle: @escaping @Sendable () async -> Bool,
+                        restart: @escaping @Sendable () async -> Bool, cacheBusy: Bool = true) async -> Bool {
+        let keyed = Self.timed("approvals.key") { [self] in guard await mayRestart(machine) else { return false }; return await restart() }
+        let idleNow = Self.timed("approvals.status", idle)
+        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, joinBudget: joinBudget, keyed) }
         if held { return true }
-        return await run(machine: machine, keepBusy: true) {
+        return await run(machine: machine, keepBusy: cacheBusy, joinBudget: joinBudget) {
             guard await idleNow() else { return false }
             return await keyed()
         }
+    }
+
+    /// `task`'s value, or nil when it has not finished within `budget` (the task is left running).
+    public static func value<T: Sendable>(of task: Task<T, Never>, within budget: Duration) async -> T? {
+        let wait = RemoteApprovalBudgetWait<T>()
+        Task { wait.finish(await task.value) } // task-owner: hands the shared task's end to this one waiter; ends with `task`
+        let timer = Task {
+            // wakeup-allow: one-shot budget, cancelled once the wait ends; concurrency-allow: never on the main thread
+            do { try await Task.sleep(for: budget) } catch { return }
+            wait.finish(nil)
+        }
+        let value = await withCheckedContinuation { wait.store($0) }
+        timer.cancel()
+        return value
+    }
+
+    /// `work`'s answer, or nil when it gave none within `budget` (a read that is cancelled then: it changes nothing).
+    public static func bounded<T: Sendable>(_ budget: Duration, _ work: @escaping @Sendable () async -> T?) async -> T? {
+        await value(of: Task { await work() }, within: budget) ?? nil
     }
 
     /// `work`, marked as its own step `name` (its span from its own start) of the Cloud start whose
@@ -207,6 +256,19 @@ public actor RemoteApprovalPreparations {
             throw error
         }
     }
+
+    /// A start's preparation in two parts, owned as ``owned(_:_:)``: with `early`, `prepare(true)` runs beside `connect`
+    /// (which, when it throws, cancels and awaits it first); then `body` runs beside that answer or, when it was false (or
+    /// there was no early one), `prepare(false)`.
+    @MainActor public static func owned<T>(early: Bool, connect: @MainActor () async throws -> Void,
+                                           prepare: @escaping @MainActor @Sendable (_ early: Bool) async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let ahead: Task<Bool, Never>? = early ? Task { await prepare(true) } : nil // task-owner: awaited (or cancelled, then awaited) on every exit
+        do { try await connect() } catch { ahead?.cancel(); _ = await ahead?.value; throw error }
+        return try await owned({
+            if let ahead, await withTaskCancellationHandler(operation: { await ahead.value }, onCancel: { ahead.cancel() }) { return true }
+            return await prepare(false)
+        }, body)
+    }
 }
 
 /// `machine|bundled commit` pairs whose automatic update ran in this app run (cx-3r9mt): done for
@@ -222,4 +284,42 @@ public struct RemoteAutoUpdateLedger: Sendable {
     }
     public mutating func done(_ key: String) { entries[key] = .some(nil) }
     public mutating func retry(_ key: String, after delay: Duration) { entries[key] = .some(ContinuousClock.now.advanced(by: delay)) }
+}
+
+/// One caller's budgeted wait on a task others share (``RemoteApprovalPreparations/value(of:within:)``): the first end
+/// (the task's value, or nil when the budget ran out) counts; the task itself goes on.
+nonisolated final class RemoteApprovalBudgetWait<Value: Sendable>: Sendable {
+    private enum State {
+        case idle
+        case waiting(CheckedContinuation<Value?, Never>)
+        case ended(Value?)
+    }
+
+    private let state = Mutex(State.idle)
+
+    /// The continuation of the wait; an end that came first resumes it at once.
+    func store(_ continuation: CheckedContinuation<Value?, Never>) {
+        let ended: Value?? = state.withLock { state in
+            if case .ended(let value) = state { return .some(value) }
+            state = .waiting(continuation)
+            return .none
+        }
+        if let ended { continuation.resume(returning: ended) }
+    }
+
+    /// Ends the wait with `value`; only the first end counts.
+    func finish(_ value: Value?) {
+        let waiting: CheckedContinuation<Value?, Never>? = state.withLock { state in
+            switch state {
+            case .ended: return nil
+            case .waiting(let continuation):
+                state = .ended(value)
+                return continuation
+            case .idle:
+                state = .ended(value)
+                return nil
+            }
+        }
+        waiting?.resume(returning: value)
+    }
 }

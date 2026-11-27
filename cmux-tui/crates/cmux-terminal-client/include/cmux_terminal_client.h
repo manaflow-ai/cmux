@@ -34,7 +34,9 @@ typedef void (*CmuxTerminalClientOutputCallback)(
 // must not use the pointer after disconnect begins. invitation_uri and
 // terminal_id must be non-null NUL-terminated UTF-8 strings. error_buffer may
 // be NULL; when non-null with nonzero capacity it receives a truncated, valid
-// UTF-8, NUL-terminated error.
+// UTF-8, NUL-terminated error. cmux_terminal_client_connect, and a timeout of 0,
+// use the default deadline: one reconnect attempt (15 s) plus the daemon's
+// approval window (5 min), since these always enroll with an invitation.
 CmuxTerminalClient *cmux_terminal_client_connect(
     const char *invitation_uri,
     const char *terminal_id,
@@ -52,7 +54,9 @@ CmuxTerminalClient *cmux_terminal_client_connect_with_timeout(
 // enrolls on first contact and may be NULL afterwards, when the enrolled key is
 // used; a NULL invitation with no enrolled daemon for the route fails.
 // wireguard may be NULL; when set, addresses inside that tunnel's routes are
-// dialed through it. timeout_milliseconds of 0 means no deadline. Install an
+// dialed through it. timeout_milliseconds of 0 means the default deadline: one
+// reconnect attempt (15 s), plus the daemon's approval window (5 min) when
+// invitation_uri is set. A connect never waits without a deadline. Install an
 // output callback, then attach a terminal.
 CmuxTerminalClient *cmux_terminal_client_connect_route(
     const char *route,

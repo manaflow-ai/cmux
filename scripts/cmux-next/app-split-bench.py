@@ -32,6 +32,7 @@ from collections import defaultdict
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def rpc(path, method, params=None, timeout=60):
@@ -108,9 +109,10 @@ def main():
                             "--process", str(args.pid)], stdout=open(log_path, "w"), stderr=subprocess.DEVNULL)
     rows = []
     try:
-        time.sleep(2)
+        # `log stream` writes its "Filtering the log data" header once it is attached.
+        wait_until(lambda: os.path.getsize(log_path) > 0, "the signpost log stream to attach", timeout=15)
         prune()
-        time.sleep(0.5)
+        wait_until(lambda: set(tabs(workspace()).values()) <= {pane}, "the extra tabs to close", timeout=15)
         for i in range(args.runs):
             before = set(tabs(workspace()))
             wall0, t0 = time.time(), time.perf_counter()
@@ -130,7 +132,9 @@ def main():
             time.sleep(1.5)  # attach, first frame and shell start before the close
             prune()
             time.sleep(0.8)
-        time.sleep(1)
+        # The last signposts delivered: the stream's file stops growing.
+        wait_stable(lambda: os.path.getsize(log_path), "the signpost log stream's output", timeout=10,
+                    interval=0.25, reads=4, raise_on_timeout=False)
     finally:
         log.terminate()
         log.wait()

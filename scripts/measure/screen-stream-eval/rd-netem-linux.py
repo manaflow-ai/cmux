@@ -52,6 +52,8 @@ sch_netem. On the fleet: cmuxterm-hq `cmux-ci test --setup netem` (README.md her
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -91,6 +93,12 @@ PROFILES = {
     "wifi-away-short": "delay 4ms",
     "wifi-away-long": "delay 4ms",
     "wifi-away-loss": "delay 4ms loss random 2%",
+    # The receiver-FEC loss sweep (goal screen-share-receiver-fec): 10 ms each way (20 ms RTT), no
+    # jitter, uniform loss, so the Reassembly p95 minus RTT column reads only what loss costs.
+    "loss-0.5": "delay 10ms loss random 0.5%",
+    "loss-1": "delay 10ms loss random 1%",
+    "loss-2": "delay 10ms loss random 2%",
+    "loss-5": "delay 10ms loss random 5%",
 }
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 # Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
@@ -119,6 +127,10 @@ PROFILE_LABELS = {
     "wifi-away-short": "Wi-Fi away: short holds only",
     "wifi-away-long": "Wi-Fi away: long holds only",
     "wifi-away-loss": "Wi-Fi away: 2% loss only",
+    "loss-0.5": "20 ms RTT, 0.5% loss",
+    "loss-1": "20 ms RTT, 1% loss",
+    "loss-2": "20 ms RTT, 2% loss",
+    "loss-5": "20 ms RTT, 5% loss",
 }
 
 
@@ -145,6 +157,38 @@ def last_json_line(text: str) -> dict | None:
 
 def _num(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def nominal_rtt_ms(profile: str):
+    """The round trip netem adds for a two-namespace profile: its delay on each direction's egress."""
+    words = PROFILES.get(profile, "").split()
+    if profile in LO_PROFILES or "delay" not in words:
+        return None
+    d = words[words.index("delay") + 1]
+    return 2 * float(d[:-2]) if d.endswith("ms") else None
+
+
+def stage_p95(ledger, stage: str):
+    """One stage's p95 ms from a cmux.rd-stage-ledger/1 summary, or None."""
+    for row in (ledger or {}).get("stages") or []:
+        if isinstance(row, dict) and row.get("stage") == stage:
+            return _num(row.get("p95_ms"))
+    return None
+
+
+def reassembly_over_rtt(ledger, rtt_ms):
+    """Reassembly p95 minus RTT, ms: the screen_share_fast.reassembly_over_rtt_ms reading."""
+    p95 = stage_p95(ledger, "Reassembly")
+    return round(p95 - rtt_ms, 2) if p95 is not None and rtt_ms is not None else None
+
+
+def reassembly_row(profile: str, passive: dict) -> dict:
+    """The passive session's Reassembly p95 against the profile's netem RTT (the bench's own
+    measured repair RTT kept beside it)."""
+    rtt = nominal_rtt_ms(profile)
+    ledger = passive.get("stage_ledger")
+    return {"p95_ms": stage_p95(ledger, "Reassembly"), "rtt_ms": rtt,
+            "repair_rtt_ms": passive.get("repair_rtt_ms"), "over_rtt_ms": reassembly_over_rtt(ledger, rtt)}
 
 
 def ledger_of(report: dict | None):
@@ -184,6 +228,7 @@ def summarize_passive(report: dict | None) -> dict:
         "decode_errors": report.get("decode_errors"),
         "first_frame_ms": _num(report.get("first_frame_ms")),
         "ended": report.get("ended"),
+        "repair_rtt_ms": _num(report.get("repair_rtt_ms")),
         "stage_ledger": ledger_of(report),
     }
 
@@ -450,12 +495,12 @@ def markdown_table(rows: list[dict]) -> str:
     head = ("| cmux-rd | profile | key p50 / p95 ms (lost) | Mbps median (min–max) | Mbps per second "
             "| target kbps per second | wire Mbps down median (all kinds) | s to 15 Mbps target / received "
             "| decoded fps median "
-            "| IDRs / frames passive, key (reasons) | stage ledger |")
-    out = [head, "|" + "---|" * 11]
+            "| IDRs / frames passive, key (reasons) | stage ledger | Reassembly p95 − RTT ms (p95, RTT) |")
+    out = [head, "|" + "---|" * 12]
     for r in rows:
         if r.get("error"):
             out.append(f"| `{r.get('commit', '?')[:12]}` | {PROFILE_LABELS.get(r.get('profile'), r.get('profile'))} "
-                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | | | | |")
+                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | | | | | |")
             continue
         key, passive = r.get("key") or {}, r.get("passive") or {}
         mbps = [v for v in passive.get("mbps_per_s") or [] if v is not None]
@@ -473,11 +518,14 @@ def markdown_table(rows: list[dict]) -> str:
         t15 = f"{_fmt(passive.get('target_s_to_15mbps'))} / {_fmt(passive.get('received_s_to_15mbps'))}"
         ledgers = [x for x in (passive.get("stage_ledger"), key.get("stage_ledger")) if x]
         ledger = "yes" if ledgers else "no"
+        reasm = r.get("reassembly") or {}
+        reasm_cell = (f"{_fmt(reasm.get('over_rtt_ms'), 2)} ({_fmt(reasm.get('p95_ms'), 2)}, "
+                      f"{_fmt(reasm.get('rtt_ms'), 1)})" if reasm.get("p95_ms") is not None else "–")
         out.append(
             f"| {rd_cell(r)} | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
             f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} ({_fmt(key.get('lost'))}) "
             f"| {spread} | {_series(passive.get('mbps_per_s') or [], 1)} "
-            f"| {_series(target, 0)} | {wire_cell} | {t15} | {fps_cell} | {idr} | {ledger} |")
+            f"| {_series(target, 0)} | {wire_cell} | {t15} | {fps_cell} | {idr} | {ledger} | {reasm_cell} |")
     return "\n".join(out) + "\n"
 
 
@@ -647,6 +695,12 @@ def ensure_deps():
               "libssl-dev", "nasm", "curl", "iproute2", "ethtool", "xvfb", "x11-xkb-utils"]))
 
 
+# What the build checks out: the crates, the vendored crates cmux-tui/Cargo.toml points at by path
+# (smoltcp, crossterm) and the build-support sources build scripts read; a sparse set without one
+# fails cargo's dependency load.
+SPARSE_PATHS = ("cmux-tui/crates", "cmux-tui/vendor", "cmux-tui/build-support")
+
+
 def build(commit: str, work: Path, repo_url: str) -> Path:
     src = work / f"src-{commit[:12]}"
     if src.exists():
@@ -656,7 +710,7 @@ def build(commit: str, work: Path, repo_url: str) -> Path:
     run(git + ["init", "-q"])
     run(git + ["remote", "add", "origin", repo_url])
     run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "origin", commit])
-    run(git + ["sparse-checkout", "set", "cmux-tui/crates"])
+    run(git + ["sparse-checkout", "set", *SPARSE_PATHS])
     run(git + ["checkout", "-q", "--detach", commit])
     full = run(git + ["rev-parse", "HEAD"]).stdout.strip()
     if not full.startswith(commit):
@@ -699,6 +753,61 @@ def wait_for(path: Path, needle: str, proc: subprocess.Popen, seconds: float) ->
         if proc.poll() is not None:
             return False
         time.sleep(0.1)
+    return False
+
+
+def x_root_children(display: str) -> int | None:
+    """How many windows the X server at DISPLAY has under its root, through libX11; None while it does not
+    accept a connection."""
+    x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x.XDefaultRootWindow.restype = ctypes.c_ulong
+    x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                             ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                             ctypes.POINTER(ctypes.c_uint)]
+    x.XFree.argtypes = [ctypes.c_void_p]
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    dpy = x.XOpenDisplay(display.encode())
+    if not dpy:
+        return None
+    try:
+        root, parent, children, count = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+        if not x.XQueryTree(dpy, x.XDefaultRootWindow(dpy), ctypes.byref(root), ctypes.byref(parent),
+                            ctypes.byref(children), ctypes.byref(count)):
+            return 0
+        if children:
+            x.XFree(children)
+        return count.value
+    finally:
+        x.XCloseDisplay(dpy)
+
+
+def wait_x(display: str, proc: subprocess.Popen, seconds: float, window: bool = False) -> str | None:
+    """Until the X server at DISPLAY accepts a connection (and, with WINDOW, has a window under its root: the
+    testapp's). None when it did; else what never happened."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return f"{'testapp' if window else 'Xvfb'} on {display} exited ({proc.returncode})"
+        count = x_root_children(display)
+        if count is not None and (not window or count > 0):
+            return None
+        time.sleep(0.05)
+    return (f"no window on {display} in {seconds:g} s (the testapp never mapped one)" if window
+            else f"Xvfb on {display} accepted no connection in {seconds:g} s")
+
+
+def wait_port_free(rig: Rig, seconds: float = 10.0) -> bool:
+    """Until nothing in the host namespace listens on PORT (the stopped host let it go)."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        listed = run(priv(["ip", "netns", "exec", rig.host_ns, "ss", "-Hlntu", f"sport = :{PORT}"]), check=False)
+        if listed.returncode == 0 and not listed.stdout.strip():
+            return True
+        time.sleep(0.05)
+    print(f"rd-netem-linux: port {PORT} still bound {seconds:g} s after the host stopped", file=sys.stderr, flush=True)
     return False
 
 
@@ -757,6 +866,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         row["key"] = summarize_key(key)
         row["idr_passive"] = count_idrs(data[start:mid].decode(errors="replace"))
         row["idr_key"] = count_idrs(data[mid:end].decode(errors="replace"))
+        row["reassembly"] = reassembly_row(row["profile"], row["passive"])
         if not row["passive"]["ok"]:
             row["passive"]["stderr"] = perr
         if not row["key"]["ok"]:
@@ -764,7 +874,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         return row
     finally:
         stop(host)
-        time.sleep(0.5)  # the next host binds the same port
+        wait_port_free(rig)  # the next host binds the same port
 
 
 def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
@@ -824,7 +934,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
         driver.stop()
         stop(host)
         rig.unshape_lo()
-        time.sleep(0.5)
+        wait_port_free(rig)  # the next host binds the same port
 
 
 def openh264_lib(binary: Path, scratch: Path) -> list[str]:
@@ -864,11 +974,15 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
             return rows
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
-        time.sleep(1.5)
-        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
-        time.sleep(1.5)
+        x_error = wait_x(display, procs[-1], 20)
+        if x_error is None:
+            procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload",
+                                                 "motion"]))
+            x_error = wait_x(display, procs[-1], 20, window=True)
         for profile in profiles:
             try:
+                if x_error:
+                    raise RuntimeError(x_error)
                 row = measure_profile(rig, binary, commit, profile, scratch, display, args.passive_s, args.samples)
             except Exception as error:  # noqa: BLE001 - one profile's failure is that row's data
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile, "error": repr(error)}

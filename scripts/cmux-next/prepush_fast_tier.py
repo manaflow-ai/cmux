@@ -213,8 +213,24 @@ def main(argv=None) -> int:
         # The supervisor owns cleanup even when it must kill the worker's process group.
         with tempfile.TemporaryDirectory(prefix="cmux-fast-tier-") as scratch:
             command += ["--scratch", scratch]
+            # The worker runs in its own process group, so a signal that stops this supervisor (the hook's
+            # time limit, a ^C) never reaches it: pass the stop on to the worker's group, then exit through the
+            # with-block so the scratch folder is still removed.
+            started_worker = []
+
+            def stop_worker(signum, frame):
+                for pid in started_worker:
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                raise SystemExit(128 + signum)
+
+            for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                signal.signal(signum, stop_worker)
             proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, start_new_session=True)
+            started_worker.append(proc.pid)
             try:
                 out, err = proc.communicate(refs, timeout=WORK_SECONDS)
                 receipt.update(json.loads(out))

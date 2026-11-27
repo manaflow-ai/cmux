@@ -7,14 +7,15 @@ import CmuxNextWakeups
 /// one chat, an account field and a role, the chat's invite link, and the work the sheet runs. Invite
 /// and Remove are the same work `agent.share.invite` and `agent.share.uninvite` run
 /// (``AgentShareActions/inviteWork(_:account:role:ttl:host:)``), so the sheet holds no share logic of
-/// its own: it reads the chat's shares again after each change.
+/// its own: it reads the chat's shares again after each change, its own or the daemon's
+/// (`agent-session-share-changed`: a join, a departure, an expiry), while it is open.
 @MainActor @Observable
 public final class AgentShareInviteSheetModel {
     /// One invited account.
     public struct Row: Hashable, Identifiable, Sendable {
         /// Trimmed and lowercased by the daemon.
         public var account: String
-        /// `view` or `talk`.
+        /// `view`, `talk` or `drive`.
         public var role: String
         /// A device of the account is in the chat now.
         public var joined: Bool
@@ -38,23 +39,33 @@ public final class AgentShareInviteSheetModel {
         public var remove: @MainActor (_ account: String) async throws -> Void
         /// Puts the invite link on the pasteboard.
         public var copy: @MainActor (_ text: String) -> Void
+        /// Calls `changed` with the chat's acpmux session on each change to a chat's shares the daemon
+        /// reports (`agent-session-share-changed`); answers what stops it.
+        public var changes: @MainActor (_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void
 
         public init(list: @escaping @MainActor () async throws -> [AgentSessionShare],
                     invite: @escaping @MainActor (_ account: String, _ role: String) async throws -> Void,
                     remove: @escaping @MainActor (_ account: String) async throws -> Void,
-                    copy: @escaping @MainActor (_ text: String) -> Void = { _ in }) {
+                    copy: @escaping @MainActor (_ text: String) -> Void = { _ in },
+                    changes: @escaping @MainActor (_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void
+                        = { _ in {} }) {
             self.list = list
             self.invite = invite
             self.remove = remove
             self.copy = copy
+            self.changes = changes
         }
     }
 
     /// The chat's tab title.
     public let chat: String
     /// What the account field holds.
-    public var account = ""
-    /// The role the next invite gets: `talk` (the default) or `view`.
+    public var account = "" {
+        didSet {
+            if account != oldValue, role == "drive" { role = "talk" }
+        }
+    }
+    /// The role the next invite gets. Drive must be chosen for each new account.
     public var role: String
     /// The invited accounts, oldest first.
     public private(set) var rows: [Row] = []
@@ -78,11 +89,19 @@ public final class AgentShareInviteSheetModel {
     @ObservationIgnored private var lastStep: Task<Void, Never>?
     /// Copied goes back to Copy Invite Link at this deadline; the next copy pushes it back.
     @ObservationIgnored private let copiedReset = DemandTimer(owner: "agentShare.copiedLink")
+    /// Stops the daemon's share changes reaching the sheet; set while it is open.
+    @ObservationIgnored private var stopChanges: (@MainActor () -> Void)?
+    /// The read a change started, while it runs.
+    @ObservationIgnored private var rereading: Task<Void, Never>?
+    /// Another change came during that read: it reads once more.
+    @ObservationIgnored private var changedAgain = false
+    /// The sheet closed (perhaps before its first read): it hears no change again.
+    @ObservationIgnored private var isClosed = false
 
     public init(chat: String, session: String, role: String = "talk", work: Work) {
         self.chat = chat
         self.session = session
-        self.role = role
+        self.role = role == "drive" ? "talk" : role
         self.work = work
     }
 
@@ -101,7 +120,50 @@ public final class AgentShareInviteSheetModel {
                 copied = false
             }
         } catch {
-            status = AgentShareStrings.failure(error).message
+            status = AgentShareStrings.sheetFailure(error)
+        }
+    }
+
+    /// The sheet opened: reads who is invited, and again on every change the daemon reports to the
+    /// chat's shares until ``close()`` (no timer).
+    public func open() async {
+        if stopChanges == nil, !isClosed {
+            stopChanges = work.changes { [weak self] session in
+                guard let self, session == self.session else { return }
+                self.reread()
+            }
+        }
+        await load()
+    }
+
+    /// ``open()`` for a presenter: starts it and returns what the sheet's dismissal calls, ``close()``.
+    public func openUntilDismissed() -> () -> Void {
+        // task-owner: the open sheet's first read of the chat's shares; ends with the read
+        Task { await open() }
+        return { self.close() }
+    }
+
+    /// The sheet closed: the daemon's changes reach it no more (a read already running ends on its own).
+    public func close() {
+        isClosed = true
+        stopChanges?()
+        stopChanges = nil
+    }
+
+    /// Reads the rows after a change; changes during that read cost one more read, not one each.
+    private func reread() {
+        guard rereading == nil else {
+            changedAgain = true
+            return
+        }
+        changedAgain = false
+        // task-owner: the sheet's one read after a daemon change; ends with the read, then starts one
+        // more only when another change came meanwhile and the sheet is still open
+        rereading = Task { @MainActor [weak self] in
+            await self?.load()
+            guard let self else { return }
+            self.rereading = nil
+            if self.changedAgain, self.stopChanges != nil { self.reread() }
         }
     }
 
@@ -120,7 +182,7 @@ public final class AgentShareInviteSheetModel {
                 // Typing a next account while the invite ran keeps it.
                 if self.account.trimmingCharacters(in: .whitespacesAndNewlines) == account { self.account = "" }
             } catch {
-                self.status = AgentShareStrings.failure(error).message
+                self.status = AgentShareStrings.sheetFailure(error)
             }
             await self.load()
         }
@@ -136,7 +198,7 @@ public final class AgentShareInviteSheetModel {
                 try await self.work.remove(account)
                 self.status = nil
             } catch {
-                self.status = AgentShareStrings.failure(error).message
+                self.status = AgentShareStrings.sheetFailure(error)
             }
             await self.load()
         }

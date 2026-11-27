@@ -74,9 +74,16 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
     /// The agent acting in the tab right now (cx-gg84): a dot in its presence color.
+    /// Exact device-chat key from this local terminal's agent hook, when it has readable history.
+    public var terminalHistoryKey: String?
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
+    /// An agent chat's count for `experiments.agentBadges` (taste build 5): its unread agent messages plus its
+    /// pending approvals, drawn as a neutral count pill while the experiment is on (TabCell+CountPill). Nil for a
+    /// tab that is no agent chat: it reserves no pill slot. 0: an agent chat with nothing to count, which keeps
+    /// the slot so its title never moves when a count comes.
+    public var agentBadgeCount: Int?
     /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
     public var hover = TabHoverFacts()
 

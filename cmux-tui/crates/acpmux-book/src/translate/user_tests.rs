@@ -279,10 +279,13 @@ fn a_waiting_steer_names_its_prompt_until_it_is_read() {
         ],
     );
     let ops = run(&mut state, &[mux(3, "steer_withdrawn", r#"{"promptId":"w"}"#)]);
+    // A prompt that never ran leaves by the leave op, never as a settled row.
+    assert!(!ops.iter().any(|op| matches!(&op.change,
+        Change::Row(row) if row.kind == RowKind::User && !row.open)));
     let gone = ops
         .iter()
         .find_map(|op| match &op.change {
-            Change::Row(row) if row.kind == RowKind::User && !row.open => Some(row.fields.clone()),
+            Change::Leave(row) if row.kind == RowKind::User => Some(row.fields.clone()),
             _ => None,
         })
         .unwrap();
@@ -394,6 +397,8 @@ fn a_turns_group_row_names_its_prompt_and_its_first_words() {
         .unwrap();
     assert_eq!(fields["prompt"], id.to_string());
     assert_eq!(fields["promptId"], "\"p\"");
+    // The group row is the turn header: it carries the turn's start, its phase says running.
+    assert!(fields["startMs"].parse::<u64>().is_ok(), "{fields:?}");
     let head: String = serde_json::from_str(&fields["head"]).unwrap();
     assert!(head.starts_with("Line one\nsecond \"quoted\" \u{1F600} é"), "{head:?}");
     assert!(head.len() <= user::HEAD_BYTES && head.len() > user::HEAD_BYTES - 2, "{}", head.len());
@@ -595,4 +600,21 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     assert_eq!(restored.asks.len(), state.asks.len());
     assert!(restored.continued.is_some());
     assert_eq!(restored.cards, state.cards);
+}
+
+#[test]
+fn the_turn_header_starts_at_the_turns_start_record_not_its_prompt() {
+    let mut state = State::default();
+    let said = r#"{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"promptId":"p","turnId":"t","text":"hi"}}"#;
+    let ops = run(&mut state, &[said.into()]);
+    assert_eq!(group(&ops)["startMs"], "1000");
+    let started = r#"{"seq":2,"at":2500,"dir":"mux","kind":"turn_started","msg":{"turnId":"t","promptId":"p"}}"#;
+    let ops = run(&mut state, &[started.into()]);
+    assert_eq!(group(&ops)["startMs"], "2500");
+    // Another turn's start record leaves this turn's clock alone.
+    let other = r#"{"seq":3,"at":4000,"dir":"mux","kind":"turn_started","msg":{"turnId":"u"}}"#;
+    let ops = run(&mut state, &[other.into()]);
+    assert!(
+        !ops.iter().any(|op| matches!(&op.change, Change::Row(row) if row.kind == RowKind::Group))
+    );
 }

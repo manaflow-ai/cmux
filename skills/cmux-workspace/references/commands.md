@@ -1,6 +1,6 @@
 # cmux Workspace Command Reference
 
-Use these commands from a cmux terminal; the CLI reads the session from the environment. Selectors are a public id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), `current` (the focused one), or an exact name. `--json` prints one result object, `--jsonl` one object per result or event. `cmux <scope> --help` prints each scope's grammar.
+Use these commands from a cmux terminal; the CLI reads the session from the environment. Selectors are a public id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), `current` (the caller's own; `focused` is the one the person looks at), or an exact name. `--json` prints one result object, `--jsonl` one object per result or event. `cmux <scope> --help` prints each scope's grammar.
 
 ## Context
 

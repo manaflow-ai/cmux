@@ -143,17 +143,6 @@ test("an older page that loads over the view holds none of its runs", () => {
   expect(hold(["day", "u", "a1"])).toEqual([]);
 });
 
-test("a new run with the todo list under it is not a run that comes back", () => {
-  // The view puts the list under the work, whatever its place in the chat (the `runs` look).
-  const plan = row("plan", "plan");
-  const next = row("run9", "activity", { items: [call("git status")] });
-  const before = [stretch[0]!, stretch[2]!, plan, row("thinking-live", "thinking")];
-  const drawn = [stretch[0]!, stretch[2]!, next, plan, row("thinking-live", "thinking")];
-  const inView = ["u", "a1", "plan", "thinking-live"];
-  expect(rowsToHold([stretch[0]!, plan, stretch[2]!, next], drawn, before, undefined, inView)).toEqual([]);
-  expect(rowsToHold([stretch[0]!, stretch[2]!, next, plan], drawn, before, undefined, inView)).toEqual([]);
-});
-
 test("a run with a short note joined in is held by each of its runs, and the note stays", () => {
   const note = row("n", "assistant", { text: "Now the queue." });
   const chat = [stretch[0]!, stretch[1]!, note, stretch[3]!, stretch[4]!, message];

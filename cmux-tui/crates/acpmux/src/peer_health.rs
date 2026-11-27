@@ -1,8 +1,9 @@
 //! Part of `Peer` (`peer.rs`). The peer's resources (`_acpmux/host_health`:
 //! RAM, disk, load, budget verdict, live agents, the health loop's
 //! problems), kept from the link's own keepalive so `host ls` and placement
-//! read them from memory and ask no machine. No timer of its own: the ping tick asks every `HEALTH_EVERY`
-//! ticks (60 s at the default 20 s ping), one request at a time with a
+//! read them from memory and ask no machine. No timer of its own: the ping tick asks once the link is ready and
+//! then once every `HEALTH_EVERY` of wall time, whatever the ping cadence (a 2 s ping that asked
+//! every third tick sent each peer an ask every 6 s, ten times the design), one request at a time with a
 //! `HEALTH_BUDGET` deadline, and only while the link is ready; it stops when
 //! the connection does. A peer on a build without the method is kept as
 //! `{"unsupported": true}` and reads as unknown, never as down.
@@ -14,8 +15,13 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-/// Ask on every this many ping ticks.
-pub(super) const HEALTH_EVERY: u64 = 3;
+/// How often the ping tick asks, measured in time, not ticks, so a faster ping does not ask more.
+pub(super) const HEALTH_EVERY: Duration = Duration::from_secs(60);
+
+/// Whether the ping tick at `now` asks: the first ready tick does, then one every `HEALTH_EVERY`.
+pub(super) fn health_due(last: Option<tokio::time::Instant>, now: tokio::time::Instant) -> bool {
+    last.is_none_or(|at| now.saturating_duration_since(at) >= HEALTH_EVERY)
+}
 /// How long one ask may take. `refresh_health` is detached from the link loop, and a timeout
 /// keeps the previous reading; it never blocks a wake or launch.
 // timeout: stale health is preferable to making peer/link work fail on a busy machine.
@@ -65,8 +71,9 @@ impl Peer {
 }
 
 /// The fields a peer row carries; the rest (name, build, uptime) the row
-/// already has or nobody reads.
-fn trim(v: Value) -> Value {
+/// already has or nobody reads. A reading through the mesh hub is cut the same way, on the
+/// machine that answers it (`server/mesh_read.rs` `host_health`).
+pub(crate) fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in [
         "os",
@@ -84,6 +91,8 @@ fn trim(v: Value) -> Value {
         // Auto chat placement weighs a peer's lid, battery and network (`host_power.rs`).
         "power",
         "network",
+        // AutoCloud enrollment: the placer's enrolled tier (`autocloud_enroll.rs`).
+        "autoCloud",
     ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
@@ -95,3 +104,7 @@ fn trim(v: Value) -> Value {
     }
     Value::Object(out)
 }
+
+#[cfg(test)]
+#[path = "peer_health_tests.rs"]
+mod tests;

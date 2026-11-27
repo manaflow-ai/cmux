@@ -202,6 +202,10 @@
   max-width: min(100%, 480px);
   max-height: 320px;
   border-radius: var(--cv-media-radius, 8px);
+}
+/* Video sits on black (letterbox), inline and in the compare viewer's frames. */
+.cv-media video,
+.cv-compare__frame {
   background: #000;
 }
 .cv-media.is-video:not(:has(video)) {
@@ -211,8 +215,27 @@
   justify-content: center;
   padding: 8px 12px;
   border-radius: var(--cv-media-radius, 8px);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--ds-surface-card);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
+}
+/* Until its metadata loads a video has no size of its own: the reply names none and the host's answer
+   carries none, so the player draws at the browser's 300x150 and then grows to its frame, moving every
+   row under it twice. It holds the box most recordings fill instead, 16:9 at the player's widest, and
+   takes its own size once, in one step, when its metadata comes (most need no step at all). A web
+   video the host fetches on its own holds the same box while it loads (ReplyMedia.tsx `reserve`). */
+.cv-media > .cv-media__frame > video[data-unsized],
+.cv-media.is-video[data-reserve] {
+  box-sizing: border-box;
+  width: 480px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+}
+/* The reserved box before the player: its site or name and Load in its middle. */
+.cv-media.is-video[data-reserve] {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
 }
 .cv-media__name {
   font-size: 12px;
@@ -376,6 +399,21 @@
   max-width: 100%;
   max-height: 100%;
 }
+/* A video whose size the host already read (VideoViewer `size`): its final box from the first frame,
+ * the size it would take once its metadata loads (its own size, shrunk to fit the stage), instead of
+ * WebKit's 300 × 150 until then. The stage is its own size container, so the fit needs no measuring. */
+.cv-media-stage[data-sized] {
+  container-type: size;
+}
+.cv-media-stage[data-sized] video {
+  width: min(
+    calc(var(--cv-media-w) * 1px),
+    100cqw,
+    calc(100cqh * var(--cv-media-w) / var(--cv-media-h))
+  );
+  height: auto;
+  aspect-ratio: var(--cv-media-w) / var(--cv-media-h);
+}
 /* Web media before it loads (RemoteMedia): its site and Load, like a web image's placeholder. */
 .cv-media.is-remote {
   flex-direction: row;
@@ -387,9 +425,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 14%, transparent);
 }
 .cv-media__host {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* In the reserved box the site is a caption over Load, never wider than the box. */
+.cv-media.is-video[data-reserve] .cv-media__host {
+  font-size: var(--text-detail);
+  opacity: 0.7;
 }
 
 /* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape
@@ -410,7 +454,7 @@
   vertical-align: top;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  background: var(--ds-surface-card);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 10%, transparent),
     inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
@@ -526,4 +570,146 @@ button.cv-thumb:focus-visible {
   margin-left: 4px;
   font-size: 0.92em;
   opacity: 0.8;
+}
+
+/* The large player's row under the video, and the compare viewer's (VideoPlayback.tsx): speed, frame
+ * step and loop; the compare viewer adds play, a scrub bar and the clock. */
+.cv-media-viewer__controls,
+.cv-compare__controls {
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--ds-space-4) var(--ds-space-3);
+}
+.cv-playback {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  max-width: min(100%, 960px);
+  flex: 1;
+  justify-content: center;
+  font-size: var(--text-detail);
+  color: var(--agent-text, var(--cv-text));
+}
+.cv-playback__group {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  display: inline-flex;
+  padding: var(--grid-half-step);
+  gap: var(--grid-half-step);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+}
+.cv-playback__button {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.cv-playback__button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 9%, transparent);
+}
+.cv-playback__button[aria-pressed="true"] {
+  background: var(--ds-surface-card, color-mix(in srgb, var(--cv-fg, currentColor) 14%, transparent));
+  box-shadow: 0 0 0 1px var(--ds-surface-card-line, transparent);
+}
+.cv-playback__button:disabled {
+  opacity: 0.4;
+}
+.cv-playback__button:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+}
+.cv-playback__loop {
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+}
+.cv-playback__play {
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+}
+.cv-playback__scrub {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--agent-accent, var(--cv-link));
+}
+.cv-playback__clock {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+/* Compare: two clips over the pane on one clock, side by side or one above the other. */
+.cv-compare__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 12px;
+}
+.cv-compare__stage.is-row {
+  grid-template-columns: 1fr 1fr;
+}
+.cv-compare__stage.is-stack {
+  grid-template-rows: 1fr 1fr;
+}
+.cv-compare__clip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+.cv-compare__frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cv-media-radius, 8px);
+  overflow: hidden;
+}
+.cv-compare__frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cv-compare__note {
+  color: var(--cmux-tone-light); /* theme-fixed: on the frame's black */
+  opacity: 0.7;
+}
+.cv-compare__caption {
+  text-align: center;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+/* Compare on a row of two videos (Markdown.tsx Thumbs): under the pair, at its start. */
+.cv-thumbs__compare {
+  appearance: none;
+  grid-column: 1 / -1;
+  justify-self: start;
+  height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+  color: var(--cv-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.cv-thumbs__compare:hover {
+  background: color-mix(in srgb, var(--cv-fg, currentColor) 12%, transparent);
+}
+.cv-thumbs__compare:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
 }

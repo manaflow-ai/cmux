@@ -44,9 +44,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let step: String?
     /// The running turn's prompt, for distinguishing prompt-derived lane steps from status.
     public let turnPrompt: String?
-    /// Activity and plan metadata, independent of the prompt-derived lane step.
+    /// Activity metadata, independent of the prompt-derived lane step.
     public let turnActivity: String?
-    public let turnPlanStep: String?
     /// A turn ended while no client showed the chat (the summary's `unread`); showing it clears it.
     public let unread: Bool
     /// The session folder's name (the last part of `cwd`), the Priority view's project tag.
@@ -81,16 +80,13 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
-    /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
-    /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
-    public let usageWarnings: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
                 updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, preview: String? = nil,
-                usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
-                turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
+                sidebarRequiresOpen: Bool = false,
+                turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
                 agentSession: String? = nil, shortName: String? = nil) {
         self.id = id
@@ -110,7 +106,6 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.step = step
         self.turnPrompt = turnPrompt
         self.turnActivity = turnActivity
-        self.turnPlanStep = turnPlanStep
         self.unread = unread
         self.project = project
         self.spawnedBy = spawnedBy
@@ -122,7 +117,6 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.markKey = markKey
         self.preview = preview
-        self.usageWarnings = usageWarnings
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -149,7 +143,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let unread = (summary["unread"] as? Bool) ?? false
-        let project = (summary["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+        let project = (summary["cwd"] as? String).map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
                                  harness: harness, step: step, unread: unread, project: project,
@@ -159,10 +153,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
                                  createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
                                  preview: nonEmpty(summary["preview"]),
-                                 usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) },
                                  sidebarRequiresOpen: (lane["requiresOpen"] as? Bool) ?? false,
                                  turnPrompt: turn?["prompt"] as? String,
-                                 turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
+                                 turnActivity: nonEmpty(turn?["activity"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))

@@ -12,14 +12,16 @@ extension AgentPaneModel {
     /// file the record names by URL answers its own metadata's source (AttachmentSourceFiles.swift),
     /// read off the main actor. Any other (a pasted picture, an image dragged from a page) answers the
     /// app the pasteboard said wrote it (`org.nspasteboard.source`), else none. A chat on another
-    /// machine gets only that claim: this Mac's files are never read for it (cx-k21v).
+    /// machine gets only that claim: this Mac's files are never read for it (cx-k21v). Nor for a
+    /// page before its handshake: a page on a remote route still reads `remoteChat == false` until
+    /// the handshake sets it, so a drop then gets the claim only, as `chat.attach.dropped` is refused.
     func attachSource(_ kind: AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil,
                       apps: AttachmentSourceApps = .live) async -> [String: Any] {
         guard let record = droppedPaths.source(kind, names: names, gestureAt: gestureAt) else {
             return AgentPaneReply.success(["sources": names.map { _ in NSNull() as Any }])
         }
         let claimed = record.claimed.flatMap { AttachmentSource.source(bundleId: $0, apps: apps) }
-        let urls = remoteChat ? [] : record.urls
+        let urls = remoteChat || !hasHandshake ? [] : record.urls
         let sources = await Task.detached(priority: .userInitiated) {
             Self.sources(for: names, urls: urls, claimed: claimed) { AttachmentSource.source(of: $0, apps: apps) }
         }.value
