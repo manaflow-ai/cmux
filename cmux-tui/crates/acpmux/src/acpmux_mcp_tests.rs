@@ -1437,6 +1437,49 @@ fn instructions_stay_short() {
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }
 
+/// `inbox_read`'s list filters: `unread` keeps threads with unread messages, `from` the threads a
+/// sender (by shown name, HOST/NAME or session id) wrote, `limit` the first N, saying how many
+/// more match. None of them leaves the listing whole.
+#[test]
+fn an_inbox_listing_filters_by_unread_sender_and_limit() {
+    let listing = || {
+        json!({"threads": [
+            {"threadId": "a", "from": ["lane-a"], "unread": 2, "count": 2,
+             "sender": {"label": "lane-a", "session": "s-a", "machine": "host1"}},
+            {"threadId": "b", "from": ["lane-b"], "unread": 0, "count": 4,
+             "sender": {"label": "lane-b", "session": "s-b", "machine": null}},
+            {"threadId": "c", "from": ["lane-a"], "unread": 1, "count": 1,
+             "sender": {"label": "lane-a", "session": "s-a", "machine": "host1"}},
+            {"threadId": "d", "from": ["lane-c"], "unread": 5, "count": 5, "sender": {}}]})
+    };
+    let ids = |v: &Value| -> Vec<String> {
+        v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["threadId"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let run = |args: Value| {
+        let mut v = listing();
+        let more = filter_threads(&mut v, &args);
+        (ids(&v), more, v)
+    };
+    assert_eq!(run(json!({})).0, ["a", "b", "c", "d"]);
+    assert_eq!(run(json!({"unread": true})).0, ["a", "c", "d"]);
+    assert_eq!(run(json!({"from": "lane-a"})).0, ["a", "c"]);
+    assert_eq!(run(json!({"from": "host1/lane-a"})).0, ["a", "c"]);
+    assert_eq!(run(json!({"from": "s-b"})).0, ["b"]);
+    assert_eq!(run(json!({"from": "nobody"})).0, Vec::<String>::new());
+    let (kept, more, v) = run(json!({"unread": true, "limit": 2}));
+    assert_eq!((kept, more), (vec!["a".to_owned(), "c".to_owned()], 1));
+    assert_eq!(v["moreThreads"], 1);
+    // A thread read is not a listing: left whole.
+    let mut read = json!({"threadId": "a", "messages": [{"text": "hi"}]});
+    assert_eq!(filter_threads(&mut read, &json!({"unread": true, "limit": 1})), 0);
+    assert_eq!(read, json!({"threadId": "a", "messages": [{"text": "hi"}]}));
+}
+
 /// A thread listing says each thread once: the id it is replied by, not that id again under
 /// another name; the sender's shown name in `from`, not the whole sender record the chat pane
 /// reads; and no flag that is off, no count that is none, no id of the chat doing the reading.
@@ -1623,7 +1666,9 @@ fn every_tool_schema_fits_its_byte_budget() {
     for (server, list, budget) in [
         // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
         // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
-        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25. machine_request (#56624,
+        // 970 B) merged without that count: 32,836 B on 11-26, so its own text was cut to fit
+        // (32,745 B).
         ("acpmux", tools(), 32 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {

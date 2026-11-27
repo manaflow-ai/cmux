@@ -82,7 +82,6 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         model.agentSignatures = services.agentSignatures
-        wireSubagentOpen()
         // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
         container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
