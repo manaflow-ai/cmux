@@ -163,3 +163,48 @@ fn media_and_control_return_by_themselves_after_a_10_s_and_a_60_s_full_drop() {
         assert!(pair.viewer.link().is_established() && pair.host.link().is_established());
     }
 }
+
+/// Past a drop long enough to kill the path (three lost probes), the link
+/// learns the path is back within a fast probe or two of the restore: a dead
+/// path is probed as fast as a suspect one. The viewer sends its feedback when
+/// the path is current again, and the host learns the outage ended from that
+/// feedback (D12), so this wait is part of every screen-share recovery. At the
+/// alive path's 1 s probe rate it was up to a second.
+#[test]
+fn a_dead_path_is_current_again_within_a_fast_probe_of_the_restore() {
+    for drop_s in [10, 60] {
+        let mut pair = Pair::new();
+        pair.run(true, 1_000);
+        pair.run(false, drop_s * 1_000);
+        // Every path is gone: the viewer sends on all and has none current.
+        assert!(pair.ended.is_empty(), "{:?}", pair.ended);
+        let mut waited_ms = 0;
+        loop {
+            pair.now += 1_000;
+            let out = pair.viewer.poll_transmit(pair.now).unwrap();
+            for t in out {
+                let events = pair.host.on_packet(Route::Udp(addr(VIEWER)), &t.packet, pair.now);
+                pair.note(true, events.unwrap());
+            }
+            // The probe reply's PathChanged comes back from on_packet, not take_events.
+            let mut events = Vec::new();
+            for t in pair.host.poll_transmit(pair.now).unwrap() {
+                if t.route == Route::Udp(addr(VIEWER)) {
+                    events.extend(
+                        pair.viewer.on_packet(Route::Udp(addr(HOST)), &t.packet, pair.now).unwrap(),
+                    );
+                }
+            }
+            events.extend(pair.viewer.take_events());
+            let back = events
+                .iter()
+                .any(|e| matches!(e, EndpointEvent::PathChanged { route: Some(_), .. }));
+            if back {
+                break;
+            }
+            waited_ms += 1;
+            assert!(waited_ms < 2_000, "no current path within 2 s of a {drop_s} s drop's end");
+        }
+        assert!(waited_ms <= 250, "path current {waited_ms} ms after a {drop_s} s drop");
+    }
+}

@@ -175,7 +175,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
-| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
+| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn, hopServers?}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,machineId,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
@@ -274,7 +274,7 @@ closed with 4001 `moved`.
     An offer with `mediaFor` (added 2026-10-19) opens a media session for
     the WireGuard link with that session id, not a link of its own ("Media
     session" below).
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, hop?, version?}`,
     `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
     `relayed` (optional) lists which of the sender's endpoints are its TURN
     relayed addresses (the phone's; a Mac's only when its network blocks
@@ -292,11 +292,11 @@ closed with 4001 `moved`.
     path: no plain UDP and no TURN allocation, so the peer joins at once
     too); absent from older peers, which never join, and then neither
     does this side. A roam's endpoint announcement
-    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?, hop?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
-  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}` (API
-    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below): the same endpoint announcement a roaming side sends inside the
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?, hop?}` (API
+    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below; `hop`: the hop/1 allocation, next paragraph): the same endpoint announcement a roaming side sends inside the
     tunnel (below), also sent through signaling, because the peer may not
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
@@ -323,7 +323,21 @@ closed with 4001 `moved`.
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
-- WireGuard paths, in order: plain UDP (direct, hole-punched), then TURN
+- An enabled UDP PoP adds `hopServers: [{kind:"hop",url:"hop://host:port",ticket}]` to
+  the authenticated ICE response. Older clients ignore this field. WebRTC receives
+  only standard ICE URLs. Each dial uses its own ticket for BIND, and repeats BIND
+  with the same ticket after a roam to keep its relayed port. If the PoP
+  refuses an expired ticket, the phone requests a new ticket from the authenticated
+  ICE service and announces the replacement port on the existing session. The phone lists the
+  BIND_OK address in `endpoints` and `relayed` and identifies it in `hop` on
+  `wg-init` and subsequent endpoint announcements. This optional field negotiates
+  the Mac leg independently of the WireGuard signaling version. An older Mac sends
+  plain WireGuard to the same port. A hop-aware Mac uses hop/1 there. Both legs
+  carry WireGuard ciphertext and submit control, input, bulk and media in classes
+  0, 2, 3 and 4. A producer can explicitly tag an encrypted state update for
+  latest-wins class 1. See [the hop/1 wire format](../docs/cmux-next/relay-pop-hop.md).
+- WireGuard paths, in order: plain UDP (direct, hole-punched), a proven hop/1
+  relay when configured (allocated concurrently with TURN), then TURN
   over UDP, then TURN over TLS on 443, then (0.17.0) cmux's WebSocket
   relay on the service's own host ("WebSocket relay"). When `/v1/ice` lists a TURN server
   the dialer allocates a TURN relay and adds the relayed address to its
@@ -479,7 +493,10 @@ is forwarded, and the service never answers it.
 ```
 
 - `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
-  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+  (WireGuard over TURN on TCP/TLS), `hop` (WireGuard over the hop/1 PoP), `https-relay` (WireGuard over cmux's WebSocket relay), or `none` (no working route right now).
+- `hop` is present only when `path` is `hop` and carries the selected hop/1 leg's
+  bounded counters. It has `srttMs` (at most 600000), `lossPermille` (at most 1000),
+  `resent` and `repaired` (at most 100000 each). `repaired` includes NACK and FEC repairs.
 - `reason`: `first` (once the link's first ping is answered, or 5 s after it
   came up), `periodic` (every 60 s while up), `path` (the path changed; at
   most one per 10 s, a change inside that only counts in `switches`), `end`
@@ -1882,7 +1899,7 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   background so an answer never waits on it.
 - WebRTC nominates the first working candidate pair (host, srflx and prflx
   at once; relay after 300 ms unless relay only). WireGuard tries direct
-  UDP, TURN over UDP and (only when UDP gets no TURN allocation) TURN over
+  UDP, an offered hop/1 PoP, TURN over UDP and (only when UDP gets no TURN allocation) TURN over
   TLS on 443.
 - A signaling socket lost after the answer does not fail a WebRTC dial or
   answer: ICE and DTLS finish without it. Lost before the answer, the dial
@@ -1956,7 +1973,7 @@ one redials.
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
 (and the same for WebRTC's TURN). cmux-mobile-host reports the path as
-`direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
+`direct`, `turn`, `turn-tls`, `hop`, `https-relay` or `none` (`phone_up`, `phone_path`).
 
 ## Corporate networks
 
