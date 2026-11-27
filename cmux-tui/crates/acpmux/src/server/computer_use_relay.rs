@@ -195,6 +195,31 @@ fn link_error(e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
+/// What the far machine's session key starts with: the caller's chat id alone is a key an older
+/// far daemon resolves as that chat, which it mirrors from this one, and forwards the call back
+/// here as the chat's request, with the tool `name` dropped (`peer_forward.rs`; the call failed
+/// as `unknown Computer Use tool ""`). No chat id or name starts with it, so no daemon reads it
+/// as one. The far machine keeps it inside its own `remote:<machine>:` session (`run_here`).
+pub(super) const ONWARD_SESSION_PREFIX: &str = "cu:";
+
+/// The call as sent on to the machine it names: no `machine`, and the session key under
+/// [`ONWARD_SESSION_PREFIX`].
+pub(super) fn onward(call: &CallParams) -> Value {
+    let session = if call.session.starts_with(ONWARD_SESSION_PREFIX) {
+        call.session.clone()
+    } else {
+        format!("{ONWARD_SESSION_PREFIX}{}", call.session)
+    };
+    json!({
+        "name": call.name,
+        "arguments": call.arguments,
+        "session": session,
+        "label": call.label,
+        "call_id": call.call_id,
+        "tag": call.tag,
+    })
+}
+
 /// `_acpmux/computer_use_call`.
 pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let device = device_record(hub, conn.device.as_deref());
@@ -202,23 +227,15 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     match admit(conn.origin, conn.auth, device.as_ref()) {
         Admission::Refused(why) => Err(refused("computer_use_remote_denied", why)),
         Admission::Forward => {
+            let onward = onward(&call);
             let Some(machine) = call.machine else {
                 return Err(refused(
                     "invalid_arguments",
                     "name a machine; this machine's own calls go to its worker directly",
                 ));
             };
-            let onward = json!({
-                "name": call.name,
-                "arguments": call.arguments,
-                "session": call.session,
-                "label": call.label,
-                "call_id": call.call_id,
-                "tag": call.tag,
-            });
             if let Some(peer) = hub.peer_by_name(&machine) {
-                return peer
-                    .request(method::MUX_COMPUTER_USE_CALL, onward)
+                return super::peer_targeted::request(&peer, method::MUX_COMPUTER_USE_CALL, onward)
                     .await
                     .map_err(link_error);
             }

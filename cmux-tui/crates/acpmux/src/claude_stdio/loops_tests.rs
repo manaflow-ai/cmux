@@ -224,3 +224,107 @@ async fn claudes_exit_ends_its_loops() {
     let t = translator();
     assert!(t.end_background_shells().await.is_empty());
 }
+
+/// A `scheduled_tasks.json` as Claude Code 2.1.332 writes it, with the 2026-11-26 coordinator's
+/// cron (created by `cc-1` in an earlier process) and tasks that are not this chat's loops.
+fn scheduled_tasks(dir: &std::path::Path, tasks: Value) {
+    std::fs::create_dir_all(dir.join(".claude")).unwrap();
+    std::fs::write(dir.join(".claude/scheduled_tasks.json"), json!({"tasks": tasks}).to_string())
+        .unwrap();
+}
+
+fn coordinator_cron() -> Value {
+    json!({"id": "70042717", "cron": "53 1-23/2 * * *", "prompt": "2-hour report is due",
+        "createdAt": 1_795_290_868_080u64, "lastFiredAt": 1_795_675_310_869u64, "recurring": true,
+        "createdBySessionId": "cc-1", "createdByPid": 402870, "createdInProject": "/p",
+        "maxAgeMs": 2_592_000_000u64})
+}
+
+fn init(cwd: &std::path::Path) -> Value {
+    json!({"type": "system", "subtype": "init", "session_id": "cc-1", "cwd": cwd.to_str().unwrap()})
+}
+
+#[test]
+fn durable_tasks_are_this_conversations_recurring_live_ones() {
+    let now = 1_795_675_000_000u64;
+    let mut other = coordinator_cron();
+    other.set("id", json!("other"));
+    other.set("createdBySessionId", json!("cc-2"));
+    let mut once = coordinator_cron();
+    once.set("id", json!("once"));
+    once.set("recurring", Value::Null);
+    let mut aged = coordinator_cron();
+    aged.set("id", json!("aged"));
+    aged.set("maxAgeMs", json!(1000));
+    let text = json!({"tasks": [coordinator_cron(), other, once, aged]}).to_string();
+    let got = super::loops::durable_tasks(&text, "cc-1", now);
+    assert_eq!(
+        got,
+        vec![(
+            "cron:70042717".to_owned(),
+            json!({"kind": "loop", "status": "active", "objective": "2-hour report is due",
+                "schedule": "53 1-23/2 * * *"})
+        )]
+    );
+    assert!(super::loops::durable_tasks("not json", "cc-1", now).is_empty());
+}
+
+/// Before: a resumed Claude never calls CronCreate for its durable cron, so its init armed no
+/// timer and the idle reaper slept the chat through the cron's fire times (`agent_timer.rs`).
+#[tokio::test]
+async fn a_resumed_process_arms_the_durable_cron_it_made_before() {
+    let dir = tempfile::tempdir().unwrap();
+    scheduled_tasks(dir.path(), json!([coordinator_cron()]));
+    let t = translator();
+    let got = goals(&t, init(dir.path())).await;
+    assert_eq!(
+        got,
+        vec![json!({"kind": "loop", "status": "active", "objective": "2-hour report is due",
+            "schedule": "53 1-23/2 * * *", "timers": [{"recurring": true}]})]
+    );
+    // Every turn's init reads it again: nothing changed, no update.
+    assert_eq!(goals(&t, init(dir.path())).await, Vec::<Value>::new());
+    // Its CronDelete disarms it like a cron this process made.
+    goals(&t, call("d1", "CronDelete", json!({"id": "70042717"}))).await;
+    assert_eq!(goals(&t, result("d1", json!({"id": "70042717"}))).await, vec![Value::Null]);
+}
+
+#[tokio::test]
+async fn a_durable_task_gone_from_the_file_disarms_and_none_arms_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = translator();
+    // No file: no loop.
+    assert_eq!(goals(&t, init(dir.path())).await, Vec::<Value>::new());
+    scheduled_tasks(dir.path(), json!([coordinator_cron()]));
+    assert_eq!(goals(&t, init(dir.path())).await.len(), 1);
+    // Deleted in another process of the same conversation: the next init clears it.
+    scheduled_tasks(dir.path(), json!([]));
+    assert_eq!(goals(&t, init(dir.path())).await, vec![Value::Null]);
+}
+
+#[tokio::test]
+async fn a_cron_this_process_made_keeps_its_goal_over_the_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = translator();
+    goals(
+        &t,
+        call(
+            "c1",
+            "CronCreate",
+            json!({"cron": "53 1-23/2 * * *", "prompt": "fresh", "durable": true}),
+        ),
+    )
+    .await;
+    goals(
+        &t,
+        result(
+            "c1",
+            json!({"id": "70042717", "humanSchedule": "every 2 hours", "recurring": true,
+            "nextFireAt": 9}),
+        ),
+    )
+    .await;
+    scheduled_tasks(dir.path(), json!([coordinator_cron()]));
+    // Armed already, with the next fire Claude said: the file's copy changes nothing.
+    assert_eq!(goals(&t, init(dir.path())).await, Vec::<Value>::new());
+}

@@ -95,6 +95,8 @@ mod control;
 mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_machine_request.rs"]
+mod machine_request;
 #[path = "acpmux_mcp_race.rs"]
 mod race;
 #[path = "acpmux_mcp_send.rs"]
@@ -131,6 +133,7 @@ pub(crate) fn tools() -> Value {
         list.extend(start::tools());
         list.extend(control::tools());
         list.extend(machine::tools());
+        list.push(machine_request::tool());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
             if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
@@ -141,13 +144,17 @@ pub(crate) fn tools() -> Value {
     all
 }
 
-/// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
-/// puts their schemas in the prompt instead of deferring them behind ToolSearch. Measured on
-/// fs-agent-lane-7 in the 24 h to 2026-11-23T11:00Z: 147 ToolSearch calls, each a whole round
-/// trip, and these six were 107 of the names they loaded (wrap_up 35, bg_output 21, who_else 20,
-/// bg_start 16, inbox_read 11, inbox_reply 4). Their schemas cost a few KB of cached prompt.
-pub(crate) const ALWAYS_LOADED: [&str; 6] =
-    [wrap_up::NAME, who_else::NAME, "bg_start", "bg_output", "inbox_read", "inbox_reply"];
+/// The tools marked `_meta["anthropic/alwaysLoad"]` so Claude Code puts their schemas in the prompt
+/// instead of deferring them behind ToolSearch. A schema here costs its tokens on every request; a
+/// deferred one costs one ToolSearch round trip (about a whole context) in each session that
+/// calls it, so a tool belongs here only while sessions calling it × context < its tokens ×
+/// requests. Measured on one lane VM in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
+/// requests, median context 73k), sessions calling each: bg_start 240 (563 tokens), bg_output 229
+/// (535), wrap_up 197 (962), who_else 129 (596), inbox_read 93 (417), inbox_reply 90 (424):
+/// ~500M tokens/day loaded (each counted alone) against ~71M/day deferred, so none stays (cut 1 of
+/// cmuxterm-hq goals/agents-most-lane-tokens-land-prs.md). Every tool is still listed by name and
+/// the instructions still name wrap_up and bg_start. Add one back only on that data.
+pub(crate) const ALWAYS_LOADED: [&str; 0] = [];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
@@ -523,6 +530,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
+        machine_request::NAME => machine_request::call(&args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());

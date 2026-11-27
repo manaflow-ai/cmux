@@ -669,7 +669,7 @@ export const COMMAND_RULES: readonly CommandRule[] = [
         .trim();
       return inner
         ? { key: "commandRules.onHost", values: { host }, inner }
-        : { key: "commandRules.connecting", values: { host } };
+        : { key: "commandRules.ssh", values: { host } };
     },
   },
 ];
