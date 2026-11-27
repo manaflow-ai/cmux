@@ -39,10 +39,12 @@
 //! no visible default change. Phase 1 wires it behind `team_messaging`.
 
 pub mod backend;
+pub mod customization;
 pub mod delivery;
 pub mod fake;
 pub mod feedback;
 pub mod forum;
+pub mod handoff;
 pub mod identity;
 pub mod knowledge;
 pub mod model;
