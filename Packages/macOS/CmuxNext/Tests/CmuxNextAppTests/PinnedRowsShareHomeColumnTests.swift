@@ -112,7 +112,7 @@ import Testing
     func noPinnedRowOrGroupDrawsAPin(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale, pinnedGroup: true)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             for item in Self.pins {
                 let row = try HomePinnedRowAlignmentTests.item(list, item.id)
                 #expect(row.pinSquareFrame == nil, "\(c.testDescription): \(item.id.rawValue) draws a pin")
@@ -130,7 +130,7 @@ import Testing
     func aPinnedRowWithAnIconStartsItsTitleAtHomesLabel(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let homeX = list.convert(home.titleFrame, from: home).minX
             for item in [Self.emoji, Self.page] {

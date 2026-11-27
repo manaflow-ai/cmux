@@ -1,17 +1,32 @@
 import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { SignInButton } from "../../../ui/SignInButton";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
+import { parseAccountRow, type AccountRowWire } from "../../shared/signIn/accountSignIn";
+import type { ActiveSignIn } from "../../shared/signIn/AccountSwitcher";
 import { useSettingsState, useStore } from "../context";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { terminalSignIn, type SettingsSignIn } from "./useSettingsSignIn";
+import { t } from "../strings";
+
+export function shouldShowGitHubSignIn(running: ActiveSignIn | null, rows: readonly AccountRowWire[]): boolean {
+  return running?.family === "github" && (running.account === null || !rows.some((row) => row.id === running.account));
+}
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
-export function GitHubAccountsCard() {
-  const github = useSettingsState().accounts?.github;
+export function GitHubAccountsCard({ signIn }: { signIn: SettingsSignIn }) {
+  const accounts = useSettingsState().accounts;
+  const github = accounts?.github;
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(github));
   if (!github) return null;
+  const cliLabel = github.cliSignIn ?? t("github.cliSignIn");
+  const cliDetail = github.cliSignInDetail ?? t("github.cliSignInDetail");
+  const signInRows = accounts?.signInAccounts?.flatMap((raw) => parseAccountRow(raw) ?? []) ?? [];
+  const running = signIn.running;
+  const showSignIn = shouldShowGitHubSignIn(running, signInRows);
   return (
     <section
       className={fade ? `group ${LOAD_FADE_CLASS}` : "group"}
@@ -50,6 +65,29 @@ export function GitHubAccountsCard() {
                 {github.refresh}
               </Button>
             </div>
+            <p className="row-help">{cliDetail}</p>
+            <div className="accounts-buttons">
+              <Button
+                className="button"
+                variant="ghost"
+                data-github-action="cli-sign-in"
+                disabled={Boolean(signIn.running)}
+                onClick={() => {
+                  if (!signIn.inPlace) {
+                    void store.runHarnesses(terminalSignIn("github", null));
+                    return;
+                  }
+                  signIn.begin("github", null, () => void store.runHarnesses(terminalSignIn("github", null)));
+                }}
+              >
+                {cliLabel}
+              </Button>
+            </div>
+            {showSignIn && running && (
+              <div className="accounts-body">
+                <DeviceSignInCard family="github" view={running.view} look="inline" {...signIn.card} />
+              </div>
+            )}
           </div>
         </div>
         {github.connections.map((connection) => (

@@ -33,15 +33,3 @@ public struct PutBlobRequest: DaemonRequest {
         self.data = data.base64EncodedString()
     }
 }
-
-/// `get-blob`: `blob` is `blob:sha256-<hex>` or an asset icon value.
-public struct GetBlobRequest: DaemonRequest {
-    public typealias Response = IconAssetBlob
-    public static let command = "get-blob"
-    public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
-    public var blob: String
-
-    public init(blob: String) {
-        self.blob = blob
-    }
-}
