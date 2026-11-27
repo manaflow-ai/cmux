@@ -9,6 +9,15 @@ struct BillingPlanCopy: Equatable {
     /// The plan this copy describes.
     let planID: BillingPlanID
 
+    /// The notice for a web subscription whose latest renewal failed
+    /// (``BillingModel/paymentPastDue``), the Mac Cloud page's sentence.
+    static var paymentPastDue: String {
+        L10n.string(
+            "mobile.billing.paymentPastDue",
+            defaultValue: "Your latest payment failed. Update your payment method to keep your plan active."
+        )
+    }
+
     /// The localized plan name; an unknown plan shows its capitalized id.
     var name: String {
         switch planID {

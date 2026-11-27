@@ -3,7 +3,6 @@
 
 use super::*;
 
-/// `daemon transcript-offload`: old Claude and Codex transcripts copied to cloud history, or with `--dry-run` the pass computed here.
 pub(super) async fn transcript_offload(args: TranscriptOffloadArgs, json_out: bool) -> Result<()> {
     let v = if args.dry_run {
         transcript_dry_run(args.older_than_days)?
@@ -26,7 +25,6 @@ pub(super) async fn transcript_offload(args: TranscriptOffloadArgs, json_out: bo
     Ok(())
 }
 
-/// `daemon retention`: old chats archived and their logs reclaimed.
 pub(super) async fn retention(args: RetentionArgs, json_out: bool) -> Result<()> {
     let client = connect(true).await?;
     let archive = args.archive.map(std::path::absolute).transpose()?;
@@ -66,8 +64,28 @@ pub(super) async fn retention(args: RetentionArgs, json_out: bool) -> Result<()>
     Ok(())
 }
 
-/// `daemon history-delete`: chats unchanged past their age deleted, exported first if asked.
 pub(super) async fn history_delete(args: HistoryDeleteArgs, json_out: bool) -> Result<()> {
+    if args.deleted || args.restore.is_some() {
+        let client = connect(true).await?;
+        let params = match &args.restore {
+            Some(id) => json!({"restore": id}),
+            None => json!({"deleted": true}),
+        };
+        let v = client.request(method::MUX_HISTORY_DELETE, params).await?;
+        if json_out {
+            print_json(&v);
+        } else if args.restore.is_some() {
+            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("?");
+            if v.get("restored").and_then(Value::as_bool).unwrap_or(false) {
+                println!("{id} restored");
+            } else {
+                println!("{id} was not deleted: nothing to restore");
+            }
+        } else {
+            print_recently_deleted(&v);
+        }
+        return Ok(());
+    }
     let client = connect(true).await?;
     let export = args.export.map(std::path::absolute).transpose()?;
     let v = client
@@ -88,7 +106,6 @@ pub(super) async fn history_delete(args: HistoryDeleteArgs, json_out: bool) -> R
     Ok(())
 }
 
-/// `daemon history-offload`: chats unchanged past their age moved to cloud history.
 pub(super) async fn history_offload(args: HistoryOffloadArgs, json_out: bool) -> Result<()> {
     let client = connect(true).await?;
     let v = client
@@ -122,6 +139,7 @@ fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
         older_than_ms: days.saturating_mul(86_400_000),
         delete_local: true,
         keep: Default::default(),
+        kept_now: Default::default(),
         now_ms,
     };
     let report = cmux_session_cloud::transcripts::pass(
@@ -180,5 +198,22 @@ fn print_history_report(v: &Value, verb: &str, key: &str) {
     println!("skipped: {}", v["skipped"]);
     if let Some(to) = v.get("export").and_then(Value::as_str) {
         println!("exported to {to}");
+    }
+}
+
+/// The text form of Recently deleted (`_acpmux/history_delete` `{deleted: true}`).
+fn print_recently_deleted(v: &Value) {
+    let chats = v.get("chats").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let days = v.get("undoDays").and_then(Value::as_u64).unwrap_or(0);
+    println!("{} deleted chats can be restored for {days} days:", chats.len());
+    let now = crate::store::now_ms();
+    for chat in chats {
+        let purges = chat.get("purgesAt").and_then(Value::as_u64).unwrap_or(0);
+        println!(
+            "  {}  purged in {}d  {}",
+            chat.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+            purges.saturating_sub(now).div_ceil(86_400_000),
+            chat.get("name").and_then(Value::as_str).unwrap_or(""),
+        );
     }
 }

@@ -51,7 +51,10 @@ impl InputLane {
 /// (`set-layout-sizes` always does). The connection is marked like a key marks it, so its threads serve the
 /// following frames at user-interactive QoS, and the process's interaction state notes a drag, so lower classes
 /// (`cmux-interactivity`'s policy: agent output parsing, journal sync and indexing) yield for the next 400 ms.
-/// A one-shot CLI call without a transaction is automation's and changes nothing.
+/// A one-shot CLI call without a transaction is automation's and changes nothing. It runs before the command, not
+/// after its reply: the layout work and the frames it sets off are the drag's, so lower classes yield for them too
+/// and the connection's thread is raised before it does that work. A command the mux then refuses noted 400 ms of a
+/// drag the app was in anyway.
 pub(super) fn note_drag(writer: &super::MessageWriter, in_drag_transaction: bool) {
     if in_drag_transaction {
         writer.input_lane.mark_person_input();

@@ -488,6 +488,50 @@ fn a_url_index_is_asked_once_a_minute() {
     assert_eq!(fake.asked.lock().unwrap().len(), 1);
 }
 
+/// Sets `file`'s modified time to `ago` before now.
+fn age_file(file: &Path, ago: Duration) {
+    let when = std::time::SystemTime::now() - ago;
+    std::fs::File::options().write(true).open(file).unwrap().set_modified(when).unwrap();
+}
+
+#[test]
+fn an_unreadable_index_falls_back_to_its_last_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://p0:7480\n").unwrap();
+    age_file(&cache, Duration::from_secs(120));
+    // `http://down*` fails, as a controller whose identity lookup stalls does.
+    let fake = Arc::new(Fake::new(&[]));
+    let peers = peers_in_cached(&fake, "http://down-controller/v1/seeds", Some(&cache));
+    assert_eq!(peers, vec![remote("peer", "http://p0:7480")]);
+    assert_eq!(fake.asked.lock().unwrap().len(), 1, "the index is still asked first");
+    // An index that answers nothing found (a 404) is unreadable too.
+    let absent = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    assert_eq!(absent, peers);
+}
+
+#[test]
+fn an_index_answer_past_the_stale_bound_names_no_peers() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://p0:7480\n").unwrap();
+    age_file(&cache, INDEX_STALE_MAX + Duration::from_secs(60));
+    let fake = Arc::new(Fake::new(&[]));
+    assert!(peers_in_cached(&fake, "http://down-controller/v1/seeds", Some(&cache)).is_empty());
+}
+
+#[test]
+fn a_readable_index_replaces_a_stale_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://old:7480\n").unwrap();
+    age_file(&cache, Duration::from_secs(120));
+    let fake = Arc::new(Fake::new(&[("http://controller/v1/seeds", b"http://p1:7480\n")]));
+    let peers = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    assert_eq!(peers, vec![remote("peer", "http://p1:7480")]);
+    assert_eq!(std::fs::read_to_string(&cache).unwrap(), "http://p1:7480\n");
+}
+
 #[test]
 fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     let dir = tempfile::tempdir().unwrap();

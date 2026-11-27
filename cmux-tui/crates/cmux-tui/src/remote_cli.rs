@@ -34,6 +34,7 @@ use cmux_remote::provider::{
     SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
+use cmux_remote::ssh_control::SshConnectionShare;
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -915,6 +916,9 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         agent_hooks: flags.agent_hooks.clone(),
         // `remote connect` and `serve`: ssh speaks to the person.
         capture_stderr: false,
+        // One authentication per connect: the probe, install steps and
+        // carrier share one SSH connection (issue 38157).
+        connection_share: SshConnectionShare::new(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let tailnet_mode = match cmux_tui_core::user_settings::tailnet_carrier() {
@@ -1716,6 +1720,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: Vec::new(),
         capture_stderr: false,
+        connection_share: SshConnectionShare::disabled(),
     })?;
     Ok(())
 }

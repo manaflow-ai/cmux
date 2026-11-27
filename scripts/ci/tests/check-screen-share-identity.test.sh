@@ -83,6 +83,32 @@ app none com.cmuxterm.app.nightly
 rm -rf "$HELPER"
 expect_fail "no helper" "holds 0 Screen Sharing helpers"
 
+app nightly_no_helper com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+set +e
+out=$(NIGHTLY_COMPONENT_GATES= CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" /bin/bash "$SCRIPT" "$APP" 2>&1)
+rc=$?
+set -e
+[[ $rc == 0 ]] || fail "nightly without helper: exit $rc" "$out"
+[[ "$out" == *"::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"* ]] \
+  || fail "nightly without helper: missing warning" "$out"
+
+app nightly_blocked_no_helper com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+set +e
+out=$(NIGHTLY_COMPONENT_GATES=block CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" /bin/bash "$SCRIPT" "$APP" 2>&1)
+rc=$?
+set -e
+[[ $rc != 0 ]] || fail "blocked nightly without helper: passed" "$out"
+[[ "$out" == *"holds 0 Screen Sharing helpers"* ]] || fail "blocked nightly without helper: wrong error" "$out"
+
+app nightly_no_helper_with_cua com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+info "$APP/Contents/Library/cmux Computer Use.app" com.cmuxterm.cua
+run
+[[ $rc != 0 ]] || fail "nightly without helper and CUA: passed" "$out"
+[[ "$out" == *"a second Screen Recording holder"* ]] || fail "nightly without helper and CUA: wrong error" "$out"
+
 app two com.cmuxterm.app.nightly
 cp -R "$HELPER" "$APP/Contents/Library/cmux NEXT Helper.app"
 expect_fail "two helpers" "holds 2 Screen Sharing helpers"

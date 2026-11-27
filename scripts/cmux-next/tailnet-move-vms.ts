@@ -8,15 +8,18 @@
  *         socket and state dir, never the image's tailscaled) joined to the run's throwaway headscale with that
  *         VM's own single-use ephemeral key (written 0600 through fs/write, deleted after `tailscale up`), and
  *         an echo on :7000 that answers "<A|B>:" + what it read (stable_node's `echo` mode). Writes
- *         {a:{machine,ip},b:{machine,ip}} to --json.
+ *         {a:{machine,ip},b:{machine,ip}} to --json. With --key-b-cmd CMD, B's key is made late: CMD runs
+ *         (bash -c) once B's exec answers and must write --key-b, so a short-lived key (cmux's mint-key: 10 min)
+ *         starts its clock at the join, not before a staging boot that can take as long.
  *   down  on every machine this run made: `tailscale logout`, then delete the machine (found by name, so a
  *         separate `if: always()` step cleans up after a failed `up`).
  *
  * Usage:
- *   bun scripts/cmux-next/tailnet-move-vms.ts up --run ID --login-server URL --key-a FILE --key-b FILE --json OUT
+ *   bun scripts/cmux-next/tailnet-move-vms.ts up --run ID --login-server URL --key-a FILE --key-b FILE [--key-b-cmd CMD] --json OUT
  *   bun scripts/cmux-next/tailnet-move-vms.ts down --run ID
  * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional).
  */
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { Api, CHAT_START_SIZE, directExec, listAllMachines, passwordSignIn, resolveBackend, STACK, waitMachine, type Exec } from "./cloud-journey";
 
@@ -101,7 +104,7 @@ while True:
     threading.Thread(target=serve, args=(c,), daemon=True).start()
 `;
 
-async function backend(api: Api, run: string, side: "a" | "b", loginServer: string, key: string, tarball: string): Promise<{ machine: string; ip: string }> {
+async function backend(api: Api, run: string, side: "a" | "b", loginServer: string, key: () => string, tarball: string): Promise<{ machine: string; ip: string }> {
   const name = machineName(run, side);
   const label = side.toUpperCase();
   const t0 = Date.now();
@@ -126,7 +129,8 @@ async function backend(api: Api, run: string, side: "a" | "b", loginServer: stri
     (setsid nohup python3 ${DIR}/echo.py ${label} >${DIR}/echo.log 2>&1 </dev/null &)
     for i in $(seq 1 50); do [ -S ${SOCK} ] && break; sleep 0.2; done; test -S ${SOCK}`), 180_000);
   // The key goes over the API's file write, never a command line, 0600, and is gone after `tailscale up`.
-  const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: KEY, dataBase64: Buffer.from(key).toString("base64"), mode: 0o600 }, 60_000);
+  const k = key();
+  const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: KEY, dataBase64: Buffer.from(k).toString("base64"), mode: 0o600 }, 60_000);
   if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`${name}: fs/write key: HTTP ${w.status} ${String(w.body?.error?.code ?? "")}`);
   const up = await exec(asRoot(`chmod 600 ${KEY}; ${DIR}/bin/tailscale --socket=${SOCK} up --login-server=${shq(loginServer)} --auth-key=file:${KEY} --hostname=backend-${side} --accept-dns=false --timeout=120s; rc=$?; rm -f ${KEY}; exit $rc`), 180_000);
   if (up.code !== 0) {
@@ -147,15 +151,31 @@ async function up(run: string): Promise<void> {
   const out = arg("--json");
   const tarball = arg("--tarball");
   if (!loginServer || !keyA || !keyB || !out || !tarball) throw new Error("up needs --login-server --key-a --key-b --json --tarball");
-  const ka = readFileSync(keyA, "utf8").trim();
-  const kb = readFileSync(keyB, "utf8").trim();
-  secrets.push(ka, kb);
+  const keyBCmd = arg("--key-b-cmd");
+  const readKey = (file: string): string => {
+    const k = readFileSync(file, "utf8").trim();
+    if (!k) throw new Error(`${file} holds no key`);
+    secrets.push(k);
+    if (process.env.GITHUB_ACTIONS) console.log(`::add-mask::${k}`);
+    return k;
+  };
+  const ka = readKey(keyA);
+  const kb = keyBCmd ? undefined : readKey(keyB);
+  const keyBNow = (): string => {
+    if (kb !== undefined) return kb;
+    const t = Date.now();
+    const r = spawnSync("bash", ["-c", keyBCmd!], { stdio: ["ignore", "inherit", "inherit"], timeout: 60_000 });
+    if (r.status !== 0) throw new Error(`--key-b-cmd exit ${r.status ?? r.signal}`);
+    const k = readKey(keyB);
+    say(`B: key made by --key-b-cmd once B answered (${Date.now() - t} ms)`);
+    return k;
+  };
   const api = await signIn(run);
   const rows = await listAllMachines((p) => api.read("cloud.machine.list", p));
   const old = rows.filter((r) => String(r?.name ?? "").startsWith(NAME_PREFIX) && String(r?.name ?? "").includes(CHECK_MARK) && live(r) && typeof r.created_at === "number" && Date.now() - r.created_at > SWEEP_AFTER_MS);
   for (const r of old) await api.deleteMachine(idOf(r), `tailnet-move-sweep-${idOf(r)}`).catch(() => undefined);
   say(`signed in; swept ${old.length} check machines older than 3 h`);
-  const [a, b] = await Promise.all([backend(api, run, "a", loginServer, ka, tarball), backend(api, run, "b", loginServer, kb, tarball)]);
+  const [a, b] = await Promise.all([backend(api, run, "a", loginServer, () => ka, tarball), backend(api, run, "b", loginServer, keyBNow, tarball)]);
   writeFileSync(out, JSON.stringify({ a, b }) + "\n");
 }
 

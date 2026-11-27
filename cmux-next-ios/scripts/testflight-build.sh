@@ -24,7 +24,7 @@
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
-#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --ref                 commit to build (default HEAD); build only source recorded at this commit
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
 #                         configuration's own when it sets one); must be >= every version
 #                         already uploaded to the app record
@@ -436,7 +436,18 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+if [[ ${CMUX_INTERNAL_SPARSE_ARCHIVE:-0} == 1 ]]; then
+  # git archive can prefetch excluded blobs in a partial clone. Materialize
+  # the tracked build inputs from this commit, even if the worktree is dirty.
+  (
+    export GIT_INDEX_FILE="$private/source.index"
+    git -C "$repo" -c core.sparseCheckout=false read-tree "$sha"
+    git -C "$repo" ls-files --error-unmatch -z -- "${paths[@]}" ':(exclude)cmux-next-ios/verify' |
+      git -C "$repo" checkout-index --prefix="$work/src/" -z --stdin
+  )
+else
+  git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+fi
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
@@ -455,8 +466,29 @@ else
   log "xcframework: building (key $key)"
   mkdir -p "$cache/cmux-mobile-rust-target"
   ln -s "$cache/cmux-mobile-rust-target" "$work/src/cmux-next-ios/rust/target"
-  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 \
-    || { tail -30 "$out/logs/xcframework.log"; exit 1; }
+  # Bounded. A cold build takes 4.6 min on a 6-vCPU Blacksmith Mac (run 45871646299), but on fleet Macs the
+  # step before "xcodebuild archive" ran 65-70 min (runs 45752138226, 45760129544) and run 45875722526 sat
+  # 70+ min, holding every later INTERNAL dispatch behind the builder's one-run concurrency group until the
+  # job's 90 min limit. Past the bound the build is stopped and its log tail printed, so a slow Mac fails in
+  # minutes and says where it stalled. The build runs in its own process group so cargo dies with it.
+  xcf_minutes=${CMUX_MOBILE_XCFRAMEWORK_MINUTES:-20}
+  set -m
+  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 &
+  xcf_pid=$!
+  set +m
+  xcf_start=$SECONDS
+  while kill -0 "$xcf_pid" 2>/dev/null; do
+    if (( SECONDS - xcf_start > xcf_minutes * 60 )); then
+      kill -TERM -- "-$xcf_pid" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- "-$xcf_pid" 2>/dev/null || true
+      wait "$xcf_pid" 2>/dev/null || true
+      tail -40 "$out/logs/xcframework.log"
+      die "xcframework build passed its ${xcf_minutes} min bound on $(hostname -s) (a cold build takes about 5 min; CMUX_MOBILE_XCFRAMEWORK_MINUTES raises it)"
+    fi
+    sleep 5
+  done
+  wait "$xcf_pid" || { tail -30 "$out/logs/xcframework.log"; exit 1; }
   rm -rf "$cache/xcframework/$key"; mkdir -p "$cache/xcframework/$key"
   cp -R "$xcf_dest" "$cache/xcframework/$key/"
 fi

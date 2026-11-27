@@ -24,8 +24,11 @@ pub struct Transcript {
     pending: Vec<(String, String)>,
     /// Prompts from here the daemon accepted: their `user_message` is already drawn as the echo.
     mine: Vec<String>,
-    /// Turns the agent finished, for `--until-idle`.
+    /// Turns the agent finished, for `--until-idle`. A turn that failed (`turn_error`) counts too:
+    /// the daemon sends no `turn_end` for it, and a wait for one would hang to its caller's timeout.
     pub turns_ended: u64,
+    /// The last failed turn's reason (`errorKind: error`), so `--until-idle` exits non-zero with it.
+    pub turn_error: Option<String>,
 }
 
 impl Transcript {
@@ -136,8 +139,23 @@ impl Transcript {
                     self.status = s.to_owned();
                 }
             }
+            "turn_error" => {
+                self.turns_ended = self.turns_ended.saturating_add(1);
+                let error = msg.get("error").and_then(Value::as_str).unwrap_or("the turn failed");
+                let kind = msg
+                    .get("errorKind")
+                    .or_else(|| msg.pointer("/data/errorKind"))
+                    .and_then(Value::as_str);
+                let why = match kind {
+                    Some(k) => format!("{k}: {error}"),
+                    None => error.to_owned(),
+                };
+                self.items.push(Item::Note(format!("turn failed: {why}")));
+                self.turn_error = Some(why);
+            }
             "turn_end" => {
                 self.turns_ended = self.turns_ended.saturating_add(1);
+                self.turn_error = None;
                 let reason = msg.get("stopReason").and_then(Value::as_str).unwrap_or("");
                 if reason != "end_turn" && !reason.is_empty() {
                     self.items.push(Item::Note(format!("turn ended: {reason}")));
@@ -204,6 +222,21 @@ mod tests {
     fn chunk(seq: u64, text: &str) -> Value {
         json!({"sessionId": "s", "_meta": {"acpmux": {"seq": seq}},
                "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}})
+    }
+
+    #[test]
+    fn a_failed_turn_ends_the_turn_and_keeps_its_reason() {
+        let mut t = Transcript::default();
+        t.apply_event(&json!({"seq": 7, "dir": "mux", "kind": "turn_error",
+            "msg": {"code": -32603, "details": {}, "errorKind": "auth.signed_out", "error": "Claude is not signed in"}}));
+        assert_eq!(t.turns_ended, 1);
+        assert_eq!(t.turn_error.as_deref(), Some("auth.signed_out: Claude is not signed in"));
+        // The next turn that ends cleanly clears it.
+        t.apply_event(
+            &json!({"seq": 8, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        );
+        assert_eq!(t.turns_ended, 2);
+        assert!(t.turn_error.is_none());
     }
 
     #[test]

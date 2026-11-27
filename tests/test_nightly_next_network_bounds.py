@@ -211,7 +211,7 @@ class NightlyNextNetworkBoundsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertGreaterEqual(len(fetches), 2, fetches)
         for line in fetches:
-            self.assertIn("limit=1000 time=120", line)
+            self.assertIn("limit=1 time=120", line)
 
     def test_net_retry_ends_a_stalled_git_transfer_and_retries(self):
         # scripts/cmux-next/generate-third-party-notices.sh fetches cmux-cua through net_retry.
@@ -221,7 +221,7 @@ class NightlyNextNetworkBoundsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(fetches), 2, fetches)
         for line in fetches:
-            self.assertIn("limit=1000 time=120", line)
+            self.assertIn("limit=1 time=120", line)
 
 
 if __name__ == "__main__":
