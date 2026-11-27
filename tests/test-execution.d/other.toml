@@ -200,6 +200,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cu_driver_eval_pins.py"
 
 [[test]]
+path = "tests/test_daemon_wire_types_plugin_python.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dead_code_stripping.py"
 lane = "linux-guard"
 
