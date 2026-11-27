@@ -690,7 +690,9 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
         // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
-        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+        Some(
+            cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. } | Command::SpecServe { .. }),
+        ) => {
             let code = match cmd {
                 Command::RunVm { command } => {
                     match crate::placement::run_vm::main(&command.join(" ")).await {
@@ -699,6 +701,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     }
                 }
                 Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                Command::SpecServe { command } => crate::spec_exec::main(&command),
                 _ => 1,
             };
             // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
