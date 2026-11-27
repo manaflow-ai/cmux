@@ -97,16 +97,15 @@ pub fn seal(key: &Key, plain: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// Decrypts and decompresses a sealed blob; `plain_len` bounds the decompressed size.
 pub fn open(key: &Key, sealed: &[u8], plain_len: usize) -> anyhow::Result<Vec<u8>> {
-    if sealed.len() < MAGIC.len() + NONCE || &sealed[..MAGIC.len()] != MAGIC {
+    if sealed.len() < MAGIC.len() + NONCE || sealed.get(..MAGIC.len()) != Some(MAGIC.as_slice()) {
         bail!("not a sealed history blob");
     }
-    let nonce = &sealed[MAGIC.len()..MAGIC.len() + NONCE];
+    let nonce =
+        sealed.get(MAGIC.len()..MAGIC.len() + NONCE).context("not a sealed history blob")?;
+    let encrypted = sealed.get(MAGIC.len() + NONCE..).context("not a sealed history blob")?;
     let packed = key
         .cipher()
-        .decrypt(
-            XNonce::from_slice(nonce),
-            Payload { msg: &sealed[MAGIC.len() + NONCE..], aad: MAGIC },
-        )
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: encrypted, aad: MAGIC })
         .map_err(|_| anyhow!("the blob does not open with this history key"))?;
     zstd::bulk::decompress(&packed, plain_len).context("cannot decompress")
 }
