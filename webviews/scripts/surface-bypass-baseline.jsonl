@@ -344,7 +344,6 @@
 {"file":"agent-session/acpmux/SecretCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/SenderIdentityLabel.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/session-info/AgentSideRows.tsx","kind":"title-attribute","count":1}
-{"file":"agent-session/acpmux/session-info/CarriedSection.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/session-info/ChangesSection.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/session-info/ChangesSection.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/session-info/ChildSessionRows.tsx","kind":"raw-button","count":1}

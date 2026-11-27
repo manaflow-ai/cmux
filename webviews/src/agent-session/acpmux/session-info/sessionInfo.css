@@ -926,20 +926,6 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-row .acpmux-diff-counts {
   opacity: 0.8;
 }
-/* Carried memory: a proposed file's diff, opened under its row (CarriedSection.tsx), on the label column. */
-.acpmux-carried-diff {
-  padding: 0 var(--grid-gap) 4px calc(var(--grid-gap) * 2 + var(--grid-icon-box));
-}
-.acpmux-carried-diff > pre {
-  margin: 0;
-  max-height: 160px;
-  overflow: auto;
-  color: var(--agent-muted);
-  font-family: var(--cv-mono);
-  font-size: var(--text-detail);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .acpmux-session-info-note {
   margin: 0;
   padding: 4px 8px 6px;
