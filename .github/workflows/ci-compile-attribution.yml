@@ -154,7 +154,7 @@ jobs:
         id: analyze
         env:
           GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || (steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token) || github.token }}
           HEAD_INPUT: ${{ inputs.head }}
         run: |
           set -euo pipefail

@@ -2,7 +2,7 @@
 // The classic failure incident under parallel main and rc push runs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { report, close, failuresIn, failureMarker } from '../scripts/ci/nightly_failure_issue.mjs';
+import { report, close, failuresIn, failureMarker, isRateLimit, retryDelayMs } from '../scripts/ci/nightly_failure_issue.mjs';
 
 const failureMarkerFor = (s) => failureMarker(s, 'main');
 
@@ -378,4 +378,46 @@ test('a failure that the closing publication already includes leaves the inciden
   await publish(g2, sha('d'));
   await fail(g2, sha('e'));
   assert.equal(i2[0].state, 'open');
+});
+
+function limited(headers = {}) {
+  return Object.assign(new Error('API rate limit exceeded for installation'), { status: 403, response: { headers } });
+}
+
+test('rate limit detection and header delays', () => {
+  assert.ok(isRateLimit(limited()));
+  assert.ok(isRateLimit(httpError(429)));
+  assert.ok(!isRateLimit(httpError(403)));
+  assert.ok(!isRateLimit(httpError(404)));
+  assert.equal(retryDelayMs(limited({ 'retry-after': '5' })), 6000);
+  assert.equal(retryDelayMs(limited({ 'x-ratelimit-reset': '110' }), 100000), 11000);
+});
+
+test('a rate-limited call waits and then succeeds', async () => {
+  const fake = fakeGitHub({ labelExists: true });
+  const gh = fake.github;
+  const create = gh.rest.issues.create;
+  let n = 0;
+  gh.rest.issues.create = async (a) => { if (n++ === 0) throw limited({ 'retry-after': '1' }); return create(a); };
+  const waits = [];
+  await report({ github: gh, owner, repo, channel: 'nightly', appName: 'cmux NIGHTLY', ref: 'main', sha: sha('a'), body: 'x', sleep: async (ms) => waits.push(ms) });
+  assert.deepEqual(waits, [2000]);
+  assert.equal(fake.issues.length, 1);
+});
+
+test('a persistent rate limit warns and returns without throwing', async () => {
+  const fake = fakeGitHub({ labelExists: true });
+  const gh = fake.github;
+  gh.rest.issues.listForRepo = async () => { throw limited({ 'retry-after': '1' }); };
+  const warnings = [];
+  const out = await close({ github: gh, owner, repo, channel: 'nightly', appName: 'cmux NIGHTLY', ref: 'main', sha: sha('a'), runUrl: 'u', sleep: async () => {}, maxWaitMs: 5000, warn: (m) => warnings.push(m) });
+  assert.equal(out, null);
+  assert.equal(warnings.length, 1);
+});
+
+test('a real error still throws', async () => {
+  const fake = fakeGitHub({ labelExists: true });
+  const gh = fake.github;
+  gh.rest.issues.listForRepo = async () => { throw httpError(500); };
+  await assert.rejects(close({ github: gh, owner, repo, channel: 'nightly', appName: 'a', ref: 'main', sha: sha('a'), runUrl: 'u' }));
 });
