@@ -50,8 +50,9 @@ public final class BrowserExternalApps {
     }
     #endif
 
-    /// This build's URL schemes, lowercased (Info.plist `CFBundleURLTypes`).
-    let ownSchemes: Set<String>
+    /// This build's URL schemes, lowercased (Info.plist `CFBundleURLTypes`). Tests set their own: a test
+    /// bundle registers none.
+    var ownSchemes: Set<String>
     /// The app's own open-URL route (AppDelegate's, the one macOS uses). Nil:
     /// own-scheme links go through Launch Services like any other app's.
     public var openOwnURL: (@MainActor (URL) -> Void)?
