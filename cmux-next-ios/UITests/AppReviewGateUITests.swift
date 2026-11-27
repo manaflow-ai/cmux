@@ -14,8 +14,8 @@ import XCTest
 ///
 /// Every past rejection is a test here or a rule in
 /// `cmux-next-ios/scripts/app_review_gate.py` (`cmux-next-ios/AppStoreReview/rejection-history.json`
-/// maps each one). Screenshots of each step are kept in the result bundle for
-/// the agent reviewer pass (`cmux-next-ios/scripts/app_review_agent_pass.py`).
+/// maps each one). Screenshots of each step are kept in the result bundle and
+/// exported to the gate's artifact for a person to review.
 ///
 /// The dead-control walk is the detector for "the button did nothing"
 /// (2.1(a), 2026-11-07): on each screen it taps every enabled, hittable
@@ -169,7 +169,9 @@ final class AppReviewGateUITests: XCTestCase {
     /// shows.
     @MainActor
     func testChiefOpensAndAMessageSendsWithAReply() throws {
-        var app = launch(arguments: ["-cmux-mobile-tab", "home"])
+        // The reviewer has not agreed to Chief's AI sharing yet (5.1.2(i)): the first send asks.
+        let unasked = ["-cmuxMobile.chief.aiSharingConsent", "NO"]
+        var app = launch(arguments: ["-cmux-mobile-tab", "home"] + unasked)
         defer { app.terminate() }
         let chief = element("home.chief", in: app)
         let macChief = element("home.chief.mac", in: app)
@@ -181,7 +183,7 @@ final class AppReviewGateUITests: XCTestCase {
             // the conversation itself from its own launch.
             gateNote("chief-from-home-unjudged", "Home listed no Chief row, so Chief was opened with -cmux-mobile-demo chief-open")
             app.terminate()
-            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"])
+            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"] + unasked)
         }
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
@@ -200,10 +202,26 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
-        capture("chief-02-sent", app)
+        // 5.1.2(i): before anything goes to an AI provider, Chief names the providers and
+        // asks; Agree and Send sends the draft.
+        let consent = app.alerts.firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5),
+                      "the first send to Chief must ask to share with the AI providers (5.1.2(i)); on screen: \(onScreen(app))")
+        if consent.exists {
+            let text = consent.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+            XCTAssertTrue(text.contains("Anthropic") && text.contains("OpenAI"),
+                          "the AI sharing question must name the providers (5.1.2(i)); it says: \(text)")
+            capture("chief-01b-ai-consent", app)
+            let agree = consent.buttons["Agree and Send"]
+            XCTAssertTrue(agree.exists, "the AI sharing question must offer Agree and Send; buttons: \(consent.buttons.allElementsBoundByIndex.map(\.label))")
+            XCTAssertTrue(consent.buttons["Not Now"].exists, "the AI sharing question must offer Not Now")
+            if agree.exists { agree.tap() }
+        }
         let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 10),
                       "the sent message must show; app alert: \(app.alerts.firstMatch.exists ? app.alerts.firstMatch.label : "none"); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
+        // Once the message has landed: taken at the tap, the still caught the bubble in flight.
+        capture("chief-02-sent", app)
         // The mock Chief reads, types, then replies within about 4 s: a
         // message from Chief below the one sent.
         let fromChief = messages.matching(NSPredicate(format: "label BEGINSWITH %@", "Chief"))
@@ -250,7 +268,7 @@ final class AppReviewGateUITests: XCTestCase {
         var dead = walkControls(screen: "settings", reach: settings, skip: destructive)
         dead += walkControls(screen: "settings-bottom", reach: {
             let app = settings()
-            for _ in 0..<6 { app.swipeUp(velocity: .fast) }
+            for _ in 0..<6 { self.surface(app).swipeUp(velocity: .fast) }
             return app
         }, skip: destructive)
         dead += walkControls(screen: "settings-account", reach: {
@@ -282,7 +300,7 @@ final class AppReviewGateUITests: XCTestCase {
         if cancel.exists {
             cancel.tap()
         } else {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+            surface(app).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
         }
         XCTAssertTrue(ask.waitForNonExistence(timeout: 5), "the deletion dialog must close on Cancel")
         XCTAssertTrue(delete.exists, "cancelling must leave the account in place")
@@ -372,9 +390,9 @@ final class AppReviewGateUITests: XCTestCase {
         if device.localizedCaseInsensitiveContains("Duo") {
             gateNote("fold-unjudged", "XCUITest cannot fold the simulator; fold and unfold were not walked on \(device)")
         }
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if isIPad {
             gateNote("ipad-multitasking-unjudged",
-                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged full screen on iPad")
+                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged in its default compatibility window on iPad")
         }
     }
 
@@ -388,6 +406,8 @@ final class AppReviewGateUITests: XCTestCase {
         let email = app.buttons["Continue with email"]
         XCTAssertTrue(email.waitForExistence(timeout: 20), "sign-in must show; on screen: \(onScreen(app))")
         capture("type-xxxl-signin", app)
+        // Judged at the top, as it opens, and again after scrolling to the end.
+        assertNothingOffscreen(app, step: "type-xxxl-signin-top")
         for label in ["Continue with Apple", "Continue with Google", "Continue with GitHub", "Continue with email"] {
             let button = app.buttons[label]
             scrollTo(button, in: app)
@@ -426,10 +446,14 @@ final class AppReviewGateUITests: XCTestCase {
         }
         capture("walk-\(screen)-start", app)
         var dead: [String] = []
+        var covered: [String] = []
         var disabledWithoutReason: [String] = []
         for (offset, control) in controls.prefix(limit).enumerated() {
             if offset > 0 {
                 app.terminate()
+                // A link the last control opened left Safari in front (beside
+                // cmux on iPad); closed, so this control's link shows anew.
+                XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").terminate()
                 app = reach()
             }
             let target = resolve(control, in: app)
@@ -446,8 +470,15 @@ final class AppReviewGateUITests: XCTestCase {
             // checked picker row) changes nothing on purpose; its siblings are
             // what the walk judges.
             if target.isSelected { continue }
+            // A row scrolled under the navigation bar or the tab bar reports
+            // hittable, yet a tap at its center lands on the bar; a person
+            // scrolls it into view first. Listed, never judged dead.
+            if let bar = coveringBar(of: target, in: app) {
+                covered.append("\(control.key) (under the \(bar))")
+                continue
+            }
             let before = signature(app)
-            target.tap()
+            tap(target, as: control.type)
             let changed = waitForChange(from: before, in: app, timeout: 3)
             if !changed {
                 dead.append("\(screen): \(control.key)")
@@ -458,6 +489,9 @@ final class AppReviewGateUITests: XCTestCase {
             gateNote("walk-\(screen)-truncated", "\(screen) has \(controls.count) controls; the walk tapped the first \(limit)")
         }
         app.terminate()
+        if !covered.isEmpty {
+            gateNote("walk-\(screen)-covered", "not tapped, under a bar on this screen: \(covered.joined(separator: ", "))")
+        }
         if !disabledWithoutReason.isEmpty {
             // A disabled control with no stated reason reads as broken to a
             // reviewer. Reported, not failed: some are legitimately idle.
@@ -505,7 +539,10 @@ final class AppReviewGateUITests: XCTestCase {
     }
 
     /// What a person would see change: the element tree minus frames and
-    /// addresses, the app's state (a link opens Safari), and springboard alerts.
+    /// addresses, the app's state (a link opens Safari), Safari's own state,
+    /// and springboard alerts. On iPad (windowed apps) a link opens Safari
+    /// beside cmux, which stays `runningForeground` with the same tree, so
+    /// the hand-off shows only in Safari's state.
     @MainActor
     private func signature(_ app: XCUIApplication) -> String {
         guard app.state == .runningForeground else { return "state:\(app.state.rawValue)" }
@@ -513,7 +550,52 @@ final class AppReviewGateUITests: XCTestCase {
         tree = tree.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
         tree = tree.replacingOccurrences(of: #"\{\{[^}]*\}, \{[^}]*\}\}"#, with: "", options: .regularExpression)
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
-        return "\(tree)|alerts:\(alerts)"
+        // Only Safari in front counts: a Safari left running by an earlier
+        // link may move from background to suspended during a dead tap.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state == .runningForeground
+        return "\(tree)|alerts:\(alerts)|safari-front:\(safari)"
+    }
+
+    /// Taps a control where a person would. A SwiftUI `Toggle` row is a
+    /// switch element the width of the row, with the real switch inside it
+    /// at the trailing edge; its center is the label, which does nothing on
+    /// iOS, so the walk taps the switch itself (as ScreenSharingSheetUITests
+    /// does).
+    @MainActor
+    private func tap(_ target: XCUIElement, as type: XCUIElement.ElementType) {
+        guard type == .switch else {
+            target.tap()
+            return
+        }
+        let knob = target.switches.firstMatch
+        if knob.exists, knob.isHittable {
+            knob.tap()
+        } else {
+            target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+    }
+
+    /// The bar a scrolled row sits under, if any: a control that is not one
+    /// of the bar's own whose center is behind the navigation bar (or the
+    /// status bar above it) or behind the tab bar.
+    @MainActor
+    private func coveringBar(of target: XCUIElement, in app: XCUIApplication) -> String? {
+        let frame = target.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let own = NSPredicate(format: "identifier == %@ AND label == %@", target.identifier, target.label)
+        func covers(_ bar: XCUIElement, _ behind: (CGRect) -> Bool) -> Bool {
+            guard bar.exists else { return false }
+            let edge = bar.frame
+            guard !edge.isEmpty, center.x >= edge.minX, center.x <= edge.maxX, behind(edge) else { return false }
+            return !bar.descendants(matching: target.elementType).matching(own).firstMatch.exists
+        }
+        if app.navigationBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y < $0.maxY } }) {
+            return "navigation bar"
+        }
+        if app.tabBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y > $0.minY } }) {
+            return "tab bar"
+        }
+        return nil
     }
 
     @MainActor
@@ -539,6 +621,12 @@ final class AppReviewGateUITests: XCTestCase {
         environment: [String: String] = [:]
     ) -> XCUIApplication {
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore"]
+        // The same stills on every run, so a run's screens compare with its base's: mock data
+        // stamped at one fixed instant (2026-10-02 21:20 UTC) read in one time zone, and every
+        // spinner held still. Unfixed, a third of the screens differed between two runs of the
+        // same commit (a row's "12:41 AM", a spinner's angle).
+        app.launchArguments += ["-cmux-mobile-fixed-now", "1790976000", "-cmux-stills"]
+        app.launchEnvironment["TZ"] = "America/Los_Angeles"
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         if signedIn {
             app.launchArguments += ["-cmuxMobile.setupComplete", setupComplete ? "YES" : "NO"]
@@ -549,6 +637,14 @@ final class AppReviewGateUITests: XCTestCase {
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
+        // A link the walk tapped hands off to Safari. On iPad Safari then
+        // stays in front of the relaunched iPhone app, so the next steps
+        // judge Safari's page, and every runner kill on iPad (runs
+        // 43002601165 and 43050303670, "Test crashed with signal kill")
+        // came at the first launch after such a handoff. Each launch starts
+        // with Safari closed.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        if safari.state != .notRunning { safari.terminate() }
         app.launch()
         if signedIn && setupComplete {
             // The first mock run may still ask for a team.
@@ -628,24 +724,73 @@ final class AppReviewGateUITests: XCTestCase {
         print("GATE-NOTE \(name): \(message)")
     }
 
+    /// What gestures and coordinate taps go to: the app's window, not the
+    /// app element. On iPad the iPhone app runs in a compatibility window
+    /// that does not start at the screen's corner (run 43002601165: the
+    /// window was (234, 0, 635, 1376) in portrait), but the app element's
+    /// frame is the app's own (0, 0, 390, 844), so `app.swipeUp()` pressed
+    /// at (195, 522) in screen points, on the wallpaper left of the window,
+    /// and nothing scrolled. The window's frame is in screen points like
+    /// every other element's.
+    @MainActor
+    private func surface(_ app: XCUIApplication) -> XCUIElement {
+        let window = app.windows.firstMatch
+        return window.exists ? window : app
+    }
+
+    /// The iPad simulator. The test runner is an iPhone app too, so in
+    /// compatibility mode `UIDevice.userInterfaceIdiom` says phone on iPad.
+    private var isIPad: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return (environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "").hasPrefix("iPad")
+            || (environment["SIMULATOR_DEVICE_NAME"] ?? "").hasPrefix("iPad")
+    }
+
+    /// Scrolls until the element is on screen or the content stops moving
+    /// (its end). A fixed swipe count measured "reachable" by screen size:
+    /// on iPad the iPhone app shows 390 x 844 points, fewer rows per swipe
+    /// than a Pro Max, and 12 slow swipes at the largest text size ended in
+    /// the Developer section above Sign out (run 43050303670).
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
-            app.swipeUp(velocity: .slow)
+        var last = ""
+        for _ in 0..<40 where !(element.exists && element.isHittable) {
+            surface(app).swipeUp(velocity: .slow)
+            let now = app.debugDescription.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
+            if now == last { break }
+            last = now
         }
     }
 
     @MainActor
     private func assertNothingOffscreen(_ app: XCUIApplication, step: String) {
-        let window = app.windows.firstMatch.frame
+        let appWindow = app.windows.firstMatch
+        let window = appWindow.frame
         guard !window.isEmpty else { return }
-        let buttons = app.buttons
+        // The system keyboard (its keys, shortcut bar and predictions) is not
+        // the app's: iOS draws it in its own window, across the whole screen.
+        // On iPad the iPhone app's compatibility window is narrower than the
+        // screen, so every key would read as "outside the window" (2026-11-11,
+        // run 43002601165: tab, Return, shift, assistantUndo on iPad only).
+        // Only controls in the app's own window are judged, and any that sit
+        // inside a keyboard's frame are the keyboard's.
+        let keyboards = app.keyboards.allElementsBoundByIndex.map(\.frame).filter { !$0.isEmpty }
+        let buttons = appWindow.buttons
         for index in 0..<min(buttons.count, 40) {
             let button = buttons.element(boundBy: index)
             guard button.exists, button.isHittable else { continue }
             let frame = button.frame
-            // A row of a scrolling list may run past the bottom edge; a
-            // control cut off at the sides is a layout glitch.
+            if keyboards.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }) { continue }
+            // A row of a scrolling list may run past the top or bottom edge;
+            // it is judged where it is whole (at the top, or once scrolled
+            // to). On iPad a control scrolled partly off the top reports its
+            // frame in the iPhone app's own unscaled points, not the screen's
+            // (feat-cmux-next gate run 45740664901: Continue with Apple at
+            // (20, -30, 350, 217.5), 390 pt wide less 20 pt margins, while it
+            // drew inside the window at (199, 0, 635, 1376)), so its sides
+            // would be judged against the wrong space.
+            guard frame.minY >= window.minY - 1, frame.maxY <= window.maxY + 1 else { continue }
+            // A control cut off at the sides is a layout glitch.
             XCTAssertTrue(
                 frame.minX >= window.minX - 1 && frame.maxX <= window.maxX + 1 && frame.intersects(window),
                 "\(step): \(button.identifier.isEmpty ? button.label : button.identifier) is outside the window \(frame) vs \(window)"
@@ -655,9 +800,27 @@ final class AppReviewGateUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "gate-\(UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone")-\(name)"
+        // The whole screen: on iPad the app's own screenshot is cropped to the
+        // phone-sized frame at the screen's corner, not to its window.
+        let shot = XCTAttachment(screenshot: settledScreenshot())
+        shot.name = "gate-\(isIPad ? "ipad" : "iphone")-\(name)"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// The screen once it holds still: two shots a quarter second apart that match (a transition,
+    /// a scroll or a keyboard has finished moving), else the last one after 3 s.
+    @MainActor
+    private func settledScreenshot() -> XCUIScreenshot {
+        var shot = XCUIScreen.main.screenshot()
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            // An intentional, bounded wait: a quarter second between two shots.
+            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "settle")], timeout: 0.25)
+            let next = XCUIScreen.main.screenshot()
+            if next.pngRepresentation == shot.pngRepresentation { return next }
+            shot = next
+        }
+        return shot
     }
 }

@@ -9,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
-pub use acpmux_book::index::folders::FolderRow;
-pub use acpmux_book::index::{ListFilter, OriginState};
+pub use acpmux_list_types::folders::FolderRow;
+pub use acpmux_list_types::{ListFilter, OriginState};
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -20,6 +20,9 @@ pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
 pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACT_ID_BYTES: usize = 64;
+pub const MAX_ACT_OP_BYTES: usize = 32;
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
 
 /// Subscription and request identifiers have one UTF-8 byte bound.
 pub fn identifier_fits(value: &str) -> bool {
@@ -38,6 +41,10 @@ pub enum Request {
     Page(Page),
     Credit(Credit),
     Unsub(Unsub),
+    Blob(Blob),
+    /// A v2 action request. Servers may decode this shape while keeping action
+    /// execution disabled until the corresponding surface is enabled.
+    Act(Act),
 }
 
 /// A generic stream name. The wire layer does not know which stream is being
@@ -106,13 +113,61 @@ pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
     pub origin: String,
+    /// A position, not a row (decision 290): just past every `local` key at `last_activity`.
+    /// Only a serving side mints it, as the `before` key of a peer's empty `all` page, spelled
+    /// origin `local`, chat id "" and `past` true, and only that page accepts it back; every
+    /// other door answers `InvalidPage`. So a past key never reaches the client's maps keyed
+    /// by `ListKey` (its `Ord` and `Hash` see `past`). False is omitted: today's bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub past: bool,
 }
+
+/// Stable position key for the folders view.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPosition {
+    pub at: u64,
+    pub origin: String,
+    pub folder: String,
+}
+
+/// Identity used by keyed folder pages. Activity time is intentionally absent:
+/// a lookup is by `(origin, folder)` and the supplied cursor time must never
+/// become part of identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIdentity {
+    pub origin: String,
+    pub folder: String,
+}
+
+pub type FolderKey = FolderIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Position {
     Row(u64),
     List(ListKey),
+    Folder(FolderPosition),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PageKey {
+    Summary(ListKey),
+    Folder(FolderIdentity),
+}
+
+impl From<ListKey> for PageKey {
+    fn from(value: ListKey) -> Self {
+        Self::Summary(value)
+    }
+}
+
+impl From<FolderIdentity> for PageKey {
+    fn from(value: FolderIdentity) -> Self {
+        Self::Folder(value)
+    }
 }
 
 impl Serialize for Anchor {
@@ -189,6 +244,8 @@ pub struct Sub {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
 }
 
@@ -209,6 +266,7 @@ impl Sub {
             anchor: None,
             window: default_window(),
             view: None,
+            rows: None,
             filter: None,
         }
     }
@@ -239,6 +297,15 @@ impl Sub {
 pub enum ListView {
     All,
     Live,
+    Folders,
+}
+
+/// Folders are bounded windows, never whole-view mirrors.
+pub fn validate_mirror_view(view: Option<ListView>) -> Result<(), FrameError> {
+    if matches!(view, Some(ListView::Folders)) {
+        return Err(FrameError::MirrorUnsupported);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -277,6 +344,73 @@ impl Default for Limits {
 pub struct HelloReply {
     pub daemon_id: String,
     pub limits: Limits,
+}
+
+/// A request to perform one idempotent action on a chat.
+///
+/// `body` is deliberately an arbitrary JSON value. The serving side hashes the
+/// operation and body together when it records the durable receipt, so a retry
+/// with the same id and a different body can never be mistaken for a replay.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Act {
+    pub chat: Stream,
+    pub op: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    pub body: serde_json::Value,
+}
+
+impl Act {
+    pub fn new(
+        chat: impl Into<Stream>,
+        op: impl Into<String>,
+        id: impl Into<String>,
+        body: serde_json::Value,
+    ) -> Self {
+        Self { chat: chat.into(), op: op.into(), id: id.into(), since: None, body }
+    }
+
+    pub fn since(mut self, since: u64) -> Self {
+        self.since = Some(since);
+        self
+    }
+
+    /// Validates the bounded fields used by the daemon action writer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.id.is_empty() || self.id.len() > MAX_ACT_ID_BYTES {
+            return Err("action id must be 1..64 UTF-8 bytes");
+        }
+        if self.op.len() > MAX_ACT_OP_BYTES {
+            return Err("action op must be at most 32 UTF-8 bytes");
+        }
+        let encoded =
+            serde_json::to_vec(&self.body).map_err(|_| "action body is not serializable")?;
+        if encoded.len() > MAX_DAEMON_LINE_BYTES {
+            return Err("action daemon line exceeds 256 KiB");
+        }
+        Ok(())
+    }
+}
+
+/// The successful durable receipt for an [`Act`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub id: String,
+    pub seq: u64,
+}
+
+/// A typed action error. The id is omitted when the request could not be
+/// correlated (for example, malformed JSON or an overlong identifier).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Error {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -337,13 +471,24 @@ pub struct Page {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keys: Option<Vec<ListKey>>,
+    pub keys: Option<Vec<PageKey>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
+    /// On a chat: the edition the anchor's rowId is from. A page of another edition is
+    /// answered `stale_edition`, never rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<u32>,
+    /// On a chat: a group's rowId. The page holds that fold's rows, taken as open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fold: Option<u64>,
+    /// On a chat: the page holds the group rows `folds.idx` lists, one a settled turn, and no
+    /// other row. Not with `fold`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
 }
 
 /// Descriptive alias used by request routers.
@@ -369,6 +514,9 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
         }
     }
 
@@ -394,6 +542,30 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
+        }
+    }
+
+    pub fn new_folder(
+        sid: impl Into<String>,
+        stream: impl Into<Stream>,
+        side: PageSide,
+        key: FolderPosition,
+    ) -> Self {
+        Self {
+            sid: sid.into(),
+            stream: stream.into(),
+            before: (side == PageSide::Before).then_some(Position::Folder(key.clone())),
+            after: (side == PageSide::After).then_some(Position::Folder(key)),
+            keys: None,
+            view: Some(ListView::Folders),
+            max_bytes: default_page_bytes(),
+            filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
         }
     }
 
@@ -434,6 +606,8 @@ pub struct PageResult<T> {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cold_unread: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deeper: Vec<ListKey>,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]
@@ -444,6 +618,336 @@ pub struct PageResult<T> {
     pub unknown: Vec<ListKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rest: Vec<ListKey>,
+}
+
+/// A bounded window on the folders view. It is separate from `Window<T>` so
+/// older clients can continue decoding summary list windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub edition: u32,
+    #[serde(default)]
+    pub origins: Vec<Origin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<FolderPosition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPageResult {
+    pub sid: String,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cold_unread: bool,
+    #[serde(default)]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default)]
+    pub after_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<FolderIdentity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rest: Vec<FolderIdentity>,
+}
+
+/// JSON bytes carried as they are stored: a chat row's text, or an escaped `text` piece.
+/// They are copied into a frame and never parsed into values and escaped again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RawJson(pub Box<serde_json::value::RawValue>);
+
+impl RawJson {
+    /// Takes stored JSON bytes. The bytes are checked once, here.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, FrameError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            FrameError::Encode(serde_json::Error::custom("stored JSON is not UTF-8"))
+        })?;
+        serde_json::value::RawValue::from_string(text.to_owned())
+            .map(Self)
+            .map_err(FrameError::Encode)
+    }
+
+    pub fn get(&self) -> &str {
+        self.0.get()
+    }
+}
+
+impl PartialEq for RawJson {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for RawJson {}
+
+/// A waiting prompt as a window and a `queue` op carry it: its id, at most 1 KB of its text,
+/// and the text's whole length. The rest of the text is read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub text: String,
+    /// The decoded text's length in bytes.
+    pub len: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
+    pub at: u64,
+}
+
+/// The entries next to run (at most 64) and the count of all that wait.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueHead {
+    pub entries: Vec<QueueItem>,
+    pub count: u32,
+}
+
+/// An open row as a window or a resume's state frame carries it. `row` holds the body while
+/// the open bodies fit in 64 KB together; past that the body is left out (`{}`) and `bodyLen`
+/// names its length, read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenRow {
+    pub row: RawJson,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_len: Option<u64>,
+}
+
+/// A chat's window: the breakpoint everything after it is a delta of. Separate from
+/// `Window<T>` so the list's clients decode their windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub open: Vec<OpenRow>,
+    #[serde(default)]
+    pub queue: QueueHead,
+    /// The person's seen row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<u64>,
+    /// The person's open folds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folds: Vec<u64>,
+    /// Rows this window would hold whose records a read refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+}
+
+/// A chat's page reply. `refused` names the rows in its range whose records were refused.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPageResult {
+    pub sid: String,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+    /// The reply to a page of turns says so. A daemon from before `turns` reads the request as
+    /// an ordinary page and answers rows without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
+}
+
+/// One person in a chat presence replacement. Presence is a latest-value state op and carries
+/// no chat id or sequence: the containing chat stream supplies its identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresencePerson {
+    pub id: String,
+    pub name: String,
+    pub devices: u32,
+    pub viewing: bool,
+    pub typing: bool,
+}
+
+/// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
+/// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
+/// from the list's `DeltaOp<T>`, in the same frame kind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
+pub enum ChatOp {
+    /// A settled row, or an open one as it is now; it replaces what the client holds for its
+    /// rowId. An open row whose body was left out names its length, read by `blob`.
+    Row {
+        seq: u64,
+        row: RawJson,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body_len: Option<u64>,
+    },
+    /// Text appended to an open row's `text`: an escaped JSON string, as stored.
+    Text { seq: u64, row_id: u64, text: RawJson },
+    /// A new rev of a settled row.
+    Patch { seq: u64, row: RawJson },
+    /// One entry as it is now, or its removal, with the count; or `head`, the entries next to
+    /// run, which replaces what the client holds.
+    Queue {
+        seq: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        entry: Option<QueueItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        removed: Option<String>,
+        count: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        head: Option<QueueHead>,
+    },
+    /// The complete latest presence set for this chat. `trimmed` reports people omitted to fit
+    /// the bounded state frame; there is deliberately no `chatId` or `seq`.
+    Presence {
+        participants: Vec<PresencePerson>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        trimmed: usize,
+    },
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+// Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
+// fields, which a `RawJson` cannot come through.
+impl<'de> Deserialize<'de> for ChatOp {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fields {
+            op: String,
+            seq: Option<u64>,
+            row: Option<RawJson>,
+            body_len: Option<u64>,
+            row_id: Option<u64>,
+            text: Option<RawJson>,
+            entry: Option<QueueItem>,
+            removed: Option<String>,
+            count: Option<u32>,
+            head: Option<QueueHead>,
+            participants: Option<Vec<PresencePerson>>,
+            trimmed: Option<usize>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        let seq = fields.seq;
+        match fields.op.as_str() {
+            "row" => Ok(Self::Row {
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+                body_len: fields.body_len,
+            }),
+            "text" => Ok(Self::Text {
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
+                row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
+                text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
+            }),
+            "patch" => Ok(Self::Patch {
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "queue" => Ok(Self::Queue {
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
+                entry: fields.entry,
+                removed: fields.removed,
+                count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
+                head: fields.head,
+            }),
+            "presence" => Ok(Self::Presence {
+                participants: fields
+                    .participants
+                    .ok_or_else(|| D::Error::missing_field("participants"))?,
+                trimmed: fields.trimmed.unwrap_or_default(),
+            }),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["row", "text", "patch", "queue", "presence"],
+            )),
+        }
+    }
+}
+
+/// A chat's delta frame: `{sid, replay?, ops}`. A resume's frames set `replay`; its last, the
+/// state frame, is `"end"`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDelta {
+    pub sid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    pub ops: Vec<ChatOp>,
+}
+
+/// A bounded read of a row's body, or of a waiting prompt's text.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blob {
+    /// The request's id, named again by its reply.
+    pub id: String,
+    pub stream: Stream,
+    pub edition: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_id: Option<u64>,
+    /// A waiting prompt's id, in place of `rowId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// The range's start; for a prompt with `from` and no start, the token's offset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<u64>,
+    pub len: u64,
+    /// A prompt's `next` token: where the scan starts, never where the bytes start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+}
+
+/// The JSON head of a `blob` reply. The frame is this head, a newline, then the bytes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobHead {
+    pub id: String,
+    pub start: u64,
+    pub len: u64,
+    /// The body's (or the prompt text's) whole length.
+    pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    /// An open row's snapshot: `gen` names it and the bytes under `fixed` stay within it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "gen")]
+    pub generation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<u64>,
+}
+
+/// A `blob` reply: the head, a newline, the bytes as they are stored.
+pub fn blob_frame(head: &BlobHead, bytes: &[u8]) -> Result<Frame, FrameError> {
+    let mut payload = serde_json::to_vec(head).map_err(FrameError::Encode)?;
+    payload.reserve(1 + bytes.len());
+    payload.push(b'\n');
+    payload.extend_from_slice(bytes);
+    Frame::new(FrameKind::Blob, payload)
+}
+
+/// Splits a `blob` reply into its head and its bytes.
+pub fn decode_blob(frame: &Frame) -> Result<(BlobHead, &[u8]), FrameError> {
+    let payload = frame.payload();
+    let newline = payload.iter().position(|byte| *byte == b'\n').ok_or(FrameError::Truncated)?;
+    let (head, rest) = payload.split_at(newline);
+    let head = serde_json::from_slice(head).map_err(FrameError::Decode)?;
+    Ok((head, rest.get(1..).unwrap_or_default()))
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
@@ -727,7 +1231,9 @@ impl FrameDecoder {
 /// Errors raised by bounded frame encoding and decoding.
 #[derive(Debug)]
 pub enum FrameError {
-    TooLarge { bytes: usize },
+    TooLarge {
+        bytes: usize,
+    },
     InvalidLength(usize),
     UnknownKind(u8),
     Truncated,
@@ -735,6 +1241,9 @@ pub enum FrameError {
     Encode(serde_json::Error),
     Decode(serde_json::Error),
     RequestInFlight,
+    MirrorUnsupported,
+    /// A request the client core does not send, and why.
+    Refused(&'static str),
 }
 
 impl fmt::Display for FrameError {
@@ -750,6 +1259,8 @@ impl fmt::Display for FrameError {
             Self::Encode(error) => write!(f, "frame payload encode failed: {error}"),
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
             Self::RequestInFlight => f.write_str("a page request is already in flight"),
+            Self::MirrorUnsupported => f.write_str("folders view cannot be mirrored"),
+            Self::Refused(why) => write!(f, "refused: {why}"),
         }
     }
 }
@@ -757,140 +1268,13 @@ impl fmt::Display for FrameError {
 impl std::error::Error for FrameError {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sub_and_page_are_shared_shapes() {
-        let sub = Sub::new("s1", "list").from_cursor(42);
-        let text = serde_json::to_string(&sub).unwrap();
-        assert_eq!(text, r#"{"sid":"s1","stream":"list","cursor":42,"window":100}"#);
-        let anchored = Sub::new("s1", "list").around(Anchor::End, 100);
-        assert_eq!(
-            serde_json::to_value(anchored).unwrap().get("anchor"),
-            Some(&serde_json::json!("end"))
-        );
-        let anchored = Sub::new("s1", "list")
-            .around(Anchor::Row { row_id: 11, side: AnchorSide::Around }, 100);
-        assert_eq!(
-            serde_json::to_value(anchored).unwrap().get("anchor"),
-            Some(&serde_json::json!({"rowId": 11, "side": "around"}))
-        );
-        let page = Page::new("s1", "list", PageSide::After, 11);
-        assert_eq!(serde_json::to_value(&page).unwrap().get("after"), Some(&serde_json::json!(11)));
-        assert_eq!(
-            serde_json::to_value(page).unwrap().get("maxBytes"),
-            Some(&serde_json::json!(262_144))
-        );
-    }
-
-    #[test]
-    fn old_page_results_default_cold_unread_and_false_stays_off_wire() {
-        let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
-        let page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
-        assert!(!page.cold_unread);
-        assert!(serde_json::to_value(page).unwrap().get("coldUnread").is_none());
-    }
-
-    #[test]
-    fn decoder_handles_chunks_and_rejects_oversized_frames() {
-        let frame = Frame::json(FrameKind::Window, &serde_json::json!({"seq": 7})).unwrap();
-        let encoded = frame.encode();
-        let mut decoder = FrameDecoder::default();
-        assert!(decoder.push(encoded.get(..2).unwrap()).unwrap().is_empty());
-        assert_eq!(decoder.push(encoded.get(2..).unwrap()).unwrap(), vec![frame]);
-        assert!(matches!(
-            Frame::new(FrameKind::Delta, vec![0; MAX_FRAME_BYTES]),
-            Err(FrameError::TooLarge { .. })
-        ));
-    }
-}
+#[path = "wire_tests.rs"]
+mod tests;
 
 #[cfg(test)]
-mod raw_delta_tests {
-    use super::*;
-    use acpmux_book::index::Summary;
-
-    #[test]
-    fn summary_delta_preserves_opaque_json_bytes() {
-        let raw = r#"{ "opaque" : [1,  2], "text": "\u0061" }"#;
-        let mut summary = Summary::new("raw");
-        summary.extra = serde_json::value::RawValue::from_string(raw.into()).unwrap();
-        let frame = delta_frame(&DeltaFrame {
-            sid: "s".into(),
-            replay: Some(ReplayMark::End),
-            ops: vec![DeltaOp::Summary { seq: 1, summary }],
-        })
-        .unwrap();
-        let decoded: DeltaFrame<Summary> = frame.decode_json().unwrap();
-        let Some(DeltaOp::Summary { summary, .. }) = decoded.ops.first() else {
-            panic!("missing summary")
-        };
-        assert_eq!(summary.extra.get(), raw);
-    }
-}
+#[path = "wire_raw_delta_tests.rs"]
+mod raw_delta_tests;
 
 #[cfg(test)]
-mod other_delta_tests {
-    use super::*;
-    use acpmux_book::index::RowKey;
-    use acpmux_book::index::folders::FolderRow;
-
-    #[test]
-    fn every_delta_op_has_one_round_tripping_shape() {
-        let ops = vec![
-            DeltaOp::<serde_json::Value>::Gone {
-                seq: 1,
-                origin: "local".into(),
-                chat_id: "gone".into(),
-            },
-            DeltaOp::Queue { seq: 2, bytes: 3 },
-            DeltaOp::Origin {
-                seq: 3,
-                origin: Origin {
-                    id: "peer".into(),
-                    state: OriginState::Down,
-                    since: 4,
-                    extra: None,
-                },
-            },
-        ];
-        let frame = delta_frame(&DeltaFrame {
-            sid: "s".into(),
-            replay: Some(ReplayMark::End),
-            ops: ops.clone(),
-        })
-        .unwrap();
-        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
-        assert_eq!(decoded.ops, ops);
-    }
-
-    #[test]
-    fn folders_view_and_deltas_round_trip() {
-        let row = FolderRow {
-            origin: "local".into(),
-            folder: "/work".into(),
-            newest: RowKey::new("local", "chat-7"),
-            at: 19,
-            count: 3,
-        };
-        let request = Sub::new("s", "list");
-        let value = serde_json::to_value(&request).unwrap();
-        assert!(value.get("view").is_none());
-        let unsupported = serde_json::json!({"sid":"s","kind":"list","view":"folders"});
-        assert!(serde_json::from_value::<Sub>(unsupported).is_err());
-
-        let ops = vec![
-            DeltaOp::<serde_json::Value>::Folder { seq: 4, row },
-            DeltaOp::FolderGone { seq: 5, origin: "local".into(), folder: "/work".into() },
-        ];
-        let frame = delta_frame(&DeltaFrame {
-            sid: "s".into(),
-            replay: Some(ReplayMark::End),
-            ops: ops.clone(),
-        })
-        .unwrap();
-        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
-        assert_eq!(decoded.ops, ops);
-    }
-}
+#[path = "wire_other_delta_tests.rs"]
+mod other_delta_tests;

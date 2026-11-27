@@ -44,8 +44,11 @@
 
 mod memory_budget;
 mod parked_trim;
+mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+pub(crate) use recovery::RecoveryCut;
+mod start;
 mod tail;
 mod writer;
 
@@ -116,8 +119,11 @@ const RESIZE_SETTLE: Duration = Duration::from_secs(1);
 /// failed write.
 const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
 const STORE_RETRY_MAX: Duration = Duration::from_secs(30);
-/// Snapshot mode keeps the screen plus about this many recent lines.
-pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
+/// Snapshot mode targets this many lines when sizing a replay request. The
+/// replay is ultimately bounded by `MAX_SNAPSHOT_REPLAY_BYTES`, so terminals
+/// with long lines keep fewer rows while short-line terminals retain much
+/// older scrollback.
+pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 100_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
 pub(crate) const SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
 /// Full mode: segment bytes per terminal; the oldest segments go first.
@@ -315,6 +321,12 @@ struct LogState {
     /// The next pass writes a snapshot whether or not the content changed
     /// (a gap in the tail, cleared history, a mode change).
     force_snapshot: bool,
+    /// Snapshot mode: a flood outran the tail ([`TAIL_FLOOD_MAX_BYTES`] of it
+    /// inside one compaction spacing). Its bytes are neither written to the
+    /// tail nor kept in memory: the snapshot, at most once per
+    /// [`TAIL_COMPACT_SPACING`], covers them. Cleared by the snapshot that
+    /// ends where the stream ends.
+    flooded: bool,
     /// A snapshot or tail write failed and was reported; cleared by the next
     /// success (one report per failing stretch, not one per pass).
     store_error: bool,
@@ -327,6 +339,11 @@ struct LogState {
     /// snapshot whose capture saw an older count does not hold the screen
     /// after the gap, so it does not clear the request for one.
     gaps: u64,
+    /// A discontinuity requires a recovery cursor; numeric offsets alone
+    /// cannot describe output written while no daemon tap existed.
+    gap_pending: bool,
+    recovery_epoch: Arc<str>,
+    recovery_cut: Arc<Mutex<Option<Arc<RecoveryCut>>>>,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -359,10 +376,14 @@ impl LogState {
             tail_digest: None,
             tail_unsynced: false,
             force_snapshot: false,
+            flooded: false,
             store_error: false,
             retry_at: None,
             retry_delay: Duration::ZERO,
             gaps: 0,
+            gap_pending: false,
+            recovery_epoch: Arc::from(crate::workspace_registry::new_uuid_v4()),
+            recovery_cut: Arc::new(Mutex::new(None)),
             size_seen: None,
         }
     }
@@ -390,9 +411,10 @@ impl LogState {
         let resized = !new_generation
             && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
         if !(self.force_snapshot || new_generation || resized) {
-            // A tail past its cap that waits out the compaction spacing: the
-            // pass after it compacts, whether or not the terminal prints.
-            return (self.tail_bytes >= TAIL_MAX_BYTES).then(|| {
+            // A tail past its cap that waits out the compaction spacing (or a
+            // flood the snapshot covers): the pass after it compacts, whether
+            // or not the terminal prints.
+            return (self.tail_bytes >= TAIL_MAX_BYTES || self.flooded).then(|| {
                 TAIL_FLUSH_INTERVAL
                     .max(self.retry_wait().unwrap_or_default())
                     .max(self.compaction_wait())
@@ -403,6 +425,16 @@ impl LogState {
             .filter(|_| resized)
             .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
         Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
+    /// A flood in snapshot mode: drop the unwritten bytes (the snapshot, once
+    /// its spacing has passed, covers them) and stop keeping new ones.
+    fn start_flood_hold(&mut self) {
+        self.flooded = true;
+        self.pending = Vec::new();
+        self.pending_start = self.next_offset();
+        self.tail_end = None;
+        self.tail_digest = None;
     }
 
     /// The time left before a tail-cap compaction may be written.
@@ -586,6 +618,7 @@ pub(crate) struct OutputStore {
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
     policy: Mutex<Option<PersistencePolicy>>,
+    recovery_bytes: Arc<std::sync::atomic::AtomicU64>,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
     /// pass never write the same file at once.
     pass: Mutex<()>,
@@ -643,6 +676,7 @@ impl OutputStore {
             last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
+            recovery_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
@@ -661,47 +695,6 @@ impl OutputStore {
 
     pub(crate) fn directory(&self) -> Option<&Path> {
         self.directory.as_deref()
-    }
-
-    /// Start the background writer. Without a directory there is nothing to
-    /// write and no thread starts.
-    ///
-    /// The mode is applied here, before any terminal is adopted or
-    /// respawned: memory mode removes what an earlier mode left, the other
-    /// modes drop the files of terminals no longer in the session, and each
-    /// terminal's stream continues at the offset its snapshot recorded.
-    pub(crate) fn start(&self, mux: &Arc<Mux>) -> anyhow::Result<()> {
-        let Some(directory) = self.directory.as_deref() else { return Ok(()) };
-        let policy = PersistencePolicy::current(mux);
-        eprintln!(
-            "cmux-tui: terminal output store: mode {}, at most {} bytes per terminal, {} in total",
-            policy.mode.as_str(),
-            policy.max_bytes_per_terminal,
-            policy.max_total_bytes
-        );
-        self.cache_policy(policy);
-        self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
-        self.full.set_enabled(policy.mode == PersistenceMode::Full);
-        self.set_tail_enabled(policy.mode == PersistenceMode::Snapshot);
-        {
-            let _pass = self.lock_pass();
-            snapshot::prune(mux, self, policy);
-        }
-        let mut resume = snapshot::stream_ends(directory);
-        // A tail reaches past its snapshot: a re-adopted terminal's stream
-        // continues after it, so no stored offset is used twice.
-        for (terminal_id, (generation, end)) in tail::stream_ends(directory) {
-            let known = resume.entry(terminal_id).or_insert_with(|| (generation.clone(), end));
-            if known.0 == generation {
-                known.1 = known.1.max(end);
-            }
-        }
-        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
-        if policy.mode == PersistenceMode::Full {
-            *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
-                segments::all_stream_ends(directory);
-        }
-        self.writer.start(Arc::downgrade(mux))
     }
 
     fn log(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) -> Arc<TerminalLog> {
@@ -816,6 +809,7 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.invalidate_recovery();
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -825,7 +819,10 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
-        if self.full.enabled() || self.tail_enabled() {
+        if self.tail_enabled() && !self.full.enabled() && state.flooded {
+            // A flood the next snapshot covers: no copy into `pending`.
+            state.pending_start = state.next_offset();
+        } else if self.full.enabled() || self.tail_enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }
@@ -897,6 +894,22 @@ impl OutputStore {
         Some((state.generation.clone(), state.next_offset()))
     }
 
+    /// The current stream cursor, including a persisted snapshot/tail that has
+    /// not created an in-memory log yet (the first read after host adoption).
+    pub(crate) fn stream_cursor(&self, terminal_id: &TerminalPublicId) -> Option<(Arc<str>, u64)> {
+        if let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            return Some((state.generation.clone(), state.next_offset()));
+        }
+        self.resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal_id)
+            .map(|(generation, end)| (Arc::from(generation.as_str()), *end))
+    }
+
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
     /// starts at the oldest kept byte. Full mode: bytes before the unflushed
@@ -966,29 +979,34 @@ impl OutputStore {
 
     /// The daemon's terminal was replaced from its host's snapshot (a host
     /// reconnect): bytes the host wrote while the daemon had no tap never
-    /// came through [`Self::append`]. Snapshot mode: the tail must not
-    /// continue across that gap; its unwritten bytes fall back to a snapshot
-    /// of the replaced terminal, asked for at the next pass. (Full mode's
-    /// segment files never had the gap's bytes either, and their offsets stay
-    /// contiguous, so a full-mode rebuild after a reconnect lacks them: not
-    /// changed here.)
-    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
-        if !self.tail_enabled() {
-            return;
-        }
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return;
-        };
+    /// came through [`Self::append`]. The next output read projects the
+    /// replaced terminal from offset zero; this applies to every persistence
+    /// mode and also creates a log for a re-adopted terminal with no tail yet.
+    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) {
+        // Re-adopted terminals may not have an in-memory log yet. Creating it
+        // here consumes the persisted cursor, so an idle terminal's screen is
+        // still recoverable even before its first post-adoption append.
+        let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.fall_back_to_snapshot();
+        if state.generation != *generation {
+            state.generation = generation.clone();
+            state.tail_start = 0;
+            state.tail.clear();
+            state.pending.clear();
+            state.pending_start = 0;
+        }
+        if self.tail_enabled() {
+            state.fall_back_to_snapshot();
+        }
         state.gaps += 1;
+        state.invalidate_recovery();
         let wait = state.retry_wait();
         drop(state);
-        match wait {
-            Some(wait) => self.mark_log_dirty_after(&log, wait),
-            None => self.mark_log_dirty(&log),
+        if self.tail_enabled() {
+            match wait {
+                Some(wait) => self.mark_log_dirty_after(&log, wait),
+                None => self.mark_log_dirty(&log),
+            }
         }
     }
 
@@ -1025,6 +1043,7 @@ impl OutputStore {
             let end = state.next_offset();
             state.tail.clear();
             state.tail_start = end;
+            state.invalidate_recovery();
             state.pending.clear();
             state.snapshot_digest = None;
             state.snapshot_at = None;
@@ -1044,6 +1063,12 @@ impl OutputStore {
             snapshot::remove(directory, terminal_id);
         }
         self.writer.mark_dirty(Duration::ZERO);
+    }
+
+    /// A parked terminal mirror (surface/mirror_park.rs) is rebuilt at the
+    /// configured scrollback: its budget limit is measured afresh.
+    pub(crate) fn forget_scrollback_budget(&self, terminal_id: &TerminalPublicId) {
+        self.memory_budget.forget(terminal_id);
     }
 
     /// Forget a terminal runtime that left this daemon: its memory. Its
@@ -1075,13 +1100,16 @@ impl OutputStore {
 
     /// The screen a respawn after a lost host starts with: in full mode the
     /// terminal rebuilt from its stored bytes (the long scrollback), else its
-    /// last snapshot. `None` in memory mode or when nothing was written.
+    /// last snapshot and the tail after it. `None` in memory mode or when
+    /// nothing was written. `scrollback` is the respawned terminal's
+    /// scrollback limit: a rebuild keeps as much history as it will.
     /// Memory mode: the writer removes every file at start, and a respawn
     /// that runs before it finds nothing either, since memory mode never
     /// wrote one.
     pub(crate) fn previous_screen(
         &self,
         terminal_id: &TerminalPublicId,
+        scrollback: usize,
     ) -> Option<crate::workspace_registry::terminal_respawn_store::TerminalReplay> {
         let directory = self.directory.as_deref()?;
         if self.memory_only() {
@@ -1109,12 +1137,43 @@ impl OutputStore {
             (snapshot, generation, tail)
         };
         if full
-            && let Some(rebuilt) =
-                segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
+            && let Some(rebuilt) = segments::rebuild(
+                directory,
+                terminal_id,
+                &generation,
+                snapshot.cols,
+                snapshot.rows,
+                scrollback,
+            )
         {
             return Some(rebuilt);
         }
-        Some(tail::restore(snapshot, &tail))
+        Some(tail::restore(snapshot, &tail, scrollback))
+    }
+
+    /// Tests: persist `terminal` the way the writer's pass does in snapshot
+    /// mode, at the default policy: its snapshot (the bounded replay the
+    /// pass captures) at stream offset `snapshot_end`, then `tail`, the
+    /// output after it, in the tail file.
+    #[cfg(test)]
+    pub(crate) fn persist_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+        generation: &str,
+        terminal: &mut ghostty_vt::Terminal,
+        snapshot_end: u64,
+        tail: &[u8],
+    ) -> anyhow::Result<()> {
+        let directory = self
+            .directory
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("the store has no directory"))?;
+        let policy = PersistencePolicy::resolve(None, None, None);
+        let (cols, rows) = (terminal.cols(), terminal.rows());
+        let budget = snapshot::replay_budget(cols, rows, policy.max_bytes_per_terminal);
+        let replay = terminal.vt_replay_bounded(budget)?.into_self_contained_bytes();
+        snapshot::write(directory, terminal_id, generation, snapshot_end, cols, rows, &replay)?;
+        tail::append(directory, terminal_id, generation, snapshot_end, snapshot_end, tail, false)
     }
 
     /// The logs whose terminal printed since the writer last looked; their

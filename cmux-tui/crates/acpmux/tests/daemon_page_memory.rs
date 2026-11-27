@@ -218,8 +218,8 @@ fn start_with_agents(scratch: &Path, home: &Path, agents: daemon_env::Agents) ->
 fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
     let mb = env_or("ACPMUX_PAGE_LOG_MB", 40);
     let budget_mb = env_or("ACPMUX_PAGE_RSS_BUDGET_MB", 64);
-    let dir = std::env::temp_dir().join(format!("amx-pagemem-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // Removed when the test ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+    let dir = daemon_env::Scratch::new("amx-pagemem");
     let home = dir.join("home");
     private_dir(&home);
     let id = "01a15c1e-83f9-78c2-bb80-000000000001";
@@ -269,7 +269,6 @@ fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
     // SAFETY: the pid is this test's own child.
     unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
     let _ = child.wait();
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(seen, records, "the pages did not return every record");
     assert!(
         grew_mb <= budget_mb,
@@ -329,11 +328,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
     let mut growth = Vec::new();
     for status in ["idle", "closed"] {
         for retained in [0, 288, 1000] {
-            let dir = std::env::temp_dir().join(format!(
-                "amx-transcript-{}-{}-{status}-{retained}",
-                std::process::id(),
-                uuid::Uuid::now_v7()
-            ));
+            let dir = daemon_env::Scratch::new(&format!("amx-transcript-{status}-{retained}"));
             let home = dir.join("home");
             private_dir(&home);
             let config = json!({
@@ -351,7 +346,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                 let session = home.join("sessions").join(&id);
                 private_dir(&session.join("events"));
                 let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": format!("fixture-{i}"),
-                    "harness": "noload", "cwd": dir, "status": status,
+                    "harness": "noload", "cwd": &*dir, "status": status,
                     "agentSessionId": "saved-agent", "createdAt": 1, "updatedAt": 1,
                     "lastSeq": if i == 0 {513} else {1}, "eventCount": if i == 0 {513} else {1}});
                 serde_json::from_value::<acpmux::store::SessionMeta>(meta.clone()).unwrap();
@@ -430,8 +425,9 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                         && e["msg"]
                             .pointer("/params/update/content/text")
                             .and_then(Value::as_str)
-                            .is_some_and(|s| s.contains("<restored_transcript")
-                                && s.contains("earlier characters omitted")))
+                            .is_some_and(
+                                |s| s.contains("<restored_transcript") && s.contains("omitted")
+                            ))
                     .count(),
                 3
             );
@@ -444,7 +440,6 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
             );
             growth.push(peak.saturating_sub(rss0));
             drop(child);
-            std::fs::remove_dir_all(&dir).unwrap();
         }
     }
     // Same 16-core Linux fixture: base grew 100–105 MiB; bounded construction

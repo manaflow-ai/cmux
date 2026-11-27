@@ -17,6 +17,7 @@ fn peer(key: String, endpoint: SocketAddr, address: SocketAddr) -> PeerConfig {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     }
 }
 
@@ -109,8 +110,8 @@ async fn pair_on(
     wrong_key: bool,
 ) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
     let homes = vec![tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-    let a_key = crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
-    let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
+    let a_key = crate::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
+    let b_key = crate::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
     let b_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let a = StaticConfig {
         listen: a_socket.local_addr().unwrap(),
@@ -206,7 +207,7 @@ fn a_held_key_lock_steps_the_transport_down_without_binding() {
         });
         // A link that serves this node's own key (one key on the machine) holds its lock.
         let link_dir = tempfile::tempdir().unwrap();
-        crate::cli::mesh_node_key::load_or_create_at(dir.path()).unwrap();
+        crate::mesh_node_key::load_or_create_at(dir.path()).unwrap();
         let node = std::fs::read(cmux_link::key_holder::KeyFile::Node.path_in(dir.path())).unwrap();
         std::fs::write(
             cmux_link::key_holder::KeyFile::Link.path_in(link_dir.path()),
@@ -228,6 +229,39 @@ fn a_held_key_lock_steps_the_transport_down_without_binding() {
             start().await.is_err(),
             "with the lock free, the transport goes on to the (occupied) bind"
         );
+    });
+}
+
+/// Review F1 at 9e91bcea: a configured link turns the transport off only when it serves this
+/// home's node key (the app recorded this home for it). A link that keeps its own key (no
+/// home recorded, as under launchd before the fix) leaves the transport on, so the machine
+/// is never left with neither on the node key.
+#[test]
+fn the_transport_steps_down_only_for_a_link_that_serves_the_node_key() {
+    runtime().block_on(async {
+        // Occupied: a transport that goes on fails at its bind.
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        let link_dir = tempfile::tempdir().unwrap();
+        std::fs::write(link_dir.path().join("config.json"), r#"{"install":"inst_a","port":0}"#)
+            .unwrap();
+        let start = || {
+            Transport::start_with_link(
+                &cfg,
+                dir.path(),
+                Some(link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+        };
+        assert!(start().await.is_err(), "a link keeping its own key turned the transport off");
+        crate::mesh_node_key::record_link_home(link_dir.path(), Some(dir.path())).unwrap();
+        assert!(start().await.unwrap().is_none(), "the link serving the node key holds it");
     });
 }
 
@@ -533,8 +567,8 @@ fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
     runtime().block_on(async {
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let homes = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-        let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
-        crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
+        let b_key = crate::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
+        crate::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
         let fresh = Zeroizing::new([42u8; 32]);
         let fresh_public = base64::engine::general_purpose::STANDARD.encode(
             x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*fresh)).to_bytes(),

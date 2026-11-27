@@ -8,8 +8,9 @@ installs without your click on that card.
 
 ## 1. Open the App Store
 
-In this build the App Store is a preview feature. Turn it on first: Settings > Labs > Preview
-features, or `cmux settings set labs.previewFeatures true`.
+The App Store is hidden until it is ready: it has its own switch, off by default (Show Preview
+Features does not turn it on). Turn it on first: Settings > Experimental > Labs > Show App Store
+(search Settings for "App Store"), or `cmux settings set labs.appStore true`.
 
 Then use one of these:
 
@@ -58,6 +59,65 @@ It exits 0 when you confirm. When you decline, it exits 1 with "Nothing changed"
 `cmux apps list --installed` shows only your apps. Add `--json` to any of these commands for
 JSON output. `cmux apps list` and `cmux apps info` also work without the Mac app, for example on
 a Linux server that runs `cmux server`.
+
+### Install from a git repo
+
+An extension can live in its own public git repository. Install it straight from the repo:
+
+```sh
+cmux apps install github.com/OWNER/REPO            # the latest release
+cmux apps install github.com/OWNER/REPO@1.2.0      # one release or tag
+cmux apps install github.com/OWNER/REPO@main       # the head of a branch
+cmux apps install github.com/OWNER/REPO/apps/clock # one extension in a repo that holds several
+cmux apps info github.com/OWNER/REPO               # what an install would pin, before installing
+cmux apps update OWNER/NAME                        # move to the newest release (or branch head)
+```
+
+The repository can be on github.com, gitlab.com, codeberg.org or any other https git host
+(`https://HOST/OWNER/REPO.git`). A GitHub page URL such as
+`https://github.com/OWNER/REPO/tree/main/apps/clock` works too.
+
+What cmux installs:
+
+1. **A pinned commit.** With no `@REF`, cmux takes the latest release. When the release has a
+   `cmux-extension.tar.gz` asset (`cmux ext pack`), cmux installs that built package and checks
+   its SHA-256. With no release, cmux takes the newest version tag (`1.2.0` or `v1.2.0`), else
+   the default branch.
+2. **One consent card first.** The card names the repository and the short commit (and the tag),
+   every permission the extension asks for, and "Not reviewed by cmux" when the extension is
+   not on the community list. Nothing installs or runs until you confirm.
+   The install is for the commit the card showed: if the branch moves while the card is open, the
+   install still gets the commit you saw (a card older than 15 minutes asks again).
+3. **Checks.** The repo (or PATH) holds `cmux-app.json` or `cmux-app.v2.json`, which passes the
+   manifest validator. The app id must start with the repository owner (`OWNER/...`);
+   `cmux/` and `manaflow-ai/` ids come only from manaflow-ai's repositories on github.com. When the manifest's
+   `engines.cmux` needs a newer cmux, the install stops and says which version you need. An
+   extension from a repository is always unverified: it runs in the sandbox with only the
+   permissions on its card.
+4. **Limits.** The download is at most 64 MiB, the package at most 64 MiB. cmux skips symlinks
+   and refuses paths that leave the package.
+
+`cmux apps update` moves the app to the newest release (an install pinned to a version tag
+follows new releases; one on a branch follows the branch). The consent card shows again with the
+new commit, so you see any new permission before it applies. A permission the new version no
+longer asks for is removed.
+
+The files live in `<state>/apps/git/HOST/OWNER/REPO/<commit>/` (`<commit>+PATH` for a package in
+a subdirectory, `+release` for a release package). `<state>/apps/git/sources.json` records each
+app's repository, ref, commit, tag, version and SHA-256. cmux keeps the SHA-256 of every commit it
+installed: when the same commit later has different contents, the install stops. Removing the app
+deletes its files.
+
+`cmux apps info --json` and the `catalog.get` and `installed.list` rows of such an app carry
+`repository`, `path`, `ref`, `commit`, `tag`, `version`, `source_sha256` and `asset_sha256`. The
+App Store's listing links the source repo at the installed commit.
+
+An install link opens the same card:
+`cmux://apps/install?repo=github.com/OWNER/REPO&commit=SHA` (`commit` is optional; `ref=` names a
+branch or tag instead).
+
+cmux sends one anonymous install count to the extension registry after an install: the reference
+and the commit, with no user id. `CMUX_EXTENSIONS_NO_PING=1` turns it off.
 
 ### From the palette
 

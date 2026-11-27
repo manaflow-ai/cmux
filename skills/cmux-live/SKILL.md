@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Try a change to cmux's web UI or daemon live in the running app, with no build or relaunch: point cmux at a checkout's webviews dev server, or `cmux live start --rust` for cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
+description: "Try a cmux webviews/ or daemon change live in the running app, no build or relaunch (`cmux live start`, `--rust`). Use for hot reload or before asking for a dev build."
 ---
 
 # cmux live
@@ -22,7 +22,7 @@ need one, take the first row that covers the change:
 Only a change none of these takes (a new stored property or type in existing Swift, a resource, a
 manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-next/live_apply.py
 BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
-the app, about 42% go into a nightly this way with no build.
+the app, about 42% went into a nightly this way with no build; of the newest 300 merged (2026-11-15), 70% of the Mac-app ones.
 
 `cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
 cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent

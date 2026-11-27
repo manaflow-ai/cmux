@@ -39,8 +39,8 @@ use crate::app::pointer::deferred::{DeferredInputQueue, OuterCursorSpec, Pointer
 use crate::app::pointer::route::RenderedPointerFrame;
 use crate::app::selection::SelectionMode;
 use crate::app::terminal_guard::{
-    TerminalRestoreGuard, negotiate_host_keyboard_protocol, restore_terminal_unlocked,
-    terminal_restore_error, with_panic_stdout_lock,
+    TerminalRestoreGuard, negotiate_host_keyboard_protocol, restore_terminal_for_restart,
+    restore_terminal_unlocked, terminal_restore_error, with_panic_stdout_lock,
 };
 use crate::app::{
     APP_EVENT_CAPACITY, App, PaneFocusHistory, WorkspaceRailSelection, client_focus_identity,
@@ -359,7 +359,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         default_hook(info);
     }));
 
-    let backend = CrosstermBackend::new(std::io::stdout());
+    let backend =
+        CrosstermBackend::new(super::host_frame_writer::host_frame_writer(std::io::stdout()));
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
@@ -597,7 +598,21 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         owner.mark_server_lifecycle_ready();
     }
 
+    // The UI-loop hang watchdog (ui_watchdog): samples and reports a stalled turn, cancels a
+    // known wait past its bound, and past the restart bound hands the session to a fresh client,
+    // which only a client whose terminals live in a daemon may do.
+    let restore_for_restart = (app.session.remote && app.owner_mux.is_none()).then(|| {
+        let keyboard = terminal_restore.host_keyboard_protocol().clone();
+        Box::new(move || restore_terminal_for_restart(&keyboard)) as Box<dyn Fn() + Send + Sync>
+    });
+    let watchdog = crate::ui_watchdog::start_client(&app.session_label, restore_for_restart);
     let result = app.event_loop(&mut terminal, rx);
+    crate::ui_watchdog::stop_client();
+    drop(watchdog);
+    // A draw that failed partway leaves the rest of its frame in the frame
+    // buffer; let it go out now, on the alternate screen the restore leaves,
+    // not on the person's own screen when `terminal` drops at the end.
+    drop(terminal);
     #[cfg(unix)]
     SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
@@ -662,8 +677,7 @@ pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> S
         .map(|location| location.to_string())
         .unwrap_or_else(|| "<unknown>".to_string());
     let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
-    let backtrace = std::backtrace::Backtrace::capture();
-    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+    if let Some(backtrace) = cmux_panic_log::backtrace::capture() {
         diagnostic.push_str(&format!("{backtrace}\n"));
     }
     diagnostic

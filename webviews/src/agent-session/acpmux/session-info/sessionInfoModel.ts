@@ -1,8 +1,16 @@
 import { type ChatColumn } from "../chatWidth";
 import { type AcpmuxRow, transcriptColumn } from "../model";
 import { tryChipHost } from "../chips/host";
+import { PrefixFold } from "../conversation/prefixFlatMap";
 
-export type SessionInfoPlacement = "push" | "overlay";
+/// Where Session Info goes (Settings `agentPane.display.sessionInfo.placement`): `overlay` (the default)
+/// floats in the chat's right gutter, `push` always moves the chat aside, `inline` draws it as a band atop
+/// the transcript, in the chat's own flow: no side panel, no glass, no cut (Leo, 2026-11-19: "you guys
+/// should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info").
+export type SessionInfoPlacement = "push" | "overlay" | "inline";
+/// Whether Session Info draws as the band atop the transcript (SessionInfoPresence portals it into the
+/// chat's stage, under the header).
+export const inlines = (placement: SessionInfoPlacement) => placement === "inline";
 
 /// The narrowest chat Session Info pushes aside: a pushed panel narrows to keep it, down to the
 /// panel's own narrowest width.
@@ -290,9 +298,22 @@ export const SESSION_INFO_TOGGLE = "button.acpmux-session-info-toggle";
 export const DISMISS_KEEPERS =
   'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup';
 
-/// The tool calls in `rows`, by id.
-export const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
-  new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+/// The tool calls in `rows`, by id. Read on every update while Session Info shows: the rows again only
+/// past the prefix an update kept, and the set made again only when the ids changed (PrefixFold).
+export const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> => callIds.read(rows);
+const NO_IDS: readonly string[] = [];
+const rowCallIds = new WeakMap<AcpmuxRow, { readonly items: AcpmuxRow["items"]; readonly ids: readonly string[] }>();
+const callIds = new PrefixFold<AcpmuxRow, string, ReadonlySet<string>>(
+  (row) => {
+    if (!row.items?.length) return NO_IDS;
+    const kept = rowCallIds.get(row);
+    if (kept?.items === row.items) return kept.ids;
+    const ids = row.items.flatMap((item) => (item.tool?.id ? [item.tool.id] : []));
+    rowCallIds.set(row, { items: row.items, ids });
+    return ids;
+  },
+  (ids) => new Set(ids),
+);
 
 /// An Outputs file opens as the reply's path chip opens it (`link.openPath`); false when the host
 /// refused it.

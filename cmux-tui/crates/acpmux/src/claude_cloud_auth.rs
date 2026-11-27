@@ -12,8 +12,9 @@
 //! same one for Codex): `CMUX_CLAUDE_AUTH=own|team` pins it, then `cr use`'s recorded choice; a
 //! sign-in of its own keeps own. That is any source `claude_auth::find_in` sees in the launch's
 //! effective env (the login values, the vault, `machine.env`, then the profile, as
-//! `login_env::effective_for` layers them): a key or token, settings env or a helper, the
-//! `.claude.json` API key or the saved sign-in;
+//! `login_env::effective_for` layers them; for a remote-origin launch, which gets none of those,
+//! only the host base and the profile: [`launch_env_now`]): a key or token, settings env or a
+//! helper, the `.claude.json` API key or the saved sign-in;
 //! no `https://` team origin, or one that does not resolve, keeps own. Otherwise team: the pair the
 //! shell set aside, read from the model-plane env file it was persisted to, or the origin and the
 //! public placeholder. A pair the person set themselves stays.
@@ -49,9 +50,95 @@ where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    if !inputs.owner_cloud_image() {
+    if !inputs.owner_cloud_image() || !chooses_team(inputs, env, flag, cwd, true) {
         return None;
     }
+    let origin = inputs.team_origin()?;
+    let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
+    if host.is_empty() || !resolves(host).await {
+        return None;
+    }
+    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key =
+        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+}
+
+/// Claude team mode on a machine joined to the cmux hub that is not a Cloud image
+/// (`joined_model_plane.rs`): [`team_pair`]'s rules, but with no pin or `cr use` choice it stays
+/// own. `join` is the machine's join now (`joined_model_plane::now`); `resolves` answers whether
+/// the hub's host resolves. The pair is the hub origin and the public placeholder key; the
+/// machine credential goes in a header the egress proxy fills (`joined_model_plane::claude_headers`).
+pub async fn joined_pair<F, Fut>(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+    join: Option<&crate::joined_model_plane::Join>,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let join = join.filter(|_| !inputs.owner_cloud_image())?;
+    if !chooses_team(inputs, env, flag, cwd, false) || !resolves(join.host().to_owned()).await {
+        return None;
+    }
+    Some([
+        ("ANTHROPIC_BASE_URL".to_owned(), join.origin().to_owned()),
+        ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
+    ])
+}
+
+/// Why a joined launch that chose team still keeps own on purpose: a pair it sets itself, a
+/// managed credential, or an `own` pin over the choice ([`joined_pair`]'s rules before the hub's
+/// host is resolved). None: a [`joined_pair`] of None means the host did not resolve.
+pub(crate) fn joined_own_reason(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+) -> Option<&'static str> {
+    team_or_own(inputs, env, flag, cwd, false).err()
+}
+
+/// Whether a Claude launch on a joined machine has nothing to sign in with: no
+/// `CMUX_CLAUDE_AUTH` pin, no `cr use` choice, and no sign-in of its own, the one a Cloud image
+/// would send to its team plane ([`chooses_team`]'s unchosen rule). The joined plane is opt-in,
+/// so this launch would reach Claude's own host with no credential.
+pub(crate) fn joined_without_sign_in(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+) -> bool {
+    let pinned =
+        matches!((inputs.var)("CMUX_CLAUDE_AUTH").as_deref().map(str::trim), Some("own" | "team"));
+    !pinned && inputs.choice_for("claude").is_none() && chooses_team(inputs, env, flag, cwd, true)
+}
+
+/// Whether a Claude launch takes a team plane (module docs; [`team_pair`] and [`joined_pair`]):
+/// never over a pair the launch sets or a managed credential; then `CMUX_CLAUDE_AUTH=own|team`,
+/// then `cr use`'s choice; with neither, `unchosen_team` and no sign-in of its own.
+fn chooses_team(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+    unchosen_team: bool,
+) -> bool {
+    team_or_own(inputs, env, flag, cwd, unchosen_team).is_ok()
+}
+
+/// [`chooses_team`] with the reason a launch keeps own, in words for a log.
+fn team_or_own(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+    unchosen_team: bool,
+) -> Result<(), &'static str> {
     let var = |k: &str| (inputs.var)(k).filter(|v| !v.is_empty());
     // The flag settings' env, which Claude applies over the process env. A JSON `true` or number
     // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
@@ -75,23 +162,27 @@ where
         .unwrap_or_default();
     let set = |k: &str| var(k).is_some() || flag_env.get(k).is_some_and(|v| !v.is_empty());
     // A pair in the launch already (the person's, or a route's) wins, as in the launcher.
-    if set("ANTHROPIC_BASE_URL") || set("ANTHROPIC_API_KEY") {
-        return None;
+    if set("ANTHROPIC_BASE_URL") {
+        return Err("the launch sets ANTHROPIC_BASE_URL itself");
+    }
+    if set("ANTHROPIC_API_KEY") {
+        return Err("the launch sets ANTHROPIC_API_KEY itself");
     }
     // Managed settings outrank every `--settings`, so team mode cannot empty a credential there:
     // keep own mode, whatever was chosen, rather than send it to the team endpoint.
     if managed_credential(&inputs.root.join(MANAGED_SETTINGS)) {
-        return None;
+        return Err("a managed settings file holds a credential");
     }
     let pinned = match var("CMUX_CLAUDE_AUTH").as_deref().map(str::trim) {
-        Some("own") => return None,
+        Some("own") => return Err("CMUX_CLAUDE_AUTH pins own"),
         Some("team") => true,
         _ => false,
     };
     if !pinned {
         match inputs.choice_for("claude") {
-            Some("own") => return None,
+            Some("own") => return Err("the recorded choice is own"),
             Some(_) => {}
+            None if !unchosen_team => return Err("no choice is recorded"),
             None => {
                 let mut env = env.clone();
                 env.entry("HOME".to_owned())
@@ -104,20 +195,47 @@ where
                 // is the person's too, as one in the env or the flag is above.
                 let found = crate::claude_auth::find_in(&env, cwd);
                 if flag_helper || found.signed_in() || found.endpoint.is_some() {
-                    return None;
+                    return Err("the launch has a sign-in of its own");
                 }
             }
         }
     }
-    let origin = inputs.team_origin()?;
-    let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
-    if host.is_empty() || !resolves(host).await {
-        return None;
-    }
-    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
-    let key =
-        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
-    Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+    Ok(())
+}
+
+/// The env Claude's sign-in check reads for one launch with the resolved profile env `profile`,
+/// over the daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
+/// and `machine.env`'s values `machine` (`provider_cloud_auth::LaunchEnv::new`). A `remote`
+/// (remote-origin) launch starts from the fixed host base `daemon` and its profile only, so a
+/// vault or `machine.env` value is no sign-in of its own (#43821).
+#[cfg(test)]
+pub(crate) fn launch_env(
+    profile: BTreeMap<String, String>,
+    daemon: BTreeMap<String, String>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    crate::provider_cloud_auth::LaunchEnv::new(
+        "claude",
+        profile,
+        daemon,
+        vault,
+        machine,
+        Vec::new(),
+        remote,
+    )
+    .into_env()
+}
+
+/// The env Claude's sign-in check reads for one launch (`hub/spawn.rs`): this daemon's env, vault
+/// and `machine.env` now under the resolved profile, or for a `remote` launch only the host base
+/// it starts from and the profile (`provider_cloud_auth::LaunchEnv::now`; tests: `launch_env`).
+pub(crate) fn launch_env_now(
+    profile: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    crate::provider_cloud_auth::LaunchEnv::now("claude", profile, remote).into_env()
 }
 
 /// Claude's managed settings on Linux, under the machine root.
@@ -221,6 +339,11 @@ pub(crate) fn flag_settings(
         Ok(_) => Err("--settings is not a JSON object".to_owned()),
         Err(e) => Err(format!("--settings: {e}")),
     }
+}
+
+/// `argv` without any `--settings` (before a `--`): the rest of its words, in order.
+pub(crate) fn without_settings(argv: &[String]) -> Vec<String> {
+    settings_args(argv).0
 }
 
 /// `argv` without any `--settings` (before a `--`), and the last one's value.
@@ -414,6 +537,42 @@ mod tests {
         assert_eq!(pair(&m, &[], false).await, None);
     }
 
+    /// The 2026-11-25 cloud-claude-matrix sr2 rows ("Claude is not signed in here ... no model
+    /// route"): the per-home model-plane file kept only the OpenAI pair, so it hid the image's
+    /// origin and every Claude with no sign-in launched in own mode with no login.
+    #[tokio::test]
+    async fn a_per_home_file_that_kept_only_the_openai_pair_still_routes_claude() {
+        let m = machine("owner");
+        std::fs::write(
+            m.root.join("etc/cmux/model-plane.env"),
+            "export OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+             export OPENAI_API_KEY='cmux-vm-edge-placeholder'\n\
+             export CMUX_CODEROUTER_URL='https://coderouter.cmux.internal'\n\
+             export ANTHROPIC_BASE_URL='https://coderouter.cmux.internal'\n\
+             export ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'\n",
+        )
+        .unwrap();
+        let dir = m.home.join(".config/cmux");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("model-plane.env"),
+            "# generated by cmux from machine boot env; managed, do not edit\n\
+             export OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+             export OPENAI_API_KEY='cmux-vm-edge-placeholder'\n",
+        )
+        .unwrap();
+        let got = pair(&m, &[], true).await.expect("team");
+        assert_eq!(
+            got[0],
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned())
+        );
+        assert_eq!(got[1], ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()));
+        // A per-home file naming another plane is the person's: no team route from the image.
+        std::fs::write(dir.join("model-plane.env"), "export OPENAI_BASE_URL='https://x/v1'\n")
+            .unwrap();
+        assert_eq!(pair(&m, &[], true).await, None);
+    }
+
     #[tokio::test]
     async fn a_sign_in_a_choice_or_a_persons_pair_keeps_own() {
         let m = machine("owner");
@@ -449,6 +608,55 @@ mod tests {
         std::fs::remove_file(m.home.join(".claude/settings.json")).unwrap();
         std::fs::write(m.home.join(".claude.json"), r#"{"primaryApiKey":"sk-own"}"#).unwrap();
         assert_eq!(pair(&m, &[], true).await, None);
+    }
+
+    /// [`pair`] over the env a launch gets ([`launch_env`]): its profile, the vault's entries and
+    /// `machine.env`'s values, with no daemon or login value but `HOME`; local or `remote`-origin.
+    async fn launch_pair(
+        m: &Machine,
+        profile: &[(&str, &str)],
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        remote: bool,
+    ) -> Option<[(String, String); 2]> {
+        let map = |v: &[(&str, &str)]| -> BTreeMap<String, String> {
+            v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let daemon = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        let env = launch_env(
+            map(profile),
+            daemon,
+            map(vault).into_iter().collect(),
+            map(machine),
+            remote,
+        );
+        let read = env.clone();
+        let var = move |k: &str| read.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        team_pair(&inputs, &env, None, &m.home, |_| async move { true }).await
+    }
+
+    /// #43821: a remote-origin launch (a Cloud chat the app starts through its peer link) gets no
+    /// vault or `machine.env` value (`agent/command.rs`), so a Claude key held only there is no
+    /// sign-in of its own: it gets the team's model plane, not a sign-in prompt. A key in its own
+    /// profile still keeps own, and a local launch still counts all three.
+    #[tokio::test]
+    async fn a_remote_launch_counts_only_the_sign_in_it_gets() {
+        let m = machine("owner");
+        for k in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] {
+            let v = [(k, "real-key-123")];
+            assert_eq!(launch_pair(&m, &[], &v, &[], false).await, None, "local vault {k}");
+            assert_eq!(launch_pair(&m, &[], &[], &v, false).await, None, "local machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], false).await, None, "local profile {k}");
+            let got = launch_pair(&m, &[], &v, &[], true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote vault {k}");
+            let got = launch_pair(&m, &[], &[], &v, true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], true).await, None, "remote profile {k}");
+        }
+        // No key anywhere: team mode either way.
+        assert_eq!(launch_pair(&m, &[], &[], &[], false).await, Some(team_pair_value()));
+        assert_eq!(launch_pair(&m, &[], &[], &[], true).await, Some(team_pair_value()));
     }
 
     fn team_pair_value() -> [(String, String); 2] {

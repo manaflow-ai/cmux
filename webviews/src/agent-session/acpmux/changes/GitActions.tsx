@@ -242,16 +242,9 @@ function CommitForm({
           {t("git.commit.submit")}
         </button>
       </div>
-      {/* Keep the scope hint and Include new files below the scope and action buttons. Reserve both
-          translations and the checkbox so switching scope never moves or wraps either row. */}
+      {/* Include new files sits below the scope and action buttons. Its space stays reserved under
+          Staged so switching scope never moves the rows below. */}
       <div className="acpmux-git-form-row acpmux-git-scope-line">
-        <span className="acpmux-git-scope-hint">
-          {options.map(({ value }) => (
-            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
-              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
-            </span>
-          ))}
-        </span>
         <label className="acpmux-git-include-new" data-visible={scope === "all"}>
           <input
             type="checkbox"
@@ -301,30 +294,33 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
 }
 
 /// The latest write: busy, done, or why it failed, with Retry, Refresh and Dismiss as they apply.
-/// A status read that failed shows here too, with Refresh. The `role=status` region stays
-/// mounted and only its text changes, so screen readers announce busy and done; a failure is
-/// its own alert.
+/// A status read that failed is read again on its own (useGitWrite.ts): nothing shows for it until it
+/// has kept failing, then one quiet line with no button. The `role=status` region stays mounted and
+/// only its text changes, so screen readers announce busy and done; a write's failure is its own alert.
 function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: boolean }) {
   const t = useT();
   const state = git.state;
   const failed = state?.phase === "failed" ? state : undefined;
-  const statusFailed = !state && git.statusFailed;
-  const phase = state?.phase ?? (statusFailed ? "failed" : "idle");
+  const statusStillTrying = !state && git.statusFailed && git.statusStillTrying === true;
+  const phase = state?.phase ?? "idle";
   const progress =
     state?.phase === "busy"
       ? t(state.op === "commit" ? "git.commit.busy" : "git.push.busy")
       : state?.phase === "done"
         ? state.text
-        : "";
-  const canRefresh = failed ? failed.canRefresh : statusFailed;
+        : statusStillTrying
+          ? t("git.statusStillReading")
+          : "";
+  // retry-prompt-ok: Refresh after a failed write re-reads the branch before the person's next commit or push.
+  const canRefresh = failed?.canRefresh === true;
   return (
     <div className="acpmux-git-status" data-phase={phase}>
       <output className="acpmux-git-status-text" aria-live="polite">
         {progress}
       </output>
-      {(failed || statusFailed) && (
+      {failed && (
         <span className="acpmux-git-status-text" role="alert">
-          {failed ? failed.text : t("git.statusFailed")}
+          {failed.text}
         </span>
       )}
       {canRefresh && (
@@ -334,6 +330,7 @@ function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: 
       )}
       {failed?.canRetry && (
         <button type="button" className="acpmux-git-secondary" disabled={disabled} onClick={git.retry}>
+          {/* retry-prompt-ok: runs the failed git commit or push again, a write to the repository. */}
           {t("git.retry")}
         </button>
       )}

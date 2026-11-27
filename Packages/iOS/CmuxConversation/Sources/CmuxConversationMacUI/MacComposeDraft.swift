@@ -432,7 +432,8 @@ final class MacComposeDraftController: NSViewController, NSTableViewDataSource, 
             suggestionsPanel.alphaValue = session.suggestions.isEmpty ? 0 : 1
             updateServiceLine()
             view.needsLayout = true
-        case .sending:
+        case .rows, .sending:
+            // This draft lists `suggestions` (it sets no listing).
             break
         }
     }
@@ -541,6 +542,7 @@ final class MacComposeDraftController: NSViewController, NSTableViewDataSource, 
                     ? String(localized: "conversation.compose.invalid.title", defaultValue: "Not a Valid Address", bundle: .module)
                     : String(localized: "conversation.compose.failed.title", defaultValue: "Could Not Start Conversation", bundle: .module)
                 alert.informativeText = invalid
+                    // retry-prompt-ok: the person must fix the recipients first
                     ? String(localized: "conversation.compose.invalid.message", defaultValue: "Remove the red recipients and try again.", bundle: .module)
                     : String(describing: error)
                 if let window = self.view.window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }

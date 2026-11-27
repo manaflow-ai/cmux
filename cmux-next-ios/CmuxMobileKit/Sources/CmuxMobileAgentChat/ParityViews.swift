@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileDiff
@@ -126,7 +127,7 @@ struct SubagentGroupCard: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
-            Divider().padding(.leading, 16)
+            Divider().overlay(Color.cmuxMobileContentLine(.card)).padding(.leading, 16)
             ForEach(agents) { agent in
                 Button { open(agent.id) } label: {
                     HStack(spacing: 10) {
@@ -145,12 +146,14 @@ struct SubagentGroupCard: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel("\(agent.name), \(agent.state.label)")
                 .accessibilityHint("Opens its transcript")
             }
         }
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        // A content card in the page (the design system's card level): the theme's ink over the
+        // Mac's picture, never an opaque slab.
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
@@ -196,7 +199,7 @@ struct SubagentsScreen: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
         .listStyle(.plain)
@@ -244,14 +247,15 @@ struct SubagentTranscriptScreen: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
-                    .frame(height: 28)
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 28)
                     .background(Color.cmuxMobileFill, in: .capsule)
                     if let task = agent.task {
                         Text(task)
                             .font(.body)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
-                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                            .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
@@ -270,7 +274,8 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
-            .background(Color.cmuxMobileBackground)
+            .background { CmuxMobileChatBackdrop() }
+            .cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -313,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):
@@ -339,6 +342,12 @@ enum ParityLoad<Value> {
     case loaded(Value)
     case unavailable(String)
     case failed(String)
+
+    /// A transient failure (retried on its own); `unavailable` is deterministic and is not.
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 /// Repository checkpoints around the session's turns (web acpmux/checkpoints):
@@ -353,6 +362,7 @@ struct CheckpointsScreen: View {
     @State private var restoring: String?
     @State private var toast: CmuxMobileToast?
     @State private var restoredTrigger = 0
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -366,12 +376,17 @@ struct CheckpointsScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let checkpoints):
                 List {
@@ -400,8 +415,9 @@ struct CheckpointsScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .cmuxMobileToast($toast)
-        .sensoryFeedback(.success, trigger: restoredTrigger)
+        .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
@@ -449,7 +465,7 @@ struct CheckpointsScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(restoring != nil)
     }
 
@@ -459,7 +475,7 @@ struct CheckpointsScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 
@@ -473,7 +489,7 @@ struct CheckpointsScreen: View {
                 restoredTrigger += 1
                 await reload()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: error.localizedDescription)
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint."))
             }
             restoring = nil
         }
@@ -491,6 +507,7 @@ struct HandoffScreen: View {
     let surface: AgentChatSurface
     @State private var load: ParityLoad<[AgentHandoffTarget]> = .loading
     @State private var selected: AgentHandoffTarget?
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -504,12 +521,17 @@ struct HandoffScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let targets):
                 List {
@@ -530,7 +552,7 @@ struct HandoffScreen: View {
                                 .frame(minHeight: 48)
                                 .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressFill)
                             .disabled(target.unavailableReason != nil)
                             .opacity(target.unavailableReason == nil ? 1 : 0.5)
                         }
@@ -545,6 +567,7 @@ struct HandoffScreen: View {
             }
         }
         .chatDemoReceiver(store: store, surface: surface)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .navigationTitle("Continue in…")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selected) { target in
@@ -562,33 +585,16 @@ struct HandoffScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 }
 
-/// A round agent mark: the harness glyph on a raised circle (as Feed avatars).
+/// A round agent mark, as the Feed's avatars (`AgentAvatarMark`): the agent's own mark on its tinted circle.
 struct AgentGlyph: View {
     let harness: String
 
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 14, weight: .medium))
-            .frame(width: 32, height: 32)
-            .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-            .accessibilityHidden(true)
-    }
-
-    private var symbol: String {
-        switch harness {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "cursor": "cursorarrow.rays"
-        case "gemini": "sparkles"
-        case "opencode": "curlybraces"
-        default: "sparkle"
-        }
-    }
+    var body: some View { AgentAvatar(harness: harness, side: 32) }
 }
 
 /// Review of one continuation: what it carries, the capsule text, the checkpoint attestation.
@@ -642,7 +648,7 @@ struct HandoffReviewScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: receipt)
+        .cmuxMobileSensoryFeedback(.success, trigger: receipt)
         .task { await prepare() }
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
@@ -750,7 +756,7 @@ struct HandoffReviewScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 
@@ -765,7 +771,7 @@ struct HandoffReviewScreen: View {
             do {
                 receipt = try await store.source.startHandoff(reviewed)
             } catch {
-                self.error = error.localizedDescription
+                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff.")
             }
             starting = false
         }
@@ -780,7 +786,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,

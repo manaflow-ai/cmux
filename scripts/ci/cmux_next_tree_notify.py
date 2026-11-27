@@ -19,6 +19,17 @@ publish-cmux-tui-tree.py writes it last and only once, so it is the record
 that the tree is published: a run cancelled after (or while another run)
 published the key reports ready, not the run's conclusion (#23517).
 
+A ready state never dispatches a same-tree run that is already open: one
+`--sweep-pending` per push read the same pending record and marker before
+any of them deleted them, and each dispatched the same run (2026-11-17,
+lane/launch-stage0-window b0549a37: three runs, three Debug scheme compiles
+queued on the owned Mac minis). A marker whose same-tree run (by its run name,
+on a dispatch ref of the marker) was created after the marker was uploaded,
+is still open, and has the Mac job of every tier the marker needs not
+skipped or cancelled, is dropped as started (open_run_carrying). A failed
+state's report run skips its Mac jobs, so it never stands in for a ready
+run, and a failed state never looks: its red report is not held back.
+
 A failed marker is kept (a later publication of the key still starts its
 jobs), so every artifacts run that fails the same key would report it in red
 again. A key that cannot build (a stale Cargo.lock on the base it came from)
@@ -28,7 +39,7 @@ for hours, draining the routing App's REST quota. So a failed state is
 reported once per marker: the run history of cmux-next.yml (read once per
 notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
-state always dispatches.
+state dispatches unless its run is already open (below).
 
 A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
 feat-cmux-next commit re-runs its own artifacts run, which claims, builds
@@ -105,6 +116,12 @@ WORKFLOW = "cmux-next.yml"
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 # The Mac jobs of a same-tree run (its tiers, TIERS). A run with one of them in progress is never cancelled.
 MAC_JOBS = ("cmux-next daemon tests", "cmux app scheme compile (Debug)")
+# A tier -> the names its Mac job has in a same-tree run (a DEV daily's scheme tier is its Release compile).
+TIER_JOBS = {"daemon": ("cmux-next daemon tests",),
+             "scheme": ("cmux app scheme compile (Debug)", "cmux NEXT DEV Release compile")}
+# The run history a ready notify reads for an open same-tree run: the newest pages only (an open duplicate is
+# minutes old; the failed report reads RUN_PAGES).
+OPEN_RUN_PAGES = 2
 # Jobs whose `if` reads `inputs.same_tree_sha == ''`: a same-tree run lists both as skipped (run 42607592895),
 # a plain dispatch runs them. The REST API returns no dispatch inputs, and a plain dispatch on the branch has
 # the same `cmux-next · <sha>` name, so these are what tells a same-tree run apart.
@@ -132,13 +149,31 @@ REQUEST_TIMEOUT_S = 30
 RequestTimeout = deadline_http.RequestTimeout
 
 
+def rate_limited(status: int, headers: dict[str, str], payload: bytes) -> bool:
+    """A refusal on a spent rate limit (github_quota_client.quota_wait's test, without its wait)."""
+    if status not in (403, 429):
+        return False
+    lowered = {str(name).lower(): value for name, value in (headers or {}).items()}
+    return (status == 429 or lowered.get("x-ratelimit-remaining") == "0" or bool(lowered.get("retry-after"))
+            or b"rate limit" in (payload or b"").lower())
+
+
 class GitHub:
     # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
     timeout: float = REQUEST_TIMEOUT_S
 
-    def __init__(self, token: str, api_url: str = "https://api.github.com"):
+    def __init__(self, token: str, api_url: str = "https://api.github.com", spare: str = ""):
         self.token = token
+        # SPARE_TOKEN_SWITCH (lw#5184): a second token with its own budget (the cmux-bot App's). The first call
+        # refused on a spent rate limit moves every later call to it, once, with no sleep (this client never
+        # sleeps: github_token_polling.py). On 2026-11-14 23:41Z run 43652238618's publish read its markers
+        # with a spent github.token, the notify ended in a warning, and cmux#43194's same-tree run was never
+        # dispatched.
+        self.spare = spare if spare and spare != token else ""
         self.api_url = api_url.rstrip("/")
+        # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
+        # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
+        self.last: tuple[int, bytes, dict[str, str]] = (0, b"", {})
 
     def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
         """One call, with its response headers. RequestTimeout past self.timeout."""
@@ -153,7 +188,13 @@ class GitHub:
         return deadline_http.request(request, self.timeout)
 
     def _request(self, method: str, url: str, body: dict | None = None):
-        status, payload, _ = self._send(method, url, body)
+        status, payload, headers = self._send(method, url, body)
+        if self.spare and rate_limited(status, headers, payload):
+            print(f"::notice title=tree notify token::{method} {url.removeprefix(self.api_url + '/')} was refused "
+                  f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
+            self.token, self.spare = self.spare, ""
+            status, payload, headers = self._send(method, url, body)
+        self.last = (status, payload, headers)
         return status, payload
 
     def get(self, path: str):
@@ -298,24 +339,67 @@ def run_identity(marker: dict, repo: str) -> tuple:
             tuple(dispatch_refs(marker, repo)))
 
 
-def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
-    """cmux-next.yml dispatch runs created at or after `since`: run name -> created_at times."""
-    names: dict[str, list[str]] = {}
-    for page in range(1, RUN_PAGES + 1):
+def dispatch_name(marker: dict) -> str:
+    """The run name a same-tree dispatch of MARKER gets. A plain run is named for the dispatch ref's tip
+    (cmux-next.yml run-name: github.sha), which is_current checked is the marker's status_sha."""
+    if marker.get("dev_daily") or marker.get("tip_suite"):
+        return run_name(marker)
+    return f"cmux-next · {marker['status_sha']}"
+
+
+def dispatch_history(api: Api, repo: str, since: str, pages: int = RUN_PAGES) -> list[dict]:
+    """cmux-next.yml dispatch runs created at or after `since`, newest first."""
+    found: list[dict] = []
+    for page in range(1, pages + 1):
         listing = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch"
                           f"&created=%3E%3D{since}&per_page=100&page={page}")
         runs = listing.get("workflow_runs", []) if isinstance(listing, dict) else []
-        for run in runs:
-            if not isinstance(run, dict):
-                continue
-            # The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow
-            # sets run-name, as cmux-next.yml does; both are read so neither field alone is relied on).
-            for title in {run.get("display_title"), run.get("name")}:
-                if isinstance(title, str):
-                    names.setdefault(title, []).append(str(run.get("created_at", "")))
+        found.extend(run for run in runs if isinstance(run, dict))
         if len(runs) < 100:
             break
+    return found
+
+
+def run_titles(run: dict) -> set[str]:
+    """The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow sets run-name,
+    as cmux-next.yml does; both are read so neither field alone is relied on)."""
+    return {title for title in (run.get("display_title"), run.get("name")) if isinstance(title, str)}
+
+
+def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
+    """cmux-next.yml dispatch runs created at or after `since`: run name -> created_at times."""
+    names: dict[str, list[str]] = {}
+    for run in dispatch_history(api, repo, since):
+        for title in run_titles(run):
+            names.setdefault(title, []).append(str(run.get("created_at", "")))
     return names
+
+
+def open_run_carrying(api: Api, repo: str, runs: list[dict], marker: dict, tiers: set[str],
+                      uploaded: str) -> tuple[int, str] | None:
+    """An open same-tree run that already carries MARKER's TIERS, as (run id, ref), or None: named as its
+    dispatch would be (dispatch_name), on one of its dispatch refs, created at or after the marker was UPLOADED,
+    and with the Mac job of each tier neither skipped (a failed state's report run) nor cancelled. Jobs not
+    created yet, or unreadable, are no stand-in."""
+    if not ISO_TIME.match(uploaded):
+        return None
+    name = dispatch_name(marker)
+    refs = dispatch_refs(marker, repo)
+    for run in runs:
+        created = str(run.get("created_at", ""))
+        if (run.get("status") not in OPEN or name not in run_titles(run) or not ISO_TIME.match(created)
+                or created < uploaded or not isinstance(run.get("id"), int)):
+            continue
+        ref = run.get("head_branch")
+        if ref not in refs:
+            continue
+        jobs = run_jobs(api, repo, run["id"])
+        if not jobs or not is_same_tree(jobs):
+            continue
+        if all(any(job.get("name") in TIER_JOBS[tier] and job.get("conclusion") not in ("skipped", "cancelled")
+                   for job in jobs) for tier in tiers):
+            return run["id"], str(ref)
+    return None
 
 
 def run_jobs(api: Api, repo: str, run_id: int) -> list[dict] | None:
@@ -438,8 +522,11 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
            fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
-           quota_only: Callable[[], bool] = lambda: False) -> int:
-    """Dispatches same-tree runs for the markers of <key>; returns how many."""
+           quota_only: Callable[[], bool] = lambda: False, compile_error: Callable[[], bool] = lambda: False,
+           unstarted: list | None = None) -> int:
+    """Dispatches same-tree runs for the markers of <key>; returns how many. UNSTARTED, when given, collects the
+    runs whose marker was left in place by a GitHub error (not by a decision): the notify must be made again."""
+    unstarted = [] if unstarted is None else unstarted
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
             f"reporting run's conclusion; starting the tree jobs (ready)")
@@ -473,6 +560,11 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     if state == "failed" and quota_only():
         # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
         log(f"tree {key}: the reporting run failed only on GitHub's rate limit or attestation; not taken over")
+    elif state == "failed" and compile_error():
+        # Like the hand-off and cmux-tui-tree-request.yml (#54942): a waiter's re-run builds the same tree key from
+        # the same source and fails on the same compile error, for about 75 runner-min (2026-11-25: run
+        # 45522424589 failed on cmux-wg E0308, and its takeover re-run failed the same way two hours later).
+        log(f"tree {key}: the reporting run failed a build leg on a Rust compile error; not taken over")
     elif state == "failed":
         # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -491,6 +583,8 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         except (RuntimeError, OSError, ValueError) as error:
             log(f"::warning::could not read cmux-next.yml's run history ({error}); "
                 f"failed markers are reported again")
+    # A ready state: the open same-tree runs a dispatch would duplicate, read once (open_run_carrying).
+    open_runs: list[dict] | None = None
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
     # Markers of one same-tree run (run_identity) start it once, with every tier any of them carries.
@@ -522,6 +616,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             current = is_current(api, repo, marker, pull)
         except RuntimeError as error:
             log(f"::warning::run {run_id}: could not check whether it is current: {error}")
+            unstarted.append(run_id)
             continue
         if not current:
             log(f"run {run_id} ({marker['origin']} {marker['status_sha'][:12]}) was superseded; nothing to start")
@@ -538,9 +633,13 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {branch}: {error}")
             continue
         if marker["origin"] == "pull_request" and state == "failed":
-            log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
-                f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
-            continue
+            # STATUS_FROM_OUTSIDE (cmux#43368): a notice alone left the pull request's required status absent
+            # forever. The failed same-tree run creates no pin ref (its same-tree-cmux-tui skips a pull request);
+            # its reporter posts the tiers red with this reason. The marker stays: a later trusted publication
+            # of the key still dispatches the ready tree jobs.
+            log(f"::notice title=same-tree cmux-tui unavailable::run {run_id} ({marker['status_sha'][:12]}): "
+                f"tree {key} is unavailable; no pin ref is created, the tiers are reported red. Re-run after a "
+                "trusted publication.")
         if state == "failed" and marker.get("reported"):
             log(f"run {run_id}: its same-tree run {marker.get('reported_run') or '?'} already reported tree {key} "
                 f"red; not dispatched again (a publication of the key starts it)")
@@ -561,6 +660,20 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"run {run_id}: `{run_name(marker)}` already reported tree {key} after this marker; "
                 f"not dispatched again (a publication of the key still starts it)")
             continue
+        if state == "ready":
+            if open_runs is None:
+                try:
+                    open_runs = dispatch_history(api, repo, min(stamps), OPEN_RUN_PAGES) if stamps else []
+                except (RuntimeError, OSError, ValueError) as error:
+                    log(f"::warning::could not read cmux-next.yml's run history ({error}); dispatching as before")
+                    open_runs = []
+            held = open_run_carrying(api, repo, open_runs, marker, tiers_of[identity], uploaded)
+            if held is not None:
+                log(f"run {run_id}: same-tree run {held[0]} on {held[1]} (`{dispatch_name(marker)}`) is already "
+                    f"open with tiers {','.join(sorted(tiers_of[identity]))}; not dispatched again")
+                started.add(identity)
+                api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                continue
         inputs = {
             "same_tree_sha": marker["sha"],
             "same_tree_status_sha": marker["status_sha"],
@@ -595,53 +708,245 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"run {run_id}: dispatch on {ref} refused (HTTP {status})")
         else:
             log(f"::warning::run {run_id}: no ref accepted the same-tree dispatch; its tree jobs did not start")
+            unstarted.append(run_id)
     log(f"tree {key}: {len(artifacts)} marker(s), {dispatched} same-tree run(s) started ({state})")
     return dispatched
+
+
+# NOTIFY_NEVER_LOST (lw#5184): a ready notify that GitHub refused, whole or for one marker, leaves its key in an
+# artifact of this name (pending.json: {"key", "state"}); artifact uploads spend no REST quota. Every
+# feat-cmux-next push's sweep-pending-tree-notify job reads the artifacts
+# of this one name (sweep_pending), makes the notify again for each key whose tree is published, and deletes the
+# record once it went through. A miss is then at most one feat-cmux-next push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
+# was refused with HTTP 403 and only warned; land-judge held the pull request for hours).
+PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
+# The records a sweep writes again (sweep_pending): a name of its own, because the sweep job runs in an artifacts
+# run that may have uploaded PENDING_ARTIFACT itself, and its upload (overwrite) would replace that record.
+PENDING_SWEEP_ARTIFACT = "cmux-next-tree-notify-pending-sweep"
+
+
+def write_pending(path: str, keys: str | list[str], state: str, why: str) -> None:
+    """Writes the pending record of KEYS (one tree key or several: a sweep records again every key it claimed)."""
+    keys = [keys] if isinstance(keys, str) else list(keys)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"key": keys[0], "keys": keys, "state": state, "why": why[:500]}, handle)
+
+
+def read_pending(api: Api, artifact: dict) -> dict | None:
+    """The validated pending record of an artifact, its tree keys in "keys", or None."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(api.download(artifact["archive_download_url"]))) as archive:
+            record = json.loads(archive.read("pending.json"))
+    except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError, OSError):
+        return None
+    if not isinstance(record, dict) or record.get("state") != "ready":
+        return None
+    keys = record.get("keys", [record.get("key")])
+    if not isinstance(keys, list) or not keys or len(keys) > MAX_MARKERS or not all(SHA.match(str(key)) for key in keys):
+        return None
+    return dict(record, keys=list(dict.fromkeys(keys)))
+
+
+def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
+                  fetch_completion: Callable[[str], object | None] = fetch_completion,
+                  make: Callable[..., int] | None = None,
+                  record: Callable[[list[str]], None] | None = None) -> list[str]:
+    """Make again every ready notify a refused publish left (PENDING_ARTIFACT, and PENDING_SWEEP_ARTIFACT that a
+    sweep wrote again); returns the keys still pending. Only a same-repository run's record counts, and only for
+    a tree whose completion.json is published: a record starts nothing a publish would not.
+
+    One sweep runs per feat-cmux-next push, and they overlap: on 2026-11-17 overlapping sweeps read one record
+    and its marker before either deleted them, and each dispatched the same same-tree run (b0549a37: three runs,
+    three Debug scheme compiles on the owned Mac minis). So a sweep claims a key before it notifies, by deleting
+    every record of the key: GitHub answers the first DELETE of an artifact 204 and every later one 404. Only a
+    sweep that deleted all of them makes the notify; when two sweeps split them, neither does, and both record
+    the key again. Every key of a record this sweep deleted is handed to RECORD (main() writes it to
+    --pending-file, and the job uploads it as PENDING_SWEEP_ARTIFACT) before any notify, so a job that dies
+    keeps them, and again at the end with only the keys that did not go through (an empty list: nothing left).
+    A delete that failed or timed out may have gone through, so its keys count as claimed by no one and are
+    recorded too. A job concurrency group would serialize the sweeps instead, but GitHub ends a pending job its
+    group replaced as cancelled, and with it the artifacts run, which nightly_builder.py and pin-cmux-tui.sh
+    read as a build that did not finish."""
+    make = make or notify
+    records: dict[str, list[dict]] = {}
+    keys_of: dict[int, list[str]] = {}
+    for name in (PENDING_ARTIFACT, PENDING_SWEEP_ARTIFACT):
+        listing = api.get(f"repos/{repo}/actions/artifacts?name={name}&per_page=100")
+        for artifact in listing.get("artifacts", []) if isinstance(listing, dict) else []:
+            if not isinstance(artifact, dict) or artifact.get("expired") or not from_same_repository(artifact):
+                continue
+            read = read_pending(api, artifact)
+            if read is None:
+                log(f"pending record {artifact.get('id')} is not one a publish wrote; ignored")
+                continue
+            keys_of[id(artifact)] = read["keys"]
+            for key in read["keys"]:
+                records.setdefault(key, []).append(artifact)
+    left: list[str] = []
+    attested = {key for key in records if completion_attests(fetch_completion(key), key)}
+    for key in records:
+        if key not in attested:
+            log(f"tree {key}: pending, but its completion.json does not attest it; left for a later sweep")
+            left.append(key)
+    # The claim: delete every record of each attested key. deleted = records whose DELETE may have gone through.
+    claimed: dict[int, dict] = {}
+    deleted: dict[int, dict] = {}
+    lost: set[int] = set()  # a 404: another sweep deleted it
+    done: set[str] = set()
+
+    def unfinished() -> list[str]:
+        return list(dict.fromkeys(key for artifact in deleted.values() for key in keys_of[id(artifact)]
+                                  if key not in done))
+    # Inside the try: an error of any kind partway through the claim (a later DELETE's
+    # http.client.IncompleteRead, say) still records every record already deleted (finally).
+    try:
+        for key in [key for key in records if key in attested]:
+            for artifact in records[key]:
+                if id(artifact) in claimed or id(artifact) in lost or id(artifact) in deleted:
+                    continue
+                try:
+                    status = api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                except (RuntimeError, OSError, ValueError) as error:
+                    log(f"::warning::deleting pending record {artifact.get('id')} failed ({error}); its keys are "
+                        f"recorded again")
+                    deleted[id(artifact)] = artifact
+                    continue
+                if status in (200, 204):
+                    claimed[id(artifact)] = artifact
+                    deleted[id(artifact)] = artifact
+                elif status == 404:
+                    lost.add(id(artifact))
+                else:
+                    log(f"::warning::deleting pending record {artifact.get('id')} was refused (HTTP {status}); "
+                        f"it stays for a later sweep")
+        mine = [key for key in records if key in attested and all(id(a) in claimed for a in records[key])]
+        if deleted and record is not None:
+            record(unfinished())
+        elif deleted:
+            log(f"::warning::no --pending-file: the claimed notifies {', '.join(unfinished())} are not recorded again")
+        for key in records:
+            if key not in attested:
+                continue
+            if key not in mine:
+                if any(id(artifact) in lost for artifact in records[key]):
+                    log(f"tree {key}: another sweep deleted a pending record of it first; left to the records")
+                left.append(key)
+                continue
+            unstarted: list = []
+            try:
+                started = make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
+                               reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its publish's "
+                                      f"notify was refused, and the feat-cmux-next sweep made it again")
+            except (RuntimeError, OSError, ValueError) as error:
+                log(f"::warning::tree {key}: the pending notify was refused again ({error}); recorded again")
+                left.append(key)
+                continue
+            if unstarted:
+                log(f"::warning::tree {key}: runs {unstarted} are still not started; recorded again")
+                left.append(key)
+                continue
+            done.add(key)
+            log(f"tree {key}: the pending notify went through ({started} same-tree run(s) started)")
+    finally:
+        if deleted and record is not None:
+            record(unfinished())
+    # A key another sweep owns is not reported as pending here: its records (or theirs) still name it.
+    return [key for key in dict.fromkeys(left)
+            if key not in attested or key in unfinished() or not any(id(a) in lost for a in records[key])]
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--key", required=True)
-    parser.add_argument("--state", choices=("ready", "failed"), required=True)
+    parser.add_argument("--key")
+    parser.add_argument("--state", choices=("ready", "failed"))
     parser.add_argument("--reason", default="")
+    parser.add_argument("--pending-file", default="",
+                        help="where a ready notify GitHub refused writes its pending record (NOTIFY_NEVER_LOST)")
+    parser.add_argument("--sweep-pending", action="store_true",
+                        help="make again the ready notifies refused publishes left (PENDING_ARTIFACT)")
     args = parser.parse_args(argv)
-    if not SHA.match(args.key):
-        print(f"::warning::not a tree key: {args.key!r}")
-        return 0
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         print("::warning::no GH_TOKEN; cannot start the deferred cmux-next tree jobs")
+        return 1 if args.sweep_pending else 0
+    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ.get("GH_TOKEN_SPARE", ""))
+    if args.sweep_pending:
+        def record(keys: list[str]) -> None:
+            if not args.pending_file:
+                return
+            if keys:
+                write_pending(args.pending_file, keys, "ready", "the sweep claimed it and could not finish")
+            elif os.path.exists(args.pending_file):
+                os.remove(args.pending_file)
+        try:
+            left = sweep_pending(api, args.repo, record=record)
+        except (RuntimeError, OSError, ValueError) as error:
+            print(f"::error title=tree notify sweep::could not read the pending notifies: {error}")
+            return 1
+        if left:
+            print(f"::warning title=tree notify sweep::still pending: {', '.join(left)}")
         return 0
-    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
+    if not args.key or not args.state:
+        parser.error("--key and --state are required without --sweep-pending")
+    if not SHA.match(args.key):
+        print(f"::warning::not a tree key: {args.key!r}")
+        return 0
+
+    def pending(why: str) -> None:
+        if args.pending_file and args.state == "ready":
+            write_pending(args.pending_file, args.key, args.state, why)
+            print(f"::warning title=tree notify pending::tree {args.key}: {why}; recorded as {PENDING_ARTIFACT}, "
+                  f"and the next feat-cmux-next push's sweep makes the notify again")
     try:
         # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
         own_run = os.environ.get("GITHUB_RUN_ID", "")
         run_id = int(own_run) if own_run.isdigit() else 0
 
-        def quota_only() -> bool:
-            if not run_id:
-                return False
-            import cmux_tui_tree_handoff as handoff  # same directory; needs the gh CLI the artifacts job has
-            jobs = handoff._list(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+        # The reporting run's jobs and failed-job logs, read once for both checks below.
+        read: dict = {}
+        logs: dict = {}
 
-            def log_of(job: dict) -> str | None:
-                result = handoff._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
-                return result.stdout if result.returncode == 0 else None
+        def handoff():
+            import cmux_tui_tree_handoff  # same directory; needs the gh CLI the artifacts job has
+            return cmux_tui_tree_handoff
 
-            return handoff.quota_only_failure(jobs, log_of)
+        def jobs() -> list:
+            if "jobs" not in read:
+                read["jobs"] = handoff()._list(
+                    f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+            return read["jobs"]
 
-        def safe_quota_only() -> bool:
-            try:
-                return quota_only()
-            except Exception as error:  # an unreadable run is no evidence of a quota failure
-                print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
-                return False
+        def log_of(job: dict) -> str | None:
+            if job["id"] not in logs:
+                result = handoff()._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
+                logs[job["id"]] = result.stdout if result.returncode == 0 else None
+            return logs[job["id"]]
 
+        def checked(what: str, check: str) -> Callable[[], bool]:
+            def run() -> bool:
+                if not run_id:
+                    return False
+                try:
+                    return getattr(handoff(), check)(jobs(), log_of)
+                except Exception as error:  # an unreadable run is no evidence of either failure
+                    print(f"::warning::could not read run {run_id}'s jobs for the {what} check: {error}")
+                    return False
+            return run
+
+        safe_quota_only = checked("quota", "quota_only_failure")
+        safe_compile_error = checked("compile-error", "compile_error_failure")
+
+        unstarted: list = []
         notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
-               exclude_run=run_id, quota_only=safe_quota_only)
+               exclude_run=run_id, quota_only=safe_quota_only, compile_error=safe_compile_error,
+               unstarted=unstarted)
+        if unstarted:
+            pending(f"runs {unstarted} were not started (GitHub refused a read or the dispatch)")
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
+        pending(f"the notify was refused: {error}")
     return 0
 
 

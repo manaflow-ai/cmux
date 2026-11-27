@@ -20,14 +20,21 @@
 
 use super::*;
 
+/// Auto mode's import of a chat's Cloud copy: it settles an open turn as this file does.
+#[path = "auto_import.rs"]
+mod auto_import;
+
 /// What a deferred start read before its ready line, for the chat logs read after it.
 #[derive(Default)]
 pub(crate) struct LoadPlan {
     /// Chats whose agent host still ran at the start: adopted, never marked lost.
     pub(super) hosted: std::collections::HashSet<String>,
-    /// `hosted` as the start read it, never changed: prompts to these chats wait until adoption
-    /// and its settling end (`wait_adopted`).
+    /// `hosted` as the start read it, never changed: prompts to these chats wait until their own
+    /// adoption, or adoption and its settling end (`wait_adopted`).
     pub(super) adopting: std::collections::HashSet<String>,
+    /// Chats of `adopting` whose own adoption ended, its recovery too (`hosts.rs` `adopt_one`):
+    /// their prompts wait for no other host (`Hub::chat_adopted`).
+    pub(super) adopted: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
     /// The start's store list read every chat folder: only then does a host whose chat it did
@@ -91,7 +98,7 @@ impl Hub {
         }
         // The list's kept order is sorted here, once, off any request: the first page a client
         // reads after a start then reads a window of it, not a sort of every chat (`list_order.rs`).
-        let _ = self.own_rows_from(None, 0);
+        self.sort_list_order();
         // Deferred startup must restore ownership epochs before the move watchdog can issue an
         // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
         self.watch_transfers();
@@ -125,14 +132,45 @@ impl Hub {
         });
     }
 
-    /// Wait until adoption has ended, when `session`'s agent host ran at the start (immediate
-    /// otherwise): a prompt that went first would take the turn ahead of the turn adoption
-    /// recovers (`hosts.rs`).
+    /// Wait until `session`'s own adoption has ended, its recovery too, when its agent host ran at
+    /// the start (immediate otherwise): a prompt that went first would take the turn ahead of the
+    /// turn adoption recovers (`hosts.rs`). A chat whose host this pass did not adopt (it missed
+    /// its hello, or could not be adopted) waits for adoption and its settling to end, as before.
+    /// Never for every other host: a person's message to a chat adopted at once waited for the
+    /// slowest host's replay (up to `REPLAY_CEILING`), shown as queued meanwhile (Leo,
+    /// 2026-11-15, after a restart: "idk why it sent this tho?"; 2026-11-12: "everything waits on
+    /// everything").
     pub(crate) async fn wait_adopted(&self, session: &Session) {
-        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopting.contains(&session.id) {
-            let mut adopted = self.adoption_ready.subscribe();
-            let _ = adopted.wait_for(|ready| *ready).await;
+        self.wait_chat_adopted(&session.id).await;
+    }
+
+    pub(crate) async fn wait_chat_adopted(&self, id: &str) {
+        let mut ready = self.adoption_ready.subscribe();
+        loop {
+            // Enabled before the plan is read, so an adoption that ends in between is not missed.
+            let adopted = self.chat_adopted_wake.notified();
+            tokio::pin!(adopted);
+            adopted.as_mut().enable();
+            {
+                let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
+                if !plan.adopting.contains(id) || plan.adopted.contains(id) {
+                    return;
+                }
+            }
+            if *ready.borrow_and_update() {
+                return;
+            }
+            tokio::select! {
+                () = &mut adopted => {}
+                _ = ready.wait_for(|ready| *ready) => return,
+            }
         }
+    }
+
+    /// `id`'s own adoption ended, its recovery too: its prompts go on (`wait_adopted`).
+    pub(crate) fn chat_adopted(&self, id: &str) {
+        self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopted.insert(id.to_owned());
+        self.chat_adopted_wake.notify_waiters();
     }
 
     /// Wait until `session`'s log is read, reading it now when the background pass has not
@@ -232,11 +270,21 @@ impl Hub {
             loaded.2 = true;
             return;
         }
-        if let Err(error) = self.restore_ownership_epoch(session) {
-            session.invalidate_ownership_epoch();
-            tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
-        }
-        self.restore_transfer_authority(session);
+        // A plain load's folds begin past the last quiet load's seq, from what it carried, or at
+        // the log's start (`restore_point.rs`); `read_to` is the seq they read through. A load
+        // for a journal restore reads the whole log: its recovery runs later, on the records the
+        // restore puts back.
+        let point = if recover { self.read_restore_point(session) } else { None };
+        let read_to = self.settled_seq(session);
+        let epoch = match self.restore_ownership_epoch_after(session, point.as_ref()) {
+            Ok(epoch) => Some(epoch),
+            Err(error) => {
+                session.invalidate_ownership_epoch();
+                tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
+                None
+            }
+        };
+        let authority = self.restore_transfer_authority_after(session, point.as_ref());
         if !recover {
             // Read, with its recovery still to run: the restore that asked runs it.
             session.recovery_pending.store(true, Ordering::SeqCst);
@@ -245,9 +293,64 @@ impl Hub {
         }
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
-        self.recover_log(session, None);
+        let quiet = self.recover_log(session, None, point.as_ref());
+        // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
+        // the journal are left to that prompt's read, which reads them too.
+        if !Self::keeps_unstored(session) {
+            self.seed_prompt_stops(
+                session,
+                point.as_ref().map_or(0, |p| p.seq),
+                point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
+            );
+        }
+        // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
+        // appended meanwhile, and nothing is kept apart from the journal. The next load begins
+        // there.
+        if let (Some(ownership_epoch), Some(transfer_authority), Some(queue)) =
+            (epoch, authority, quiet)
+            && read_to > 0
+            && !session.meta().subagent_retry_open
+            && point.as_ref().is_none_or(|p| p.seq < read_to)
+            && self.settled_seq(session) == read_to
+            && !Self::keeps_unstored(session)
+        {
+            self.save_restore_point(
+                session,
+                super::restore_point::RestorePoint {
+                    seq: read_to,
+                    ownership_epoch,
+                    transfer_authority,
+                    queue,
+                    prompt_stops: self.prompt_stops_carry(session),
+                    ..Default::default()
+                },
+            );
+        }
         loaded.done();
+        // Its inbox, read now in the background, apart from the log load: a god chat's inbox
+        // history is read once, and never ahead of its first prompt (`Session::inbox`).
+        if session.hub_ref.get().is_some()
+            && !session.inbox_loaded.load(Ordering::Acquire)
+            && tokio::runtime::Handle::try_current().is_ok()
+        {
+            let session = session.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::qos::background(|| drop(session.inbox()));
+            });
+        }
         self.resume_loaded(session, hosted);
+    }
+
+    /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point
+    /// saved then would carry what they changed, and they would be read again past it.
+    fn keeps_unstored(session: &Session) -> bool {
+        !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+            || session
+                .parked
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(|p| !p.is_empty())
     }
 
     /// The recovery of a log read for a journal restore ([`Self::load_session_log_for_restore`]),
@@ -265,18 +368,23 @@ impl Hub {
         }
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
-        self.recover_log(session, from_copy);
+        // The whole log: a restore's records went in past any restore point.
+        let _ = self.recover_log(session, from_copy, None);
         self.resume_loaded(session, hosted);
         true
     }
 
     /// What reading a log writes and rebuilds past its tail: a lost wait, a cut turn's
     /// continuation, the queue (`from_copy`'s prompts first, after a restore), and the watch.
+    /// With `point`, the folds read only the records past it, from what it carries. Returns
+    /// what a restore point at the end of this read carries, when a plain load (no `from_copy`)
+    /// ended quiet: no open turn, no queue or message copy left to settle.
     fn recover_log(
         self: &Arc<Self>,
         session: &Arc<Session>,
         from_copy: Option<&std::collections::HashSet<String>>,
-    ) {
+        point: Option<&super::restore_point::RestorePoint>,
+    ) -> Option<super::queue::QueueCarry> {
         // What was written while a restore owns the chat is in the journal first (its own
         // records, never marked as recovery): the recovery reads it, and rebuilds the queue. One
         // the store refuses is read after the journal (`kept_unstored`).
@@ -284,6 +392,7 @@ impl Hub {
         #[cfg(test)]
         super::journal_restore::test_after_drain(&session.id);
         let _marked = super::restore_writer::Recovering::start();
+        let after = point.map_or(0, |p| p.seq);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
@@ -293,14 +402,32 @@ impl Hub {
         if waiting && !hosted && session.status() != SessionStatus::Closed {
             self.mark_lost_wait(session);
         }
-        let continued =
-            if hosted { None } else { self.mark_unknown_outcome(session, from_copy.is_some()) };
+        // A turn started and not settled: the restart cut it, unless its host runs it still (or
+        // it is a watched chat's, the other app's). Read for a hosted chat too: a restore point
+        // is saved only where no turn is open.
+        let closed = session.status() == SessionStatus::Closed;
+        let open = if closed { None } else { self.open_turn(session, after) };
+        let continued = match &open {
+            Some(Some(turn)) if !hosted && session.meta().watching.is_none() => {
+                self.settle_open_turn(session, turn.clone(), from_copy.is_some())
+            }
+            _ => None,
+        };
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
-        self.restore_queue(session);
-        if let Some(from_copy) = from_copy {
+        let carry = if let Some(from_copy) = from_copy {
+            self.restore_queue(session);
             self.replace_queue(session, Vec::new(), from_copy);
-        }
+            None
+        } else {
+            // Its inbox is read apart, after this load (`Session::inbox`), unless no hub can read
+            // it then: a hub outside a runtime reads it now, as before.
+            if session.hub_ref.get().is_none() {
+                self.restore_inbox(session);
+                session.inbox_loaded.store(true, Ordering::Release);
+            }
+            self.restore_queue_after(session, None, point.map(|p| (p.seq, &p.queue)))
+        };
         // A change of the queue made meanwhile is rebuilt in (`settle_queue_changes`).
         self.settle_queue_changes(session, from_copy.unwrap_or(&Default::default()));
         // A copy's first start runs none of what waited (`clone_boot.rs`).
@@ -309,7 +436,7 @@ impl Hub {
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
         // clients can attach or the restored queue resumes.
-        super::message_events::recover_message_events(self, session);
+        let written = super::message_events::recover_message_events_after(self, session, after);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
@@ -318,6 +445,8 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             self.start_watch(session);
         }
+        let open_quiet = !closed && matches!(open, Some(None));
+        (from_copy.is_none() && written && open_quiet).then_some(carry).flatten()
     }
 
     /// A read log's queue goes on, once the daemon's own startup resumed the queues.
@@ -523,7 +652,7 @@ impl Hub {
                 self.save_meta(session);
             }
         } else if kept {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
             self.save_meta(session);
         }
         // A log read before adoption kept its cut turn for the host: settle it now, and queue
@@ -560,15 +689,22 @@ impl Hub {
         if meta.watching.is_some() || meta.status == SessionStatus::Closed {
             return None;
         }
-        // Scan the whole log: a long turn can stream far more records
-        // than any fixed tail window after its `turn_started`.
+        let open = self.open_turn(session, 0)??;
+        self.settle_open_turn(session, open, restored)
+    }
+
+    /// The turn `session`'s log has started and not settled, read from the records past
+    /// `after`; none when the log did not read.
+    fn open_turn(&self, session: &Session, after: u64) -> Option<Option<OpenTurn>> {
+        // Scan the whole log (or all of it past a restore point): a long turn can stream far
+        // more records than any fixed tail window after its `turn_started`.
         let mut open: Option<(u64, Value, Value, bool)> = None;
         // The turns (by id) a `user_message` with a hidden context went into: the prompt that
         // started one is logged before its `turn_started`, a steer after it.
         let mut hidden_turns: std::collections::HashSet<String> = Default::default();
         let kinds = ["turn_started", "turn_result", "user_message"];
         self.store
-            .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            .scan_kinds_after(&session.id, after, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
                         open = Some((
@@ -589,14 +725,27 @@ impl Hub {
                 true
             })
             .ok()?;
-        let open = open?;
+        Some(open.map(|(seq, turn_id, prompt_id, trigger)| {
+            let hidden = turn_id.as_str().is_some_and(|t| hidden_turns.contains(t));
+            OpenTurn { seq, turn_id, prompt_id, trigger, hidden }
+        }))
+    }
+
+    /// Ends `open`, the turn a restart cut off: `turn_result failed outcome_unknown`, and its
+    /// continuation queued. Returns the continuation's prompt id. `restored`: as for
+    /// [`Self::mark_unknown_outcome`].
+    fn settle_open_turn(
+        &self,
+        session: &Arc<Session>,
+        open: OpenTurn,
+        restored: bool,
+    ) -> Option<String> {
+        let OpenTurn { seq, turn_id, prompt_id, trigger, hidden } = open;
         // A copy's first start: stopped, not continued (`clone_boot.rs`).
         if let Some(from) = self.clone_of() {
-            self.settle_cloned_turn(session, from, open);
+            self.settle_cloned_turn(session, from, (seq, turn_id, prompt_id, trigger));
             return None;
         }
-        let (seq, turn_id, prompt_id, trigger) = open;
-        let hidden = turn_id.as_str().is_some_and(|t| hidden_turns.contains(t));
         let rerun = restored && hidden && !trigger && !self.at_4bce();
         let continued = if rerun {
             tracing::info!(session = %session.id, prompt = ?prompt_id, "a restored cut turn carried a hidden context; its prompt runs again whole when it is sent again");
@@ -699,4 +848,15 @@ pub(crate) fn test_hold(var: &str) {
     while file.exists() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+/// A turn a log started and never settled (`Hub::open_turn`): its `turn_started` seq, turn id,
+/// prompt id, whether a trigger ran it, and whether a prompt with a hidden context went into it.
+#[derive(Debug, Clone)]
+struct OpenTurn {
+    seq: u64,
+    turn_id: Value,
+    prompt_id: Value,
+    trigger: bool,
+    hidden: bool,
 }

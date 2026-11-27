@@ -13,7 +13,8 @@
 //! `mode-mismatch`), later `dropped`.
 //!
 //! What acpmux does, in three layers:
-//! - Off at the source: every Claude Code the daemon starts gets [`SWITCH_ENV`]`=0`: an agent
+//! - Off at the source: every Claude Code the daemon starts gets
+//!   [`SWITCH_ENV`](crate::claude_stdio::native_messaging::SWITCH_ENV)`=0`: an agent
 //!   (`agent/command.rs`) and the model probe that reads a Claude harness's models
 //!   (`live_models/mod.rs`, its own spawn path). Claude Code's switch for cross-session
 //!   messaging; measured on 2.1.322:
@@ -45,11 +46,7 @@
 
 use super::*;
 
-/// Claude Code's switch for its cross-session messaging (`0`: off, both ways).
-pub const SWITCH_ENV: &str = "CLAUDE_CODE_HARBOR_KITE";
-
-/// The ACP `sessionUpdate` the Claude Code backend sends for a `system/peer_message_hold` line.
-pub const HOLD_UPDATE: &str = "peer_message_hold";
+pub use crate::claude_stdio::native_messaging::HOLD_UPDATE;
 
 /// The most holds one session keeps (Claude Code itself holds at most 100).
 const MAX_HELD: usize = 100;
@@ -184,26 +181,5 @@ pub(super) fn held_messages(session: &Session) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_listing_row_and_an_address_read_as_cross_session_targets() {
-        assert_eq!(target("beta"), ("beta", false));
-        assert_eq!(target("beta [3fa9c1]"), ("beta", true));
-        assert_eq!(target("  beta [3fa9c1] "), ("beta", true));
-        assert_eq!(target("uds:/tmp/cc-socks/1.sock"), ("uds:/tmp/cc-socks/1.sock", true));
-        assert_eq!(target("bridge:abc"), ("bridge:abc", true));
-        // Not a ref: brackets around words a name may hold.
-        assert_eq!(target("notes [draft]"), ("notes [draft]", false));
-    }
-
-    #[test]
-    fn the_refusal_names_the_acpmux_command_quoted() {
-        let text = refusal_text("beta", true);
-        assert!(text.contains("\"$ACPMUX_BIN\" send beta --wait"), "{text}");
-        assert!(text.contains("Nothing was sent"), "{text}");
-        let text = refusal_text("it's", false);
-        assert!(text.contains("send 'it'\\''s' --wait"), "{text}");
-    }
-}
+#[path = "native_messaging_tests.rs"]
+mod tests;

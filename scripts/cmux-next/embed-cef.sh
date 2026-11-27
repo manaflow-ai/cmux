@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache-gz-credits-no-swiftshader"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -56,7 +56,7 @@ rm -f "$phase_stamp"
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
-  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$app/Contents/Resources/ChromiumLocales"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -88,6 +88,14 @@ if (( want_x86 )); then
   # Optional even with CMUX_NEXT_REQUIRE_CEF while the x86_64 engine is new:
   # a universal build then keeps the arm64 engine.
   x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
+fi
+# Two engine versions never merge: their resource paks differ and merge-cef-universal.sh refuses
+# them (the manifest can pin x86_64 behind arm64, cmux.48 against cmux.52 on 2026-11-17). A
+# universal build then keeps the arm64 engine and the thin x86_64 variant drops it, as with no
+# x86_64 artifact at all.
+if [[ -n "$arm_dir" && -n "$x86_dir" && "$(basename "$arm_dir")" != "$(basename "$x86_dir" | sed 's/-x86_64$//')" ]]; then
+  echo "warning: the x86_64 CEF ($(basename "$x86_dir")) is not the arm64 engine ($(basename "$arm_dir")); embedding arm64 only, Intel ships without the Chromium engine"
+  x86_dir=""
 fi
 cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 shim_archs=()
@@ -151,11 +159,23 @@ mkdir -p "$frameworks"
 stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
-source_value="$cef_dir $LAYOUT"
-# Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
-# cmux's 21 app languages and their regional macOS variants, including
-# es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
-CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+# Chromium ships 228 locale catalogs (55 languages in four grammatical genders,
+# cef_chromium_locales). With a CEF that loads locale paks from outside its
+# framework, every language's base catalog is kept and all but en (en-US, the
+# fallback) leave the framework for Contents/Resources/ChromiumLocales, where
+# scripts/cmux-next/language-packs.py makes each a first-use download (CMUX-570).
+# Otherwise keep every catalog CEF resolves for cmux's 21 app languages and
+# their regional macOS variants, including es_419, pt_PT and en_GB.
+# Unsupported app languages bs and km fall back to en.
+chromium_locales_dir="$app/Contents/Resources/ChromiumLocales"
+if cef_locale_paks_outside_framework "$SCRIPT_DIR/cef-manifest.json"; then
+  locales_outside=1
+  CEF_LOCALE_ALLOWLIST="$(cef_chromium_locales)"
+else
+  locales_outside=0
+  CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+fi
+source_value="$cef_dir $LAYOUT locales-outside-$locales_outside"
 keep_cef_locale() {
   case $'\n'"$CEF_LOCALE_ALLOWLIST"$'\n' in
     *$'\n'"$1"$'\n'*) return 0 ;;
@@ -198,15 +218,40 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   if (( ${#locale_paks[@]} > 0 )); then
     /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" --strings "$cef_dir/include/cef_pack_strings.h" ${locale_paks[@]+"${locale_paks[@]}"}
   fi
-  # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
-  # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
-  # for the Vulkan loader's dlsym.
+  # Chromium recreates this precomputed GPU shader cache under its profile on
+  # first use. It is architecture- and driver-specific, so shipping it costs
+  # 0.9 MiB without removing any runtime capability.
+  rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
+  # SwiftShader, Chromium's CPU Vulkan driver (libvk_swiftshader.dylib, its ICD
+  # manifest and the Vulkan loader libvulkan.dylib: 16.0 MB). Chromium 157 on
+  # macOS loads it only when a switch asks for it (--enable-unsafe-swiftshader,
+  # --use-angle=swiftshader) or the AllowSwiftShaderFallback feature is on, which
+  # it is not by default (ui/gl/gl_features.cc); cmux sets none of them. Without
+  # them a blocked or crashed GPU falls back to software compositing, as it does
+  # today. Chromium dlopens these files by path; nothing links them.
+  rm -f "$fw/Versions/A/Libraries/libvk_swiftshader.dylib" "$fw/Versions/A/Libraries/vk_swiftshader_icd.json" \
+    "$fw/Versions/A/Libraries/libvulkan.dylib" "$fw/Versions/A/Libraries/libvulkan.1.dylib"
+  # Locale paks that download on first use leave the framework before it is
+  # signed (its seal covers Resources); the app's own seal covers them until
+  # language-packs.py moves them into their packs at signing.
+  rm -rf "$chromium_locales_dir"
+  if (( locales_outside )); then
+    mkdir -p "$chromium_locales_dir"
+    for locale_dir in "$fw/Versions/A/Resources"/*.lproj; do
+      [[ -d "$locale_dir" && "$(basename "$locale_dir")" != en.lproj ]] || continue
+      mv "$locale_dir" "$chromium_locales_dir/"
+    done
+  fi
+  # CEF's dylibs ship with local symbols and debug stabs. Drop them before
+  # signing; exported symbols stay.
   for lib in "$fw/Versions/A/Libraries"/*.dylib; do
     if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
   done
-  # Chromium's CREDITS.html (license notices), before signing seals Resources:
-  # the artifact's own file, else the INTERIM stock credits for the pinned
-  # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
+  # Chromium's CREDITS.html (license notices), before signing seals Resources,
+  # as CREDITS.html.gz (nothing reads it at runtime; chrome://credits is served
+  # from resources.pak): the artifact's own file, else the INTERIM stock credits
+  # for the pinned Chromium (chromium-credits/README.md). Release gate:
+  # check-cef-credits.sh.
   chromium_version="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["chromium"])' "$SCRIPT_DIR/cef-manifest.json")"
   if ! "$SCRIPT_DIR/install-cef-credits.sh" "$cef_dir" "$fw/Versions/A/Resources" "$chromium_version"; then
     if [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]]; then

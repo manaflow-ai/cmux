@@ -2234,127 +2234,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }
@@ -2617,399 +2617,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有未讀的通知。"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.archiveChatNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive Chat works in agent chats. Focus one first."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعمل أرشفة الدردشة في دردشات الوكيل. ركّز على واحدة أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arhiviranje chata radi u chatovima s agentom. Prvo fokusirajte jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arkivér chat virker i agentchats. Fokusér en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Chat archivieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivar chat funciona en chats de agente. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archiver la discussion fonctionne dans les discussions d’agent. Activez-en une d’abord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivia chat funziona nelle chat con agenti. Seleziona prima una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "チャットをアーカイブはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការទុកការជជែកក្នុងបណ្ណសារដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅 보관은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arkiver chat fungerer i agentchatter. Fokuser én først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archiwizacja czatu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arquivar conversa funciona em conversas com agentes. Foque uma primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Архивирование чата работает в чатах с агентом. Сначала выберите чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เก็บแชทเข้าคลังใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbeti arşivle, ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Архівування чату працює в чатах з агентом. Спершу виберіть чат."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lưu trữ cuộc trò chuyện hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“归档聊天”适用于智能体聊天。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「封存聊天」適用於代理聊天。請先聚焦一個聊天。"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.copyCodeNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Last Code Block works in agent chats. Focus one first."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعمل نسخ آخر كتلة تعليمات برمجية في دردشات الوكيل. ركّز على واحدة أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kopiranje posljednjeg bloka koda radi u chatovima s agentom. Prvo fokusirajte jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kopiér seneste kodeblok virker i agentchats. Fokusér en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Letzten Codeblock kopieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Copiar el último bloque de código funciona en chats de agente. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Copier le dernier bloc de code fonctionne dans les discussions d’agent. Activez-en une d’abord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Copia l'ultimo blocco di codice funziona nelle chat con agenti. Seleziona prima una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "最後のコードブロックをコピーはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចម្លងប្លុកកូដចុងក្រោយដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "마지막 코드 블록 복사는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kopier siste kodeblokk fungerer i agentchatter. Fokuser én først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kopiowanie ostatniego bloku kodu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Copiar o último bloco de código funciona em conversas com agentes. Foque uma primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Копирование последнего блока кода работает в чатах с агентом. Сначала выберите чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คัดลอกบล็อกโค้ดล่าสุดใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Son kod bloğunu kopyala, ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Копіювання останнього блоку коду працює в чатах з агентом. Спершу виберіть чат."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sao chép khối mã cuối cùng hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“拷贝最后一个代码块”适用于智能体聊天。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「拷貝最後一個程式碼區塊」適用於代理聊天。請先聚焦一個聊天。"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.searchFilesNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Files… works in agent chats. Focus one first."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعمل ميزة البحث في الملفات… في محادثات الوكلاء. ركّز على إحداها أولاً."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži datoteke… radi u agentskim razgovorima. Prvo fokusirajte jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg i filer… virker i agentchats. Fokuser en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Dateien durchsuchen…“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar archivos… funciona en los chats de agente. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher des fichiers… fonctionne dans les chats d’agent. Activez-en un d’abord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca file… funziona nelle chat dell’agente. Mettine a fuoco una prima."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「ファイルを検索…」はエージェントチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកឯកសារ… ដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "파일 검색…은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk i filer… virker i agentchatter. Fokuser én først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj plików… działa w czatach agenta. Najpierw ustaw fokus na jednym."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar arquivos… funciona em chats de agente. Foque um primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Поиск файлов…» работает в чатах агента. Сначала переключитесь на чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาไฟล์… ใช้ได้ในแชตเอเจนต์ โฟกัสแชตก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dosyalarda ara… ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Пошук файлів…» працює в чатах агента. Спершу перейдіть до чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm tệp… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“搜索文件…”适用于智能体聊天。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「搜尋檔案…」適用於代理程式聊天。請先聚焦一個聊天。"
           }
         }
       }
@@ -6608,137 +6215,6 @@
         }
       }
     },
-    "handlers.misc.failed.switchModelNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعمل تبديل النموذج… في محادثات الوكلاء. ركّز على إحداها أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Promijeni model… radi u agent razgovorima. Prvo fokusiraj jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skift model… virker i agentchats. Fokuser på en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Modell wechseln…“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch Model… works in agent chats. Focus one first."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cambiar modelo… funciona en chats de agentes. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Changer de modèle… fonctionne dans les discussions d’agent. Mettez-en une au premier plan d’abord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cambia modello… funziona nelle chat degli agenti. Metti prima a fuoco una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「モデルを切り替え…」はエージェントのチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្តូរម៉ូដែល… ដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모델 전환…은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bytt modell… virker i agentchatter. Fokuser på én først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmień model… działa w czatach agentów. Najpierw ustaw fokus na czacie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trocar modelo… funciona em chats de agentes. Foque em um primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Сменить модель…» работает в чатах агентов. Сначала переведите фокус на чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สลับโมเดล… ใช้ได้ในแชตของเอเจนต์ โปรดโฟกัสแชตก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modeli Değiştir… ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Змінити модель…» працює в чатах агентів. Спершу наведіть фокус на чат."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chuyển mô hình… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“切换模型…”适用于智能体聊天。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「切換模型…」適用於代理聊天。請先聚焦一個聊天。"
-          }
-        }
-      }
-    },
     "handlers.misc.failed.switchModelNeedsFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -6876,127 +6352,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again."
+            "value": "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモリインスペクタはこの Mac で動く Chief を表示します。Chief を起動して (Home でメッセージを送って) から、もう一度お試しください。"
+            "value": "メモリインスペクタはこの Mac で動く Chief を表示します。Chief を起動して (Chief でメッセージを送って) から、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعرض مفتش الذاكرة Chief الذي يعمل على هذا الـ Mac. شغّل Chief (أرسل إليه رسالة في Home)، ثم حاول مرة أخرى."
+            "value": "يعرض مفتش الذاكرة Chief الذي يعمل على هذا الـ Mac. شغّل Chief (أرسل إليه رسالة في Chief)، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inspektor memorije prikazuje Chiefa koji radi na ovom Macu. Pokrenite Chiefa (pošaljite mu poruku u Home), pa pokušajte ponovo."
+            "value": "Inspektor memorije prikazuje Chiefa koji radi na ovom Macu. Pokrenite Chiefa (pošaljite mu poruku u Chief), pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hukommelsesinspektøren viser en Chief, der kører på denne Mac. Start Chief (send en besked i Home), og prøv igen."
+            "value": "Hukommelsesinspektøren viser en Chief, der kører på denne Mac. Start Chief (send en besked i Chief), og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Speicher-Inspektor zeigt einen Chief, der auf diesem Mac läuft. Starte den Chief (schick ihm eine Nachricht in Home) und versuche es erneut."
+            "value": "Der Speicher-Inspektor zeigt einen Chief, der auf diesem Mac läuft. Starte den Chief (schick ihm eine Nachricht in Chief) und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El inspector de memoria muestra un Chief que se ejecuta en este Mac. Inicia el Chief (envíale un mensaje en Home) y vuelve a intentarlo."
+            "value": "El inspector de memoria muestra un Chief que se ejecuta en este Mac. Inicia el Chief (envíale un mensaje en Chief) y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’inspecteur de mémoire affiche un Chief qui tourne sur ce Mac. Démarrez le Chief (envoyez-lui un message dans Home), puis réessayez."
+            "value": "L’inspecteur de mémoire affiche un Chief qui tourne sur ce Mac. Démarrez le Chief (envoyez-lui un message dans Chief), puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’ispettore della memoria mostra un Chief in esecuzione su questo Mac. Avvia il Chief (inviagli un messaggio in Home) e riprova."
+            "value": "L’ispettore della memoria mostra un Chief in esecuzione su questo Mac. Avvia il Chief (inviagli un messaggio in Chief) e riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្មវិធីពិនិត្យអង្គចងចាំបង្ហាញ Chief ដែលដំណើរការលើ Mac នេះ។ ចាប់ផ្ដើម Chief (ផ្ញើសារទៅវានៅក្នុង Home) រួចព្យាយាមម្ដងទៀត។"
+            "value": "កម្មវិធីពិនិត្យអង្គចងចាំបង្ហាញ Chief ដែលដំណើរការលើ Mac នេះ។ ចាប់ផ្ដើម Chief (ផ្ញើសារទៅវានៅក្នុង Chief) រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메모리 인스펙터는 이 Mac에서 실행되는 Chief를 보여 줍니다. Chief를 시작한 다음(Home에서 메시지 보내기) 다시 시도하세요."
+            "value": "메모리 인스펙터는 이 Mac에서 실행되는 Chief를 보여 줍니다. Chief를 시작한 다음(Chief에서 메시지 보내기) 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minneinspektøren viser en Chief som kjører på denne Macen. Start Chief (send en melding i Home), og prøv igjen."
+            "value": "Minneinspektøren viser en Chief som kjører på denne Macen. Start Chief (send en melding i Chief), og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inspektor pamięci pokazuje Chiefa działającego na tym Macu. Uruchom Chiefa (wyślij mu wiadomość w Home) i spróbuj ponownie."
+            "value": "Inspektor pamięci pokazuje Chiefa działającego na tym Macu. Uruchom Chiefa (wyślij mu wiadomość w Chief) i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O inspetor de memória mostra um Chief que roda neste Mac. Inicie o Chief (envie uma mensagem no Home) e tente de novo."
+            "value": "O inspetor de memória mostra um Chief que roda neste Mac. Inicie o Chief (envie uma mensagem no Chief) e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Инспектор памяти показывает Chief, который работает на этом Mac. Запустите Chief (отправьте ему сообщение в Home) и повторите попытку."
+            "value": "Инспектор памяти показывает Chief, который работает на этом Mac. Запустите Chief (отправьте ему сообщение в Chief) и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตัวตรวจหน่วยความจำแสดง Chief ที่ทำงานบน Mac เครื่องนี้ เริ่ม Chief (ส่งข้อความใน Home) แล้วลองอีกครั้ง"
+            "value": "ตัวตรวจหน่วยความจำแสดง Chief ที่ทำงานบน Mac เครื่องนี้ เริ่ม Chief (ส่งข้อความใน Chief) แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bellek Denetçisi bu Mac’te çalışan bir Chief’i gösterir. Chief’i başlatın (Home’da ona mesaj gönderin) ve yeniden deneyin."
+            "value": "Bellek Denetçisi bu Mac’te çalışan bir Chief’i gösterir. Chief’i başlatın (Chief’da ona mesaj gönderin) ve yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Інспектор пам’яті показує Chief, що працює на цьому Mac. Запустіть Chief (надішліть йому повідомлення в Home) і спробуйте ще раз."
+            "value": "Інспектор пам’яті показує Chief, що працює на цьому Mac. Запустіть Chief (надішліть йому повідомлення в Chief) і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trình kiểm tra bộ nhớ hiển thị Chief chạy trên máy Mac này. Hãy khởi động Chief (gửi tin nhắn trong Home) rồi thử lại."
+            "value": "Trình kiểm tra bộ nhớ hiển thị Chief chạy trên máy Mac này. Hãy khởi động Chief (gửi tin nhắn trong Chief) rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "记忆检查器显示在这台 Mac 上运行的 Chief。请先启动 Chief（在 Home 中给它发一条消息），然后重试。"
+            "value": "记忆检查器显示在这台 Mac 上运行的 Chief。请先启动 Chief（在 Chief 中给它发一条消息），然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "記憶檢查器顯示在這台 Mac 上執行的 Chief。請先啟動 Chief（在 Home 中傳一則訊息給它），然後再試一次。"
+            "value": "記憶檢查器顯示在這台 Mac 上執行的 Chief。請先啟動 Chief（在 Chief 中傳一則訊息給它），然後再試一次。"
           }
         }
       }
@@ -9101,137 +8577,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "從代理面板提交和推送需要焦點。使用 cmux git commit 或 cmux git push 以無介面方式執行。"
-          }
-        }
-      }
-    },
-    "handlers.misc.failed.gitNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعمل الإيداع والدفع في محادثات الوكيل. ركّز على محادثة أولاً."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit i Push rade u agent chatovima. Prvo fokusirajte jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit og Push virker i agentchats. Fokuser på en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committen und Pushen funktionieren in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commit and Push work in agent chats. Focus one first."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Confirmar y Enviar funcionan en los chats de agente. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Valider et Pousser fonctionnent dans les discussions d’agent. Activez-en une d’abord."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit e Push funzionano nelle chat degli agenti. Prima metti a fuoco una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コミットとプッシュはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit និង Push ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ។ សូមផ្ដោតលើការជជែកមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "커밋과 푸시는 에이전트 채팅에서 사용할 수 있습니다. 먼저 채팅에 포커스를 두세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit og Push fungerer i agentchatter. Fokuser på en først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatwierdzanie i wypychanie działają w czatach agentów. Najpierw ustaw fokus na czacie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit e Push funcionam em chats de agente. Foque em um primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коммит и пуш работают в чатах агентов. Сначала перейдите в чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คอมมิตและพุชใช้ได้ในแชทเอเจนต์ โฟกัสที่แชทก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit ve Push, ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коміт і пуш працюють у чатах агентів. Спершу перейдіть до чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit và Push hoạt động trong các cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提交和推送可在代理聊天中使用。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提交和推送可在代理聊天中使用。請先聚焦一個聊天。"
           }
         }
       }
@@ -18233,137 +17578,6 @@
         }
       }
     },
-    "handlers.computerUse.helperRestarting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Computer Use helper had stopped, so cmux is starting it again. Try again in a moment."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use ヘルパーが停止していたため、cmux が再起動しています。少し待ってからもう一度お試しください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "توقف مساعد استخدام الكمبيوتر، لذا يعيد cmux تشغيله. حاول مرة أخرى بعد لحظات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use pomoćnik se zaustavio, pa ga cmux ponovo pokreće. Pokušajte ponovo za trenutak."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use-hjælperen var stoppet, så cmux starter den igen. Prøv igen om et øjeblik."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Computer-Use-Helfer war beendet, daher startet cmux ihn neu. Versuche es gleich noch einmal."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El asistente de Computer Use se había detenido, así que cmux lo está iniciando de nuevo. Inténtalo de nuevo en un momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’assistant Computer Use s’était arrêté ; cmux le redémarre. Réessayez dans un instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’helper di Computer Use si era fermato, quindi cmux lo sta riavviando. Riprova tra un momento."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីជំនួយ Computer Use បានឈប់ ដូច្នេះ cmux កំពុងចាប់ផ្ដើមវាឡើងវិញ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use 도우미가 멈춰서 cmux가 다시 시작하고 있습니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use-hjelperen hadde stoppet, så cmux starter den på nytt. Prøv igjen om et øyeblikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pomocnik Computer Use zatrzymał się, więc cmux uruchamia go ponownie. Spróbuj ponownie za chwilę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O auxiliar do Computer Use parou, então o cmux está iniciando-o novamente. Tente de novo em instantes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Помощник Computer Use остановился, и cmux запускает его снова. Повторите попытку через несколько секунд."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวช่วย Computer Use หยุดทำงาน cmux จึงกำลังเริ่มใหม่ ลองอีกครั้งในอีกสักครู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use yardımcısı durmuştu, cmux onu yeniden başlatıyor. Birazdan tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Помічник Computer Use зупинився, тож cmux запускає його знову. Спробуйте ще раз за мить."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trình trợ giúp Computer Use đã dừng, nên cmux đang khởi động lại. Hãy thử lại sau giây lát."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use 辅助程序已停止，cmux 正在重新启动它。请稍后再试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use 輔助程式已停止，cmux 正在重新啟動。請稍後再試。"
-          }
-        }
-      }
-    },
     "handlers.computerUse.hostUnreachable": {
       "extractionState": "manual",
       "localizations": {
@@ -19281,137 +18495,6 @@
         }
       }
     },
-    "handlers.misc.failed.sideQuestionNeedsAgentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask a Side Question… works in agent chats. Focus one first."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعمل «اطرح سؤالًا جانبيًا…» في دردشات الوكلاء. ركّز على إحداها أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Postavi sporedno pitanje… radi u razgovorima s agentom. Prvo fokusirajte jedan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stil et sidespørgsmål… virker i agentchats. Fokusér en først."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nebenfrage stellen… funktioniert in Agent-Chats. Fokussiere zuerst einen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hacer una pregunta aparte… funciona en los chats de agentes. Enfoca uno primero."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poser une question annexe… fonctionne dans les conversations d'agent. Placez d'abord le focus sur l'une d'elles."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fai una domanda a parte… funziona nelle chat con gli agenti. Metti prima a fuoco una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "サイドで質問… はエージェントチャットで使えます。先にチャットにフォーカスしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សួរសំណួរចំហៀង… ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "곁가지 질문하기…는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Still et sidespørsmål… virker i agentchatter. Fokuser en først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zadaj pytanie poboczne… działa w czatach z agentem. Najpierw ustaw fokus na jednym z nich."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fazer uma pergunta paralela… funciona em chats com agentes. Foque um primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Задать побочный вопрос… работает в чатах с агентами. Сначала переведите фокус на чат."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ถามคำถามข้างเคียง… ใช้ได้ในแชตกับเอเจนต์ โปรดโฟกัสแชตก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yan soru sor… ajan sohbetlerinde çalışır. Önce birine odaklanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поставити побічне запитання… працює в чатах з агентами. Спершу перейдіть до одного з них."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hỏi câu hỏi bên lề… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提出旁支问题… 适用于代理聊天。请先聚焦一个聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提出旁支問題… 適用於代理程式聊天。請先聚焦一個聊天。"
-          }
-        }
-      }
-    },
     "handlers.misc.failed.nothingReadAloud": {
       "extractionState": "manual",
       "localizations": {
@@ -19539,6 +18622,1450 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "目前沒有正在朗讀的內容。"
+          }
+        }
+      }
+    },
+    "handlers.computerUse.noApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the app (app_id)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを指定してください (app_id)。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die App an (app_id)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’app (app_id)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد التطبيق (app_id)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la app (app_id)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定 App (app_id)。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定应用 (app_id)。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱을 지정하세요 (app_id)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite aplikaciju (app_id)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv appen (app_id)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’app (app_id)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមបញ្ជាក់កម្មវិធី (app_id)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi appen (app_id)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj aplikację (app_id)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o app (app_id)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите приложение (app_id)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุแอป (app_id)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulamayı belirtin (app_id)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть застосунок (app_id)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chỉ định ứng dụng (app_id)."
+          }
+        }
+      }
+    },
+    "handlers.computerUse.noDecision": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The decision must be always or never."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "always または never を指定してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Entscheidung muss always oder never sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La décision doit être always ou never."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون القرار always أو never."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La decisión debe ser always o never."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定必須是 always 或 never。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "决定必须是 always 或 never。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결정은 always 또는 never여야 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odluka mora biti always ili never."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beslutningen skal være always eller never."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La decisione deve essere always o never."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសម្រេចត្រូវតែជា always ឬ never។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avgjørelsen må være always eller never."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Decyzja musi mieć wartość always lub never."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A decisão deve ser always ou never."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Решение должно быть always или never."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตัดสินใจต้องเป็น always หรือ never"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karar always veya never olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рішення має бути always або never."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyết định phải là always hoặc never."
+          }
+        }
+      }
+    },
+    "screenShare.chat.unavailable": {
+      "comment": "Screen sharing from the chat machine row in Session Info.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة غير متاحة لجهاز هذه المحادثة. افتح الأجهزة للتحقق من اتصاله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana nije dostupno za računar ovog razgovora. Otvorite Računari da provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling er ikke tilgængelig for denne chats maskine. Åbn Maskiner for at kontrollere forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bildschirmfreigabe ist für den Rechner dieses Chats nicht verfügbar. Öffne Rechner, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen sharing is not available for this chat’s machine. Open Machines to check its connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede compartir la pantalla del equipo de este chat. Abre Equipos para comprobar su conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage d’écran n’est pas disponible pour la machine de cette conversation. Ouvrez Machines pour vérifier sa connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione schermo non è disponibile per il computer di questa chat. Apri Computer per verificarne la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのマシンでは画面共有を利用できません。「マシン」を開いて接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់មិនមានសម្រាប់ម៉ាស៊ីននៃការជជែកនេះទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 컴퓨터에서는 화면 공유를 사용할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling er ikke tilgjengelig for maskinen i denne chatten. Åpne Maskiner for å kontrollere tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu jest niedostępne dla komputera tego czatu. Otwórz Komputery, aby sprawdzić połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento de tela não está disponível para a máquina desta conversa. Abra Máquinas para verificar a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демонстрация экрана недоступна для компьютера этого чата. Откройте «Компьютеры», чтобы проверить подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแชร์หน้าจอของเครื่องสำหรับแชตนี้ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin makinesi için ekran paylaşımı kullanılamıyor. Bağlantısını kontrol etmek için Makineler’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ до екрана недоступний для комп’ютера цього чату. Відкрийте «Комп’ютери», щоб перевірити з’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chia sẻ màn hình của máy trong cuộc trò chuyện này. Mở Máy để kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的机器无法共享屏幕。请打开“机器”检查连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的機器無法共享螢幕。請開啟「機器」檢查連線。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNotAgentTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused tab is neither a terminal nor an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のタブはターミナルでもエージェントチャットでもありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب المركّز عليها ليست طرفية ولا محادثة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirana kartica nije ni terminal ni razgovor s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen i fokus er hverken en terminal eller en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der fokussierte Tab ist weder ein Terminal noch ein Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña enfocada no es una terminal ni un chat de agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet actif n’est ni un terminal ni un chat d’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda attiva non è né un terminale né una chat con un agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងដែលកំពុងផ្ដោតមិនមែនជា Terminal ឬការជជែកជាមួយភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 탭은 터미널도 에이전트 채팅도 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen i fokus er verken en terminal eller en agentsamtale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywna karta nie jest ani terminalem, ani czatem z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba em foco não é um terminal nem um chat de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активная вкладка не является ни терминалом, ни чатом агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บที่โฟกัสอยู่ไม่ใช่เทอร์มินัลหรือแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaktaki sekme ne bir terminal ne de bir ajan sohbeti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активна вкладка не є ні терміналом, ні чатом агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab đang được chọn không phải terminal cũng không phải cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前标签页既不是终端，也不是智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的分頁既不是終端機，也不是代理程式聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open terminal runs this chat's session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのセッションを実行している開いたターミナルはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية مفتوحة تشغّل جلسة هذه المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan otvoreni terminal ne pokreće sesiju ovog razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen åben terminal kører denne chats session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein geöffnetes Terminal führt die Sitzung dieses Chats aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna terminal abierta ejecuta la sesión de este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal ouvert n’exécute la session de ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun terminale aperto esegue la sessione di questa chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន Terminal ដែលបើកណាមួយកំពុងដំណើរការវគ្គរបស់ការជជែកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 세션을 실행 중인 열린 터미널이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen åpen terminal kjører denne samtalens økt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden otwarty terminal nie uruchamia sesji tego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum terminal aberto executa a sessão deste chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один открытый терминал не выполняет сеанс этого чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเทอร์มินัลที่เปิดอยู่ซึ่งรันเซสชันของแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık hiçbir terminal bu sohbetin oturumunu çalıştırmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден відкритий термінал не виконує сеанс цього чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có terminal đang mở nào chạy phiên của cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的终端在运行此聊天的会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的終端機在執行此聊天的工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is still working. Switch when its turn ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはまだ作業中です。ターンが終わってから切り替えてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه المحادثة تعمل. بدّل عندما ينتهي دورها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor još radi. Prebacite kada se njegov potez završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat arbejder stadig. Skift, når dens tur er slut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat arbeitet noch. Wechsle, wenn sein Zug endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat sigue trabajando. Cambia cuando termine su turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce chat travaille encore. Basculez quand son tour se termine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat sta ancora lavorando. Passa quando il suo turno finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះនៅតែកំពុងធ្វើការ។ ប្ដូរនៅពេលវេនរបស់វាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 아직 작업 중입니다. 차례가 끝나면 전환하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten jobber fortsatt. Bytt når turen dens er over."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat wciąż pracuje. Przełącz, gdy skończy się jego tura."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ainda está trabalhando. Alterne quando o turno dele terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат ещё работает. Переключитесь, когда его ход закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ยังทำงานอยู่ สลับเมื่อรอบของมันจบลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet hâlâ çalışıyor. Sırası bitince geçiş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат ще працює. Перемкніться, коли його хід завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này vẫn đang làm việc. Hãy chuyển khi lượt của nó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。请在其回合结束后再切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。請在其回合結束後再切換。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatStopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat could not stop, so no terminal resumes its session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを停止できなかったため、ターミナルでセッションを再開しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إيقاف المحادثة، لذا لن تستأنف أي طرفية جلستها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor se nije mogao zaustaviti, pa nijedan terminal ne nastavlja njegovu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal genoptager dens session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat konnte nicht anhalten, daher setzt kein Terminal seine Sitzung fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat no pudo detenerse, así que ninguna terminal reanuda su sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat n'a pas pu s'arrêter, aucun terminal ne reprend donc sa session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat non si è potuta fermare, quindi nessun terminale ne riprende la sessione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកមិនអាចឈប់បានទេ ដូច្នេះគ្មានទែមីណាល់ណាបន្តវគ្គរបស់វាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 멈출 수 없어 터미널에서 세션을 이어 가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal gjenopptar økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zatrzymać czatu, więc żaden terminal nie wznawia jego sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível parar o chat, então nenhum terminal retoma a sessão dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось остановить чат, поэтому ни один терминал не продолжит его сеанс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถหยุดแชทได้ จึงไม่มีเทอร์มินัลใดทำเซสชันต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdurulamadı, bu yüzden hiçbir terminal oturumunu sürdürmüyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зупинити чат, тож жоден термінал не продовжить його сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể dừng cuộc trò chuyện nên không terminal nào tiếp tục phiên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法停止此聊天，因此没有终端恢复其会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法停止此聊天，因此沒有終端機恢復其工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat stopped, but its workspace has no pane for the terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは停止しましたが、そのワークスペースにはターミナル用のペインがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقفت المحادثة، لكن مساحة عملها لا تحتوي على جزء للطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je zaustavljen, ali njegov radni prostor nema okno za terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppede, men dens arbejdsområde har ingen rude til terminalen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat hat angehalten, aber sein Workspace hat keinen Bereich für das Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat se detuvo, pero su espacio de trabajo no tiene panel para la terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat s'est arrêté, mais son espace de travail n'a aucun panneau pour le terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat si è fermata, ma il suo spazio di lavoro non ha un riquadro per il terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានឈប់ ប៉ុន្តែកន្លែងធ្វើការរបស់វាគ្មានផ្ទាំងសម្រាប់ទែមីណាល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅은 멈췄지만 해당 워크스페이스에 터미널을 열 패인이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppet, men arbeidsområdet har ingen rute til terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat się zatrzymał, ale jego obszar roboczy nie ma panelu na terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat parou, mas o espaço de trabalho dele não tem painel para o terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат остановлен, но в его рабочем пространстве нет панели для терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทหยุดแล้ว แต่เวิร์กสเปซของมันไม่มีบานหน้าต่างสำหรับเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdu, ancak çalışma alanında terminal için bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат зупинено, але в його робочому просторі немає панелі для термінала."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đã dừng nhưng không gian làm việc của nó không có ô cho terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作区没有可放终端的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作區沒有可放終端機的窗格。"
+          }
+        }
+      }
+    },
+    "handlers.misc.terminalChat.switchToChat": {
+      "comment": "Pane ⋮ menu and tab right-click: show this terminal's agent session as a chat",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التبديل إلى المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci na razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Chat wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer au chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa alla chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットに切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរទៅការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅으로 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt til chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz na czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para o chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключиться на чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไปที่แชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbete geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти до чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển sang trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到聊天"
+          }
+        }
+      }
+    },
+    "handlers.misc.terminalChat.switchToTerminal": {
+      "comment": "Pane ⋮ menu and tab right-click: show the terminal that runs this chat's session",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التبديل إلى الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci na terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift til terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Terminal wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar a la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer au terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa al terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルに切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរទៅ Terminal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널로 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt til terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz na terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para o terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключиться на терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไปที่เทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminale geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти до термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển sang terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到終端機"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.sessionTabRevealFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثة مفتوحة في علامة التبويب %@، لكن cmux لم يتمكن من عرضها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je otvoren u kartici %@, ali cmux ga nije mogao prikazati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er åben i fanen %@, men cmux kunne ikke vise den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat ist im Tab %@ geöffnet, aber cmux konnte ihn nicht anzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat is open in tab %@, but cmux could not show it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat está abierto en la pestaña %@, pero cmux no pudo mostrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conversation est ouverte dans l’onglet %@, mais cmux n’a pas pu l’afficher."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat è aperta nella scheda %@, ma cmux non è riuscito a mostrarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットはタブ %@ で開いていますが、cmux で表示できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានបើកនៅក្នុងផ្ទាំង %@ ប៉ុន្តែ cmux មិនអាចបង្ហាញវាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 탭 %@에 열려 있지만 cmux가 표시하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er åpen i fanen %@, men cmux kunne ikke vise den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat jest otwarty na karcie %@, ale cmux nie mógł go pokazać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat está aberto na aba %@, mas o cmux não conseguiu mostrá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат открыт во вкладке %@, но cmux не удалось его показать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเปิดอยู่ในแท็บ %@ แต่ cmux แสดงไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet %@ sekmesinde açık, ancak cmux onu gösteremedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат відкрито у вкладці %@, але cmux не вдалося його показати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đang mở trong thẻ %@, nhưng cmux không thể hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已在标签页 %@ 中打开，但 cmux 无法显示它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已在分頁 %@ 中開啟，但 cmux 無法顯示它。"
           }
         }
       }

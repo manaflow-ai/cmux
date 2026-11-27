@@ -198,6 +198,9 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_HISTORY,
         MUX_SESSION_SEARCH,
         MUX_RESOLVE,
+        SESSION_SIGNATURE,
+        MUX_HERE,
+        MUX_SYNC_PULL,
     ] {
         assert!(read_only_allows(m), "{m}");
     }
@@ -213,7 +216,11 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_RENAME,
         MUX_TAG,
         MUX_VIEW,
+        MUX_HERE_BEAT,
+        MUX_SYNC_PUSH,
         MUX_MARK_UNREAD,
+        MUX_MARK_READ,
+        MUX_PIN,
         MUX_DRAFT_SET,
         MUX_MAIL_SEND,
         MUX_PROCESS_KILL,
@@ -277,10 +284,10 @@ async fn revoking_a_device_wakes_its_connections() {
 }
 
 #[test]
-fn full_access_is_off_by_default_and_only_a_live_client_has_it() {
+fn full_access_is_off_by_default_for_a_client_and_only_a_live_client_has_it() {
     let (mut s, _) = minted(Role::Client);
     let laptop = redeem(&mut s, SECRET, "laptop", T0 + 1).unwrap().device;
-    assert!(!laptop.full_access && !laptop.grants_full_access());
+    assert!(laptop.full_access.is_none() && !laptop.grants_full_access());
     // A record saved before the setting existed reads as off.
     let old: Device = serde_json::from_value(serde_json::json!({
         "id": "dv_old", "name": "old", "role": "client", "tokenHash": "00", "createdMs": T0,
@@ -289,14 +296,41 @@ fn full_access_is_off_by_default_and_only_a_live_client_has_it() {
     assert!(!old.grants_full_access());
     assert!(s.set_full_access("laptop", true).unwrap().grants_full_access());
     assert!(s.devices[0].grants_full_access());
-    // Off is saved as no field at all.
+    // Off is the person's choice, saved as such.
     assert!(s.set_full_access(&laptop.id, false).is_ok());
-    assert!(!serde_json::to_string(&s).unwrap().contains("fullAccess"));
+    assert!(serde_json::to_string(&s).unwrap().contains(r#""fullAccess":false"#));
     // A revoked machine has no setting, and none can be turned on for it.
     s.set_full_access(&laptop.id, true).unwrap();
     s.revoke(&laptop.id, T0 + 2).unwrap();
     assert!(!s.devices[0].grants_full_access());
     assert_eq!(reason(&s.set_full_access(&laptop.id, true).unwrap_err()), "not_found");
+}
+
+#[test]
+fn a_phone_is_on_by_default_and_the_persons_off_sticks() {
+    let mut s = Store::default();
+    let (phone, _) = s.issue_phone("phone-a", &"01".repeat(32), "dv_1", T0).unwrap();
+    assert!(phone.full_access.is_none() && phone.grants_full_access());
+    assert_eq!(phone.to_value()["full_access"], true);
+    // A phone record saved before the default changed (no field) reads as on; one saved
+    // with the setting on stays on; an explicit off stays off.
+    let saved = |extra: serde_json::Value| -> Device {
+        let mut v = serde_json::json!({
+            "id": "dv_old", "name": "old", "role": "phone", "tokenHash": "00", "createdMs": T0,
+        });
+        v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(v).unwrap()
+    };
+    assert!(saved(serde_json::json!({})).grants_full_access());
+    assert!(saved(serde_json::json!({"fullAccess": true})).grants_full_access());
+    assert!(!saved(serde_json::json!({"fullAccess": false})).grants_full_access());
+    // Off is kept across a save and load, and a revoked phone grants nothing.
+    s.set_full_access("phone-a", false).unwrap();
+    let back: Store = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    assert!(!back.devices[0].grants_full_access());
+    s.set_full_access("phone-a", true).unwrap();
+    s.revoke("dv_1", T0 + 1).unwrap();
+    assert!(!s.devices[0].grants_full_access());
 }
 
 #[test]
@@ -308,8 +342,8 @@ fn a_read_only_or_daemon_machine_never_has_full_access() {
         assert!(s.set_full_access(name, false).is_ok(), "off is always accepted");
     }
     // A hand-edited record with the setting on still grants nothing.
-    s.devices[0].full_access = true;
-    s.devices[1].full_access = true;
+    s.devices[0].full_access = Some(true);
+    s.devices[1].full_access = Some(true);
     assert!(s.devices.iter().all(|d| !d.grants_full_access()));
 }
 
@@ -317,11 +351,11 @@ fn a_read_only_or_daemon_machine_never_has_full_access() {
 fn a_new_phone_credential_ends_the_old_one_and_keeps_its_setting() {
     let mut s = Store::default();
     let (first, replaced) = s.issue_phone("phone-a", &"01".repeat(32), "dv_1", T0).unwrap();
-    assert!(replaced.is_none() && !first.grants_full_access(), "off by default");
-    assert!(s.set_full_access("phone-a", true).unwrap().grants_full_access());
+    assert!(replaced.is_none() && first.grants_full_access(), "a phone is on by default");
+    assert!(!s.set_full_access("phone-a", false).unwrap().grants_full_access());
     let (second, replaced) = s.issue_phone("phone-a", &"02".repeat(32), "dv_2", T0 + 1).unwrap();
     assert_eq!(replaced.as_deref(), Some("dv_1"));
-    assert!(second.grants_full_access());
+    assert!(!second.grants_full_access(), "the person's off survives a new credential");
     assert_eq!(s.devices, vec![second], "one record per phone, the old one gone");
     assert!(s.device_for(&"01".repeat(32)).is_none());
     assert_eq!(s.device_for(&"02".repeat(32)).map(|d| d.id.as_str()), Some("dv_2"));
@@ -355,4 +389,44 @@ fn tailnet_admission_requires_bound_tickets_even_for_migrated_stores() {
     pairing.lock().store.tickets[0].identity.clear();
     assert!(pairing.ticket_open(&ticket.secret, "run-one"));
     assert!(!pairing.ticket_open_bound(&ticket.secret, "run-one"));
+}
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): two fresh Ubuntu VMs added with
+/// `cmux device add HOST --yes --name doora-vm-N` both heartbeat as `ubuntu`, their host name,
+/// so `cmux chat --on doora-vm-1` named no mesh host and the two clash. A pasted line or Door A
+/// join, and a sign-in join, is on the mesh by the name it joined with; a revoked or copied
+/// record and an unusable name keep the host name.
+#[test]
+fn a_joined_machine_is_on_the_mesh_by_the_name_it_joined_with() {
+    use crate::machine_record::{JOINED_BY_SIGN_IN, MachineCredential};
+    let joined = |name: &str| MachineCredential {
+        name: name.into(),
+        machine_id: "machine_1".into(),
+        ..MachineCredential::default()
+    };
+    let host = || "ubuntu".to_owned();
+    assert_eq!(mesh_host_of(Some(&joined("doora-vm-1")), host()), "doora-vm-1");
+    assert_eq!(mesh_host_of(Some(&joined("Doora-VM-2")), host()), "doora-vm-2");
+    assert_eq!(mesh_host_of(None, host()), "ubuntu");
+    let sign_in =
+        MachineCredential { joined_by: Some(JOINED_BY_SIGN_IN.into()), ..joined("ubuntu-dev-tag") };
+    assert_eq!(
+        mesh_host_of(Some(&sign_in), host()),
+        "ubuntu-dev-tag",
+        "a tagged build's sign-in join is a host of its own"
+    );
+    let untagged =
+        MachineCredential { joined_by: Some(JOINED_BY_SIGN_IN.into()), ..joined("ubuntu") };
+    assert_eq!(
+        mesh_host_of(Some(&untagged), host()),
+        "ubuntu",
+        "an untagged sign-in join is its host name"
+    );
+    let revoked = MachineCredential { revoked: true, ..joined("doora-vm-1") };
+    assert_eq!(mesh_host_of(Some(&revoked), host()), "ubuntu");
+    let copied = MachineCredential { cloned: true, ..joined("doora-vm-1") };
+    assert_eq!(mesh_host_of(Some(&copied), host()), "ubuntu");
+    for unusable in ["", "host", "has space", "-dash", "a/b"] {
+        assert_eq!(mesh_host_of(Some(&joined(unusable)), host()), "ubuntu", "{unusable:?}");
+    }
 }

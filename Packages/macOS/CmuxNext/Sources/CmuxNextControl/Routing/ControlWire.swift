@@ -60,15 +60,16 @@ public struct ControlError: Error, Sendable, Hashable {
 
     /// The main-actor work queue is full. The request did not run; retry later.
     public static func busy(pending: Int, limit: Int) -> ControlError {
+        // retry-prompt-ok: a socket API reply to a script, which owns its own retry
         ControlError(code: "busy", message: ControlStrings.format("control.error.busy", "cmux is busy (%1$lld queued requests, limit %2$lld); retry later", pending, limit),
                      data: ["pending": JSONValue(pending), "limit": JSONValue(limit)])
     }
 
-    /// Another cmux process kept the lock of the settings file (`SettingsFileBusy`), so a settings
-    /// write did not finish. Not `busy`: a write of several steps can have written its first
-    /// steps, so the answer does not say `not_run`. The same request sent again completes the write.
-    static func settingsBusy() -> ControlError {
-        ControlError(code: "settings_busy", message: ControlStrings.text("control.error.settingsBusy", "another cmux process holds the lock of the settings file; the write did not finish, send the request again"))
+    /// The daemon that writes the settings file is not connected (`SettingsWriterDisconnected`), so
+    /// a settings write wrote nothing; nothing queues. The same request sent once cmux reconnects
+    /// to its daemon completes the write.
+    static func settingsDisconnected() -> ControlError {
+        ControlError(code: "unavailable", message: ControlStrings.text("control.error.settingsUnavailable", "settings are not available"))
     }
 }
 

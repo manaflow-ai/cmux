@@ -39,309 +39,38 @@ mod table_pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
 #[cfg(test)]
 mod compaction_tests;
+#[cfg(test)]
+mod mark_tests;
 mod snapshot;
 #[cfg(test)]
 mod storage_tests;
 pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
-pub use kin::{FolderKey, KinTables};
+pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
-pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
+use snapshot::StreamGeneration;
+pub use snapshot::{
+    CHECKPOINT_BYTES, DiskSnapshot, FatalSnapshotRead, PAGE_BYTES, SEEK_BYTES, SnapshotMeta,
+    SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row, is_fatal_snapshot_read,
+};
 
 use std::io;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-/// The identity of a row is independent of its current sort position.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RowKey {
-    pub origin: Arc<str>,
-    pub chat_id: Arc<str>,
-}
+use acpmux_list_types::KIN_DEPTH_STOPS;
+#[cfg(test)]
+pub(crate) use acpmux_list_types::MAX_FIELD_BYTES;
+pub(super) use acpmux_list_types::MAX_KIN_DEPTH;
+pub use acpmux_list_types::{
+    ForkOf, HOT_WINDOW_MS, MAX_SUMMARY_BYTES, MAX_TITLE_BYTES, OriginState, RowKey, Summary,
+    SummaryRecord, cut_fields, empty_extras, is_live_state, kin_depth_stops, omitted_folders,
+    rejected_keys,
+};
 
-impl RowKey {
-    pub fn new(origin: impl Into<Arc<str>>, chat_id: impl Into<Arc<str>>) -> Self {
-        Self { origin: origin.into(), chat_id: chat_id.into() }
-    }
-
-    pub fn validate(&self) -> io::Result<()> {
-        if self.origin.len() > MAX_FIELD_BYTES || self.chat_id.len() > MAX_FIELD_BYTES {
-            REJECTED_KEYS.fetch_add(1, AtomicOrdering::Relaxed);
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "row key exceeds 256 bytes"));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub struct ForkOf {
-    #[serde(flatten)]
-    pub key: RowKey,
-    pub seq: u64,
-}
-
-/// The on-wire summary of one chat. `extra` is opaque to the daemon.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Summary {
-    pub chat_id: String,
-    pub title: String,
-    pub harness: String,
-    pub state: String,
-    /// Milliseconds since the Unix epoch, matching v1 `updatedAt` and `updatedMs`.
-    pub last_activity: u64,
-    pub unread: u32,
-    pub workspace: Option<String>,
-    pub origin: String,
-    pub pinned: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub peer_form: Option<Box<RawValue>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<RowKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fork_of: Option<ForkOf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folder: Option<String>,
-    #[serde(default = "empty_object")]
-    pub extra: Box<RawValue>,
-}
-
-/// Name used by the design document for a summary's durable record.
-pub type SummaryRecord = Summary;
-
-/// A summary is deliberately small: the list can never be made unbounded by
-/// one harness supplied title or opaque extension.
-pub const MAX_TITLE_BYTES: usize = 256;
-/// Activity keeps a closed, unpinned chat hot for thirty days.
-pub const HOT_WINDOW_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
-pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 /// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
 pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
-static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
-static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
-static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
-static EMPTY_EXTRAS: AtomicUsize = AtomicUsize::new(0);
-
-pub fn rejected_keys() -> usize {
-    REJECTED_KEYS.load(AtomicOrdering::Relaxed)
-}
-pub fn omitted_folders() -> usize {
-    OMITTED_FOLDERS.load(AtomicOrdering::Relaxed)
-}
-pub fn cut_fields() -> usize {
-    CUT_FIELDS.load(AtomicOrdering::Relaxed)
-}
-pub fn empty_extras() -> usize {
-    EMPTY_EXTRAS.load(AtomicOrdering::Relaxed)
-}
-const MAX_FIELD_BYTES: usize = 256;
-
-fn empty_object() -> Box<RawValue> {
-    RawValue::from_string("{}".to_owned()).unwrap_or_else(|_| RawValue::NULL.to_owned())
-}
-
-impl Clone for Summary {
-    fn clone(&self) -> Self {
-        Self {
-            chat_id: self.chat_id.clone(),
-            title: self.title.clone(),
-            harness: self.harness.clone(),
-            state: self.state.clone(),
-            last_activity: self.last_activity,
-            unread: self.unread,
-            workspace: self.workspace.clone(),
-            origin: self.origin.clone(),
-            pinned: self.pinned,
-            peer_form: self.peer_form.as_ref().map(|value| value.to_owned()),
-            parent: self.parent.clone(),
-            fork_of: self.fork_of.clone(),
-            folder: self.folder.clone(),
-            extra: self.extra.to_owned(),
-        }
-    }
-}
-
-impl Summary {
-    /// A compact default useful when a chat has not supplied a title yet.
-    pub fn new(chat_id: impl Into<String>) -> Self {
-        Self {
-            chat_id: chat_id.into(),
-            title: String::new(),
-            harness: String::new(),
-            state: String::new(),
-            last_activity: 0,
-            unread: 0,
-            workspace: None,
-            origin: "local".to_owned(),
-            pinned: false,
-            peer_form: None,
-            parent: None,
-            fork_of: None,
-            folder: None,
-            extra: empty_object(),
-        }
-    }
-
-    pub fn key(&self) -> RowKey {
-        RowKey::new(self.origin.as_str(), self.chat_id.as_str())
-    }
-
-    /// Whether v1's one-level list folding can place `child` beneath `parent`.
-    /// The decision is made from the two rows supplied by the same snapshot, so an
-    /// archived or non-root parent cannot hide a child after it changes.
-    pub fn listed_under(child: &Summary, parent: Option<&Summary>) -> bool {
-        let Some(parent) = parent else { return false };
-        if child.key() == parent.key() || parent.parent.is_some() || parent.archived() {
-            return false;
-        }
-        child.parent.as_ref() == Some(&parent.key())
-    }
-
-    fn archived(&self) -> bool {
-        serde_json::from_str::<serde_json::Value>(self.extra.get())
-            .ok()
-            .as_ref()
-            .and_then(|value| value.pointer("/tags/archived"))
-            .is_some_and(|value| !value.is_null())
-    }
-
-    /// Keys are refused, never shortened. Opaque data stays opaque.
-    pub fn validate(&self) -> io::Result<()> {
-        self.key().validate()?;
-        if let Some(parent) = &self.parent {
-            parent.validate()?;
-        }
-        if let Some(fork) = &self.fork_of {
-            fork.key.validate()?;
-        }
-        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
-        }
-        if codec::text_len(self) > MAX_SUMMARY_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "summary texts exceed budget"));
-        }
-        Ok(())
-    }
-
-    pub fn prepare(mut self) -> io::Result<Self> {
-        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
-            self.folder = None;
-            OMITTED_FOLDERS.fetch_add(1, AtomicOrdering::Relaxed);
-        }
-        let summary = self.bounded();
-        summary.validate()?;
-        Ok(summary)
-    }
-
-    pub fn is_live(&self) -> bool {
-        self.state != "closed"
-    }
-
-    pub fn is_hot_at(&self, now: u64) -> bool {
-        self.pinned || self.is_live() || self.last_activity >= now.saturating_sub(HOT_WINDOW_MS)
-    }
-
-    /// Opaque extension bytes are compared without parsing or re-encoding.
-    pub fn same_content(&self, other: &Self) -> bool {
-        let Self {
-            chat_id,
-            title,
-            harness,
-            state,
-            last_activity,
-            unread,
-            workspace,
-            origin,
-            pinned,
-            peer_form,
-            parent,
-            fork_of,
-            folder,
-            extra,
-        } = self;
-        chat_id == &other.chat_id
-            && title == &other.title
-            && harness == &other.harness
-            && state == &other.state
-            && last_activity == &other.last_activity
-            && unread == &other.unread
-            && workspace == &other.workspace
-            && origin == &other.origin
-            && pinned == &other.pinned
-            && peer_form.as_ref().map(|value| value.get())
-                == other.peer_form.as_ref().map(|value| value.get())
-            && parent == &other.parent
-            && fork_of == &other.fork_of
-            && folder == &other.folder
-            && extra.get() == other.extra.get()
-    }
-
-    pub fn encoded_len(&self) -> usize {
-        serde_json::to_vec(self).map_or(0, |bytes| bytes.len())
-    }
-
-    /// Clamps user supplied text at the index boundary. `extra` stays opaque;
-    /// an extension that cannot fit is represented by the empty object rather
-    /// than parsed or allowed to expand the list frame.
-    pub fn bounded(mut self) -> Self {
-        self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
-        self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
-        self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
-        self.workspace = self.workspace.map(|value| truncate_utf8(&value, MAX_FIELD_BYTES));
-        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
-            self.extra = empty_object();
-            EMPTY_EXTRAS.fetch_add(1, AtomicOrdering::Relaxed);
-        }
-        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
-            self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES / 2);
-        }
-        // JSON escaping can make a 256-byte UTF-8 field larger than its text
-        // length. Keep shrinking textual fields until the serialized record,
-        // including opaque bytes, is inside the wire bound.
-        while codec::text_len(&self) > MAX_SUMMARY_BYTES {
-            let mut changed = false;
-            macro_rules! shrink {
-                ($value:expr) => {
-                    if $value.len() > 1 {
-                        let next = $value.len() / 2;
-                        $value = truncate_utf8(&$value, next);
-                        changed = true;
-                    }
-                };
-            }
-            shrink!(self.title);
-            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
-                shrink!(self.harness);
-            }
-            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
-                shrink!(self.state);
-            }
-            if codec::text_len(&self) > MAX_SUMMARY_BYTES
-                && let Some(value) = self.workspace.as_mut()
-            {
-                shrink!(*value);
-            }
-            if !changed {
-                break;
-            }
-        }
-        self
-    }
-}
-
-fn truncate_utf8(value: &str, max: usize) -> String {
-    if value.len() <= max {
-        return value.to_owned();
-    }
-    CUT_FIELDS.fetch_add(1, AtomicOrdering::Relaxed);
-    let mut end = max;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.get(..end).unwrap_or_default().to_owned()
-}
 
 /// An index-log record. The sequence is monotonic for this index and is the
 /// cursor clients use to resume the list stream.
@@ -355,17 +84,6 @@ pub struct IndexRecord {
     pub origin: String,
     #[serde(default)]
     pub gone: bool,
-}
-
-/// The durable state of one remote origin. `local` is implicit and never has
-/// an origin record in the index log.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OriginState {
-    Connected,
-    Down,
-    Stale,
-    Removed,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -391,6 +109,31 @@ impl PartialEq for OriginRecord {
 }
 
 impl Eq for OriginRecord {}
+
+/// Where a mirrored origin's stream stands: the source's cursor and list
+/// edition after the last unit written, and whether its first walk finished.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MirrorMark {
+    pub cursor: u64,
+    pub edition: u32,
+    pub whole: bool,
+}
+
+/// The mirror's mark for one origin as the log carries it. `None` writes the
+/// mark off: a replay after it gives no cursor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkRecord {
+    pub seq: u64,
+    pub origin: String,
+    pub mark: Option<MirrorMark>,
+}
+
+impl MarkRecord {
+    /// The bytes this record adds to an append, its frame included.
+    pub fn encoded_len(&self) -> u64 {
+        20 + self.origin.len() as u64 + if self.mark.is_some() { 13 } else { 0 }
+    }
+}
 
 fn local_origin() -> String {
     "local".to_owned()
@@ -429,12 +172,17 @@ pub struct SummaryIndex {
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
     live_ordered: OrdMap<SortKey, Arc<Summary>>,
+    /// The live rows of origin `local` alone: a peer's page ranges here, so
+    /// no key it is given can name a row of another origin.
+    local_live: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
+    marks: OrdMap<Arc<str>, MirrorMark>,
     leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
     kin: KinTables,
+    folders: folders::Folders,
 }
 
 impl Default for SummaryIndex {
@@ -451,12 +199,15 @@ impl SummaryIndex {
             by_id: OrdMap::new(),
             ordered: OrdMap::new(),
             live_ordered: OrdMap::new(),
+            local_live: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
+            marks: OrdMap::new(),
             leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
             kin: KinTables::new(),
+            folders: folders::Folders::new(),
         }
     }
 
@@ -468,13 +219,37 @@ impl SummaryIndex {
                     .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.clone()))
                     .collect()
             });
+        let marks = disk.as_ref().map_or_else(OrdMap::new, |disk| {
+            disk.marks()
+                .filter_map(|record| Some((Arc::<str>::from(record.origin.as_str()), record.mark?)))
+                .collect()
+        });
         Self {
             seq: disk.as_ref().map_or(0, |disk| disk.seq()),
             edition,
             disk,
             origins,
+            marks,
             ..Self::new()
         }
+    }
+
+    /// An empty derived view for a rebuild. Sequence numbers remain monotonic
+    /// with the writer's published history while the old disk generation is
+    /// absent, so new source-walk rows can be appended immediately.
+    pub fn empty_for_rebuild(&self) -> Self {
+        let mut next = self.clone();
+        next.disk = None;
+        next.shadowed = OrdSet::new();
+        next.removed_snapshot_seq = OrdMap::new();
+        next
+    }
+
+    /// Constructs a first-start index with an explicit edition fence.
+    pub fn empty_with_edition(edition: u32) -> Self {
+        let mut index = Self::new();
+        index.edition = edition;
+        index
     }
 
     /// Merge the immutable disk generation with the current hot/tail overlay.
@@ -500,6 +275,9 @@ impl SummaryIndex {
                             next_disk = Some(row);
                         }
                         Some(Err(error)) => {
+                            if is_corrupt_snapshot_row(&error) {
+                                return Some(Err(error));
+                            }
                             disk_done = true;
                             return Some(Err(error));
                         }
@@ -552,7 +330,10 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
-            self.kin.remove(&row);
+            self.local_live.remove(&SortKey::of(&row));
+            self.kin.remove_with_rows(&row, &self.by_id);
+            self.folders =
+                Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
             return true;
         }
         false
@@ -571,10 +352,15 @@ impl SummaryIndex {
             self.by_id.insert(key.clone(), row.clone());
             self.ordered.insert(SortKey::of(&row), row.clone());
             if row.is_live() {
+                if row.origin == "local" {
+                    self.local_live.insert(SortKey::of(&row), row.clone());
+                }
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert(row);
+                self.kin.insert_arc(row, &self.by_id);
+                self.folders =
+                    Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
         }
     }
@@ -615,6 +401,20 @@ impl SummaryIndex {
             .is_some_and(|(key, _)| key.origin.as_ref() == origin)
     }
 
+    /// `origin`'s rows, in key order: a seek and the origin's own range, not a
+    /// walk of the index.
+    pub fn origin_rows<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a Summary> + 'a {
+        self.by_id
+            .range::<_, RowKey>((Included(&RowKey::new(origin, "")), Unbounded))
+            .take_while(move |(key, _)| key.origin.as_ref() == origin)
+            .map(|(_, row)| row.as_ref())
+    }
+
+    /// The chat ids of `origin`'s rows, in key order.
+    pub fn origin_chat_ids<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.origin_rows(origin).map(|row| row.chat_id.as_str())
+    }
+
     pub fn finish_origin_removal(&self, origin: &str) -> Self {
         let mut next = self.clone();
         next.leaving.remove(origin);
@@ -629,6 +429,36 @@ impl SummaryIndex {
         self.origins.get(id)
     }
 
+    /// The mirror's mark for `origin`, if a unit wrote one and no takeover
+    /// wrote it off since.
+    pub fn mirror_mark(&self, origin: &str) -> Option<MirrorMark> {
+        self.marks.get(origin).copied()
+    }
+
+    /// Every mark held, newest per origin; compaction writes these.
+    pub fn mirror_marks(&self) -> impl Iterator<Item = MarkRecord> + '_ {
+        self.marks.iter().map(|(origin, mark)| MarkRecord {
+            seq: self.seq,
+            origin: origin.to_string(),
+            mark: Some(*mark),
+        })
+    }
+
+    /// A mark changes no row and takes no sequence of its own: it carries the
+    /// sequence of the last row its unit wrote (or the current one).
+    pub fn apply_mark(&self, record: &MarkRecord) -> Self {
+        let mut next = self.clone();
+        match record.mark {
+            Some(mark) => {
+                next.marks.insert(record.origin.as_str().into(), mark);
+            }
+            None => {
+                next.marks.remove(record.origin.as_str());
+            }
+        }
+        next
+    }
+
     pub fn apply_origin(&self, seq: u64, record: OriginRecord) -> Self {
         if record.id == "local" {
             return self.clone();
@@ -641,6 +471,8 @@ impl SummaryIndex {
         next.seq = next.seq.max(seq);
         next.origins.insert(id.clone(), record.clone());
         if record.state == OriginState::Removed {
+            // A removed origin's stream starts over from a walk.
+            next.marks.remove(&id);
             next.leaving.insert(id.clone());
             next.removed_snapshot_seq.insert(id, seq);
         }
@@ -700,7 +532,10 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
-                next.kin.remove(&old);
+                next.local_live.remove(&SortKey::of(&old));
+                next.kin.remove_with_rows(&old, &next.by_id);
+                next.folders =
+                    Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
             }
             next.shadowed.insert(key.clone());
         }
@@ -722,7 +557,10 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
-            next.kin.remove(&old);
+            next.local_live.remove(&SortKey::of(&old));
+            next.kin.remove_with_rows(&old, &next.by_id);
+            next.folders =
+                Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
         }
         next
     }
@@ -730,6 +568,86 @@ impl SummaryIndex {
     /// The kin/folder tables contain only rows present in the hot overlay.
     pub fn kin(&self) -> &KinTables {
         &self.kin
+    }
+
+    /// The persistent folder projection published with the hot index.
+    pub fn folders(&self) -> &folders::Folders {
+        &self.folders
+    }
+
+    /// Returns the folder operations caused by one hot-row replacement. The
+    /// caller supplies the previous published index and the row pair that was
+    /// replaced, so this examines at most the old and new folder paths.
+    pub fn folder_changes(
+        &self,
+        previous: &Self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> Vec<folders::FolderOp> {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut changes = Vec::with_capacity(2);
+        let mut check = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let before = previous.folders.get(&key);
+            let after = self.folders.get(&key);
+            if before == after {
+                return;
+            }
+            match after {
+                Some(row) => changes.push(folders::FolderOp::Folder(row)),
+                None if before.is_some() => changes.push(folders::FolderOp::Gone(key)),
+                None => {}
+            }
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            check(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            check(folder);
+        }
+        changes
+    }
+
+    fn refresh_folders(
+        base: &folders::Folders,
+        kin: &KinTables,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> folders::Folders {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut next = base.clone();
+        let mut refresh = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let entry = kin
+                .folder_entry(folder, rows)
+                .map(|entry| {
+                    folders::FolderEntry::new(
+                        key.origin.clone(),
+                        key.folder.clone(),
+                        entry.newest,
+                        entry.at,
+                        entry.count,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    folders::FolderEntry::new(key.origin.clone(), key.folder.clone(), None, 0, 0)
+                });
+            next = next.apply_validated(entry).0;
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            refresh(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            refresh(folder);
+        }
+        next
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
@@ -747,13 +665,24 @@ impl SummaryIndex {
         if let Some(old) = old.as_ref() {
             next.ordered.remove(&SortKey::of(old));
             next.live_ordered.remove(&SortKey::of(old));
+            next.local_live.remove(&SortKey::of(old));
         }
         next.by_id.insert(key, row.clone());
         next.ordered.insert(SortKey::of(&row), row.clone());
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
+            if row.origin == "local" {
+                next.local_live.insert(SortKey::of(&row), row.clone());
+            }
         }
-        next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row), &next.by_id);
+        next.folders = Self::refresh_folders(
+            &next.folders,
+            &next.kin,
+            &next.by_id,
+            old.as_deref(),
+            Some(&row),
+        );
         next
     }
 
@@ -786,35 +715,54 @@ impl SummaryIndex {
 
     /// Applies one summary without walking the rest of the index.
     pub fn apply(&self, seq: u64, summary: Summary) -> Self {
+        self.clone().apply_owned(seq, summary)
+    }
+
+    /// [`Self::apply`] on an index the caller owns. Several applies in a row
+    /// copy each persistent map's shared path once and change the copied
+    /// nodes in place after it.
+    pub fn apply_owned(mut self, seq: u64, summary: Summary) -> Self {
         let summary = Arc::new(summary.bounded());
-        let old = self.by_id.get(&summary.key()).cloned();
-        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
-            let mut next = self.clone();
-            next.seq = next.seq.max(seq);
-            return next;
-        }
-        let mut by_id = self.by_id.clone();
-        let mut ordered = self.ordered.clone();
-        let mut live_ordered = self.live_ordered.clone();
         let key = summary.key();
-        if let Some(old) = by_id.get(&key) {
-            ordered.remove(&SortKey::of(old));
-            live_ordered.remove(&SortKey::of(old));
+        let old = self.by_id.get(&key).cloned();
+        self.seq = self.seq.max(seq);
+        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
+            return self;
+        }
+        if let Some(old) = &old {
+            self.ordered.remove(&SortKey::of(old));
+            self.live_ordered.remove(&SortKey::of(old));
+            self.local_live.remove(&SortKey::of(old));
         }
         let sort_key = SortKey::of(&summary);
-        ordered.insert(sort_key.clone(), summary.clone());
+        self.ordered.insert(sort_key.clone(), summary.clone());
         if summary.is_live() {
-            live_ordered.insert(sort_key, summary.clone());
+            if summary.origin == "local" {
+                self.local_live.insert(sort_key.clone(), summary.clone());
+            }
+            self.live_ordered.insert(sort_key, summary.clone());
         }
-        by_id.insert(key.clone(), summary.clone());
-        let mut shadowed = self.shadowed.clone();
+        self.by_id.insert(key.clone(), summary.clone());
         if self.disk.is_some() {
-            shadowed.insert(key);
+            self.shadowed.insert(key);
         }
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
-        next
+        self.kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &self.by_id);
+        self.folders = Self::refresh_folders(
+            &self.folders,
+            &self.kin,
+            &self.by_id,
+            old.as_deref(),
+            Some(&summary),
+        );
+        self
+    }
+
+    /// [`Self::apply_summary`] on an index the caller owns.
+    pub fn apply_summary_owned(self, seq: u64, summary: Summary) -> Self {
+        let remote_closed = !Self::contributes_to_index(&summary);
+        let key = summary.key();
+        let next = self.apply_owned(seq, summary);
+        if remote_closed { next.remove_ephemeral(&key) } else { next }
     }
 
     /// Apply the durable summary rule shared by the writer and replay. Remote
@@ -944,500 +892,38 @@ impl SummaryIndex {
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
         let mut live_ordered = self.live_ordered.clone();
+        let mut local_live = self.local_live.clone();
         by_id.remove(key);
         if let Some(old) = old {
             ordered.remove(&SortKey::of(old));
             live_ordered.remove(&SortKey::of(old));
+            local_live.remove(&SortKey::of(old));
         }
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key.clone());
         }
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        let mut next = Self {
+            seq: self.seq.max(seq),
+            by_id,
+            ordered,
+            live_ordered,
+            local_live,
+            shadowed,
+            ..self.clone()
+        };
+        next.kin = self.kin.replace_arc(old, None, &next.by_id);
+        next.folders = Self::refresh_folders(
+            &self.folders,
+            &next.kin,
+            &next.by_id,
+            old.map(Arc::as_ref),
+            None,
+        );
         Some(next)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    use tempfile::tempdir;
-
-    fn summary(id: &str, at: u64, extra: &str) -> Summary {
-        let mut summary = Summary::new(id);
-        summary.last_activity = at;
-        summary.extra = RawValue::from_string(extra.to_owned()).unwrap();
-        summary
-    }
-
-    #[test]
-    fn every_session_state_uses_the_same_live_rule() {
-        for state in ["running", "ready", "waiting", "idle", "disconnected"] {
-            let mut row = Summary::new(state);
-            row.state = state.to_owned();
-            assert!(row.is_live(), "{state} should remain in the live view");
-        }
-        let mut closed = Summary::new("closed");
-        closed.state = "closed".to_owned();
-        assert!(!closed.is_live());
-    }
-
-    #[test]
-    fn listed_under_matches_v1_root_and_archive_rules() {
-        let mut parent = Summary::new("parent");
-        let mut child = Summary::new("child");
-        child.parent = Some(parent.key());
-        assert!(Summary::listed_under(&child, Some(&parent)));
-        assert!(!Summary::listed_under(&child, None));
-
-        let mut nested = Summary::new("nested");
-        nested.parent = Some(parent.key());
-        parent.parent = Some(RowKey::new("local", "root"));
-        assert!(!Summary::listed_under(&nested, Some(&parent)));
-
-        parent.parent = None;
-        parent.extra = RawValue::from_string("{\"tags\":{\"archived\":true}}".to_owned()).unwrap();
-        assert!(!Summary::listed_under(&child, Some(&parent)));
-
-        parent.extra =
-            RawValue::from_string("{\"tags\":{\"archived\":\"reason\"}}".to_owned()).unwrap();
-        assert!(!Summary::listed_under(&child, Some(&parent)));
-        assert!(!Summary::listed_under(&parent, Some(&parent)));
-
-        parent.extra = RawValue::from_string("{\"tags\":{}}".to_owned()).unwrap();
-        child.parent = Some(RowKey::new("local", "other"));
-        assert!(!Summary::listed_under(&child, Some(&parent)));
-    }
-
-    #[test]
-    fn live_pages_use_the_live_ordered_set() {
-        let mut running = summary("running", 3, "{}");
-        running.state = "running".to_owned();
-        let mut closed = summary("closed", 2, "{}");
-        closed.state = "closed".to_owned();
-        let mut waiting = summary("waiting", 1, "{}");
-        waiting.state = "waiting".to_owned();
-        let index = SummaryIndex::new().apply(1, running).apply(2, closed).apply(3, waiting);
-        let page = index.read_live_page(None, ReadSide::After, false, 10, 64 * 1024, None).unwrap();
-        assert_eq!(
-            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
-            ["running", "waiting"]
-        );
-        let mut closed_again = Summary::new("closed");
-        closed_again.state = "closed".to_owned();
-        let closed = index.apply(4, closed_again);
-        let page =
-            closed.read_live_page(None, ReadSide::After, false, 10, 64 * 1024, None).unwrap();
-        assert_eq!(
-            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
-            ["running", "waiting"]
-        );
-    }
-
-    #[test]
-    fn live_pages_match_an_index_containing_only_live_rows() {
-        let mut index = SummaryIndex::new();
-        let mut live = SummaryIndex::new();
-        for n in 0..30 {
-            let mut row = summary(&format!("row-{n:02}"), 30 - n, "{}");
-            row.state = if n % 3 == 0 { "closed" } else { "running" }.into();
-            row.workspace = Some(format!("workspace-{}", n % 2));
-            row.origin = if n % 2 == 0 { "local" } else { "peer" }.into();
-            if row.is_live() {
-                live = live.apply(n + 1, row.clone());
-            }
-            index = index.apply(n + 1, row);
-        }
-        let anchors = std::iter::once(None)
-            .chain(index.iter().map(|row| Some(SortKey::of(row))))
-            .collect::<Vec<_>>();
-        let filters = [
-            None,
-            Some(ListFilter { workspace: Some("workspace-0".into()), ..Default::default() }),
-            Some(ListFilter { origin: Some("peer".into()), ..Default::default() }),
-            Some(ListFilter { state: Some("waiting".into()), ..Default::default() }),
-        ];
-        for anchor in &anchors {
-            for side in [ReadSide::Before, ReadSide::After, ReadSide::Around] {
-                for inclusive in [false, true] {
-                    for limit in [1, 2, 7, 30] {
-                        for bytes in [600, 8192] {
-                            for filter in &filters {
-                                let actual = index
-                                    .read_live_page(
-                                        anchor.as_ref(),
-                                        side,
-                                        inclusive,
-                                        limit,
-                                        bytes,
-                                        filter.as_ref(),
-                                    )
-                                    .unwrap();
-                                let expected = live
-                                    .read_page(
-                                        anchor.as_ref(),
-                                        side,
-                                        inclusive,
-                                        limit,
-                                        bytes,
-                                        filter.as_ref(),
-                                    )
-                                    .unwrap();
-                                assert_eq!(actual.before_key, expected.before_key);
-                                assert_eq!(actual.after_key, expected.after_key);
-                                assert_eq!(actual.has_before, expected.has_before);
-                                assert_eq!(actual.has_after, expected.has_after);
-                                assert_eq!(
-                                    actual.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
-                                    expected.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn a_thousand_state_changes_keep_live_pages_equal_to_the_ordered_filter() {
-        let mut index = SummaryIndex::new();
-        let mut random = 0x5c_143_u64;
-        for seq in 1..=1000 {
-            random ^= random << 13;
-            random ^= random >> 7;
-            random ^= random << 17;
-            let mut row = Summary::new(format!("chat-{}", random % 53));
-            row.origin = if random & 64 == 0 { "local" } else { "peer" }.into();
-            row.state = match (random >> 8) % 5 {
-                0 => "closed",
-                1 => "running",
-                2 => "waiting",
-                3 => "idle",
-                _ => "ready",
-            }
-            .into();
-            // Ties and movement both exercise ordering across reopen/close.
-            row.last_activity = (random >> 16) % 31;
-            index = index.apply(seq, row);
-            let expected = index
-                .iter()
-                .filter(|row| row.is_live())
-                .map(|row| (SortKey::of(row), row.state.clone()))
-                .collect::<Vec<_>>();
-            let mut actual = Vec::new();
-            let mut anchor = None;
-            loop {
-                let page = index
-                    .read_live_page(anchor.as_ref(), ReadSide::After, false, 7, 8192, None)
-                    .unwrap();
-                actual.extend(page.rows.iter().map(|row| (SortKey::of(row), row.state.clone())));
-                if !page.has_after {
-                    break;
-                }
-                assert_ne!(page.after_key, anchor);
-                anchor = page.after_key;
-            }
-            assert_eq!(actual, expected, "change {seq}");
-        }
-    }
-
-    #[test]
-    fn composite_identity_and_typed_edges_survive_log_snapshot_and_restart() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("index.log");
-        let mut local = summary("same", 3, "{\"future\": true}");
-        local.parent = Some(RowKey::new("local", "parent"));
-        local.fork_of = Some(ForkOf { key: RowKey::new("peer", "fork"), seq: 91 });
-        local.folder = Some("/work/project".to_owned());
-        let mut peer = local.clone();
-        peer.origin = "peer".to_owned();
-        let mut log = IndexLog::open(&path).unwrap();
-        log.append(local).unwrap();
-        log.append(peer).unwrap();
-        log.sync().unwrap();
-        let index = replay_log(&path, SummaryIndex::new()).unwrap();
-        assert_eq!(index.len(), 2);
-        log.compact(dir.path().join("index.snap"), &index).unwrap();
-        drop(log);
-        let mut log = IndexLog::open(&path).unwrap();
-        let restored = SortedSnapshot::read(dir.path().join("index.snap")).unwrap().unwrap();
-        for origin in ["local", "peer"] {
-            let row = restored.get_row(&RowKey::new(origin, "same")).unwrap();
-            assert_eq!(row.parent, Some(RowKey::new("local", "parent")));
-            assert_eq!(row.fork_of.as_ref().unwrap().seq, 91);
-            assert_eq!(row.folder.as_deref(), Some("/work/project"));
-        }
-        log.append_gone(&RowKey::new("peer", "same")).unwrap();
-        log.sync().unwrap();
-        let restored = replay_log(log.path(), restored).unwrap();
-        assert_eq!(restored.len(), 1);
-        assert!(restored.get("same").is_some());
-    }
-
-    #[test]
-    fn identities_are_never_cut_and_invalid_records_never_append() {
-        let dir = tempdir().unwrap();
-        let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
-        let id = "x".repeat(257);
-        let bounded = Summary::new(id.clone()).bounded();
-        assert_eq!(bounded.chat_id, id);
-        assert!(log.append(bounded).is_err());
-        assert_eq!(log.next_seq(), 0);
-        assert_eq!(log.offset(), 0);
-        let mut escaped = Summary::new("\u{0001}".repeat(256));
-        escaped.origin = "\u{0002}".repeat(256);
-        assert!(log.append(escaped).is_ok());
-    }
-
-    #[test]
-    fn applies_one_summary_and_keeps_opaque_extra_bytes() {
-        let index = SummaryIndex::new().apply(1, summary("a", 2, "{\"future\": [1, 2]}"));
-        assert_eq!(index.len(), 1);
-        assert_eq!(index.get("a").unwrap().extra.get(), "{\"future\": [1, 2]}");
-        let index = index.apply(2, summary("a", 3, "{\"new\":true}"));
-        assert_eq!(index.len(), 1);
-        assert_eq!(index.page(0, 2).first().map(|s| s.last_activity), Some(3));
-    }
-
-    #[test]
-    fn summaries_are_bounded_without_parsing_extra() {
-        let mut value = summary("a", 1, "{}");
-        value.title = "é".repeat(MAX_TITLE_BYTES);
-        value.extra =
-            RawValue::from_string(format!("{{\"text\":\"{}\"}}", "x".repeat(8_000))).unwrap();
-        let stored = SummaryIndex::new().apply(1, value).get("a").unwrap();
-        assert!(stored.title.len() <= MAX_TITLE_BYTES);
-        assert!(stored.encoded_len() <= MAX_SUMMARY_BYTES);
-        assert!(stored.title.is_char_boundary(stored.title.len()));
-    }
-
-    fn origin_record(id: String, seq: u64, state: OriginState) -> OriginRecord {
-        OriginRecord { seq, id, state, since: seq + 10, extra: None }
-    }
-
-    #[test]
-    fn snapshot_origin_section_round_trips_and_rejects_bad_records() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("index.snap");
-        let mut index = SummaryIndex::new();
-        index = index.apply_origin(1, origin_record("peer".into(), 1, OriginState::Connected));
-        SortedSnapshot::write(&path, &index).unwrap();
-        let disk = DiskSnapshot::open(&path).unwrap().unwrap();
-        assert_eq!(disk.origins().next().unwrap().since, 11);
-        let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
-        let too_many =
-            (0..257).map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected)).collect();
-        assert!(
-            SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, too_many, rows).is_err()
-        );
-        let duplicate = vec![
-            origin_record("p".into(), 1, OriginState::Connected),
-            origin_record("p".into(), 1, OriginState::Down),
-        ];
-        let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
-        assert!(
-            SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, duplicate, rows).is_err()
-        );
-    }
-
-    #[test]
-    fn removal_visits_only_its_prefix_batch_at_both_index_sizes() {
-        for unrelated in [20, 11_000] {
-            let mut index = SummaryIndex::new();
-            for n in 0..unrelated {
-                let row = summary(&format!("other-{n}"), n + 1, "{}");
-                index = index.apply(index.seq() + 1, row);
-            }
-            for n in 0..500 {
-                let mut row = summary(&format!("peer-{n}"), n + 1, "{}");
-                row.origin = "peer".into();
-                index = index.apply(index.seq() + 1, row);
-            }
-            let mut visited = 0;
-            let (_, removed) =
-                index.remove_origin_batch_visiting(index.seq(), "peer", 256, || visited += 1);
-            assert_eq!(removed, 256);
-            assert_eq!(visited, 257);
-        }
-    }
-
-    #[test]
-    fn removed_origin_hidden_candidates_progress_forward_and_backward() {
-        let mut index = SummaryIndex::new();
-        for n in 0..600 {
-            let mut row = summary(&format!("gone-{n}"), 2_000 - n, "{}");
-            row.origin = "peer".into();
-            row.state = "running".into();
-            index = index.apply(n + 1, row);
-        }
-        for n in 0..50 {
-            let mut row = summary(&format!("keep-{n}"), 1_000 - n, "{}");
-            row.origin = "other".into();
-            row.state = "running".into();
-            index = index.apply(700 + n, row);
-        }
-        index = index.apply_origin(800, origin_record("peer".into(), 800, OriginState::Removed));
-        let mut anchor = None;
-        let mut seen = Vec::new();
-        let mut last = None;
-        for turn in 0..20 {
-            let page = index
-                .read_page(anchor.as_ref(), ReadSide::After, false, 50, snapshot::PAGE_BYTES, None)
-                .unwrap();
-            assert!(page.rows.iter().all(|row| row.origin == "other"));
-            seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
-            if turn < 12 {
-                assert!(page.rows.is_empty());
-                assert!(page.has_after);
-            }
-            last = page.after_key.clone();
-            if !page.has_after {
-                break;
-            }
-            assert_ne!(anchor, page.after_key);
-            anchor = page.after_key;
-        }
-        assert_eq!(seen.len(), 50);
-        assert_eq!(index.len(), 650, "pagination does not wait for cleanup");
-        anchor = last;
-        let mut backwards = Vec::new();
-        for turn in 0..20 {
-            let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    ReadSide::Before,
-                    turn == 0,
-                    50,
-                    snapshot::PAGE_BYTES,
-                    None,
-                )
-                .unwrap();
-            assert!(page.rows.iter().all(|row| row.origin == "other"));
-            backwards.extend(page.rows.iter().map(|row| row.chat_id.clone()));
-            if !page.has_before {
-                break;
-            }
-            assert_ne!(anchor, page.before_key);
-            anchor = page.before_key;
-        }
-        seen.sort();
-        backwards.sort();
-        assert_eq!(seen, backwards);
-    }
-
-    #[test]
-    fn live_pages_drop_removed_origin_rows_before_the_origin_returns() {
-        fn live_keys(index: &SummaryIndex) -> Vec<RowKey> {
-            index
-                .read_live_page(None, ReadSide::After, false, 100, snapshot::PAGE_BYTES, None)
-                .unwrap()
-                .rows
-                .iter()
-                .map(|row| row.key())
-                .collect()
-        }
-
-        fn filtered_keys(index: &SummaryIndex) -> Vec<RowKey> {
-            index.iter().filter(|row| row.is_live()).map(|row| row.key()).collect()
-        }
-
-        let mut index = SummaryIndex::new();
-        for (seq, (origin, id, activity)) in
-            [("peer", "peer-live-a", 30), ("peer", "peer-live-b", 20), ("local", "local-live", 10)]
-                .into_iter()
-                .enumerate()
-        {
-            let mut row = summary(id, activity, "{}");
-            row.origin = origin.to_owned();
-            index = index.apply(seq as u64 + 1, row);
-        }
-        assert_eq!(live_keys(&index), filtered_keys(&index));
-
-        index = index.apply_origin(10, origin_record("peer".into(), 10, OriginState::Removed));
-        loop {
-            let (next, removed) = index.remove_origin_batch(10, "peer", 256);
-            index = next;
-            if removed == 0 {
-                break;
-            }
-        }
-        assert_eq!(live_keys(&index), filtered_keys(&index));
-        assert!(!live_keys(&index).iter().any(|key| key.origin.as_ref() == "peer"));
-
-        index = index.apply_origin(11, origin_record("peer".into(), 11, OriginState::Connected));
-        let mut returned = summary("peer-live-returned", 40, "{}");
-        returned.origin = "peer".to_owned();
-        index = index.apply(12, returned);
-        assert_eq!(live_keys(&index), filtered_keys(&index));
-        assert_eq!(live_keys(&index).iter().filter(|key| key.origin.as_ref() == "peer").count(), 1);
-    }
-
-    #[test]
-    fn log_and_sorted_snapshot_replay() {
-        let dir = tempdir().unwrap();
-        let log_path = dir.path().join("index.log");
-        let snap_path = dir.path().join("index.snap");
-        let mut log = IndexLog::open(&log_path).unwrap();
-        let first = log.append(summary("a", 2, "{\"x\":1}")).unwrap();
-        let second = log.append(summary("b", 1, "null")).unwrap();
-        log.sync().unwrap();
-        let index =
-            SummaryIndex::new().apply(first.seq, first.summary).apply(second.seq, second.summary);
-        SortedSnapshot::write(&snap_path, &index).unwrap();
-        let restored = SortedSnapshot::read(&snap_path).unwrap().unwrap();
-        assert_eq!(restored.seq(), 2);
-        assert_eq!(
-            restored.page(0, 2).iter().map(|s| s.chat_id.as_str()).collect::<Vec<_>>(),
-            ["a", "b"]
-        );
-        assert_eq!(replay_log(&log_path, SummaryIndex::new()).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn open_truncates_a_torn_tail_before_the_next_append() {
-        let dir = tempdir().unwrap();
-        let log_path = dir.path().join("index.log");
-        let mut log = IndexLog::open(&log_path).unwrap();
-        log.append(summary("a", 1, "{}")).unwrap();
-        log.sync().unwrap();
-        OpenOptions::new()
-            .append(true)
-            .open(&log_path)
-            .unwrap()
-            .write_all(br#"{"seq":99,"chatId":"torn""#)
-            .unwrap();
-        drop(log);
-        let mut reopened = IndexLog::open(&log_path).unwrap();
-        let record = reopened.append(summary("b", 2, "{}")).unwrap();
-        assert_eq!(record.seq, 2);
-        reopened.sync().unwrap();
-        assert_eq!(replay_log(&log_path, SummaryIndex::new()).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn snapshot_carries_the_log_offset_and_compaction_starts_a_new_tail() {
-        let dir = tempdir().unwrap();
-        let log_path = dir.path().join("index.log");
-        let snap_path = dir.path().join("index.snap");
-        let mut log = IndexLog::open(&log_path).unwrap();
-        let record = log.append(summary("a", 1, "{}")).unwrap();
-        log.sync().unwrap();
-        let index = SummaryIndex::new().apply(record.seq, record.summary);
-        log.compact(&snap_path, &index).unwrap();
-        let (restored, offset) = SortedSnapshot::read_with_offset(&snap_path).unwrap().unwrap();
-        assert_eq!(offset, 0);
-        assert_eq!(replay_log_from(&log_path, offset, restored).unwrap().len(), 1);
-        drop(log);
-        let mut reopened = IndexLog::open(&log_path).unwrap();
-        let next = reopened.append(summary("b", 2, "{}")).unwrap();
-        assert_eq!(next.seq, 2);
-        reopened.sync().unwrap();
-        let restored = SortedSnapshot::read(&snap_path).unwrap().unwrap();
-        assert_eq!(replay_log_from(reopened.path(), 0, restored).unwrap().seq(), 2);
-    }
-}
+#[path = "index_tests.rs"]
+mod tests;

@@ -65,18 +65,30 @@ OWN_REPOSITORY = {
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "images/cmux-vm/image-roll-record.sh": "fetches only into its own `git init` temp directory of the record branch",
+    "scripts/cmux-next/cloud-journey-proof-record.sh": "fetches only into its own `git init` temp directory of the proof branch",
     "scripts/pr-media.py": "fetches only into its own `git init --bare` cache clone of the media branch",
     "scripts/cmux-next/base-autofix-changed.sh": "fetches into a scratch `git init --bare` repository it just made",
+    "scripts/ci/cmux_next_base_merge_carry.py":
+        "clean_merge_tree fetches into a scratch `git init --bare` TemporaryDirectory it just made (#44253)",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
-    "scripts/cmux-next/build-cua-driver-sdk.sh": "fetches into its own `git init` work directory",
-    "scripts/cmux-next/generate-third-party-notices.sh": "fetches into fresh `git init` cache directories",
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "fetches each dependency pin into its own temporary `git init` directory",
     "scripts/ci/base_red_excuse.py": "git_text fetches only into its own `git init --bare` cache repository under source_cache(), never the caller's clone",
+    "scripts/ci/cmux_next_base_merge_carry.py":
+        "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",
+    "scripts/measure/warm-tree.sh": "fetches only into its own `git init --bare` repository under the measurement root",
+    "scripts/measure/git-carry-ready.sh": "run_deepen deepens only its own throwaway borrow clone $d, never the caller's checkout",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
+    "scripts/measure/lane-start-qos-macos.sh":
+        "fetch_arm fetches only into the `git init --bare` directory it just made under the measurement root",
+    "scripts/measure/tab-switch.sh":
+        "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
+    "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
+    "scripts/cmux-next/swift-logic-pr-status.py":
+        "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }

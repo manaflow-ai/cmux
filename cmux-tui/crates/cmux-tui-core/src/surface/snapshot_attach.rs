@@ -31,29 +31,36 @@ pub(crate) const SNAPSHOT_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis
 pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
+    /// The bytes behind `offset`, for `terminal-resume-v1`.
+    pub(super) ring: resume_ring::ResumeRing,
 }
 
 impl SnapshotStreamPosition {
-    pub(super) fn add_output(&self, len: usize) {
-        self.offset.fetch_add(len as u64, Ordering::AcqRel);
+    pub(super) fn add_output(&self, output: &[u8]) {
+        self.ring.append(output);
+        self.offset.fetch_add(output.len() as u64, Ordering::AcqRel);
     }
 
     /// Account one broadcast frame: output advances the offset, a replacement
     /// of the grid (resize, host replay) starts a new generation.
     pub(super) fn observe_frame(&self, frame: &AttachFrame) {
         match frame {
-            AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => {
-                self.add_output(output.len());
+            AttachFrame::Output(output) => self.add_output(output),
+            AttachFrame::OutputWithColors { output, .. } => {
+                self.add_output(output);
+                self.ring.bump_epoch();
             }
             AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {
                 self.generation.fetch_add(1, Ordering::AcqRel);
+                self.ring.bump_epoch();
             }
-            AttachFrame::ColorsChanged(_) => {}
+            AttachFrame::ColorsChanged(_) => self.ring.bump_epoch(),
         }
     }
 
     pub(super) fn bump_generation(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.ring.bump_epoch();
     }
 
     /// `(generation, offset)`.
@@ -422,7 +429,12 @@ impl PtySurface {
     /// grid queued after every frame before the resize, at the resize's
     /// generation and offset; every other snapshot viewer gets a READY with
     /// history at a later cut, as before.
-    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
+    pub(super) fn publish_resize_locked(
+        &self,
+        term: &Terminal,
+        frame: Option<AttachFrame>,
+        windows: &pty_surface::TapWindowReplays,
+    ) {
         match &frame {
             Some(frame) => self.snapshot_position.observe_frame(frame),
             None => self.snapshot_position.bump_generation(),
@@ -439,7 +451,8 @@ impl PtySurface {
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
         let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match frame {
-            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
+            Some(frame) => taps
+                .retain(|tap| tap.try_send_resize(windows.frame_for(tap, &frame), local.as_ref())),
             None => {
                 for tap in &*taps {
                     tap.resync_snapshot_at_cut(local.as_ref());

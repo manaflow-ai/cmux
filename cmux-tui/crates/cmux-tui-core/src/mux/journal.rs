@@ -12,6 +12,13 @@ impl Mux {
             "workspace.registry",
         );
         self.publish_journal_event();
+        // A close that took a space's last workspace deleted the space in its
+        // commit (LAST-WORKSPACE-CLOSES-SPACE): clients refetch the spaces.
+        if let Ok(Some(personal_revision)) =
+            self.read_registry_state(crate::state::room_emptied::take_cascaded_personal_revision)
+        {
+            self.emit(MuxEvent::PersonalChanged { personal_revision });
+        }
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
         // a terminal can join the graph, so publish whatever report waited.
@@ -255,13 +262,6 @@ impl Mux {
         stats.commit_finished(lock_wait, commit_from.elapsed());
         stats.set_phase(crate::diagnostics::WriterPhase::Idle);
         let commits = commits?;
-        let (committed, failed) =
-            commits.iter().fold((0, 0), |(ok, failed), commit| match commit {
-                crate::journal_ingress::JournalBatchReceipt::Effect(Ok(_)) => (ok + 1, failed),
-                crate::journal_ingress::JournalBatchReceipt::Effect(Err(_)) => (ok, failed + 1),
-                _ => (ok, failed),
-            });
-        self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
         // A batch of retry-row clears only (`AgentHookCleared`) wrote no journal row and changed no
         // resource: publishing it woke every session stream and journal waiter for nothing, twice
         // per projected hook. The delete published nothing when the request committed it itself.
@@ -294,11 +294,15 @@ impl Mux {
 
     /// The `server-stats` `disk` section, `None` for an in-memory registry.
     /// Reads on its own read-only connection, never under the registry lock
-    /// (cost: `diagnostics/disk_usage.rs`).
-    pub fn disk_usage_stats(&self) -> Option<crate::diagnostics::DiskUsageSnapshot> {
+    /// (cost: `diagnostics/disk_usage.rs`). `with_checkpoints` adds the
+    /// `disk_checkpoints` part.
+    pub fn disk_usage_stats(
+        &self,
+        with_checkpoints: bool,
+    ) -> Option<crate::diagnostics::DiskUsageSnapshot> {
         let database_path = self.journal_kernel.database_path()?;
         let mut cache = self.disk_usage.lock().unwrap_or_else(PoisonError::into_inner);
-        Some(crate::diagnostics::read_disk_usage(database_path, &mut cache))
+        Some(crate::diagnostics::read_disk_usage(database_path, &mut cache, with_checkpoints))
     }
 
     /// Resource projection and commit spans, see
@@ -670,7 +674,7 @@ impl Mux {
         if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
             return Ok(());
         }
-        if self.journal_ingress.accepts_effects()
+        if self.journal_ingress.accepts_durable()
             && self
                 .journal_ingress
                 .send_durable(crate::journal_ingress::JournalIngressEvent::AgentHookCleared {

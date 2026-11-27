@@ -2,6 +2,7 @@ public import CoreGraphics
 public import AppKit
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxTheme
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
 /// sits inset in the window chrome as one rounded card, as in Edge. A
@@ -135,7 +136,7 @@ extension Metrics {
     /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
     public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
         let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
-        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
+        return min(chromeTabCornerRadius + tabStripCardInset, window)
     }
 
     /// The radius of a card `edgeInset` points inside a window whose corners have
@@ -168,7 +169,11 @@ extension Metrics {
     /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by ``titleAreaShadeScale``. Leo,
     /// 2026-11-11, on the title area: "the contrast, I guess it's fine, but I feel like it may be too intense for
     /// some people, so it needs to be adjustable." At most 1.
-    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+    /// Under Subtle Tone on the flush corner the frame is the theme's ink at its least separating share
+    /// (``inkFrameShade(isDark:tokens:)``, ``FrameTone``), drawn in ``chromeFrameInk(_:)``; `tokens` picks the theme
+    /// (the active scope's when nil).
+    public static func mainPaneChromeShade(isDark: Bool, tokens: ThemeTokens? = nil) -> CGFloat {
+        if let frame = inkFrameShade(isDark: isDark, tokens: tokens) { return frame }
         let base = mainPaneChromeShadeBase(isDark: isDark)
         let scale = titleAreaShadeScale
         return scale == 1 ? base : min(1, max(0, base * scale))
@@ -179,17 +184,20 @@ extension Metrics {
     /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
     public static let folderTabMinimumShade: CGFloat = 0.011
 
-    /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
-    /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
-    /// contrast of 1 or more (the shipped look, no line), 1 at a contrast of 0 (one colour: the line and the
-    /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
-    /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    /// How strongly the tab row's divider draws (a share of `Palette.separator`); 0, no line, unless Debug Settings
+    /// turns it on (``ChromeTunables/tabRowDivider``, off by default: Lawrence, 2026-11-15, "we still have the line
+    /// below tabs which is very bad"). On, the line takes over from the tone as `appearance.titleAreaContrast` drops:
+    /// 0 at a contrast of 1 or more, 1 at a contrast of 0 (Leo, 2026-11-12: "THERE IS THE DIVIDER"). Every tab row
+    /// line reads it: the window's (`MainPaneChromeShadeView`) and a lower strip's in-card one.
     public static var tabRowDividerStrength: CGFloat {
-        min(1, max(0, 1 - titleAreaShadeScale))
+        // A look's `appearance.metrics.headerDivider` (Claude's hairline under its header) sets it outright.
+        if let look = DesignSettings.shared.overrides[.headerDivider] { return look }
+        guard ChromeTunables.tabRowDivider.value else { return 0 }
+        return min(1, max(0, 1 - titleAreaShadeScale))
     }
 
     /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
-    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it (Subtle Tone under gooey tabs, ``DesignSettings/effectiveTitleAreaTone``): 0 under One Color (the default, Lawrence's single
     /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
     /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
     /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
@@ -198,7 +206,10 @@ extension Metrics {
     public static var titleAreaShadeScale: CGFloat {
         let design = DesignSettings.shared
         guard CornerFlush.current.isOn else { return design.titleAreaContrast }
-        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+        // `flush-goo` is two tones, the strip's and the pane's (Leo, 2026-11-18: "the two tone thing"): the goo needs
+        // the frame's shade to show at all, so it tones the frame under One Color too. Gooey tabs resolve to Subtle Tone.
+        let toned = design.effectiveTitleAreaTone != .oneColor || CornerFlush.current == .goo
+        return toned ? TitleAreaTone.subtleShare * design.titleAreaContrast : 0
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

@@ -11,8 +11,20 @@ extension WorkspaceRowView {
         onSelect = { [weak list] in list?.model.click(id) }
         // Redraw now: left to the tree's observation, the fold would wait
         // out the calm-movement hold until the pointer leaves the sidebar.
-        onToggleTree = { [weak list] in SidebarSessionTree.shared.toggle(id); list?.reload(animated: true) }
+        // The row's own chevron says which way it goes: a parent below the top level starts folded.
+        // A row whose chats have subagents is a parent too (its subagent lines fold), though no session lists under it.
+        onToggleTree = { [weak list, weak self] in
+            let parents = Set(list?.model.allWorkspaces.filter { $0.subagents?.items.isEmpty == false }.map(\.id) ?? [])
+            SidebarSessionTree.shared.toggle(id, folded: self?.treeFold == .collapsed, keeping: parents)
+            list?.reload(animated: true)
+        }
+        // A subagent's line opens its pane beside its chat; the stacked line and "N more" show the chat.
+        subagentsView.onOpen = { [weak list, weak self] subagent in
+            guard let tab = subagent?.tab ?? self?.subagentsView.strip?.tab else { return }
+            list?.model.openSubagent?(id, tab, subagent)
+        }
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
+        agentSignatures = list.model.agentSignatures
         // The drive indicator's menu: Go to shows the agent's tab, Stop ends what it drives; each row a registered action.
         driveIndicator.makeItem = { [weak list] command, title in list?.driveMenuItem?(id, command, title) }
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.

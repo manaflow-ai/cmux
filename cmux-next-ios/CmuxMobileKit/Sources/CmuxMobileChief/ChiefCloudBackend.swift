@@ -1,4 +1,6 @@
+import CmuxEgress
 import CmuxConversationCore
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 
@@ -23,7 +25,7 @@ import Foundation
 ///   `message.send`, `message.edit`, `message.retract`, `reaction.add`,
 ///   `reaction.remove`, `read_cursor.set`. Messages use the local owner's JSON
 ///   (``ChiefWire``), which the Cloud shares.
-public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unchecked Sendable {
+public final class ChiefCloudBackend: ConversationBackend, ConversationFileBackend, ChiefLiveSource, @unchecked Sendable {
     let core: Core
     public let liveFeed: ChiefLiveFeed
 
@@ -85,6 +87,12 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                                      width: size.width, height: size.height)
     }
 
+    /// A file or video through the same routes as a photo. Until now a Cloud Chief refused every
+    /// non-image ("file attachments are not supported"); a large one goes up in parts.
+    public func uploadFileAttachment(_ data: Data, info: ConversationFileInfo) async throws -> ConversationAttachment {
+        try await core.upload(data, mimeType: info.mimeType, name: info.name, width: 0, height: 0, file: info)
+    }
+
     /// Hide Alerts and Send Read Receipts belong to this phone (``ChiefPreferences``).
     public func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
         try await core.updateListState(change)
@@ -108,6 +116,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var wire: ChiefWire
         let preferences: ChiefPreferences
         let clock: any Clock<Duration>
+        /// Settings → Transport → Align Keepalives: the socket ping's beat.
+        let beat: KeepaliveBeat
         nonisolated let liveFeed: ChiefLiveFeed
         let refused: @Sendable (String) -> Void
         private var live: ChiefLiveState
@@ -144,22 +154,34 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         /// Each uploaded photo's `attachment` part, by the attachment id the composer holds.
         private var uploadedParts: [String: [String: Any]] = [:]
 
-        /// `/v1/home/attachments/intent`, the PUT it answers with (and `commit` after a
-        /// presigned one), then the part a message sends.
-        func upload(_ data: Data, mimeType: String, name: String, width: Int, height: Int) async throws -> ConversationAttachment {
+        /// `/v1/home/attachments/intent` (with `multipart: true`, as the Mac's `WireHomeSource.upload`),
+        /// then the bytes as it answers: one PUT through the Worker (`stream`), one presigned PUT and
+        /// `commit` (`presigned`), or parts (`multipart`) and `multipart/complete`. Then the part a
+        /// message sends. Every hop is bounded (``ChiefUpload``) and reports progress
+        /// (``ConversationUploadProgress``); a PUT that stalls or drops is tried again (a part resumes
+        /// where the Worker has it).
+        func upload(_ data: Data, mimeType: String, name: String, width: Int, height: Int,
+                    file: ConversationFileInfo? = nil) async throws -> ConversationAttachment {
+            do {
+                return try await transfer(data, mimeType: mimeType, name: name, width: width, height: height, file: file)
+            } catch let failure as ChiefUpload.Failure {
+                // A bound that ran out: the person's text names the hop that went quiet.
+                throw ConversationBackendError(code: -32000, message: failure.message)
+            }
+        }
+
+        private func transfer(_ data: Data, mimeType: String, name: String, width: Int, height: Int,
+                              file: ConversationFileInfo?) async throws -> ConversationAttachment {
+            ConversationUploadProgress.send(0)
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             var intent: [String: Any] = [
                 "conversation": conversationID, "sha256": hash, "byte_count": data.count, "mime_type": mimeType, "name": name,
+                "multipart": true,
             ]
             if width > 0 { intent["width"] = width }
             if height > 0 { intent["height"] = height }
-            let answer: [String: Any]
-            do {
-                let reply = try await http.send("POST", "/v1/home/attachments/intent", body: try ChiefCloudHTTP.json(intent))
-                answer = try ChiefCloudHTTP.value(reply) as? [String: Any] ?? [:]
-            } catch let error as ChiefCloudError {
-                throw ConversationBackendError(code: -32000, message: error.description)
-            }
+            let answer = try await Self.answer(try await http.sendBounded("the upload request", "POST", "/v1/home/attachments/intent",
+                                                                           body: try ChiefCloudHTTP.json(intent)))
             switch answer["state"] as? String {
             case "exists":
                 break
@@ -167,48 +189,159 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 guard let url = (answer["upload_url"] as? String).flatMap(URL.init(string:)) else {
                     throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
                 }
-                let presigned = answer["mode"] as? String == "presigned"
-                guard answer["mode"] as? String == "stream" || presigned else {
-                    throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
-                }
+                let mode = answer["mode"] as? String
                 let headers = (answer["headers"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
-                let put = try await http.upload(url, method: answer["method"] as? String ?? "PUT", headers: headers, body: data,
-                                                toWorker: !presigned)
-                // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
-                guard (200..<300).contains(put.status) || (presigned && put.status == 412) else {
-                    throw ConversationBackendError(code: -32000, message: "attachment.upload_refused (HTTP \(put.status))")
-                }
-                if presigned {
-                    guard let slot = answer["slot"] as? String else { throw ConversationBackendError(code: -4, message: "attachment.bad_answer") }
-                    do {
-                        _ = try ChiefCloudHTTP.value(try await http.send("POST", "/v1/home/attachments/commit",
-                                                                          body: try ChiefCloudHTTP.json(["conversation": conversationID, "slot": slot])))
-                    } catch let error as ChiefCloudError {
-                        throw ConversationBackendError(code: -32000, message: error.description)
+                let method = answer["method"] as? String ?? "PUT"
+                let slot = answer["slot"] as? String
+                switch mode {
+                case "stream", "presigned":
+                    let presigned = mode == "presigned"
+                    let total = Double(max(1, data.count))
+                    let http = http
+                    let put = try await Self.retrying {
+                        try await http.upload(url, method: method, headers: headers, body: data, toWorker: !presigned,
+                                                   hop: "PUT") { ConversationUploadProgress.send(Double($0) / total) }
                     }
+                    // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
+                    guard (200..<300).contains(put.status) || (presigned && put.status == 412) else {
+                        // The status stays out of the person's text (the upload's own log has it).
+                        // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
+                        throw ConversationBackendError(code: -32000, message: String(localized: "The attachment couldn't upload. Try again."))
+                    }
+                    if presigned {
+                        guard let slot else { throw ConversationBackendError(code: -4, message: "attachment.bad_answer") }
+                        _ = try await Self.answer(try await http.sendBounded("the upload's commit", "POST", "/v1/home/attachments/commit",
+                                                                              body: try ChiefCloudHTTP.json(["conversation": conversationID, "slot": slot])))
+                    }
+                case "multipart":
+                    let size = Self.int(answer["part_size"]) ?? 0
+                    guard size > 0, let slot else { throw ConversationBackendError(code: -4, message: "attachment.bad_answer") }
+                    let parts = try await putParts(data, url: url, method: method, headers: headers, size: size,
+                                                   direct: answer["transport"] as? String == "direct")
+                    let complete = try ChiefCloudHTTP.json(["conversation": conversationID, "slot": slot, "parts": parts])
+                    // Direct parts never passed the Worker: it hashes the joined file one bounded step per call.
+                    var verifying = true
+                    while verifying {
+                        try Task.checkCancellation()
+                        let value = try await Self.answer(try await http.sendBounded("the upload's completion", "POST",
+                                                                                     "/v1/home/attachments/multipart/complete", body: complete))
+                        verifying = value["state"] as? String == "verifying"
+                    }
+                default:
+                    throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
                 }
             default:
                 throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
             }
+            ConversationUploadProgress.send(1)
             var part: [String: Any] = [
                 "type": "attachment", "hash": hash, "name": name, "mime_type": mimeType, "byte_count": data.count,
             ]
             if width > 0 { part["width"] = width }
             if height > 0 { part["height"] = height }
             let attachment = wire.attachment(part, bytes: data)
-                ?? ConversationAttachment(id: "att:\(hash)", kind: .image, width: width, height: height, url: nil, localData: data)
+                ?? ConversationAttachment(id: "att:\(hash)", kind: file == nil ? .image : .file, width: width, height: height,
+                                          url: nil, localData: data, file: file)
             uploadedParts[attachment.id] = part
             return attachment
         }
 
+        /// The parts of a `multipart` slot, in order, each a slice of `data` (no copy). `worker`: each
+        /// part is a PUT to `url` with `x-cmux-part-number` (a retried part the Worker already has
+        /// answers with it, so a retry resumes). `direct`: a POST to `url` signs the part's R2 URL and
+        /// the part goes there, named by its ETag.
+        private func putParts(_ data: Data, url: URL, method: String, headers: [String: String], size: Int,
+                              direct: Bool) async throws -> [[String: Any]] {
+            let count = (data.count + size - 1) / size
+            let total = Double(max(1, data.count))
+            var parts: [[String: Any]] = []
+            for index in 0..<max(1, count) {
+                try Task.checkCancellation()
+                let number = index + 1
+                let start = index * size
+                let piece = data[start..<min(data.count, start + size)]
+                let hop = String(format: String(localized: "PUT part %1$d of %2$d"), number, count)
+                let partHeaders = headers.merging(["x-cmux-part-number": String(number)]) { _, part in part }
+                let report: @Sendable (Int64) -> Void = { ConversationUploadProgress.send((Double(start) + Double($0)) / total) }
+                let http = http
+                let reply: ChiefCloudHTTP.Reply
+                if direct {
+                    let ask = try await Self.retrying {
+                        try await ChiefUpload.bounded("the signed URL for part \(number)", limit: http.uploadRequestLimit) {
+                            try await http.upload(url, method: "POST", headers: partHeaders, body: Data(), toWorker: true, hop: "part \(number)'s URL")
+                        }
+                    }
+                    let signed = try Self.answer(ask)
+                    guard Self.int(signed["part_number"]) == number,
+                          let target = (signed["url"] as? String).flatMap(URL.init(string:)) else {
+                        throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
+                    }
+                    let signedHeaders = (signed["headers"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
+                    let signedMethod = signed["method"] as? String ?? "PUT"
+                    reply = try await Self.retrying {
+                        try await http.upload(target, method: signedMethod, headers: signedHeaders, body: Data(piece), toWorker: false,
+                                              hop: hop, progress: report)
+                    }
+                    guard (200..<300).contains(reply.status), let etag = reply.etag else {
+                        throw ConversationBackendError(code: -32000, message: String(localized: "The attachment couldn't upload. Try again."))
+                    }
+                    parts.append(["part_number": number, "byte_count": piece.count, "etag": etag])
+                } else {
+                    reply = try await Self.retrying {
+                        try await http.upload(url, method: method, headers: partHeaders, body: Data(piece), toWorker: true,
+                                              hop: hop, progress: report)
+                    }
+                    let value = try Self.answer(reply)
+                    guard Self.int(value["part_number"]) == number, Self.int(value["byte_count"]) == piece.count else {
+                        throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
+                    }
+                    var entry: [String: Any] = ["part_number": number, "byte_count": piece.count]
+                    if let etag = value["etag"] as? String { entry["etag"] = etag }
+                    parts.append(entry)
+                }
+            }
+            return parts
+        }
+
+        /// One PUT, tried up to ``ChiefUpload/attempts`` times while it fails in a way another try
+        /// may fix (a stall, a dropped connection, a 5xx). The last failure is thrown with its hop.
+        static func retrying(_ put: @Sendable () async throws -> ChiefCloudHTTP.Reply) async throws -> ChiefCloudHTTP.Reply {
+            var attempt = 1
+            while true {
+                do {
+                    let reply = try await put()
+                    if reply.status >= 500, attempt < ChiefUpload.attempts {
+                        attempt += 1
+                        continue
+                    }
+                    return reply
+                } catch let failure as ChiefUpload.Failure where attempt >= ChiefUpload.attempts {
+                    throw ConversationBackendError(code: -32000, message: failure.message)
+                } catch where ChiefUpload.isTransient(error) && attempt < ChiefUpload.attempts {
+                    attempt += 1
+                }
+            }
+        }
+
+        /// The `value` object of an attachment route's reply, or its refusal (or bound) as the person's error.
+        static func answer(_ reply: ChiefCloudHTTP.Reply) throws -> [String: Any] {
+            do {
+                return try ChiefCloudHTTP.value(reply) as? [String: Any] ?? [:]
+            } catch let error as ChiefCloudError {
+                throw ConversationBackendError(code: -32000, message: error.description)
+            }
+        }
+
         init(http: ChiefCloudHTTP, conversationID: String, identity: ChiefIdentity, preferences: ChiefPreferences,
-             clock: any Clock<Duration>, liveFeed: ChiefLiveFeed, refused: @escaping @Sendable (String) -> Void) {
+             clock: any Clock<Duration>, beat: KeepaliveBeat = .live, liveFeed: ChiefLiveFeed,
+             refused: @escaping @Sendable (String) -> Void) {
             self.refused = refused
             self.http = http
             self.conversationID = conversationID
             self.identity = identity
             self.preferences = preferences
             self.clock = clock
+            self.beat = beat
             self.liveFeed = liveFeed
             wire = ChiefWire(identity: identity)
             live = ChiefLiveState(conversation: conversationID)
@@ -258,6 +391,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             // A photo the message names that this connection did not upload: never sent without it.
             var parts: [[String: Any]] = try draft.attachmentIDs.map { id in
                 guard let part = uploadedParts[id] else {
+                    // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
                     throw ConversationBackendError(code: -4, message: String(localized: "The photo didn't finish uploading. Try again."))
                 }
                 return part
@@ -470,10 +604,10 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             }
             // Closed while the token came: open nothing.
             guard !closed, !Task.isCancelled else { return .ended(welcomed: false, unauthorized: false, reason: "closed") }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-            let task = http.session.webSocketTask(with: request)
+            // A misconfigured dev build's refusal (CMUXBuildSpaceError) does not pass by itself: no retry.
+            let request: URLRequest
+            do { request = try http.socketRequest(url, token: token) } catch { return .refused(error.localizedDescription) }
+            let task = CmuxEgress.websocket(http.session, with: request, site: "CmuxMobileChief.ChiefCloudBackend")
             socket = task
             awaitingSnapshot = false
             subscribeOutstanding = false
@@ -506,10 +640,12 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             }
         }
 
-        /// Pings every 25 s; a socket that stops answering is closed, so the loop dials again.
+        /// Pings every 25 s (with Align Keepalives on, on every 20 s keepalive
+        /// beat); a socket that stops answering is closed, so the loop dials again.
         private func keepAlive(_ task: URLSessionWebSocketTask) async {
             while !Task.isCancelled {
-                do { try await clock.sleep(for: .seconds(25)) } catch { return }
+                let wait = beat.delay(toNextBeatOf: KeepaliveBeat.chiefPeriod) ?? .seconds(25)
+                do { try await clock.sleep(for: wait) } catch { return }
                 guard await Self.ping(task) else {
                     task.cancel(with: .goingAway, reason: nil)
                     return

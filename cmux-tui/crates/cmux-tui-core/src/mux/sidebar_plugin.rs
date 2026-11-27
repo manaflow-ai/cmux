@@ -261,3 +261,25 @@ impl Mux {
         Ok(commit)
     }
 }
+
+impl Mux {
+    pub(super) fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
+        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        if runtime.surface != Some(id) {
+            return false;
+        }
+        runtime.surface = None;
+        runtime.failures = runtime.failures.saturating_add(1);
+        let delay = sidebar_retry_delay(runtime.failures);
+        runtime.last_error = Some("sidebar plugin exited".to_string());
+        runtime.retry_at = Some(Instant::now() + delay);
+        drop(runtime);
+        self.state.lock().unwrap().surfaces.remove(&id);
+        true
+    }
+}
+
+fn sidebar_retry_delay(failures: u32) -> Duration {
+    let shift = failures.saturating_sub(1).min(5);
+    Duration::from_secs(1u64 << shift)
+}

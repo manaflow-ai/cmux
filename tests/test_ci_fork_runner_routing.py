@@ -5,11 +5,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-import workflow_jobs
-from job_lists_routing import (
+import yaml
+# workflow_jobs and job_lists_routing are beside this file: `python3 -I` puts no script folder on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+from job_lists_routing import (  # noqa: E402
     NIGHTLY,
     merge_gating_jobs,
     unresolved_name_jobs,
@@ -18,7 +24,6 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -64,7 +69,7 @@ BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
 BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
     r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
 )
-# The CLA jobs' runner identity guard (validate-cla-policy.rb is the
+# The CLA jobs' runner identity guard (main's validate-cla-policy.rb is the
 # authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
 # label, and always fail on an owned glaeda host.
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
@@ -93,13 +98,15 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),
-    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
-        "report text that prints the lane's effective label, not a runs-on value"
-    ),
     ("cmux-next-fast-tier-seed.yml",
-     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30},'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
+    ),
+    ("cmux-next-fast-tier-seed.yml",
+     '{"pool": "blacksmith-root2", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux-2/cmux", "timeout": 30}]'): (
+        "the second seed root's pool row in the same `due` job (github.repository == 'manaflow-ai/cmux'); "
+        "the seed job reading it has the same gate"
     ),
 }
 # Release publication controls are trusted release-environment jobs. They must
@@ -120,6 +127,8 @@ RELEASE_JOBS_FORK_GATED = {
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
+    "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
+    "nightly-next-pkg": "builds, signs, notarizes and uploads the pre-warming .pkg on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -161,21 +170,45 @@ HOSTED_LITERAL_RUNNER = re.compile(
 )
 # The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
 # only choose among ephemeral labels listed here, in the base-branch workflow:
-# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
-# other value, including a persistent mini's label, falls back to Blacksmith,
-# and a fork running its own CI gets GitHub-hosted. Either provider can then
-# carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+# a Blacksmith VM that runs one job and is destroyed. Any other value,
+# including a persistent mini's label or GitHub-hosted Ubuntu (the hosted pool
+# started nothing for hours on 2026-11-18), falls back to Blacksmith, and a
+# fork running its own CI gets GitHub-hosted.
+TRUSTED_RUNNER_LABELS = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# The pull-request and issue bots hold write tokens and may be started by an outsider's event, so they lead with the
+# PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT VMs, deleted after the job, no persistent runner
+# registers it) after the fork branch, behind their own switch; the repair workflows lead with the repair label the
+# same way (main's copies, tests/test_ci_write_token_jit_label.py). Either operand turns off with its variable and
+# leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+    TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
+# The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
+# own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
+LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
+LEGACY_TRUSTED_RUNNER_WORKFLOWS = frozenset({"language-boundaries.yml"})
+LEGACY_TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape(LEGACY_TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+
+
+def trusted_runner_line(workflow: str, line: str) -> bool:
+    return bool(TRUSTED_RUNNER_LINE.match(line) or (
+        workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))
+
+
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 # Derived, not hand-kept: every job that reports a context in REQUIRED_CHECKS
 # (scripts/ci/required_status_checks.py, kept honest by required-checks-drift.yml), plus the
-# jobs it needs. The hand list missed cla.yml's CLAAssistant and cla-policy-guard.yml's validate.
+# jobs it needs.
 # (workflow, job) -> why a merge-gating job takes another route.
 TRUSTED_RUNNER_EXEMPT = {
     ("merge-group-policy-checks.yml", "cla-assistant"): (
@@ -197,24 +230,15 @@ UNRESOLVED_NAME_EXEMPT = {
         "workflow_run/workflow_dispatch report job named by the analysis headline of a finished run; it reports "
         "on that run's commit after the fact, never a pull request's required context"
     ),
-    ("ci-guard-attribution.yml", "report"): (
-        "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
-        "commit after the fact, never a pull request's required context"
-    ),
     ("rust-workspaces.yml", "workspace"): (
         "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
         "key), never one of the required context names"
     ),
 }
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
-TRUSTED_RUNNER_EXTRA_JOBS = {
-    ("web-complexity-trusted.yml", "complexity"): (
-        "no longer required on main, but it reads untrusted pull request source as data under "
-        "pull_request_target, so only an ephemeral runner may take it"
-    ),
-}
+TRUSTED_RUNNER_EXTRA_JOBS: dict[tuple[str, str], str] = {}
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
-TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate"), ("cla.yml", "CLAAssistant")}
+TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate")}
 
 
 def trusted_runner_jobs(texts: dict[str, str]) -> set[tuple[str, str]]:
@@ -232,7 +256,7 @@ def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], 
             errors[(workflow, job)] = f"{workflow} has no job {job}"
             continue
         runs_on = workflow_jobs.runs_on(body)
-        if not TRUSTED_RUNNER_LINE.match(f"runs-on: {runs_on}"):
+        if not trusted_runner_line(workflow, f"runs-on: {runs_on}"):
             errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on}"
     return errors
 
@@ -259,7 +283,8 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
+    # Blacksmith's ARM Linux labels end in -arm (blacksmith-4vcpu-ubuntu-2404-arm): a Blacksmith VM like the rest.
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+(?:-arm)?|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a
@@ -277,7 +302,7 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
 # names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
 # files' session label, so they are gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -293,14 +318,6 @@ FORK_GATE_EXEMPT = {
     ("cmux-tui-windows-check.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"): (
         "windows-gnu-check's job if skips a fork pull request head (head.repo.full_name == "
         "github.repository), so fork code never reaches this selector"
-    ),
-    ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
-        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
-        "literal label and selects no runner"
-    ),
-    ("cmux-next-guards.yml", "MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}"): (
-        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
-        "literal label and selects no runner"
     ),
     ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
         "side_lane_placement.py's input: the placement step is gated to glaeda routes "
@@ -630,6 +647,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -649,7 +679,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:
@@ -671,6 +701,28 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes GitHub-hosted 'ubuntu-24.04'.
+    r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && ('ubuntu-24\.04') \|\| 'cmux-linux'\)"
+)
+# A route whose owned fallback is itself behind the macOS Blacksmith switch.
+# The fork branch still wins before the fallback; reduce the whole expression
+# to that branch so the detector does not mistake the guarded owner route for
+# an unguarded fork path. Since #43860 the fallback of some routes starts with
+# the switch's `pr-rescue` read: that clause is optional here, as an exact text.
+FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
+    r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && 'blacksmith-[^']+') \|\| "
+    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.run_attempt < 2 \|\| "
+    r"github\.event_name != 'pull_request' && \(github\.event_name != 'workflow_dispatch' \|\| "
+    r"!contains\(fromJSON\('\[\"github-actions\[bot\]\",\"cmux-bot\[bot\]\"\]'\), github\.triggering_actor\) \|\| "
+    r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
+    r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
+    r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
+    r"vars\.CI_BLACKSMITH_MACOS != 'on' && "
+    r"(?:vars\.CI_SIDE_LANE_RUNNER|\(vars\.CI_SIDE_LANE_LABELS != '' && fromJSON\(vars\.CI_SIDE_LANE_LABELS\) \|\| "
+    r"vars\.CI_SIDE_LANE_RUNNER\)) \|\| "
+    r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
 )
 
 
@@ -690,7 +742,8 @@ def fork_pull_request_gate_error(
     """
     if not selector.search(line):
         return None
-    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
+    line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
+    line = FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), line)
     try:
         outside = EXPRESSION.sub("", line)
     except gh_expressions.Unterminated:
@@ -706,6 +759,157 @@ def fork_pull_request_gate_error(
         if error:
             return error
     return None
+
+
+def excludes_fork_pull_request(condition: object) -> bool:
+    """Prove a job cannot start on a fork PR; unknown conditions stay checked.
+
+    Only evaluate facts guaranteed by a fork pull_request event. In particular,
+    a same-repository comparison somewhere in an OR is not itself a gate.
+    """
+    if isinstance(condition, bool):
+        return not condition
+    if not isinstance(condition, str) or not condition.strip():
+        return False
+    source = condition.strip()
+    if source.startswith("${{") and source.endswith("}}"):
+        source = source[3:-2].strip()
+
+    def known(node: tuple) -> bool | None:
+        kind = node[0]
+        if kind in ("and", "or"):
+            values = [known(child) for child in node[1]]
+            decisive = kind == "or"
+            if decisive in values:
+                return decisive
+            if all(value is not None for value in values):
+                return not decisive
+        elif kind == "not":
+            value = known(node[1])
+            return None if value is None else not value
+        elif kind == "literal" and node[1] in ("true", "false"):
+            return node[1] == "true"
+        elif kind == "cmp" and node[1] in ("==", "!="):
+            left, right = node[2:]
+            if left == ("ref", "github.repository"):
+                left, right = right, left
+            if (left == ("ref", "github.event.pull_request.head.repo.full_name")
+                    and right == ("ref", "github.repository")):
+                return node[1] == "!="
+            if right == ("ref", "github.event_name"):
+                left, right = right, left
+            if (left == ("ref", "github.event_name") and right[0] == "literal"
+                    and right[1].startswith("'")):
+                event = right[1][1:-1].replace("''", "'").lower()
+                return (event == "pull_request") == (node[1] == "==")
+        return None
+
+    try:
+        return known(parse_expression(source)) is False
+    except ExpressionSyntaxError:
+        return False
+
+
+def fork_excluded_job_lines(text: str) -> set[int]:
+    """Whole source lines belonging only to jobs proven unreachable by forks.
+
+    Use YAML marks, not indentation/header regexes: quoted keys and alternate
+    indentation must not leak an exemption into a sibling. Aliases can share
+    source with an unguarded consumer, so leave those workflows fully checked.
+    Inline/flow mappings likewise remain checked rather than exempting a line
+    that could contain another job or workflow-level value.
+    """
+    jobs = workflow_jobs.jobs(text)
+    if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(text)):
+        return set()
+    document = yaml.compose(text)
+    excluded = set()
+    for key, value in document.value:
+        if key.value != "jobs" or not isinstance(value, yaml.MappingNode) or value.flow_style:
+            continue
+        for job_key, job_value in value.value:
+            if (isinstance(job_value, yaml.MappingNode) and not job_value.flow_style
+                    and excludes_fork_pull_request(jobs[job_key.value].get("if"))):
+                excluded.update(range(job_key.start_mark.line + 2, job_value.end_mark.line + 1))
+    return excluded
+
+
+# Owned Macs take our own branches' jobs (Leo, 2026-11-19: "if we literally dont allow forks to run on ours
+# automatically/require qpproval each time for external ci running"), so no route may hand a fork head one.
+# OWNED_RUNNER_SELECTOR above names the variables that can hold an owned label; a picker job's output
+# (`needs.<job>.outputs.*`) can hold one too, and nothing checked those. A runs-on may read a picker output
+# ahead of its top-level fork branch only when a fork pull request cannot set it to an owned label:
+#   - the picker job's own `if` proves it never starts on a fork pull request (excludes_fork_pull_request), so
+#     on a fork run its outputs are empty and the expression falls through to the fork branch; or
+#   - it is listed here with why that picker never names an owned label for a fork head.
+# Any other picker read ahead of the fork branch fails, so a new picker must do one or the other.
+PICKER_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_]+", re.IGNORECASE)
+FORK_SAFE_PICKER_OUTPUTS = {
+    ("ci-macos.yml", "macos-compile-admission"): (
+        "its `runner` output is CMUX_PRODUCT_RUNNER, which restates admission's own runs-on; that runs-on reads "
+        "inputs.pr_runner, so the gate above already holds it to the fork branch first (Blacksmith for a fork)"
+    ),
+    ("test-ios.yml", "runner"): (
+        "ios_runner_pool.py --fork returns its ephemeral Blacksmith pool for a fork head before reading any "
+        "variable (tests/test_ci_pr_runner_pool.py test_a_fork_pull_request_never_routes_or_reads)"
+    ),
+}
+
+
+def _top_level_disjuncts_before_fork_branch(node: tuple) -> list[tuple]:
+    """The top-level `||` operands a fork run evaluates before the fork branch (all of them when there is none)."""
+    disjuncts = node[1] if node[0] == "or" else [node]
+    before: list[tuple] = []
+    for disjunct in disjuncts:
+        if _is_fork_pull_request_branch(disjunct):
+            break
+        before.append(disjunct)
+    return before
+
+
+def picker_reads_before_fork_branch(runs_on: str) -> list[str]:
+    """Picker job names whose outputs a runs-on reads ahead of its fork branch. Raises ExpressionSyntaxError."""
+    jobs: list[str] = []
+    for expression in EXPRESSION.findall(runs_on):
+        for disjunct in _top_level_disjuncts_before_fork_branch(parse_expression(expression)):
+            for ref in _refs(disjunct):
+                match = PICKER_OUTPUT.fullmatch(ref)
+                if match and match.group(1) not in jobs:
+                    jobs.append(match.group(1))
+    return jobs
+
+
+def fork_unsafe_picker_errors(name: str, text: str,
+                              allowed: dict[tuple[str, str], str] | None = None) -> tuple[list[str], set[tuple[str, str]]]:
+    """(errors, the listed pickers used) for one workflow's runs-on values that a fork pull request evaluates."""
+    allowed = FORK_SAFE_PICKER_OUTPUTS if allowed is None else allowed
+    errors: list[str] = []
+    used: set[tuple[str, str]] = set()
+    jobs = workflow_jobs.jobs(text)
+    for job_id, job in jobs.items():
+        if excludes_fork_pull_request(job.get("if")):
+            continue
+        runs_on = workflow_jobs.runs_on(job)
+        if not isinstance(runs_on, str) or "needs." not in runs_on:
+            continue
+        try:
+            pickers = picker_reads_before_fork_branch(runs_on)
+        except (ExpressionSyntaxError, gh_expressions.Unterminated) as error:
+            errors.append(f"{name} {job_id}: runs-on has an expression the guard cannot parse ({error})")
+            continue
+        for picker in pickers:
+            producer = jobs.get(picker)
+            if producer is not None and excludes_fork_pull_request(producer.get("if")):
+                continue
+            if (name, picker) in allowed:
+                used.add((name, picker))
+                continue
+            errors.append(
+                f"{name} {job_id}: runs-on reads needs.{picker}.outputs ahead of the fork pull-request branch, "
+                f"and job {picker} can run on a fork pull request; gate {picker} to same-repository heads, "
+                "put the fork branch first, or list it in FORK_SAFE_PICKER_OUTPUTS with why"
+            )
+    return errors, used
 
 
 def pull_request_workflows() -> list[Path]:
@@ -791,7 +995,7 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
-              and not TRUSTED_RUNNER_LINE.match(line)):
+              and not trusted_runner_line(name, line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -1128,9 +1332,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         failures = []
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
+            excluded_lines = fork_excluded_job_lines(text)
             dispatch_inputs_are_empty = not has_workflow_call_trigger(text)
             for number, line in enumerate(text.splitlines(), start=1):
                 if line.lstrip().startswith("#"):
+                    continue
+                if number in excluded_lines:
                     continue
                 if not (
                     OWNED_RUNNER_VARIABLE.search(line)
@@ -1152,6 +1359,126 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number} {error}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
+
+    def test_picker_outputs_ahead_of_the_fork_branch_cannot_name_an_owned_runner(self) -> None:
+        """A picker read before the fork branch comes from a fork-excluded job or a listed fork-safe picker."""
+        failures: list[str] = []
+        used: set[tuple[str, str]] = set()
+        workflows = fork_exercised_workflows()
+        for path in workflows:
+            errors, listed = fork_unsafe_picker_errors(path.name, path.read_text(encoding="utf-8"))
+            failures.extend(errors)
+            used |= listed
+        self.assertEqual(failures, [])
+        # A listed picker that is no longer read ahead of a fork branch (or now excludes forks itself) is stale.
+        self.assertEqual(sorted(set(FORK_SAFE_PICKER_OUTPUTS) - used), [])
+        # Parser anchor: the scan must still see the pickers that are fork-excluded by their own `if`.
+        reads = {
+            (path.name, picker)
+            for path in workflows
+            for job in workflow_jobs.jobs(path.read_text(encoding="utf-8")).values()
+            if "needs." in workflow_jobs.runs_on(job)
+            for picker in picker_reads_before_fork_branch(workflow_jobs.runs_on(job))
+        }
+        self.assertIn(("ci-macos.yml", "late-placement"), reads)
+        self.assertIn(("cmux-next-media.yml", "route"), reads)
+
+    def test_picker_output_rule_reads_the_producer_gate(self) -> None:
+        fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                "github.repository && 'blacksmith-6vcpu-macos-26'")
+
+        def workflow(pick_if: str, runs_on: str) -> str:
+            return (
+                "on:\n  pull_request:\njobs:\n"
+                f"  pick:\n    if: {pick_if}\n    runs-on: ubuntu-24.04\n    steps: [{{run: 'true'}}]\n"
+                f"  build:\n    needs: pick\n    runs-on: ${{{{ {runs_on} }}}}\n    steps: [{{run: 'true'}}]\n"
+            )
+
+        same_repo = "github.event.pull_request.head.repo.full_name == github.repository"
+        early = "needs.pick.outputs.runner || " + fork + " || 'blacksmith-6vcpu-macos-26'"
+        late = fork + " || needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26'"
+        nested = "fromJSON(needs.pick.outputs.runs_on || '[]')"
+        # The picker can run on a fork pull request and is read first: refused.
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow("always()", early), {})[0])
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow("always()", nested), {})[0])
+        # A picker gated to same-repository heads has empty outputs on a fork run.
+        self.assertEqual(fork_unsafe_picker_errors("w.yml", workflow(same_repo, early), {})[0], [])
+        # Read only after the fork branch: a fork never reaches it.
+        self.assertEqual(fork_unsafe_picker_errors("w.yml", workflow("always()", late), {})[0], [])
+        # A listed fork-safe picker passes and is reported as used.
+        errors, used = fork_unsafe_picker_errors("w.yml", workflow("always()", early), {("w.yml", "pick"): "why"})
+        self.assertEqual((errors, used), ([], {("w.yml", "pick")}))
+        # An OR that only mentions the same-repository test is no gate.
+        loose = f"{same_repo} || github.event_name == 'pull_request'"
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow(loose, early), {})[0])
+
+    def test_job_condition_proves_fork_exclusion_without_trusting_unknowns(self) -> None:
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        pr = "github.event_name == 'pull_request'"
+        manual = "github.event_name == 'workflow_dispatch'"
+        for condition in (same, f"{manual} || ({pr} && {same})",
+                          f"success() && ({same})", f"${{{{ {same} }}}}",
+                          f"!({pr})", False):
+            with self.subTest(excluded=condition):
+                self.assertTrue(excludes_fork_pull_request(condition))
+        for condition in (None, "", True, pr, f"{same} || always()",
+                          f"({manual} || {pr}) && (vars.ALLOW || {same})",
+                          f"!({same})", "github.repository_owner == 'manaflow-ai'",
+                          "inputs.trusted", "'false'", f"{same} ||", f"{same} || true"):
+            with self.subTest(still_checked=condition):
+                self.assertFalse(excludes_fork_pull_request(condition))
+
+    def test_job_gate_does_not_exempt_sibling_or_workflow_env(self) -> None:
+        safe = ("${{ github.event_name == 'pull_request' && "
+                "github.event.pull_request.head.repo.full_name != github.repository && "
+                "'macos-26' || vars.MACOS_RUNNER_PR }}")
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            cases = (
+                (safe, "", True), (unsafe, "", False),
+                (safe, f"env:\n  guarded:\n    LABEL: {unsafe}\n", False),
+            )
+            for sibling, env, passes in cases:
+                for sibling_key, indent in (("sibling", "  "), ('"sibling"', "  "),
+                                            ("'sibling'", "    ")):
+                    with self.subTest(sibling=sibling, env=env, key=sibling_key, indent=indent):
+                        path.write_text(
+                            env + "on:\n  pull_request:\njobs:\n"
+                            f"{indent}guarded:\n{indent}  if: >-\n"
+                            f"{indent}    github.event_name == 'workflow_dispatch' ||\n"
+                            f"{indent}    (github.event_name == 'pull_request' &&\n"
+                            f"{indent}     github.event.pull_request.head.repo.full_name == github.repository)\n"
+                            f"{indent}  runs-on: {unsafe}\n{indent}{sibling_key}:\n"
+                            f"{indent}  runs-on: {sibling}\n"
+                            f"{indent}checked:\n{indent}  runs-on: {safe}\n"
+                        )
+                        with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                            if passes:
+                                self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+                            else:
+                                with self.assertRaises(AssertionError):
+                                    self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+
+    def test_job_gate_keeps_shared_source_and_inline_jobs_checked(self) -> None:
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        fixtures = (
+            f"jobs:\n  guarded: &job\n    if: {same}\n    runs-on: {unsafe}\n"
+            "  sibling:\n    <<: *job\n    if: true\n",
+            "jobs: {guarded: {if: false, runs-on: macos-26}, "
+            "sibling: {runs-on: '${{ vars.MACOS_RUNNER_PR }}'}}\n",
+            f"jobs:\n  guarded:\n    if: {same}\n    runs-on: {unsafe}\n"
+            f"env:\n  LABEL: {unsafe}\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            for fixture in fixtures:
+                with self.subTest(fixture=fixture):
+                    path.write_text("on:\n  pull_request:\n" + fixture)
+                    with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                        with self.assertRaisesRegex(AssertionError, "MACOS_RUNNER_PR"):
+                            self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
@@ -1241,7 +1568,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 with self.subTest(workflow=path.name, line=number):
-                    if "vars.LINUX_RUNNER" in line:
+                    # cmux-linux as the last fallback is what a fork reaches; as a same-repository first-attempt
+                    # clause (app-compile-placement) it never serves a fork.
+                    if "vars.LINUX_RUNNER" in line or re.search(r"\|\|\s*'cmux-linux'\s*\}\}", line):
                         saw_linux += 1
                         self.assertTrue(
                             hosted_linux or (fork_short_circuits and hosted_macos),
@@ -1270,8 +1599,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""
         roots = outsider_triggered_workflows()
-        self.assertIn(WORKFLOWS / "cla.yml", roots)
-        self.assertIn(WORKFLOWS / "claude.yml", roots)
+        self.assertIn(WORKFLOWS / "backend-migrations.yml", roots)
+        self.assertIn(WORKFLOWS / "auto-triage.yml", roots)
         # A reusable workflow called only from fully gated roots never runs
         # for a fork head either.
         ungated = [path for path in roots if not every_job_gated(path.read_text(encoding="utf-8"), SAME_REPOSITORY_GATE)]
@@ -1344,7 +1673,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
         follower = (
             "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
-            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cla.yml\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/backend-migrations.yml\n"
             "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
             "    runs-on: ubuntu-24.04\n"
         )
@@ -1500,13 +1829,18 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
-        widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
+            self.assertTrue(label.startswith("blacksmith-"), label)
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
         for variant in (widened, renamed, unforked):
             with self.subTest(variant=variant):
                 self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
+        # The hosted-admitting selector passes only in the one named file.
+        self.assertIn('"ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404"', LEGACY_TRUSTED_RUNNER_EXPRESSION)
+        legacy = f"jobs:\n  a:\n    runs-on: {LEGACY_TRUSTED_RUNNER_EXPRESSION}\n"
+        self.assertNotEqual(outsider_runner_errors("x.yml", legacy), [])
+        self.assertEqual(outsider_runner_errors("language-boundaries.yml", legacy), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.
@@ -1608,116 +1942,6 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "    runs-on: blacksmith-32vcpu-ubuntu-2404\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
-
-
-
-# ci-macos.yml's compile admission runs on an owned Mac by design: the picker's
-# pull-request route (pr_runner_pool.py), and on other events MACOS_RUNNER_15,
-# which the overflow switch can point at the owned std pool. A reused machine
-# must hold no secret, so admission reads the Chromium engine only from the
-# Mac's own verified cache and the tailnet controller store, never with the
-# CEF R2 key. ci.yml passes ci-macos.yml no CEF key (118e52e14907) and the
-# job's environment holds none, so the key reference there was dead; this keeps
-# it from coming back with a `secrets:` pass from the caller.
-CI_MACOS = WORKFLOWS / "ci-macos.yml"
-COMPILE_ADMISSION_JOB = "macos-compile-admission"
-# secrets.NAME or secrets[...]; any other read of the context (toJSON(secrets)) too.
-SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*\w+|\[[^\]]*\])", re.IGNORECASE)
-SECRETS_CONTEXT = re.compile(r"\bsecrets\b", re.IGNORECASE)
-CEF_R2_SECRET = re.compile(r"CMUX_CEF_R2_(?:ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY)", re.IGNORECASE)
-CEF_FETCH_SCRIPT = re.compile(r"scripts/cmux-next/ensure-(?:cef|remote-browser-host)\.sh")
-# What keeps ensure-cef.sh and ensure-remote-browser-host.sh off every key source
-# on the runner: no R2 at all, and no ~/.secrets/cmux-cef.env.
-CEF_FETCH_NO_KEY_ENV = {
-    "CMUX_CEF_NO_R2": "1",
-    "CMUX_RB_HOST_NO_R2": "1",
-    "CMUX_CEF_R2_ENV_FILE": "/dev/null",
-}
-
-
-def _load_workflow(path: Path) -> dict:
-    import yaml  # noqa: PLC0415 (only these tests parse YAML)
-
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-
-
-def compile_admission_secret_errors(document: dict) -> list[str]:
-    """Why ci-macos.yml's compile admission could hold a secret on the Mac it runs on."""
-    errors: list[str] = []
-    triggers = document.get("on") or {}
-    call = (triggers.get("workflow_call") or {}) if isinstance(triggers, dict) else {}
-    declared = sorted(name for name in (call.get("secrets") or {}) if CEF_R2_SECRET.fullmatch(name))
-    if declared:
-        errors.append(f"workflow_call declares {', '.join(declared)}; no job of ci-macos.yml takes the CEF R2 key")
-    job = (document.get("jobs") or {}).get(COMPILE_ADMISSION_JOB)
-    if not isinstance(job, dict):
-        return errors + [f"no {COMPILE_ADMISSION_JOB} job"]
-    text = json.dumps(job)
-    references = sorted(set(SECRET_REFERENCE.findall(text)))
-    errors.extend(f"{COMPILE_ADMISSION_JOB} references {reference}" for reference in references)
-    if not references and SECRETS_CONTEXT.search(text):
-        errors.append(f"{COMPILE_ADMISSION_JOB} reads the secrets context")
-    permissions = job.get("permissions")
-    if not isinstance(permissions, dict) or any(value != "read" for value in permissions.values()):
-        errors.append(f"{COMPILE_ADMISSION_JOB} permissions must all be read: {permissions!r}")
-    for step in job.get("steps") or []:
-        if not isinstance(step, dict) or not CEF_FETCH_SCRIPT.search(str(step.get("run", ""))):
-            continue
-        env = step.get("env") or {}
-        label = step.get("name") or step.get("id") or "<step>"
-        for name, value in CEF_FETCH_NO_KEY_ENV.items():
-            if str(env.get(name, "")) != value:
-                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} must set {name}: {value!r} (got {env.get(name)!r})")
-        for name in env:
-            if CEF_R2_SECRET.fullmatch(name):
-                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} sets {name}")
-    return errors
-
-
-class CompileAdmissionHoldsNoSecretTests(unittest.TestCase):
-    def test_compile_admission_holds_no_secret(self) -> None:
-        self.assertEqual(compile_admission_secret_errors(_load_workflow(CI_MACOS)), [])
-
-    def test_rule_rejects_a_secret_on_admission(self) -> None:
-        document = {
-            "on": {"workflow_call": {"secrets": {"CMUX_CEF_R2_ACCESS_KEY_ID": {"required": "false"}}}},
-            "jobs": {
-                COMPILE_ADMISSION_JOB: {
-                    "permissions": {"contents": "read", "actions": "write"},
-                    "steps": [
-                        {
-                            "name": "fetch",
-                            "env": {"CMUX_CEF_R2_ACCESS_KEY_ID": "${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}"},
-                            "run": "scripts/cmux-next/ensure-cef.sh --optional",
-                        },
-                        {"name": "token", "env": {"T": "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}, "run": "true"},
-                    ],
-                }
-            },
-        }
-        errors = compile_admission_secret_errors(document)
-        joined = "\n".join(errors)
-        self.assertIn("workflow_call declares CMUX_CEF_R2_ACCESS_KEY_ID", joined)
-        self.assertIn("references secrets.CMUX_CEF_R2_ACCESS_KEY_ID", joined)
-        self.assertIn("references secrets['GLAEDA_ROUTE_APP_KEY']", joined)
-        self.assertIn("permissions must all be read", joined)
-        self.assertIn("must set CMUX_CEF_NO_R2", joined)
-        self.assertIn("sets CMUX_CEF_R2_ACCESS_KEY_ID", joined)
-
-    def test_rule_accepts_a_keyless_admission(self) -> None:
-        document = {
-            "on": {"workflow_call": {"secrets": {"GLAEDA_ROUTE_APP_KEY": {"required": "false"}}}},
-            "jobs": {
-                COMPILE_ADMISSION_JOB: {
-                    "permissions": {"contents": "read", "actions": "read"},
-                    "steps": [
-                        {"name": "fetch", "env": dict(CEF_FETCH_NO_KEY_ENV), "run": "scripts/cmux-next/ensure-cef.sh --optional"},
-                        {"name": "gh", "env": {"GH_TOKEN": "${{ github.token }}"}, "run": "true"},
-                    ],
-                }
-            },
-        }
-        self.assertEqual(compile_admission_secret_errors(document), [])
 
 
 if __name__ == "__main__":

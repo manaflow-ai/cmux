@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextDevices
@@ -6,14 +6,15 @@ import CmuxNextWakeups
 public import Observation
 
 /// The host's approval prompt for a device hub request (permission Ask):
-/// the viewer device's name and key fingerprint and the scope it asks for,
-/// with Deny, Allow Once, Always Allow View Only and Always Allow Full
-/// Control. A floating, non-activating panel at the top right of the main
+/// who asks and what it could do, with Allow (remembered for that Mac: the
+/// hub's Always at the scope asked for), Allow Only This Time and Not Now,
+/// and the asking device's key to compare. A floating, non-activating panel at the top right of the main
 /// screen: it shows over every app (full-screen ones too) and never takes
 /// the keyboard or the frontmost app from the person. One request at a
 /// time, in arrival order; a request the hub ends (revoked, timed out)
 /// leaves the panel, and the panel gives up after the protocol's five
-/// minutes on its own.
+/// minutes on its own. It draws the one cmux dialog card on its glass
+/// (``CmuxFloatingDialogPanel``), as every other prompt over every app does.
 @MainActor @Observable
 public final class MacScreenApprovalPrompt {
     /// The request on screen.
@@ -26,14 +27,26 @@ public final class MacScreenApprovalPrompt {
     @ObservationIgnored var hub: @MainActor () -> DeviceHub? = { nil }
     /// Requests answered or expired here, which the hub may still list for a moment.
     @ObservationIgnored private var settled: Set<String> = []
-    @ObservationIgnored private var panel: NSPanel?
+    @ObservationIgnored private var panel: MacScreenApprovalPanel?
     @ObservationIgnored private let expiry = DemandTimer(owner: "mac-screen.approval-expiry")
     @ObservationIgnored private var watch: Task<Void, Never>?
     /// Shows and hides the panel; tests replace it.
     @ObservationIgnored var present: @MainActor (Bool) -> Void = { _ in }
+    /// Where the card's answers go (``answer(_:)``); tests replace it.
+    @ObservationIgnored var answerChoice: @MainActor (MacScreenApprovalChoice) -> Void = { _ in }
+    /// SECURITY: whether an event is the person's own input (the app's strict source check,
+    /// `PersonInputCheck`); with none set, none is, and no click allows.
+    @ObservationIgnored public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false } {
+        didSet { panel?.personClick.isPersonEvent = isPersonEvent }
+    }
+    /// The event the app is handling now (tests set it).
+    @ObservationIgnored var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent } {
+        didSet { panel?.personClick.eventInHand = eventInHand }
+    }
 
     public init() {
         present = { [weak self] visible in self?.setPanelVisible(visible) }
+        answerChoice = { [weak self] choice in self?.answer(choice) }
     }
 
     /// Follows `hub`'s pending requests from now on (nil: none).
@@ -70,9 +83,10 @@ public final class MacScreenApprovalPrompt {
         present(next != nil)
     }
 
-    /// One of the prompt's buttons.
-    public func answer(_ choice: MacScreenApprovalChoice) {
-        guard let request = current, let hub = hub(), !answering else { return }
+    /// One of the prompt's buttons, for the request it was drawn for: an answer that lands after the
+    /// next request took its place answers nothing (`requestID` names the request on the card).
+    public func answer(_ choice: MacScreenApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, let hub = hub(), !answering else { return }
         answering = true
         let (decision, scope, thenPermission) = choice.answer(requested: request.scope)
         // task-owner: one decision for the request on screen; the next request shows when it settles
@@ -89,6 +103,7 @@ public final class MacScreenApprovalPrompt {
             } catch {
                 guard let self else { return }
                 answering = false
+                // retry-prompt-ok: answering a screen-share request is the person's decision (it lets another device see or control this Mac)
                 self.error = L.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
             }
         }
@@ -103,185 +118,155 @@ public final class MacScreenApprovalPrompt {
 
     // MARK: Panel
 
-    /// Where the prompt's panel shows; nil while hidden (tests).
-    var panelFrame: CGRect? { panel?.isVisible == true ? panel?.frame : nil }
+    /// Where the prompt's card shows; nil while hidden (tests).
+    var panelFrame: CGRect? { panel?.cardFrame }
+
+    /// The card shown now (tests).
+    var dialogView: CmuxDialogView? { panel?.dialogView }
+
+    /// The panel shown now (tests).
+    var approvalPanel: MacScreenApprovalPanel? { panel }
 
     private func setPanelVisible(_ visible: Bool) {
-        guard visible, current != nil else {
-            // Closed, not only ordered out: its content holds this prompt, so an ordered-out panel
+        guard visible, let request = current else {
+            // Closed, not only ordered out: its card holds this prompt, so an ordered-out panel
             // stayed in the app's window list for good. The next request makes a fresh one.
+            panel?.hide()
             panel?.close()
             panel = nil
             return
         }
-        let panel = self.panel ?? makePanel()
+        let panel = self.panel ?? MacScreenApprovalPanel(prompt: self)
         self.panel = panel
-        // A fresh content view per request, measured before it shows.
-        let content = MacScreenApprovalView(prompt: self)
-        content.onResize = { [weak self, weak content] in
-            guard let self, let content, self.panel?.contentView === content else { return }
-            place(content)
+        render(request, in: panel)
+    }
+
+    /// Draws `request` (with the last error) in the cmux dialog card, then follows the error and the answer in flight.
+    private func render(_ request: SessionRequest, in panel: MacScreenApprovalPanel) {
+        let shown = withObservationTracking {
+            (error: error, answering: answering)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel, let current = self.current, current.id == request.id else { return }
+                self.render(current, in: panel)
+            }
         }
-        panel.contentView = content
-        place(content)
-        // Over every app, without activating this one or taking the keyboard.
-        panel.orderFrontRegardless()
+        let spec = Self.spec(request, error: shown.error)
+        if panel.dialogView?.spec != spec {
+            // A new request (not a redraw of the one shown): a click aimed at what was there before is not taken.
+            if panel.shownRequest != request.id {
+                panel.shownRequest = request.id
+                panel.personClick.shown()
+            }
+            panel.show(spec) { [weak self] id in
+                // SECURITY: an Allow's action answers nothing (the panel reads the person's click); Deny takes any press.
+                guard let choice = MacScreenApprovalChoice(rawValue: id), choice == .deny else { return }
+                self?.answerChoice(choice)
+            }
+        }
+        // No second answer while one is on its way.
+        panel.dialogView?.setButtonsEnabled(!shown.answering)
     }
 
-    /// Sizes the panel to `content` at the top right of the main screen.
-    private func place(_ content: MacScreenApprovalView) {
-        guard let panel else { return }
-        var size = content.fittingSize
-        if size.width < 300 || size.height < 100 { size = CGSize(width: max(size.width, 380), height: max(size.height, 220)) }
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let area = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: size.width + 32, height: size.height + 32)
-        panel.setFrame(CGRect(x: area.maxX - size.width - 16, y: area.maxY - size.height - 16, width: size.width, height: size.height),
-                       display: true)
+    /// The prompt as a cmux dialog. Leo, 2026-11-16: "super ugly", and "i dont want to have to click share this
+    /// mac allow every single time". So: who asks and what it can do, in plain words, and what Allow keeps; the
+    /// asking device's key to compare; a failed answer; then three answers stacked the card's width
+    /// (``CmuxDialogSpec/Layout/stacked``): Allow first, which remembers this Mac (the hub's Always at the scope
+    /// asked for), Allow Only This Time under it, and Not Now last as quiet text (Escape). The card has no Details
+    /// disclosure, so Allow Only This Time is a further stacked button. SECURITY: both Allows are person-only (no
+    /// key, no keycap): only the person's own click answers them (``MacScreenApprovalPanel``).
+    static func spec(_ request: SessionRequest, error: String?) -> CmuxDialogSpec {
+        let words = MacScreenApprovalWords(request)
+        let fields: [CmuxDialogField] = request.viewerKeyFingerprint.map {
+            [.code(label: MacScreenApprovalWords.deviceKey, text: fingerprintLines($0))]
+        } ?? []
+        func button(_ choice: MacScreenApprovalChoice, _ title: String, _ role: CmuxDialogButton.Role) -> CmuxDialogButton {
+            CmuxDialogButton(id: choice.rawValue, title: title, role: role, personOnly: choice != .deny)
+        }
+        return CmuxDialogSpec(
+            title: words.title,
+            lines: [words.body, words.remembers],
+            fields: fields,
+            buttons: [button(words.allowChoice, MacScreenApprovalWords.allow, .default),
+                      button(.once, MacScreenApprovalWords.onlyThisTime, .normal),
+                      button(.deny, MacScreenApprovalWords.notNow, .cancel)],
+            identifier: "macScreen.approval", layout: .stacked, error: error)
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 380, height: 200),
-                            styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
-        panel.isFloatingPanel = true
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.isReleasedWhenClosed = false
-        return panel
+    /// The fingerprint in two lines of four groups, so it reads and compares group by group against the other
+    /// device's ("78BE 18E0 C08C 9C4D" over "7443 D95E 2DB6 8074").
+    static func fingerprintLines(_ fingerprint: String) -> String {
+        let groups = DeviceIdentity.displayFingerprint(fingerprint).split(separator: " ")
+        let half = (groups.count + 1) / 2
+        return [groups.prefix(half), groups.dropFirst(half)].filter { !$0.isEmpty }
+            .map { $0.joined(separator: " ") }.joined(separator: "\n")
     }
 }
 
-/// The prompt's content, in the app theme (AppKit): who asks, for what, the
-/// asking device's key fingerprint, a failed answer, and the four answers.
-/// Only a press on these buttons (a person at this Mac) answers from here.
+/// The device-control prompt's floating panel. SECURITY: an Allow answers here, from the person's own click on it
+/// (``CmuxDialogPersonClick``), never from the button's action: no Accessibility press, programmatic click, key
+/// or click another process posts allows a device to see or control this Mac. A click that begins within the
+/// double-click interval of the prompt showing, or of the person's previous click, is not taken.
 @MainActor
-final class MacScreenApprovalView: MacScreenThemedView {
-    /// What the prompt shows.
-    struct Shown: Equatable {
-        var request: SessionRequest?
-        var error: String?
-        var answering: Bool
-        /// The type scale the prompt was built at (`MacScreenType.sizes`).
-        var typeSizes = MacScreenType.sizes
-    }
-
-    static let width: CGFloat = 380
-    private static let textWidth = width - 32
-
-    /// The fitting size changed (an error line came or went).
-    var onResize: @MainActor () -> Void = {}
-    private let prompt: MacScreenApprovalPrompt
-    private let background = MacScreenFill(\.popup, shape: .rounded(Metrics.panelCornerRadius), bordered: true)
-    private let stack = MacScreenStack.make(.vertical, spacing: 10, alignment: .leading,
-                                            insets: NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16))
-    private var buttons: [MacScreenButton] = []
-    private(set) var shown: Shown?
+final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
+    private weak var prompt: MacScreenApprovalPrompt?
+    let personClick = CmuxDialogPersonClick(activationDelay: { NSEvent.doubleClickInterval })
+    /// The request whose card shows (a redraw of the same request keeps the activation delay's start).
+    var shownRequest: String?
 
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
-        background.translatesAutoresizingMaskIntoConstraints = true
-        background.autoresizingMask = [.width, .height]
-        background.setAccessibilityElement(true)
-        background.setAccessibilityRole(.group)
-        background.setAccessibilityIdentifier("macScreen.approval")
-        addSubview(background)
-        background.addSubview(stack)
-        let trailing = stack.trailingAnchor.constraint(equalTo: background.trailingAnchor)
-        let bottom = stack.bottomAnchor.constraint(equalTo: background.bottomAnchor)
-        trailing.priority = .init(999)
-        bottom.priority = .init(999)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            stack.topAnchor.constraint(equalTo: background.topAnchor),
-            stack.widthAnchor.constraint(equalToConstant: Self.width),
-            trailing,
-            bottom,
-        ])
-        render()
+        super.init(identifier: "macScreen.approval.panel")
+        // SECURITY: left out of every capture cmux makes and refused by Computer Use, as the join consent is: a shared
+        // screen or an agent's capture never shows the Allow it could aim a posted click at.
+        sharingType = .none
+        // It shows looking like a window, so it drags like one by its glass and words (Leo, on the screen share card:
+        // "it pops up looking like a window and you can't drag it around like one"). Its buttons keep their clicks.
+        isMovableByPerson = true
+        personClick.isPersonEvent = prompt.isPersonEvent
+        personClick.eventInHand = prompt.eventInHand
     }
 
-    override var isFlipped: Bool { true }
-
-    override func layout() {
-        super.layout()
-        background.frame = bounds
+    override func sendEvent(_ event: NSEvent) {
+        dispatch(event) { super.sendEvent(event) }
     }
 
-    /// The prompt's size: its width, and the height of its content at that width.
-    override var fittingSize: NSSize {
-        guard shown?.request != nil else { return .zero }
-        return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
+    /// The panel's own dispatch of `event`; the person's click that ends on an Allow answers it, once.
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        let card = dialogView
+        let allows = MacScreenApprovalChoice.allCases.filter { $0 != .deny }
+        let control = personClick.dispatch(event, allows: { allows.compactMap { card?.buttonView($0.rawValue) } }, in: windowNumber, body)
+        guard let control, let choice = allows.first(where: { card?.buttonView($0.rawValue) === control }) else { return }
+        prompt?.answerChoice(choice)
+    }
+}
+
+/// The approval prompt's words for one request, plain: who asks, what it can do, and what Allow
+/// keeps (the app's card and cmux Remote's banner say the same).
+nonisolated struct MacScreenApprovalWords: Equatable {
+    let title: String
+    let body: String
+    let remembers: String
+    /// Allow: the hub's Always at the scope asked for, so the next request of this Mac is not asked.
+    let allowChoice: MacScreenApprovalChoice
+    /// The asking device's key, grouped to compare (nil when the hub sent none).
+    let key: String?
+
+    init(_ request: SessionRequest) {
+        let full = request.scope == .full
+        title = String(format: full ? L.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
+            : L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName)
+        body = full ? L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
+            : L.t("macScreen.approval.bodyView", "It can see your screen but can’t control it.")
+        remembers = String(format: full
+            ? L.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
+            : L.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."), request.viewerName)
+        allowChoice = full ? .alwaysFull : .alwaysView
+        key = request.viewerKeyFingerprint.map(DeviceIdentity.displayFingerprint)
     }
 
-    private func render() {
-        let next = withObservationTracking {
-            Shown(request: prompt.current, error: prompt.error, answering: prompt.answering)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.render() }
-        }
-        guard next != shown else { return }
-        let before = shown
-        shown = next
-        if before?.request != next.request || before?.error != next.error || before?.typeSizes != next.typeSizes {
-            build(next)
-            if before != nil { onResize() }
-        }
-        // `.disabled(prompt.answering)`: no second answer while one is on its way.
-        for button in buttons { button.isEnabled = !next.answering }
-    }
-
-    private func build(_ shown: Shown) {
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        buttons = []
-        background.isHidden = shown.request == nil
-        guard let request = shown.request else { return }
-        let title = MacScreenText(String(format: request.scope == .full
-                ? L.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
-                : L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
-            font: MacScreenType.emphasized, wraps: true)
-        let glyph = MacScreenGlyph(request.scope == .full ? "cursorarrow.and.square.on.square.dashed" : "eye",
-                                   font: MacScreenType.glyph, ink: \.accent)
-        // SwiftUI's `Image(systemName:).font(glyph)` took the font's line height: the same header height.
-        glyph.heightAnchor.constraint(equalToConstant: ceil(MacScreenType.glyph.ascender - MacScreenType.glyph.descender)).isActive = true
-        let header = MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [glyph, title])
-        MacScreenStack.addFullWidth(header, to: stack)
-        stack.addArrangedSubview(MacScreenText(String(format: L.t("macScreen.approval.scope", "Asks for %@."), request.scope.title),
-                                               font: MacScreenType.body, ink: \.secondary))
-        if let fingerprint = request.viewerKeyFingerprint {
-            let code = MacScreenText(DeviceIdentity.displayFingerprint(fingerprint), font: MacScreenType.code)
-            // `.textSelection(.enabled)`: the fingerprint can be copied to compare it.
-            code.isSelectable = true
-            code.focusRingType = .none
-            let column = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading, [
-                MacScreenText(L.t("macScreen.approval.fingerprint", "Device key fingerprint"), font: MacScreenType.caption, ink: \.secondary),
-                code,
-            ])
-            stack.addArrangedSubview(column)
-        }
-        if let error = shown.error {
-            MacScreenStack.addFullWidth(MacScreenText(error, font: MacScreenType.caption, ink: \.danger, wraps: true, width: Self.textWidth),
-                                        to: stack)
-        }
-        let deny = answer(.deny, role: .destructive, id: "macScreen.approval.deny")
-        let once = answer(.once, role: .primary, id: "macScreen.approval.once")
-        MacScreenStack.addFullWidth(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, [deny, MacScreenSpacer(min: 8), once]),
-                                    to: stack)
-        stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, [
-            answer(.alwaysView, role: .plain, compact: true, id: "macScreen.approval.alwaysView"),
-            answer(.alwaysFull, role: .plain, compact: true, id: "macScreen.approval.alwaysFull"),
-        ]))
-        title.preferredMaxLayoutWidth = Self.textWidth - 10 - glyph.intrinsicContentSize.width
-        paint(stack)
-    }
-
-    private func answer(_ choice: MacScreenApprovalChoice, role: MacScreenButton.Role, compact: Bool = false, id: String) -> MacScreenButton {
-        let button = MacScreenButton(choice.title, role: role, compact: compact, id: id) { [weak self] in self?.prompt.answer(choice) }
-        buttons.append(button)
-        return button
-    }
+    static var allow: String { L.t("macScreen.approval.allow", "Allow") }
+    static var notNow: String { L.t("macScreen.approval.notNow", "Not Now") }
+    static var deviceKey: String { L.t("macScreen.approval.deviceKey", "Device key") }
+    static var onlyThisTime: String { L.t("macScreen.approval.onlyThisTime", "Allow Only This Time") }
 }

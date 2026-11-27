@@ -9,6 +9,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -203,13 +204,25 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Sample = { prompt: number; answer: number; gap: number; work: number; worked: boolean; folding: boolean };
+  /// `block`: the turn's calls as drawn, from under its prompt to the top of its answer.
+  type Sample = {
+    prompt: number;
+    answer: number;
+    block: number;
+    gap: number;
+    work: number;
+    /** The longest opacity animation on the folded work's rows (ms), 0 for none. */
+    fadeMs: number;
+    worked: boolean;
+    folding: boolean;
+  };
   /// Runs the turn on a fresh page for `family`: what the running turn drew, then (the reader back
   /// at the bottom, the edits group opened first when `openGroup`) every painted frame of its end.
   async function playTurn(
     family: string,
     openGroup: boolean,
     reducedMotion: "reduce" | "no-preference" = "no-preference",
+    look?: string,
   ) {
     summary.harness = family;
     summary.family = family;
@@ -223,36 +236,41 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("random jitter (part 6)").waitFor();
+    // A look set over the pane (turnEndFold.ts `turnEndLook` reads the nearest `data-turn-end-fold`).
+    if (look) await page.evaluate((set) => document.documentElement.setAttribute("data-turn-end-fold", set), look);
 
     // Every painted frame of the running turn: the rows and calls drawn, and any the view showed
     // that left it (a row the virtualizer drops out of view, history above, is not one).
-    await page.evaluate(() => {
-      const seen = { shown: new Set<string>(), calls: new Set<string>(), left: [] as string[], frames: 0 };
-      (window as any).turnEndProbe = seen;
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        if (!scroller) return;
-        const view = scroller.getBoundingClientRect();
-        const drawn = new Set<string>();
-        const shown = new Set<string>();
-        // Drawn: laid out with a height (a call inside a closed fold line is not).
-        const note = (key: string, node: HTMLElement) => {
-          const box = node.getBoundingClientRect();
-          if (box.height <= 0) return;
-          drawn.add(key);
-          if (box.bottom > view.top && box.top < view.bottom) shown.add(key);
-        };
-        for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
-          note(`row ${row.dataset.rowId}`, row);
-        for (const call of scroller.querySelectorAll<HTMLElement>("[data-tool-id]"))
-          note(`call ${call.dataset.toolId}`, call);
-        for (const key of seen.shown) if (!drawn.has(key)) seen.left.push(key);
-        seen.shown = shown;
-        seen.calls = new Set([...drawn].filter((key) => key.startsWith("call ")).map((key) => key.slice(5)));
-        seen.frames += 1;
-        return !(window as any).turnEndProbeStop;
-      });
-    });
+    await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const seen = { shown: new Set<string>(), calls: new Set<string>(), left: [] as string[], frames: 0 };
+        (window as any).turnEndProbe = seen;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!scroller) return;
+          const view = scroller.getBoundingClientRect();
+          const drawn = new Set<string>();
+          const shown = new Set<string>();
+          // Drawn: laid out with a height (a call inside a closed fold line is not).
+          const note = (key: string, node: HTMLElement) => {
+            const box = node.getBoundingClientRect();
+            if (box.height <= 0) return;
+            drawn.add(key);
+            if (box.bottom > view.top && box.top < view.bottom) shown.add(key);
+          };
+          for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW))
+            note(`row ${row.dataset.rowId}`, row);
+          for (const call of scroller.querySelectorAll<HTMLElement>("[data-tool-id]"))
+            note(`call ${call.dataset.toolId}`, call);
+          for (const key of seen.shown) if (!drawn.has(key)) seen.left.push(key);
+          seen.shown = shown;
+          seen.calls = new Set([...drawn].filter((key) => key.startsWith("call ")).map((key) => key.slice(5)));
+          seen.frames += 1;
+          return !(window as any).turnEndProbeStop;
+        });
+      },
+      { TRANSCRIPT_ROW },
+    );
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("Fix the flaky retry test");
     await page.keyboard.press("Enter");
@@ -283,36 +301,54 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
 
     // The turn ends: every painted frame for a while, where the prompt and the answer are drawn.
-    await page.evaluate(() => {
-      const samples: Sample[] = [];
-      (window as any).turnEndSamples = samples;
-      const started = performance.now();
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const view = scroller.getBoundingClientRect();
-        const prompt = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((row) =>
-          row.textContent?.includes("Fix the flaky retry test"),
-        );
-        const answer = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((row) =>
-          row.textContent?.includes("Fixed: the jitter now stays"),
-        );
-        samples.push({
-          prompt: prompt ? Math.round(prompt.getBoundingClientRect().top - view.top) : NaN,
-          answer: answer ? Math.round(view.bottom - answer.getBoundingClientRect().bottom) : NaN,
-          gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
-          // How much of the folded work is still drawn: the most opaque row showing its first call.
-          work: Math.max(
-            0,
-            ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
-              .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
-              .map((row) => Number(getComputedStyle(row).opacity)),
-          ),
-          worked: Boolean(scroller.querySelector("button.cv-worked")),
-          folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
+    await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const samples: Sample[] = [];
+        (window as any).turnEndSamples = samples;
+        let frames = 0;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const view = scroller.getBoundingClientRect();
+          const prompt = [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].find((row) =>
+            row.textContent?.includes("Fix the flaky retry test"),
+          );
+          const answer = [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].find((row) =>
+            row.textContent?.includes("Fixed: the jitter now stays"),
+          );
+          samples.push({
+            prompt: prompt ? Math.round(prompt.getBoundingClientRect().top - view.top) : NaN,
+            answer: answer ? Math.round(view.bottom - answer.getBoundingClientRect().bottom) : NaN,
+            block:
+              prompt && answer
+                ? Math.round(answer.getBoundingClientRect().top - prompt.getBoundingClientRect().bottom)
+                : NaN,
+            gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+            // How much of the folded work is still drawn: the most opaque row showing its first call.
+            work: Math.max(
+              0,
+              ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+                .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
+                .map((row) => Number(getComputedStyle(row).opacity)),
+            ),
+            fadeMs: Math.max(
+              0,
+              ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+                .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
+                .flatMap((row) => row.getAnimations())
+                .filter((animation) =>
+                  (animation.effect as KeyframeEffect | null)?.getKeyframes().some((frame) => "opacity" in frame),
+                )
+                .map((animation) => Number(animation.effect?.getComputedTiming().duration) || 0),
+            ),
+            worked: Boolean(scroller.querySelector("button.cv-worked")),
+            folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
+          });
+          frames += 1;
+          return frames < 90;
         });
-        return performance.now() - started < 1_200;
-      });
-    });
+      },
+      { TRANSCRIPT_ROW },
+    );
     endTurn!();
     await turnEnded;
     await page.locator("button.cv-worked").first().waitFor();
@@ -330,34 +366,41 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       await page.close();
     });
 
+    // The slide (the `fade` look's mechanics; the shipped `wipe` slides nothing and has its own test below).
     test(`${family}: at its end the work folds in one motion, the bottom pinned`, async () => {
-      const { page, samples } = await playTurn(family, false);
+      const { page, samples } = await playTurn(family, false, "no-preference", "fade");
       const from = samples.findIndex((sample) => sample.worked);
       expect(from).toBeGreaterThan(0);
       const before = samples[from - 1]!;
       const after = samples.at(-1)!;
       const folding = samples.slice(from - 1);
       console.log(
-        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.gap, sample.work]))}`,
+        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.block, sample.gap, sample.work, sample.fadeMs]))}`,
       );
       // The prompt comes down to the folded line over several frames, not in one step. The asides
       // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
       // the turn's footer and edits card come in under the answer, so the fold's height shows as
       // the prompt coming down and the answer going up together.
-      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      // On the 20px row metric (rowMetric.ts) the folded work is shorter than on the 22px rows it was
+      // first measured on, so the prompt comes down less far (6 here, over several frames).
+      expect(after.prompt - before.prompt).toBeGreaterThan(4);
       expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
+      // Since the exit lead (#48554), the asides staying out of the fold and the 20px row metric, the
+      // prompt's own move is about 6 px; a margin of 1 px or more at each end leaves a window one
+      // dropped frame on a loaded runner could cut to two frames. Every frame drawn part way counts.
       const between = folding.filter(
-        (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
+        (sample) => sample.prompt > before.prompt + 0.5 && sample.prompt < after.prompt - 0.5,
       ).length;
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
       expect(Math.max(...steps)).toBeLessThan((after.prompt - before.prompt) * 0.75);
-      // The work the fold takes away fades over several frames where it was, never gone in one. A
-      // copy is gone by COPY_GONE_AT (0.6) of the fold's progress on the settle curve
-      // (turnEndFold.ts; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), which reaches it in the
-      // fold's first three frames at 60 Hz: two frames draw it part-faded (0.52, then 0.17).
+      // The work the fold takes away fades where it was, never gone in one frame: drawn whole on the swap's
+      // frame, its copy fades over the exit lead (exitLead.ts, a third of the fold at most: Leo, 2026-11-21,
+      // "we must hide text faster and sooner"), at least two 60 Hz frames long. Read off the animation, not
+      // by counting part-faded samples: this test's frames come as fast as the page answers, so a fade of a
+      // few frames' length drew 0 to 2 part-faded samples from run to run.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
-      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(2);
+      expect(Math.max(...folding.map((sample) => sample.fadeMs))).toBeGreaterThanOrEqual(2 * (1000 / 60));
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);
@@ -366,7 +409,36 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       const answerMove = after.answer - before.answer;
       const answerSteps = folding.slice(1).map((sample, index) => Math.abs(sample.answer - folding[index]!.answer));
       if (Math.abs(answerMove) > 8) expect(Math.max(...answerSteps)).toBeLessThan(Math.abs(answerMove) * 0.75);
+      // No false grow (Leo, 2026-11-22: "some sort of like... false grow then collapse with the tool calls on
+      // the end of turn folding you have"): from the turn's end on, the calls between the prompt and the
+      // answer, as drawn, never get taller on any frame before or while they fold.
+      const blocks = samples.map((sample) => sample.block).filter((block) => Number.isFinite(block));
+      console.log(
+        `TURN_END_BLOCK ${JSON.stringify(samples.map((sample) => [sample.block, sample.worked, sample.folding]))}`,
+      );
+      const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
+      expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       // Closed: the folded turn's line.
+      expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
+      await page.close();
+    });
+
+    test(`${family}: at its end the wipe swaps the work in place, the bottom pinned, nothing growing`, async () => {
+      const { page, samples } = await playTurn(family, false, "no-preference", "wipe");
+      const from = samples.findIndex((sample) => sample.worked);
+      expect(from).toBeGreaterThan(0);
+      const before = samples[from - 1]!;
+      const after = samples.at(-1)!;
+      expect(samples.some((sample) => sample.folding)).toBe(true);
+      // Folded: the prompt comes down to the folded line, and the work's rows are gone at the end.
+      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      expect(after.work).toBe(0);
+      // The bottom stays pinned on every frame.
+      for (const sample of samples.slice(from - 1)) expect(sample.gap).toBeLessThanOrEqual(2);
+      // No false grow: from the turn's end on, the work between the prompt and the answer never gets taller.
+      const blocks = samples.map((sample) => sample.block).filter((block) => Number.isFinite(block));
+      const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
+      expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });

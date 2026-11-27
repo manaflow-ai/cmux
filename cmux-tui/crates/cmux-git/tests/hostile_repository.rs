@@ -527,3 +527,64 @@ fn hostile_repository_hooks_path_index_hook_never_runs() {
 
     assert_no_marker(&scratch);
 }
+
+/// `git.fingerprint` opens with [`Repository::open_with_diff_settings`],
+/// which takes the filter drivers from the run that reads the diff settings.
+/// Its status run blanks a driver with a clean command, a driver whose first
+/// setting has no value, and a driver that comes after more settings than the
+/// open keeps: the drivers then come from their own run, and the open gives
+/// no settings.
+#[test]
+fn git_fingerprint_open_runs_no_clean_command_of_a_repository() {
+    for layout in ["driver", "no-value", "past-the-bound"] {
+        let scratch = Scratch::new(layout);
+        let root = scratch.0.join("repository");
+        new_repository(&root);
+        std::fs::write(root.join(".gitattributes"), "* filter=x\n").expect("write attributes");
+        std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "--quiet", "-m", "one"]);
+        let config_file = root.join(".git/config");
+        let mut config = std::fs::read_to_string(&config_file).expect("read the config");
+        if layout == "past-the-bound" {
+            // 1100 settings of 1000 bytes: above the 1 MiB that the open keeps.
+            let value = "a".repeat(1000);
+            let settings: Vec<String> =
+                (0..1100).map(|index| format!("\tk{index} = {value}\n")).collect();
+            config.push_str("[diff \"long\"]\n");
+            config.push_str(&settings.concat());
+        }
+        config.push_str("[filter \"x\"]\n");
+        if layout == "no-value" {
+            config.push_str("\trequired\n");
+        }
+        let clean = format!("\tclean = \"{}; cat\"\n", scratch.touch_marker());
+        config.push_str(&clean);
+        std::fs::write(&config_file, config).expect("write the config");
+        make_stat_dirty(&root.join("file.txt"));
+
+        let (repository, settings) =
+            Repository::open_with_diff_settings(&root).expect("open the repository");
+        let listing = repository.run(
+            &[
+                "status",
+                "--porcelain=v2",
+                "--branch",
+                "-z",
+                "--no-renames",
+                "--no-ahead-behind",
+                "--ignore-submodules=dirty",
+                "--untracked-files=all",
+            ],
+            1024 * 1024,
+        );
+
+        assert!(listing.is_ok(), "{layout}: the status run failed");
+        assert_no_marker(&scratch);
+        assert_eq!(
+            settings.is_none(),
+            layout == "past-the-bound",
+            "{layout}: the open keeps the settings up to its bound, and none above it"
+        );
+    }
+}

@@ -24,6 +24,9 @@ public final class BrowserSharedStores {
     public let siteZoom: SiteZoomLevels
     /// HTTP sign-ins the user chose to remember (the WebKit engine's).
     package let httpCredentials: any BrowserHTTPCredentialStoring
+    /// The app's one login keychain guard (``application(loginKeychain:)``); nil in memory-only stores, which never
+    /// touch the person's keychain.
+    package let loginKeychain: LoginKeychain?
 
     /// Stores over `offTheRecord`.
     ///
@@ -33,7 +36,8 @@ public final class BrowserSharedStores {
     ///   - siteZoom: Zoom levels built over the same `offTheRecord`.
     ///   - httpCredentials: Remembered HTTP sign-ins.
     package init(offTheRecord: OffTheRecordProfiles, siteSettings: SiteSettingsRegistry, siteZoom: SiteZoomLevels,
-                 httpCredentials: any BrowserHTTPCredentialStoring) {
+                 httpCredentials: any BrowserHTTPCredentialStoring, loginKeychain: LoginKeychain? = nil) {
+        self.loginKeychain = loginKeychain
         self.offTheRecord = offTheRecord
         self.siteSettings = siteSettings
         self.siteZoom = siteZoom
@@ -51,7 +55,7 @@ public final class BrowserSharedStores {
                 persistence: { profile in FileSitePermissionPersistence(fileURL: SiteSettingsRegistry.defaultFile(for: profile)) },
                 offTheRecord: offTheRecord),
             siteZoom: SiteZoomLevels(directory: SiteZoomLevels.defaultDirectory(), offTheRecord: offTheRecord),
-            httpCredentials: KeychainHTTPCredentialStore.standard(loginKeychain: loginKeychain))
+            httpCredentials: KeychainHTTPCredentialStore.standard(loginKeychain: loginKeychain), loginKeychain: loginKeychain)
     }
 
     /// Stores that keep everything in memory (tests, a debug window): nothing reaches the person's

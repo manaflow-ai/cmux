@@ -66,12 +66,33 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// The name subagent `agent`'s pane tab shows: its own (its task; the Agent tool's description), else
-/// `fallback` ("Subagent of" the chat). Leo 2026-10-30: "the sidebar tab shouldn't just be named claude
-/// sr2 coord if you can just say it's SUbagent of sr2 coord".
-export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefined, fallback: string): string {
+/// The name subagent `agent`'s pane tab shows: its own, else its task (the Agent call's
+/// description, its first line), else `fallback`, a plain "Subagent". Never the chat it came from
+/// (Leo, 2026-11-22: "the metadata about provenance or whatever like subagent of something. we
+/// shouldn't have those.").
+export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> | undefined, fallback: string): string {
   const own = agent?.name?.trim();
-  return own && own !== agent?.id ? own : fallback;
+  if (own && own !== agent?.id) return own;
+  const task = agent?.task
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  return task || fallback;
+}
+
+/// A pane's header: a chat's names the chat, renamable; a subagent's own pane names the subagent and
+/// says whose it is (`of`, "Subagent of <chat>") beside the name, on the same one line, so its header
+/// is as tall as a chat's (Leo, 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"...
+/// at the top i feel like"; SubagentHeaderOf.gallery.tsx).
+export function paneHeading(
+  subagent: { title: string; of?: string } | undefined,
+  chat: { title: string },
+): { title: string; of?: string; renamable: boolean } {
+  if (subagent !== undefined)
+    return subagent.of
+      ? { title: subagent.title, of: subagent.of, renamable: false }
+      : { title: subagent.title, renamable: false };
+  return { title: chat.title, renamable: true };
 }
 
 /// The harness whose mark subagent `agent`'s row draws (SubagentDoneLine.tsx, the tray: AgentIdentity
@@ -97,6 +118,7 @@ export async function openSubagentPane(
   title?: string,
   tone?: number,
   mark?: string,
+  handOver?: unknown,
 ): Promise<boolean> {
   try {
     const reply = await call("chat.subagentPane", {
@@ -105,6 +127,8 @@ export async function openSubagentPane(
       ...(title ? { title } : {}),
       ...(tone !== undefined ? { tone } : {}),
       ...(mark ? { mark } : {}),
+      // The chat's tail, kept by the host before it opens the pane (tailCache.ts `TailHandOver`).
+      ...(handOver && typeof handOver === "object" ? { handOver } : {}),
     });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
@@ -138,7 +162,9 @@ export async function showSubagent(
     panes: boolean;
     inSubagentPane: boolean;
     here: (id: string) => void;
-    beforeOpen?: () => void;
+    /// Runs before the pane is asked for; what it returns (the chat's tail, `TailHandOver`) rides on
+    /// the request.
+    beforeOpen?: () => unknown;
     title?: string;
     tone?: number;
     mark?: string;
@@ -146,8 +172,8 @@ export async function showSubagent(
 ): Promise<void> {
   if (options.inSubagentPane) return options.here(id);
   if (!focus && !options.panes) return;
-  options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title, options.tone, options.mark);
+  const handOver = options.beforeOpen?.();
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone, options.mark, handOver);
   if (!opened && focus) options.here(id);
 }
 

@@ -83,12 +83,12 @@ impl Waiting {
     fn take(&mut self, i: usize) {
         let Some(e) = self.slots.get_mut(i).and_then(Option::take) else { return };
         for (key, index) in [("turnId", &mut self.by_turn), ("promptId", &mut self.by_prompt)] {
-            if let Some(id) = str_field(&e, key)
-                && let Some(slots) = index.get_mut(id)
-            {
-                slots.retain(|&j| j != i);
-                if slots.is_empty() {
-                    index.remove(id);
+            if let Some(id) = str_field(&e, key) {
+                if let Some(slots) = index.get_mut(id) {
+                    slots.retain(|&j| j != i);
+                    if slots.is_empty() {
+                        index.remove(id);
+                    }
                 }
             }
         }
@@ -96,8 +96,9 @@ impl Waiting {
 }
 
 /// The queue order: each prompt's place, from the last reorder and the prompts that led ahead
-/// of it since (`lost_start.rs`). A prompt with no place goes after every placed one.
-#[derive(Default)]
+/// of it since (`lost_start.rs`). A prompt with no place goes after every placed one. A restore
+/// point keeps it whole (`restore_point.rs`).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Order {
     place: HashMap<String, (i64, u64)>,
     /// How many times the prompts that left the queue for a turn that has not started went to
@@ -268,8 +269,56 @@ impl Digests {
     }
 
     /// Where a message stands among its digest's messages, which share the digest's place.
+    /// Whether every digest's turn started or it left: none still holds the messages it took.
+    pub(super) fn settled(&self) -> bool {
+        self.list.iter().all(|d| !d.waits)
+    }
+
     pub(super) fn rank(&self, prompt_id: Option<&Value>) -> u64 {
         let id = prompt_id.and_then(Value::as_str);
         id.and_then(|id| self.owner.get(id)).map_or(0, |&(_, rank, _)| rank)
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn rec(seq: u64, kind: &str, msg: Value) -> EventRecord {
+        EventRecord { seq, at: 0, dir: "mux".into(), kind: kind.into(), msg, host_seq: None }
+    }
+
+    /// A prompt that was queued and then ran as a steer into another turn (its `user_message`
+    /// names the running turn, not its own) must not wait again after a restore: the agent
+    /// already read it. Leo, 2026-11-25: queued messages arrived again after a restart.
+    #[test]
+    fn a_queued_prompt_that_ran_under_another_turn_does_not_wait_again() {
+        let mut waiting = Waiting::default();
+        waiting.push(rec(1, "queued", json!({"promptId": "p1", "turnId": "t-own", "prompt": []})));
+        waiting.push(rec(2, "queued", json!({"promptId": "p2", "turnId": "t-p2", "prompt": []})));
+        // What `restore_queue_after` does for a `user_message` of p1 under the turn it steered.
+        waiting.remove_other_turns(&json!("p1"), Some(&json!("t-running")));
+        let left: Vec<String> = waiting
+            .into_records()
+            .iter()
+            .filter_map(|e| e.msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        assert_eq!(left, ["p2"], "only the prompt nothing read waits");
+    }
+
+    /// A record keeps its whole prompt (text, image and resource link blocks) as one unit.
+    #[test]
+    fn a_waiting_record_keeps_its_message_and_attachments_together() {
+        let prompt = json!([
+            {"type": "image", "data": "AAAA", "mimeType": "image/png"},
+            {"type": "resource_link", "name": "image.png", "uri": "file:///x/image.png"},
+            {"type": "text", "text": "move this back to the center"},
+        ]);
+        let mut waiting = Waiting::default();
+        waiting.push(rec(1, "queued", json!({"promptId": "p", "turnId": "t", "prompt": prompt})));
+        let records = waiting.into_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].msg["prompt"], prompt);
     }
 }

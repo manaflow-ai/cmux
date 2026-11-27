@@ -103,6 +103,11 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
+export const RetainedCreationSlot = Schema.Struct({ key: Schema.String, vmId: Schema.String, startedMs: Schema.Number, cancelRequested: Schema.Boolean });
+export type RetainedCreationSlot = typeof RetainedCreationSlot.Type;
+const isRetainedSlot = Schema.is(Schema.Struct({ ...Reservation.fields, vmCreation: Schema.optional(Schema.Unknown) }));
+const isSlotLink = Schema.is(Schema.Struct({ key: Schema.String, vmId: Schema.String }));
+
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
@@ -149,9 +154,23 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
  * twice the 120 s create timeout plus provider propagation. Only then may it be resent or its cancellation settle.
  */
 export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
+/**
+ * After this long, a send whose outcome was never learned may be sent again under the same slug, once the caller's
+ * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
+ * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
+ * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
+ * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
+ * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
+ * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
+ * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
+ * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ */
+export const CREATE_RESEND_AFTER_MS = 150 * 1000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
-const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
-  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
+const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
+  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
+const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_SEND_GRACE_MS);
+const sendResendable = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_RESEND_AFTER_MS);
 
 /**
  * Takes lock `key` for `holder` inside the caller's transaction. Every read-modify-write of a lock or a coverage key runs
@@ -206,14 +225,14 @@ export class TenantLedger {
 
   /**
    * One potentially allocating provider send at a time. An unknown outcome reopens this gate only after
-   * CREATE_SEND_GRACE_MS, and the caller sends only after its exact-slug lookup found nothing.
+   * CREATE_RESEND_AFTER_MS, and the caller sends only after its exact-slug lookup found nothing.
    */
   async beginCreateSend(key: string, vmId: string, token: string, nowMs?: number): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
@@ -505,6 +524,40 @@ export class TenantLedger {
       const held = checked(isLock, await storage.get(storageKey));
       if (held !== undefined && held.holder === holder) await storage.delete(storageKey);
     });
+  }
+
+  /**
+   * Read only: the unfinished creates `createdBy` started that still hold a retained VM slot, oldest first, at most
+   * `limit`. Nothing else ever frees a slot whose request died after its send began, so a caller that can prove the
+   * create is over (a CI principal past its run cap) cancels them through the ordinary verified cancellation.
+   */
+  async retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 64) throw new Error("invalid retained creation page");
+    const slots = new Set<string>();
+    const links = new Map<string, string>();
+    for (const [key, value] of await this.storage.list({ prefix: "reserve:" })) {
+      if (!isRetainedSlot(value) || value.kind !== "vm" || value.retained !== true) continue;
+      slots.add(key.slice("reserve:".length));
+      if (isSlotLink(value.vmCreation)) links.set(key.slice("reserve:".length), value.vmCreation.key);
+    }
+    if (slots.size === 0) return [];
+    // Slots retained before they carried their link: find their intents in one bounded page.
+    const keys = new Set(links.values());
+    if (links.size < slots.size) {
+      for (const [key, value] of await this.storage.list({ prefix: "idem:", limit: 256 })) {
+        const p = readRecord(value)?.progress;
+        if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
+      }
+    }
+    const found: RetainedCreationSlot[] = [];
+    for (const key of keys) {
+      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
+      const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
+      if (!Number.isFinite(startedMs)) continue;
+      found.push({ key, vmId: p.vmId, startedMs, cancelRequested: p.cancelRequested === true });
+    }
+    return found.sort((a, b) => a.startedMs - b.startedMs).slice(0, limit);
   }
 
   /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */

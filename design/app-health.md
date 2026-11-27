@@ -1,5 +1,15 @@
 # App health
 
+> **Current state (2026-11-24): app health has no surface at all.** There is no sidebar line, no dot, no
+> card, no toast and no Details button on the Restoring sessions card. Leo, 2026-11-22 (ask-a78f915862): "the
+> fuck is actionable about "needs a repair". if it's unactionable, get rid of it. plus the text is
+> overlapping." A part that is stuck, repairing or out of repairs is repaired by the Rust model by itself (the
+> ladder, then a fresh try once its 10-minute window lets go), and each step and each give-up is written to the
+> log by the host (`AppHealthFeeds`, the `debug.health` receipts). Nothing here asks the person for anything.
+> The sections below are the history of the surfaces that were deleted: the footer line, its web twin
+> (`webviews/src/app-health`), the native card (`AppHealthPopover`) with Repair now and Show chat, and the
+> `AppHealthPlaces` that named a chat for them.
+
 Part of the app can stop answering while the rest still works: a page whose script hangs, a web
 renderer at full CPU, a session daemon that restarts every two minutes because each start spends
 its life restoring a huge registry, an acpmux link that went quiet. Before this, the person saw
@@ -51,6 +61,22 @@ There is no animation, pulse, timer or observer in the indicator or the popover,
 is the only timer, in the page layer (`pages/shared/pageHealth.ts`), and it stops while the page is
 hidden.
 
+## Which chat, and no click it does not need
+
+David Beyer, 2026-11-20, on a call: "Agent chat needs a repair" did not say which chat, with several
+open. A page part is named by the title its tab shows, in the line and the card's title ("“Fix the
+login bug” needs a repair"); the card's first line says where it is ("Agent chat in cmux-next"), and
+**Show chat** goes there. A stuck page is always on screen (a hidden page is never timed), so Show
+chat brings its window forward and gives the page the keyboard, through the focus route. The place
+comes from the daemon's store (`AppHealthPlaces(store:)`: the tab the page shows, its title, the
+workspace that holds its pane), read only when a line or the card is drawn, never on a heartbeat. A
+page in no tab (Home's dock, a floating chat) keeps the label "Agent chat".
+
+The cap is 3 repairs in 10 minutes, not 3 for good. A part that is out of repairs keeps one deadline,
+when its oldest attempt leaves the window; then, still stuck, it tries again by itself from step 1,
+and its signal coming back drops the alert. Repair now still starts at once. A repair is still never
+run over unsaved edits: the page's reload refuses, and the next step comes.
+
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host
@@ -66,9 +92,30 @@ count, and keeps its scroll position and focused draft in sessionStorage, so a r
 returns the person to where they were. The agent chat composer keeps its own draft
 (`composerDraft.ts`) and is left alone.
 
+A page with nothing happening in it rests (CMUX-571, idle wakeups: a beat is several app wakeups, so
+open pages woke the app every 2 s forever). After 5 quiet beats (10 s: no key, press, wheel, scroll or
+input, and no unsaved edits) it sends one `{rest: true}` beat and arms no timer until something happens.
+The model stops timing a resting page's silence; input the host sends it is still owed an answer, so a
+page that hangs while resting reads as stuck once someone types or clicks in it. The page rests only
+when its last beat was answered `{rest: true}`: the host says so only when the linked health model
+takes rests (`CMUX_HEALTH_ABI_VERSION` 2), so an older pinned model keeps the 2 s beat.
+
+A repair that loads the page again (reload, renderer restart) waits at least `PAGE_BOOT_MS` (30 s)
+for the new document before the next step; its load ends the episode. With the 2 s backoff alone, a
+busy agent chat on a loaded Mac was still loading when its renderer was killed, twice, and the pane
+stayed blank (Leo, 2026-11-11: "i tried uploading this video to my nightly app and it just made the
+screen blank").
+
 ## Treatment
 
-Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
+Shipped: `hidden`, and the line is gone from the app (Leo, 2026-11-22, ask-eacfb2ec1f: "i see in the
+sidebar a repair connection to agent service... which i have requested to remove a while ago. ... we
+dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+The sidebar draws no health line or dot; the parts repair themselves, and the popover opens only from the
+Restoring sessions card's Details (`SidebarView.onHealthDetails`). The rest of this section is the history
+of the treatments tried before.
+
+Where it sat. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
 and `c-hidden` in six states (healthy, only slow, not responding, repairing, needs a repair, a queued
 close), and the restoring card with Details. Web gallery: `ui.app-health.footer-row` draws the sidebar's
 bottom twice per variant, at rest and with the indicator, in the same five states:

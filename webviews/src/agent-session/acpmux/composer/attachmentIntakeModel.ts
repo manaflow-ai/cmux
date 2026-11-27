@@ -12,7 +12,7 @@ import {
   type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
   type SourceKind,
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
@@ -22,10 +22,13 @@ import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
-import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
+import { ChipRetries } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
+import { draftShapeOf, localDraftShape, type LocalDraftShape } from "./draftMediaShape";
 import { videoShapeOf } from "./videoShape";
+import { sendBehind, type BehindSendResult } from "./sendBehind";
+import { experimentSwitchOn } from "../../../experiments/switches";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -40,9 +43,8 @@ export const ATTACHMENT_LABELS = {
   editPasted: "composer.pastedText.edit",
   keepPasted: "composer.pastedText.keepFile",
   cancelAttachment: "composer.cancelAttachment",
-  retryAttachment: "composer.retryAttachment",
-  originalFailed: "composer.originalFailed",
-  retryOriginal: "composer.retryOriginal",
+  stillUploading: "composer.stillUploading",
+  stillUploadingOriginal: "composer.stillUploadingOriginal",
   reorderHint: "composer.reorderAttachmentsHint",
   moved: "composer.attachmentMoved",
 } as const satisfies Record<string, StringKey>;
@@ -67,7 +69,7 @@ export type AttachmentIntakeOptions = {
   upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
@@ -128,13 +130,24 @@ export function appendAttachments(
 /// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
 /// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
 /// INTO THE COMPOSER IMMEDIATELY". It spins while it loads and its × cancels it; one that could not
-/// be attached stays, saying why (`failed`), with Retry (Leo, 2026-10-24: "why don't you put a
+/// be attached stays, saying why (`failed`) (Leo, 2026-10-24: "why don't you put a
 /// spinner on the attachment rather than this placeholder that doesn't do anything... I can't even
 /// cancel these").
+/// The `experiments.*` switch that shows a file or image icon on a chip while its path resolves.
+export const ATTACHMENT_TYPE_ICONS = "attachmentTypeIcons";
+
 export type PendingAttachment = {
+  [localDraftShape]?: LocalDraftShape;
   id: string;
   name: string;
   image: boolean;
+  /// The host is looking up this local gesture in its path records. No bytes are being transferred.
+  /// Set only while Settings > Advanced > Experiments > Attachment Type Icons
+  /// (`experiments.attachmentTypeIcons`, off by default) is on: the chip then shows a file or image
+  /// icon instead of the loading mark. Off, a resolving chip keeps the loading mark.
+  resolvingPath?: boolean;
+  /// The browser already knows the file's byte count before the host returns its path.
+  fileSize?: number;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
   /// fill, loading or failed, never a long strip with its name.
   video?: boolean;
@@ -147,17 +160,16 @@ export type PendingAttachment = {
   /// How much of it reached the session's machine, 0 to 1, while it streams: its tile shows it.
   progress?: number;
   /// Made by the host for its chat (attachLater, a file on that chat's machine): it stays with that
-  /// chat, never carried to another with the prompt. A send waits for it even once it failed, until
-  /// its Retry makes it or its × takes it out, so a prompt never goes without the recording it was
-  /// sent with.
+  /// chat, never carried to another with the prompt. A send waits for it until it is made or its ×
+  /// takes it out, so a prompt never goes without the recording it was sent with.
   bound?: boolean;
-  /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
-  /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
-  uploadFailed?: boolean;
-  /// A failed chip that a Retry can make: its upload, or a chip the host makes (`bound`). A file
-  /// the composer refused fails the same way again, so it shows no Retry, only its x (Leo,
-  /// 2026-11-07: "idk why we even show the retry symbol then (do we even retry?").
-  retryable?: boolean;
+  /// Its upload (or the host's making of it) failed, in the host's words, and it is asked again on
+  /// its own (uploadRetry.ts): it keeps loading, and a send waits for it as for any loading chip,
+  /// until it is made or its × takes it out. Its tile says "Still trying to upload…" once that has
+  /// lasted (lasting.ts), never with a Retry. A file the composer refused (`failed`) fails the same
+  /// way again, so it is not asked again and shows only its × (Leo, 2026-11-07: "idk why we even
+  /// show the retry symbol then (do we even retry?").
+  retrying?: string;
   /// An image's picture from the file itself (a `data:` URL of its own bytes), shown as soon as the
   /// browser has read it, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
   /// "appear" a lot faster").
@@ -169,9 +181,10 @@ export type PendingAttachment = {
   /// A video's tile shape (width over height) from its file's header (composer/videoShape.ts): the
   /// loading tile is the box its chip, its poster and its sent tile keep. Unset once read, the square.
   videoShape?: number;
-  /// An image or a video whose header is still being read (a few bytes, a frame or two): its tile is held, zero
-  /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
-  /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
+  /// An image or a video whose header is still being read (a few bytes): its tile is held, zero wide
+  /// and unseen, so it first shows at its thumbnail's size, never a stand-in width. Only inside the
+  /// drop's own frame (SHAPE_WAIT_MS), never for its picture: one whose header has not answered by
+  /// then shows at the stand-in and takes its shape when it does.
   sizing?: boolean;
 };
 
@@ -183,26 +196,20 @@ export function imageShape(size: { width: number; height: number } | undefined):
   return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
 }
 
-/// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
-/// in memory, read in a frame or two (the page's first read of one can take a few frames).
-const HEADER_WAIT_MS = 120;
+/// How long a dropped or pasted image's or video's tile may be held unseen for its header, so it
+/// first shows at its final shape: inside the gesture's own frame, so the chip is there in the next
+/// paint whatever the file (Leo, 2026-11-18: "dragging and dropping attachments of any size should
+/// never take time to load"). A file's header on disk answers in a few milliseconds.
+// motion-allow: a header read deadline, not a motion
+const SHAPE_WAIT_MS = 12;
 
-/// Reads `file`'s pixel size from its header and answers it to `done`: when the header answers, or
-/// undefined after HEADER_WAIT_MS if it has not (the tile then shows at its stand-in width); a size
-/// that comes after that still answers.
+/// Reads `file`'s pixel size from its header and gives it to `done` once the header answers
+/// (undefined: it gave none). Its tile shows meanwhile once SHAPE_WAIT_MS pass, and takes the
+/// thumbnail's shape then.
 function sizeFromHeader(file: File, done: (size: { width: number; height: number } | undefined) => void) {
-  let answered = false;
-  const answer = (size: { width: number; height: number } | undefined) => {
-    if (answered && !size) return;
-    answered = true;
-    clearTimeout(deadline);
-    done(size);
-  };
-  // timeout: a header read that never answers (an unreadable file) must not hold its tile unseen.
-  const deadline = setTimeout(() => answer(undefined), HEADER_WAIT_MS);
   void imageSize(file)
     .catch(() => undefined)
-    .then((size) => answer(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
+    .then((size) => done(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
 }
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
@@ -216,12 +223,6 @@ const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 function mayShowAtOnce(file: File | MadeFile): file is File {
   return !isMadeFile(file) && isImageFile(file) && file.size <= INSTANT_PREVIEW_MAX_BYTES;
 }
-
-/// How long a pasted image's tile is held unseen for its own picture (instantPreview: its header,
-/// then the browser's read of its bytes): it first shows as the picture it will be, never as empty
-/// glass that the picture then fills and the chip then brightens (Leo, 2026-11-11: "this 3 stage
-/// attachment thing is still there"). One whose picture does not come by then shows as glass.
-const PICTURE_WAIT_MS = 250;
 
 /// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
 /// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
@@ -245,7 +246,7 @@ export async function instantPreview(file: File | MadeFile): Promise<string | un
   });
 }
 
-/// What Retry needs of a pending chip: its file and how it came in.
+/// What a try again needs of a pending chip: its file and how it came in.
 /// Whether chip `chip` (an image whose original may still upload) was taken out of its chat's
 /// strip, by its x or a send, so its original goes nowhere. Not when it went to another chat
 /// (`stagedHere` false), the strip has not drawn it yet (`everDrawn` false), or the strip is
@@ -262,10 +263,11 @@ export function chipRemoved(state: {
   return !state.strip.some((attachment) => attachment.id === state.chip);
 }
 
-/// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
+/// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip asked again.
 /// The chat a gesture was made in, with its options then (upload, local paths), for a gesture read
 /// after its own task: the person may have moved to another chat meanwhile.
-type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions };
+/// `gestureAt`: when the page took the gesture (`Date.now()`), for one read later than its event.
+type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions; gestureAt?: number };
 
 type Intake = (
   given: (File | MadeFile)[],
@@ -310,8 +312,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
   const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
+  const twinReadsRef = useRef<GestureChat[]>([]);
+  twinReadsRef.current = twinReads;
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
+  /// The files a send went ahead of (`goAhead`), by chip id: what each becomes settles its stand-in
+  /// in the sent prompt (composer/sendBehind.ts) instead of a chip in the strip.
+  const ahead = useRef(new Map<string, (result: BehindSendResult) => void>());
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -328,22 +335,41 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each batch still being read, with the chat it belongs to (`scope`). A `bound` one (attachLater:
   /// a file on that chat's machine) stays with its chat when a switch carries the prompt.
   const batches = useRef(new Set<{ scope?: string; bound?: boolean }>());
-  /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
+  /// Each pending chip's file, for asking again; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
   const cancellationListeners = useRef(new Set<() => void>());
-  /// Each chip whose upload failed: how often it was tried again on its own (uploadRetry.ts), and
-  /// what stops a try still waiting. Its x, a send or a settle ends it.
-  const autoRetries = useRef(new Map<string, { tries: number; stop: () => void }>());
   /// `retry`, for a try again that intake starts on its own (declared below it).
   const retryRef = useRef<(id: string) => void>(() => {});
+  /// The chips whose upload (or making) failed, asked again on its own (uploadRetry.ts): only while
+  /// the chip is still here and its chat is the one shown, since asking through another chat's
+  /// options would upload these bytes to that chat's machine. Its x, a settle or the composer going
+  /// ends it.
+  const [autoRetries] = useState(
+    () =>
+      new ChipRetries((id) => {
+        const chip = pendingRef.current.find((candidate) => candidate.id === id);
+        if (!chip || chip.scope !== live.current.options.scope || !sources.current.has(id)) return false;
+        retryRef.current(id);
+        return true;
+      }),
+  );
+  /// Chip `id`'s upload or making failed (`why`, the host's words): it keeps loading, says why once
+  /// that lasts, and is asked again on its own.
+  const [retryLater] = useState(() => (id: string, why: string) => {
+    setPending((chips) =>
+      chips.map((chip) => (chip.id === id ? { ...chip, retrying: why, uploading: false, progress: undefined } : chip)),
+    );
+    autoRetries.failed(id);
+  });
   /// Files of chips cancelled while still loading (their node deleted from the prompt), by id: an
   /// undo that brings the node back reads its file again under the same id (`revive`).
   const parked = useRef(new Map<string, PendingSource>());
-  /// Each staged image whose original's upload failed: its file, for Retry, while its chip is in the
-  /// strip (a chip that leaves it, by its x, a send or a chat switch, takes its file with it), and
-  /// why it failed (`originalFailures`, what its chip shows). This page's own state, never the
-  /// chip's: a draft, a wake or another chat gets the preview back without a Retry it has no file for.
+  /// Each staged image whose original's upload failed: its file, asked again on its own while its
+  /// chip is in the strip (a chip that leaves it, by its x, a send or a chat switch, takes its file
+  /// with it), and why it failed (`originalFailures`, what its chip says once that lasts). This
+  /// page's own state, never the chip's: a draft, a wake or another chat gets the preview back with
+  /// nothing to ask again.
   const originals = useRef(new Map<string, File>());
   const [originalFailures, setOriginalFailures] = useState<Readonly<Record<string, string>>>({});
   /// The staged images whose original is still streaming to the chat's machine, by chip id: a send
@@ -370,9 +396,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
-  /// The chips a render has staged: one not yet rendered is not gone, only not drawn yet.
-  const everStaged = useRef(new Set<string>());
-  for (const attachment of attachments) everStaged.current.add(attachment.id);
+  /// The chips a commit has drawn: one not yet drawn is not gone, only not drawn yet. Kept from the
+  /// layout phase, so before that commit's passive effects (the cleanup effect below), and never from
+  /// a render React threw away without committing it (an interrupted transition, a suspended one).
+  const everDrawn = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    for (const attachment of attachments) everDrawn.current.add(attachment.id);
+  }, [attachments]);
   /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
   /// still lands where it was pasted, across batches too.
   const places = useRef(new Map<string, number>());
@@ -400,40 +430,45 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`), or pick in
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
-  /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
+  /// failed chip whose file `given` is, read again under its id (asked again): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
-  /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
-  /// `held`: its own picture is still coming (PICTURE_WAIT_MS), so the size is kept and the tile
-  /// stays unseen.
+  /// Pending image `id`'s header answered `size` (undefined: none), or SHAPE_WAIT_MS passed (no
+  /// size): its tile shows, at its thumbnail's shape once it has one.
   const [sized] = useState(
-    () =>
-      (id: string, size: { width: number; height: number } | undefined, held = false) =>
-        setPending((chips) =>
-          chips.some((chip) => chip.id === id && ((chip.sizing && !held) || (size && !chip.size)))
-            ? chips.map((chip) =>
-                chip.id === id
-                  ? { ...chip, sizing: held && Boolean(chip.sizing), ...(size && !chip.size ? { size } : {}) }
-                  : chip,
-              )
-            : chips,
-        ),
-  );
-  /// Pending video `id`'s header answered `videoShape` (undefined: none in time, the square): its tile shows.
-  const [shaped] = useState(
-    () => (id: string, videoShape: number | undefined) =>
+    () => (id: string, size?: { width: number; height: number }) =>
       setPending((chips) =>
-        chips.some((chip) => chip.id === id && chip.sizing)
+        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
           ? chips.map((chip) =>
-              chip.id === id ? { ...chip, sizing: false, ...(videoShape ? { videoShape } : {}) } : chip,
+              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
             )
           : chips,
       ),
   );
+  /// Video `id`'s header answered `videoShape` (undefined: none, or SHAPE_WAIT_MS passed): its tile
+  /// shows, square until it has a shape; the chip it already became takes the shape too (a chat on
+  /// this Mac links a video before its header answers).
+  const [shaped] = useState(() => (id: string, videoShape?: number) => {
+    setPending((chips) =>
+      chips.some((chip) => chip.id === id && (chip.sizing || (videoShape && !chip.videoShape)))
+        ? chips.map((chip) =>
+            chip.id === id
+              ? { ...chip, sizing: false, ...(videoShape && !chip.videoShape ? { videoShape } : {}) }
+              : chip,
+          )
+        : chips,
+    );
+    if (!videoShape) return;
+    setAttachments((chips) =>
+      chips.some((chip) => chip.id === id && !chip.videoShape)
+        ? chips.map((chip) => (chip.id === id ? { ...chip, videoShape } : chip))
+        : chips,
+    );
+  });
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false, chat) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
-    const gestureAt = Date.now();
+    const gestureAt = chat?.gestureAt ?? Date.now();
     const files = again === undefined ? given : given.slice(0, 1);
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
@@ -441,40 +476,59 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
-    // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: again ?? crypto.randomUUID(),
-      name: file.name,
-      image: isImageFile(file),
-      ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
-      scope: batch.scope,
-    }));
-    // Each image's own picture, on its tile while the tile still loads.
+    const lookup = Boolean(dropped && current.localPaths);
+    const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
+    // In the paste's or drop's own task, so React draws them before the next frame. An image or a
+    // video waits at most SHAPE_WAIT_MS for its header, inside that frame, never for its picture
+    // (Leo, 2026-11-18: "dragging and dropping attachments of any size should never take time to
+    // load. It should just be able to show you the thing").
+    const shown: PendingAttachment[] = files.map((file) => {
+      const video = isVideoName(file.name);
+      const image = isImageFile(file) && (lookup || video || !linkImages);
+      return {
+        id: again ?? crypto.randomUUID(),
+        name: file.name,
+        image,
+        ...(lookup && experimentSwitchOn(ATTACHMENT_TYPE_ICONS) ? { resolvingPath: true } : {}),
+        ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
+        ...(video ? { video: true } : {}),
+        ...(!isMadeFile(file) && (image || video)
+          ? lookup
+            ? { [localDraftShape]: draftShapeOf(file, video) }
+            : { sizing: true }
+          : {}),
+        scope: batch.scope,
+      };
+    });
+    // Each tile's shape and picture fill in as they come; only the shape, and only within the frame.
     files.forEach((file, index) => {
-      const id = shown[index]!.id;
-      // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
-      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
-      // One that may show its own picture is held for it, not only for its header.
-      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
-      // timeout: a picture that does not come in time must not hold its tile unseen.
-      const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
-      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
-      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
+      const { id, image, video, sizing } = shown[index]!;
+      if (lookup || (!image && !video)) return;
+      // timeout: a header that does not answer within the frame must not hold its tile unseen.
+      const deadline = sizing ? setTimeout(() => (video ? shaped(id) : sized(id)), SHAPE_WAIT_MS) : undefined;
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
-      else if (isMadeFile(file) && isImageFile(file))
-        void file.file.then(
-          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
-          () => {},
-        );
+      if (isMadeFile(file)) {
+        if (image)
+          void file.file.then(
+            (made) => sizeFromHeader(made, (size) => sized(id, size)),
+            () => {},
+          );
+      } else if (sizing) {
+        // A video's shape from its header (videoShape.ts): the square until it answers.
+        if (video)
+          void videoShapeOf(file).then((videoShape) => {
+            clearTimeout(deadline);
+            shaped(id, videoShape);
+          });
+        else
+          sizeFromHeader(file, (size) => {
+            clearTimeout(deadline);
+            sized(id, size);
+          });
+      }
+      // An image's own picture, on its tile while it still loads.
       void instantPreview(file).then((preview) => {
-        clearTimeout(deadline);
-        // No picture: the tile shows as it would have once its header answered.
-        if (!preview) {
-          if (waits) sized(id, undefined);
-          return;
-        }
-        // The picture and the tile in one render: its first frame shown is the picture.
+        if (!preview) return;
         setPending((chips) =>
           chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
             ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
@@ -483,7 +537,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     });
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
-    // read again (Retry) under the same id has a new one, and only the read that owns the id's
+    // read again (asked again) under the same id has a new one, and only the read that owns the id's
     // source now settles it, so an older read still running never takes or drops the newer one's.
     const owned = shown.map((chip, index): FileSource => {
       const file = files[index]!;
@@ -504,7 +558,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (again !== undefined)
       setPending((chips) =>
         chips.some((chip) => chip.id === again)
-          ? chips.map((chip) => (chip.id === again ? shown[0]! : chip))
+          ? chips.map((chip) =>
+              // Still the failure being asked again: its tile's "Still trying" stays through the try.
+              chip.id === again ? { ...shown[0]!, ...(chip.retrying ? { retrying: chip.retrying } : {}) } : chip,
+            )
           : [...chips, shown[0]!],
       );
     else {
@@ -539,7 +596,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           if (!source) return;
           const { file, index } = asked[at]!;
           fileSource[index] = source;
-          // A failed chip's Retry reads this same file again: it keeps the answer.
+          // A failed chip asked again reads this same file again: it keeps the answer.
           withSource(file, source);
           // A chip already staged here before the answer gets it now.
           const id = made[index];
@@ -565,16 +622,29 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const id = shown[index]!.id;
       if (!owns(index)) return false;
       sources.current.delete(id);
-      autoRetries.current.get(id)?.stop();
-      autoRetries.current.delete(id);
+      autoRetries.end(id);
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
     const ready = (index: number, read: ComposerAttachment): void => {
       if (!settle(index)) return;
+      // A file the prompt already went with: its chip settles the prompt's stand-in, never the strip.
+      const behind = ahead.current.get(shown[index]!.id);
+      if (behind) {
+        ahead.current.delete(shown[index]!.id);
+        behind({ chip: sourced(index, { ...read, id: shown[index]!.id }) });
+        return;
+      }
       const thumb = keptThumb(read.id);
       if (thumb) keepThumb(shown[index]!.id, thumb);
-      const attachment = sourced(index, { ...read, id: shown[index]!.id });
+      const tile = shown[index]!;
+      const attachment = sourced(index, {
+        ...read,
+        id: tile.id,
+        ...(tile[localDraftShape] && (read.kind === "image" || read.kind === "link")
+          ? { [localDraftShape]: tile[localDraftShape] }
+          : {}),
+      });
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -596,59 +666,38 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
-      // An upload that failed (its host's words, never a file the composer refused) is tried again
-      // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
-      // One the host refused outright (the app could not save it) shows Retry at once.
-      if (uploads && "text" in error) {
-        const kept = autoRetries.current.get(id);
-        kept?.stop();
-        const tries = error.final ? UPLOAD_AUTO_RETRIES : (kept?.tries ?? 0);
-        const source = owned[index];
-        const still = () => sources.current.get(id) === source;
-        const giveUp = () => {
-          if (!still()) return;
-          setPending((chips) =>
-            chips.map((chip) =>
-              chip.id === id
-                ? { ...chip, failed, uploadFailed: true, retryable: true, uploading: false, progress: undefined }
-                : chip,
-            ),
-          );
-        };
-        const stop = retryUploadLater(
-          tries,
-          () => {
-            if (!still()) return;
-            // A delayed retry must use the chat that owns these bytes. The user may have
-            // switched chats since this failure (including via the key/click that queued
-            // this callback). Retrying through live.options would upload this old File to
-            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
-            // `batch` is removed when its first intake settles, but a carried chip can still
-            // change scope afterward. Read the chip's current scope so an intentional carry
-            // retries through its destination chat while a plain switch still fails closed.
-            const chip = pendingRef.current.find((candidate) => candidate.id === id);
-            if (!chip || chip.scope !== live.current.options.scope) {
-              giveUp();
-              return;
-            }
-            retryRef.current(id);
-          },
-          giveUp,
-        );
-        autoRetries.current.set(id, { tries: tries + 1, stop });
-        if (tries < UPLOAD_AUTO_RETRIES)
-          setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, progress: undefined } : chip)));
+      // A file the prompt already went with: the prompt's row fails with its words (no tile is left
+      // here to show it on).
+      const behind = ahead.current.get(id);
+      if (behind) {
+        ahead.current.delete(id);
+        settle(index);
+        behind({ error: failed });
         return;
       }
+      // An upload that failed (its host's words, never a file the composer refused) is asked again
+      // on its own, for as long as its chip is here (uploadRetry.ts): it keeps loading meanwhile.
+      // One the host refused outright (`final`: the app could not save it, a full disk) is asked
+      // again too, more slowly as the backoff grows: the disk may be freed, and its tile says why.
+      if (uploads && "text" in error) {
+        retryLater(id, failed);
+        return;
+      }
+      // Refused here (a read again included): asking again would fail the same way.
+      autoRetries.end(id);
       setPending((chips) =>
-        chips.map((chip) => (chip.id === id ? { ...chip, failed, uploading: false, progress: undefined } : chip)),
+        chips.map((chip) =>
+          chip.id === id ? { ...chip, failed, retrying: undefined, uploading: false, progress: undefined } : chip,
+        ),
       );
     };
     try {
       // A file still being made (a huge paste's text, made a slice per task) is awaited here, after
       // its tile drew.
-      const settled = await Promise.all(files.map((file) => (isMadeFile(file) ? file.file : file)));
-      // The bytes are made: Retry reads these, never the promise again.
+      const settled = files.every((file): file is File => !isMadeFile(file))
+        ? files
+        : await Promise.all(files.map((file) => (isMadeFile(file) ? file.file : file)));
+      // The bytes are made: a try again reads these, never the promise again.
       settled.forEach((file, index) => {
         owned[index]!.file = file;
       });
@@ -656,7 +705,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
+          deduplicateImages: lookup && (kind === "paste" || kind === "drop"),
+          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch, gestureAt) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
@@ -668,7 +718,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               return chipRemoved({
                 chip,
                 stagedHere: staged.has(chip),
-                everDrawn: everStaged.current.has(chip),
+                everDrawn: everDrawn.current.has(chip),
                 pastedIn: batch.scope,
                 showing: live.current.options.scope,
                 strip: stagedNow.current,
@@ -686,6 +736,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         },
         {
           ready,
+          duplicate: settle,
+          needsBytes: (indices) => {
+            const ids = new Set(indices.filter(owns).map((index) => shown[index]!.id));
+            setPending((chips) => chips.map((chip) => (ids.has(chip.id) ? { ...chip, resolvingPath: false } : chip)));
+          },
           failed,
           uploading: (index) => {
             const image = made[index];
@@ -712,7 +767,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               staged.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: name } : chip)),
             );
           },
-          // The preview still sends; the chip says its original was not saved and offers Retry.
+          // The preview still sends; its original is saved again on its own (`originalMissed`).
           originalFailed: (index, error) => {
             const id = made[index];
             if (id) originalUpload(id, false);
@@ -746,14 +801,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
   /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
-  /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
-  /// again. A send keeps waiting through a failure (`bound`): it goes with the chip once Retry makes
-  /// it, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
+  /// chip, or undefined (or throws) and the tile keeps loading while `make` is run again on its own
+  /// (uploadRetry.ts), saying `failure` once that lasts. A send keeps waiting through a failure
+  /// (`bound`): it goes with the chip once it is made, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
   /// whatever `make` answers later, as does the composer going away while `make` still runs.
   /// The tile goes in at the caret, as a paste's does, and the chip `make` answers takes its id there:
   /// it never waits in the strip above the text and then jumps into it (Leo, 2026-11-09: "the
   /// attachments preview going into the top area of hte composer and THEN to where they shuld be").
-  /// `again`: Retry's, the failed tile made again where it is.
+  /// `again`: a try again's, the failed tile made again where it is.
   const [attachLater] = useState(
     () =>
       (
@@ -778,7 +833,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         flushSync(() =>
           setPending((chips) =>
             again !== undefined && chips.some((shown) => shown.id === again)
-              ? chips.map((shown) => (shown.id === again ? chip : shown))
+              ? chips.map((shown) =>
+                  shown.id === again ? { ...chip, ...(shown.retrying ? { retrying: shown.retrying } : {}) } : shown,
+                )
               : [...chips, chip],
           ),
         );
@@ -789,12 +846,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
             making.current.delete(chip.id);
             batches.current.delete(batch);
             if (!sources.current.has(chip.id)) return;
-            if (!made) {
-              setPending((chips) =>
-                chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
-              );
-              return;
-            }
+            // Not made: asked again on its own (uploadRetry.ts), its tile still loading.
+            if (!made) return retryLater(chip.id, failure);
+            autoRetries.end(chip.id);
             sources.current.delete(chip.id);
             const attachment = { ...made, id: chip.id };
             setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
@@ -824,6 +878,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
   /// that brings its node back (`revive`).
   const [cancel] = useState(() => (id: string) => {
+    // A file a sent prompt went ahead of is that prompt's now: the composer clearing its node keeps it.
+    if (ahead.current.has(id)) return;
     const source = sources.current.get(id);
     if (source && "make" in source) source.stop?.();
     else if (source) {
@@ -837,10 +893,47 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     making.current.delete(id);
     sources.current.delete(id);
-    autoRetries.current.get(id)?.stop();
-    autoRetries.current.delete(id);
+    autoRetries.end(id);
     for (const changed of cancellationListeners.current) changed();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
+  });
+  /// The person sends while files they dropped, pasted or picked are still attaching (their path
+  /// still asked of the host, or their bytes still streaming to the chat's machine): the send goes
+  /// now, never held (Leo, 2026-11-17: "I DRAG AND DROP IT IN WTF ARE YOU FUCKING ENCODING"). Each
+  /// such file leaves the strip as a stand-in chip that goes with the prompt (composer/sendBehind.ts)
+  /// and settles when the file is its chip; its read or upload goes on behind the sent prompt.
+  /// Answers the stand-ins, or undefined when the send must still wait: an image (its preview is
+  /// what goes), a chip the host makes (`bound`), a failed one, or a gesture's files still sorted.
+  const [goAhead] = useState(() => (): ComposerAttachment[] | undefined => {
+    const scope = live.current.options.scope;
+    const here = pendingRef.current.filter((chip) => chip.scope === scope);
+    if (!here.length || twinReadsRef.current.some((read) => read.scope === scope)) return undefined;
+    const files = here.map((chip) => {
+      const source = sources.current.get(chip.id);
+      // A file whose bytes are still being made (a huge paste's text) is not one yet.
+      // One the chat's host may not take (`uploads` false) could only be refused: the send waits as before.
+      const file = source && "file" in source && source.uploads && !("then" in source.file) ? source.file : undefined;
+      return chip.image || chip.failed || chip.bound || chip.retrying || !file ? undefined : { chip, file };
+    });
+    if (files.some((entry) => entry === undefined)) return undefined;
+    const standIns = files.map((entry) => {
+      const { chip, file } = entry!;
+      let settle!: (result: BehindSendResult) => void;
+      sendBehind(chip.id, new Promise<BehindSendResult>((resolve) => (settle = resolve)));
+      ahead.current.set(chip.id, settle);
+      return {
+        id: chip.id,
+        kind: "link",
+        name: chip.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        ...(chip.videoShape ? { videoShape: chip.videoShape } : {}),
+      } satisfies ComposerAttachment;
+    });
+    const gone = new Set(standIns.map((chip) => chip.id));
+    pendingRef.current = pendingRef.current.filter((chip) => !gone.has(chip.id));
+    setPending((chips) => chips.filter((chip) => !gone.has(chip.id)));
+    return standIns;
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
   /// node draws it loading and then what the read makes. A file whose bytes were still being made
@@ -853,25 +946,33 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
     return true;
   });
-  /// The original of staged image `id` was not saved (`failed`, why): its chip shows Retry, local
-  /// chat or not, since saving it again is a real retry (a prompt too large for one message goes
-  /// with links to the originals only once they are saved, promptBudget.ts). Nothing retries on its
-  /// own: an upload only ever runs from a Retry click, in the chat that shows it.
-  const [originalMissed] = useState(
-    () => (id: string, failed: string) => setOriginalFailures((now) => ({ ...now, [id]: failed })),
+  /// `retryOriginal`, for the asks below (declared after them).
+  const retryOriginalRef = useRef<(id: string) => Promise<void>>(async () => {});
+  /// The originals asked again on their own (uploadRetry.ts), in the chat that shows them: a chip
+  /// that leaves the strip takes its file with it, so there is nothing left to ask, and one not in
+  /// the strip now (another chat's drafts swapped in) is not asked through this chat's upload.
+  const [originalRetries] = useState(
+    () =>
+      new ChipRetries((id) => {
+        if (!originals.current.has(id) || !stagedNow.current.some((chip) => chip.id === id)) return false;
+        void retryOriginalRef.current(id);
+        return true;
+      }),
   );
-  /// A staged image's Retry for its original: the original uploads again, its preview staying staged.
+  /// The original of staged image `id` was not saved (`failed`, why): it is saved again on its own,
+  /// local chat or not (a prompt too large for one message goes with links to the originals only
+  /// once they are saved, promptBudget.ts), and its chip says why once that lasts, with no Retry.
+  const [originalMissed] = useState(() => (id: string, failed: string) => {
+    setOriginalFailures((now) => (now[id] === failed ? now : { ...now, [id]: failed }));
+    originalRetries.failed(id);
+  });
+  /// A staged image's original saved again: it uploads again, its preview staying staged. Its
+  /// failure stays meanwhile (the chip keeps saying it once it lasted) and goes once it is saved.
   const [retryOriginal] = useState(() => async (id: string) => {
     const file = originals.current.get(id);
     const upload = live.current.options.upload;
-    if (!file || !upload) return;
+    if (!file || !upload) return originalRetries.end(id);
     originals.current.delete(id);
-    const failure = (failed?: string) =>
-      setOriginalFailures((now) => {
-        const { [id]: _, ...rest } = now;
-        return failed === undefined ? rest : { ...rest, [id]: failed };
-      });
-    failure();
     // Out of the strip meanwhile (sent, removed, or the composer moved to another chat): the upload
     // stops, silently.
     const gone = () => !stagedNow.current.some((chip) => chip.id === id);
@@ -882,31 +983,42 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       }))
       .finally(() => originalUpload(id, false));
     const path = sent && "paths" in sent ? sent.paths[0] : undefined;
-    if (gone()) return;
-    if (path)
+    if (gone()) return originalRetries.end(id);
+    if (path) {
+      originalRetries.end(id);
+      setOriginalFailures((now) => {
+        if (!(id in now)) return now;
+        const { [id]: _, ...rest } = now;
+        return rest;
+      });
       return setAttachments((chips) =>
         chips.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: file.name } : chip)),
       );
+    }
     originals.current.set(id, file);
     const error: IntakeError =
       sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
     originalMissed(id, intakeErrorText(error, live.current.t));
   });
-  /// An image no longer in the strip has no Retry to show: its original's file and failure go. Only one
-  /// a render staged (`everStaged`): this effect runs after its commit's paint, and an original that
-  /// failed in between belongs to a chip whose staging no render has drawn yet, which is not gone
+  retryOriginalRef.current = retryOriginal;
+  /// An image no longer in the strip has nothing to ask again: its original's file and failure go. Only one
+  /// a commit drew (`everDrawn`): this effect runs after its commit's paint, and an original that
+  /// failed in between belongs to a chip whose staging no commit has drawn yet, which is not gone
   /// (the same race as inlineAttachments.tsx `drawnLoading`).
   useEffect(() => {
     const left = [...originals.current.keys()].filter(
-      (id) => everStaged.current.has(id) && !attachments.some((chip) => chip.id === id),
+      (id) => everDrawn.current.has(id) && !attachments.some((chip) => chip.id === id),
     );
-    for (const id of left) originals.current.delete(id);
+    for (const id of left) {
+      originals.current.delete(id);
+      originalRetries.end(id);
+    }
     if (left.length)
       setOriginalFailures((now) => Object.fromEntries(Object.entries(now).filter(([id]) => !left.includes(id))));
-  }, [attachments]);
-  /// A failed chip's Retry: its file is read again (and uploaded again when it was) as the same chip,
-  /// where it was: a retry read as a new paste went in at the caret, or nowhere (review of #26545). A
-  /// staged image's: its original is uploaded again.
+  }, [attachments, originalRetries]);
+  /// A failed chip asked again (uploadRetry.ts): its file is read again (and uploaded again when it
+  /// was) as the same chip, where it was: a retry read as a new paste went in at the caret, or
+  /// nowhere (review of #26545). A staged image's: its original is uploaded again.
   const [retry] = useState(() => (id: string) => {
     if (originals.current.has(id)) return void retryOriginal(id);
     const source = sources.current.get(id);
@@ -921,27 +1033,40 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake([file], source.uploads, undefined, id);
   });
   retryRef.current = retry;
-  // A try again still waiting (its timer, its key and click listeners) goes with the composer.
-  useEffect(
-    () => () => {
-      for (const { stop } of autoRetries.current.values()) stop();
-      autoRetries.current.clear();
-    },
-    [],
-  );
+  // The pane showing again asks each failing chip at once; a hidden pane asks nothing (autoRetry.ts).
+  // A try again still waiting (its timer) goes with the composer.
+  useEffect(() => {
+    const wake = () => {
+      autoRetries.wake();
+      originalRetries.wake();
+    };
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      autoRetries.dispose();
+      originalRetries.dispose();
+    };
+  }, [autoRetries, originalRetries]);
+  // Back in the chat a failing chip belongs to: it asks at once, not after the backoff it grew while
+  // another chat was shown.
+  useEffect(() => {
+    autoRetries.wake();
+  }, [scope, autoRetries]);
   useEffect(() => {
     // One set of bytes is one chip (attachments.ts filesOnce).
     // While its twins are read (at most a frame) the gesture holds a send, and its chips go to the
     // chat it was made in, as they would have from its own task.
     const attachOnce = (files: File[], uploads: boolean, kind: SourceKind) => {
+      const { options } = live.current;
+      // Match native paths against the original gesture, before comparing clipboard images.
+      if (options.localPaths) return void attach(files, uploads, kind);
       const once = filesOnce(files);
       if (Array.isArray(once)) return void attach(once, uploads, kind);
-      const { options } = live.current;
-      const made = { scope: options.scope, options };
+      const made = { scope: options.scope, options, gestureAt: Date.now() };
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, made);
       });
     };
     const paste = (event: ClipboardEvent) => {
@@ -981,14 +1106,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [attach, showDrop, refused]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
-  /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
+  /// one whose upload failed (asked again on its own until it is made or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
-  /// A file the composer refused (no images here, one that would not decode) holds none: its
-  /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading =
-    shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length +
-    twinReads.filter((read) => read.scope === scope).length;
+  /// A file the composer refused (no images here, one that would not decode) holds none: asking
+  /// again could never make it.
+  const loading = shown.filter((chip) => !chip.failed).length + twinReads.filter((read) => read.scope === scope).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac
@@ -1004,7 +1127,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     attachments,
     setAttachments,
     pending: shown,
-    // Every chat shows these: saving an original again is a real retry wherever the agent runs.
+    // Every chat shows these: an original is saved again wherever the agent runs.
     originalFailures,
     originalUploads,
     needsOriginal: (id: string) => needsOriginal.current.has(id),
@@ -1012,6 +1135,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     unsettled,
     videoReading,
     cancel,
+    /// Asks a failed chip again at once (its upload, its making, its original): the composer asks on
+    /// its own (uploadRetry.ts); a test or a caller that knows the cause cleared may ask sooner.
+    goAhead,
     retry,
     revive,
     attachError,

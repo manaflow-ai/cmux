@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
 // binding table winner, before the tier check. The table holds the Ghostty
@@ -35,7 +36,7 @@ extension KeyRouter {
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
         let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused), editsText: context.editsText)
-        for shortcut in ActionRegistry.shortcuts(for: event) {
+        for shortcut in registry.shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
                                           accepts: accepts).winner {
                 return winner
@@ -95,7 +96,7 @@ extension KeyRouter {
     /// recorder's note), whatever the focus: the routed action.
     func ghosttyBinding(for event: NSEvent) -> ActionID? {
         let entries = RegistryKeyBindings(registry).table.entries
-        for shortcut in ActionRegistry.shortcuts(for: event) {
+        for shortcut in registry.shortcuts(for: event) {
             if let entry = entries.last(where: { $0.source.isGhostty && $0.keys == [shortcut] }) { return entry.command }
         }
         return nil
@@ -116,5 +117,16 @@ extension KeyRouter {
         guard keyWindow == .content, candidate.tier != .content else { return false }
         if case .ghostty = candidate.source, case .terminal = focus.resolved { return false }
         return allows(candidate.tier, focus: focus)
+    }
+}
+
+extension BrowserChordTable {
+    /// Whether the focus target is browser content (page, address bar, find
+    /// bar, docked DevTools).
+    nonisolated static func isBrowserContext(_ resolved: FocusState.Resolved) -> Bool {
+        switch resolved {
+        case .browserPage, .addressBar, .findBar, .devTools: true
+        default: false
+        }
     }
 }

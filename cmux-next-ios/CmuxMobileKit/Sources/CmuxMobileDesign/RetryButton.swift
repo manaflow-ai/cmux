@@ -37,6 +37,7 @@ public struct RetryButton: View {
 
     /// The default title: "Retry".
     public static var defaultTitle: String {
+        // retry-prompt-ok: the title of the button kept only at marked person-choice sites
         String(localized: "recovery.retry", defaultValue: "Retry", bundle: .module)
     }
 
@@ -94,7 +95,7 @@ public struct RetryButton: View {
             button.buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .inline))
         case .inline:
             button
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .font(CmuxMobileTheme.standard.type.meta.weight(.semibold))
                 .foregroundStyle(CmuxMobileTheme.standard.colors.label)
                 .frame(minHeight: CmuxMobileTheme.standard.metrics.glassButton)

@@ -22,8 +22,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
     /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
     var reads = StickyRead()
+    /// New Task's chats by the workspace `create` made, until `sendTask` sends the task.
+    var taskSessions: [String: (session: String, cwd: String)] = [:]
     /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
     var readMarks: [String: Int] = [:]
+    /// The daemon client whose Mac refused `close-tabs` (an older phone lane): it closes the old way.
+    var closeTabsRefusedBy: ObjectIdentifier?
 
     /// Whether a Mac streams browser tabs: it said `browser-stream-v1`. A Mac that
     /// has not answered yet keeps the option (an older Mac's refusal then reads plainly).
@@ -40,6 +44,20 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// The Mac's acpmux client, once it exists (a Mac session makes both).
     func attach(acpmux: AcpmuxHub) {
         self.acpmux = acpmux
+    }
+
+    /// Said once the bounded wait for the Mac's agents (``readyAgents()``) ended without them.
+    nonisolated static let agentsNotConnected = "Agents on this Mac aren't connected."
+
+    /// This Mac's acpmux once it is ready. A channel coming back (a reconnect, the app returning
+    /// to the foreground) is waited for, up to the hub's `readyGrace`, rather than refused at once
+    /// with a prompt to repeat the step the person could only say yes to (Leo, 2026-11-22).
+    func readyAgents() async throws -> AcpmuxHub {
+        guard let acpmux else { throw WorkspaceCreationError(Self.agentsNotConnected, isForPerson: true) }
+        if !acpmux.isReady, !(await acpmux.waitUntilReady(timeout: acpmux.readyGrace, clock: ContinuousClock())) {
+            throw WorkspaceCreationError(Self.agentsNotConnected, isForPerson: true)
+        }
+        return acpmux
     }
 
     public func canCreate(on macID: String) -> Bool {
@@ -87,14 +105,136 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 _ = try? await client.request("close-workspace", params: ["key": key])
                 throw error
             }
-            let tree = try await sync.listNow()
-            guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            if request.task != nil { taskSessions[key] = (session, cwd) }
+            // `create-workspace` answered with the key, so the Mac has it: a fresh list that
+            // leaves it out twice is a broken state, and a task start that the phone reports as
+            // failed (its draft comes back) closes it, so no unprompted chat is left to start
+            // again. A list that fails (the link) proves nothing: the workspace stays, with no
+            // prompt sent, so nothing can run twice.
+            for attempt in 0..<2 {
+                let tree: DaemonTree
+                do {
+                    tree = try await sync.listNow()
+                } catch {
+                    taskSessions[key] = nil
+                    throw error
+                }
+                if let workspace = tree.workspaces.first(where: { $0.id == key }) { return workspace }
+                if attempt == 1 {
+                    taskSessions[key] = nil
+                    if request.task != nil { _ = try? await client.request("close-workspace", params: ["key": key]) }
+                }
             }
-            return workspace
+            throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
+    }
+
+    /// New Task's prompt and images as the first message of the chat `create` made in
+    /// `workspace`: acpmux `session/prompt`, once per `promptId`, as the chat's own Send does
+    /// it, in its own task: acpmux answers only when the agent's turn ends, which nobody waits
+    /// for. A failure is reported through `failed`, said by what the phone knows of it.
+    public func sendTask(_ task: AgentTask, in workspace: Workspace,
+                         failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        guard let (session, cwd) = taskSessions.removeValue(forKey: workspace.id) else {
+            throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
+        }
+        guard let acpmux, acpmux.isReady else {
+            throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
+        }
+        acpmux.beginFirstPrompt(session)
+        // The chat's own prompt builder (photos inline, files uploaded to the session's folder and
+        // linked), with no chat source: the chat's own is made when its page opens.
+        let macName = link.target?.name ?? "the Mac"
+        Task {
+            let blocks: [JSONValue]
+            do {
+                blocks = try await AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task),
+                                                                    link: acpmux.macLink, cwd: cwd, macName: macName)
+            } catch {
+                // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.
+                acpmux.endFirstPrompt(session)
+                failed(.notSent(AcpmuxSessionSource.message(error)))
+                return
+            }
+            do {
+                // On success the mark stays until the chat shows the task: a fast agent's reply can
+                // come before the chat's records do (live run 16). The hub's cap ends stale marks.
+                _ = try await acpmux.request("session/prompt", .object([
+                    "sessionId": .string(session), "prompt": .array(blocks),
+                    "_meta": .object(["acpmux": .object([
+                        "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
+                    ])]),
+                ]))
+            } catch {
+                // Not sent (or unknown): the chat stops saying it is starting. On success the
+                // mark stays until the chat shows the task (its records can come after this reply).
+                acpmux.endFirstPrompt(session)
+                failed(Self.deliveryFailure(error))
+            }
+        }
+    }
+
+    /// What a failed first send means for the person: never sent (no connection: it can go again
+    /// from the chat's composer), refused by the agent (its own answer, acpmux's RPC error), else
+    /// unknown (a dropped link, a failed write, a cancel: the Mac may have it).
+    static func deliveryFailure(_ error: any Error) -> TaskDeliveryFailure {
+        let reason = AcpmuxSessionSource.message(error)
+        if let link = error as? LinkError, link.code == "offline" { return .notSent(reason) }
+        if error is AcpmuxConnection.RPCError { return .refused(reason) }
+        return .uncertain(reason)
+    }
+
+    /// A task's photos and files as the chat's attachments (its prompt builder sends them).
+    nonisolated static func taskAttachments(_ task: AgentTask) -> [AgentAttachment] {
+        task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo", data: $0.data) }
+            + task.files.map { AgentAttachment(id: $0.id, kind: .file, name: $0.name, data: $0.data) }
+    }
+
+    /// A terminal launch: uploads the task's photos and files to `cwd` (the workspace's folder),
+    /// then types the agent's command into the new terminal (`send`, as the folder's `cd` line).
+    /// Throws, closing nothing, when the agent has no CLI here or an upload fails; the caller
+    /// closes the workspace it made.
+    func launchInTerminal(_ task: AgentTask, surface: Int, cwd: String, client: DaemonClient) async throws {
+        guard task.terminalLine() != nil else {
+            throw WorkspaceCreationError("This agent can't open in a terminal from here. Open it as a chat.", isForPerson: true)
+        }
+        var paths: [String] = []
+        let attachments = Self.taskAttachments(task)
+        if !attachments.isEmpty {
+            guard let macLink = acpmux?.macLink else {
+                throw WorkspaceCreationError("Connect to the Mac to send the task's attachments.", isForPerson: true)
+            }
+            let macName = link.target?.name ?? "the Mac"
+            for attachment in attachments {
+                guard let data = attachment.data else { continue }
+                let name = attachment.kind == .image ? "photo-\(attachment.id.prefix(8)).jpg" : attachment.name
+                do {
+                    paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
+                } catch {
+                    // The phone's own words ("Couldn't send <file>…"), not the Mac's.
+                    throw WorkspaceCreationError(AcpmuxSessionSource.message(error), isForPerson: true)
+                }
+            }
+        }
+        // One line: `cd` to the folder, then the agent only if that worked (never in another folder).
+        guard let line = task.terminalLine(folder: cwd, attachmentPaths: paths) else { return }
+        do {
+            try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+        } catch let error as DaemonReplyError {
+            // The Mac answered no: nothing was typed. The caller closes the workspace.
+            throw WorkspaceCreationError(error.message)
+        } catch {
+            // The reply was lost: the line may have run. The workspace stays (never a second agent).
+            throw TerminalLaunchUncertain(message: AcpmuxSessionSource.message(error))
+        }
+    }
+
+    /// A terminal launch whose command may have reached the shell (its reply was lost).
+    struct TerminalLaunchUncertain: Error, LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -128,7 +268,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Not connected")
         }
         if case .agent(let harness) = request.start {
-            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness),
+            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness,
+                                                                                model: request.task?.model,
+                                                                                effort: request.task?.effort,
+                                                                                mode: request.task?.mode,
+                                                                                options: request.task?.options ?? [:]),
                                                  placeholder: placeholder, client: client)
         }
         do {
@@ -139,8 +283,38 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw WorkspaceCreationError("The Mac didn't say which workspace it created")
             }
             var opening = DaemonTree.tabID(surface: surface)
-            if let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
+            if request.task?.launch != .terminal, let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
                 _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
+            if let task = request.task, task.launch == .terminal {
+                // New Task in a terminal: the agent's CLI, in the folder the `cd` line went to.
+                let folders = Set((sync.tree?.directories ?? [:]).values)
+                let cwd = Self.chatFolder(request.directory, known: folders) ?? request.directory ?? "~"
+                do {
+                    try await launchInTerminal(task, surface: surface, cwd: cwd, client: client)
+                } catch let uncertain as TerminalLaunchUncertain {
+                    // Maybe running: the workspace stands; the person checks it (no draft comes back).
+                    let tree = try? await sync.listNow()
+                    if let made = tree?.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The task may have started on the Mac: \(uncertain.message). Check its workspaces before starting it again.",
+                                                 isForPerson: true, mayHaveStarted: true)
+                } catch {
+                    // The phone reports this start as failed (its draft comes back): the
+                    // workspace goes too, with nothing running in it.
+                    if let made = try? await sync.listNow().workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) {
+                        _ = try? await client.request("close-workspace", params: ["key": made.id])
+                    }
+                    throw error
+                }
+                // Typed: the agent runs from here, so no failure below hands the task back.
+                do {
+                    let tree = try await sync.listNow()
+                    if let made = tree.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+                } catch {
+                    throw WorkspaceCreationError("The task started on the Mac, but its workspace didn't show here: \(AcpmuxSessionSource.message(error)). Check its workspaces before starting it again.",
+                                                 isForPerson: true, mayHaveStarted: true)
+                }
             }
             if request.start == .browser {
                 // No pane: the active pane, which is the new workspace's. If
@@ -212,7 +386,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard canManage(on: macID) else { return [] }
         var out: [(kind: NewTabKind, reason: String)] = []
         if acpmux?.isReady != true {
-            out.append((.agentChat, "Agents on this Mac aren't connected. Try again in a moment."))
+            out.append((.agentChat, "Agents on this Mac aren't connected yet."))
         }
         if !Self.streamsBrowser(capabilities(macID)) {
             out.append((.browser, Self.browserUpdateReason))
@@ -230,9 +404,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// `models: false` for a start that names no model: the harness list alone decides it.
     func agentCatalog(on macID: String, models withModels: Bool) async throws -> AgentCatalog {
-        guard canManage(on: macID), let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
+        guard canManage(on: macID) else { throw WorkspaceCreationError(Self.agentsNotConnected, isForPerson: true) }
+        let acpmux = try await readyAgents()
         let harnesses: JSONValue
         do {
             harnesses = try await acpmux.request("_acpmux/harnesses", .object([:]), timeout: .seconds(15))
@@ -292,12 +465,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// agent (or the first one a phone may start); then its model, when one was
     /// chosen, with `session/set_model` as the Mac's New Tab page does.
     private func startAgentSession(_ start: AgentChatStart, in workspace: Workspace) async throws -> (harness: String, session: String) {
-        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
+        _ = try await readyAgents()
         let directories = sync.tree?.directories ?? [:]
         guard let cwd = workspace.tabs.lazy.compactMap({ directories[$0.id] }).first else {
             throw WorkspaceCreationError("This workspace has no folder on the Mac. Open a terminal tab first.", isForPerson: true)
         }
         guard !Self.isHomeOrAbove(cwd) else {
+            // retry-prompt-ok: the person must open the workspace in a project folder on the Mac
+            // first; the phone can't see that step happen, so the person starts the chat again.
             throw WorkspaceCreationError("Open this workspace in a project folder, then try again.",
                                          isForPerson: true)
         }
@@ -306,7 +481,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// The new chat's acpmux session in `cwd` (an absolute folder on the Mac).
     func startAgentSession(_ start: AgentChatStart, cwd: String, macID: String) async throws -> (harness: String, session: String) {
-        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
+        let acpmux = try await readyAgents()
         let catalog = try await agentCatalog(on: macID, models: start.model != nil)
         guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
@@ -345,16 +520,53 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
         }
+        await Self.applyStartSettings(start, to: session, choice: choice) { method, params in
+            _ = try await acpmux.request(method, params, timeout: .seconds(20))
+        }
+        acpmux.noteStartedHere(session)
         return (choice.id, session)
+    }
+
+    /// The effort, mode and options the phone picked, set on the new chat before its first prompt,
+    /// each only when the Mac offers it (as the Mac's composer applies its held picks). A refusal
+    /// leaves the agent's own value: the chat stands, as with a refused model.
+    static func applyStartSettings(_ start: AgentChatStart, to session: String, choice: AgentHarnessChoice,
+                                   send: @Sendable (String, JSONValue) async throws -> Void) async {
+        var requests: [(String, JSONValue)] = []
+        if let effort = start.effort, choice.efforts(model: start.model).contains(where: { $0.id == effort }) {
+            // acpmux finds the agent's own effort option for `effort` (`model_options.rs`).
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(choice.effortOption?.id ?? "effort"), "value": .string(effort),
+            ])))
+        }
+        if let mode = start.mode, mode != choice.askingModes.first, choice.askingModes.contains(mode) {
+            requests.append(("session/set_mode", .object(["sessionId": .string(session), "modeId": .string(mode)])))
+        }
+        for (id, value) in start.options.sorted(by: { $0.key < $1.key }) {
+            guard choice.configOptions.first(where: { $0.id == id })?.choices.contains(where: { $0.id == value }) == true else { continue }
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(id), "value": .string(value),
+            ])))
+        }
+        for (method, params) in requests {
+            do {
+                try await send(method, params)
+            } catch {
+                creationLog.error("\(method, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
+            }
+        }
     }
 
     /// acpmux could not reach the model service the agent's route needs (`route.unavailable`):
     /// the cmux model service on the Mac (its local router) is not running or not signed in.
     /// Said plainly, without the Mac's command line.
     nonisolated static func routeUnavailable(_ detail: String) -> String {
+        // retry-prompt-ok: a step on the Mac (open or reopen cmux) the phone can't see; the
+        // person starts the agent again, or picks another.
         if detail.contains("not connected") {
             return "cmux's model service isn't signed in on the Mac. Open cmux on the Mac, then try again, or choose another agent."
         }
+        // retry-prompt-ok: as above, a Mac-side step the phone can't watch for.
         return "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent."
     }
 
@@ -380,13 +592,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return parts.first == "Users" && parts.count <= 2 && parts.last != "Shared"
     }
 
-    /// `close-surface` on the Mac, then `close-terminal` for the tab's own
-    /// terminal, then a fresh list. `close-surface` only detaches a terminal
-    /// (the daemon reaps a tab-less one after its grace period, so the Mac
-    /// listed it running 50 s after the close, V5-5); the phone has no undo
-    /// and its close question says the program stops, so the terminal ends
-    /// at once (T-TABS-08), unless another tab still shows it. A refused
-    /// `close-terminal` leaves the reap to the daemon: the tab is closed.
+    /// Close Tab in one round trip: `close-tabs` closes the tab and, with `end_terminals`, ends
+    /// its terminal in one daemon commit (`batch-close-v1`), the Mac's own Close Tab. The phone
+    /// has no undo and its close question says the program stops, so the terminal ends at once
+    /// (T-TABS-08, V5-5), unless another tab still shows it or it is another machine's
+    /// (`terminalsEndedByClosing` is empty: `end_terminals` stays off). The tab list refreshes
+    /// off the close's path: the daemon's `treeChanged` and a fresh list follow it.
+    ///
+    /// A Mac whose phone lane predates `close-tabs` refuses it; that client then gets the old
+    /// three round trips (`legacyClose`): `close-surface`, `close-terminal`, a fresh list.
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
@@ -396,12 +610,46 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let terminals = sync.tree?.terminalsEndedByClosing([tab.id]) ?? []
         do {
-            try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
-            await end(terminals, on: client)
-            _ = try? await sync.listNow()
+            if closeTabsRefusedBy != ObjectIdentifier(client) {
+                do {
+                    try WorkspaceSync.check(await client.request("close-tabs", params: Self.closeTabsParams(
+                        surface: surface, endTerminals: !terminals.isEmpty, traceID: PhoneTrace.traceID)))
+                    let sync = sync
+                    Task { _ = try? await sync.listNow() }
+                    return
+                } catch let error as DaemonReplyError where Self.laneRefusedCloseTabs(error) {
+                    closeTabsRefusedBy = ObjectIdentifier(client)
+                }
+            }
+            try await legacyClose(surface: surface, terminals: terminals, on: client)
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
+    }
+
+    /// `close-tabs` of one tab, with the action's trace id (`_meta`, PhoneTrace) when it has one.
+    /// Built from Sendable inputs only, so the dictionary is a fresh region the caller can send.
+    nonisolated static func closeTabsParams(surface: Int, endTerminals: Bool, traceID: String?) -> sending [String: Any] {
+        var params: [String: Any] = ["surfaces": [surface], "end_terminals": endTerminals]
+        if let traceID { params["_meta"] = ["traceId": traceID] }
+        return params
+    }
+
+    /// Whether the Mac's phone lane refused `close-tabs` itself (a lane that predates it: the
+    /// command, or its `_meta`, "is not available to a phone" / "does not take ... from a phone"),
+    /// so the old close still works there. The daemon's own refusals (a stale tab) are not.
+    nonisolated static func laneRefusedCloseTabs(_ error: DaemonReplyError) -> Bool {
+        let message = error.message
+        return message.contains("close-tabs is not available") || message.contains("does not take")
+            || message.contains("_meta")
+    }
+
+    /// The close before `close-tabs`: `close-surface`, then `close-terminal` for the tab's own
+    /// terminal, then a fresh list. A refused `close-terminal` leaves the reap to the daemon.
+    func legacyClose(surface: Int, terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async throws {
+        try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
+        await end(terminals, on: client)
+        _ = try? await sync.listNow()
     }
 
     /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),
@@ -1005,9 +1253,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     private func forkChat(_ tab: WorkspaceTab, through seq: Int?, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
-        guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
+        let acpmux = try await readyAgents()
         guard let binding = sync.tree?.agentTabs[tab.id], let session = binding.session,
               let place = sync.tree?.tabPlaces[tab.id] else {
             throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
@@ -1045,9 +1291,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// as the Mac's pane asks its app to close it.
     public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
-        guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
+        let acpmux = try await readyAgents()
         guard let session = sync.tree?.agentTabs[tab.id]?.session else {
             throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }

@@ -2,17 +2,17 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { Tooltip } from "../../ui/Tooltip";
 import { Clock as ClockText } from "../../ui/Typography";
-import { usePageNow } from "../../ui/pageClock";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
-import { ChevronDown, Clock, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { HatChevron } from "./subagents/HatChevron";
 import { formatDuration } from "./conversation/turns";
 import { goalHatPlace } from "./goalHat.experiment";
 import { cssTimeMs } from "./conversation/fold";
 import { useNow } from "./subagents/subagentGroupModel";
 import { motionAllowed } from "./subagents/trayMotionModel";
 import "./TaskGoalStrip.css";
-import { goalUpdatedText, loopNextText } from "./taskGoalStripModel";
+import { goalUpdatedText } from "./taskGoalStripModel";
 /** The harness's goal stays visible between turns and after reopening the chat. */
 export function TaskGoalStrip({
   goal,
@@ -27,86 +27,11 @@ export function TaskGoalStrip({
   /** The clock a loop's countdown and a goal's "Updated" read (tests pass a fixed one). */
   now?: () => number;
 }) {
-  return goal.kind === "loop" ? (
-    <LoopStrip goal={goal} now={now} />
-  ) : (
-    <GoalStrip goal={goal} harness={harness} command={command} now={now} />
-  );
-}
-
-/** A Claude Code /loop between its runs, as one quiet chip in the composer's column: when it checks
- *  back ("Checking back in 15 min."), or an interval loop's schedule ("Repeats every 5 minutes"). Its prompt is the agent's own wake text (a
- *  ScheduleWakeup `prompt` can be a long internal brief with job ids, links and step lists), never
- *  shown inline (cmux#38051): it reads in the chip's tooltip and, on demand, in the panel its button
- *  opens, wrapped to the column. It has no other controls: Claude Code stops a loop only from inside
- *  its own turn (ScheduleWakeup's `stop`, CronDelete), so a button here could only ask the model, and
- *  the person can do that themselves. */
-function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
-  const t = useT();
-  const lang = usePaneLanguage();
-  const [expanded, setExpanded] = useState(false);
-  const panelId = useId();
-  // The page's shared second clock (ui/pageClock.ts), only while the next run is ahead: the render
-  // after that time passes stops it, as does unmounting, and a hidden page runs no timer.
-  // The caption reads the newer of the clock's sample and the time now: a render between the run
-  // time and the clock's next tick stops the clock, and its older sample would keep the countdown up.
-  const at = goal.nextRunAt;
-  const current = now();
-  const time = usePageNow(at !== undefined && current < at && !goal.schedule, now);
-  const next = at === undefined ? undefined : loopNextText(Math.max(time, current), at, lang);
-  // An interval loop says its schedule ("Repeats every 5 minutes"), a self-wake when it checks back.
-  const label = goal.schedule
-    ? t("goal.loopSchedule", { schedule: goal.schedule })
-    : next
-      ? t("goal.loopNext", { when: next })
-      : t("goal.loop");
-  const prompt = goal.autonomous ? undefined : goal.objective.trim() || undefined;
-  const tooltip = [prompt ?? t("goal.loopAutonomous"), goal.reason].filter(Boolean).join("\n\n");
-  const hasDetails = Boolean(prompt || goal.reason || goal.steps?.length || goal.detail);
-  const copy = (
-    <>
-      <span className="acpmux-goal-loop-mark" aria-hidden="true">
-        <Clock size={14} />
-      </span>
-      <span className="acpmux-goal-state acpmux-goal-loop-label">{label}</span>
-    </>
-  );
-  // One quiet line with no button of its own (Leo, 2026-11-12, of its expand icon and the reason
-  // under it: "idk what the point of it is rn quite"): with something behind it, the line itself
-  // opens it; the reason and prompt stay hidden until then.
-  return (
-    <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
-      {hasDetails ? (
-        <button
-          type="button"
-          className="acpmux-goal-copy acpmux-goal-loop-toggle"
-          title={tooltip}
-          aria-expanded={expanded}
-          aria-controls={expanded ? panelId : undefined}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {copy}
-        </button>
-      ) : (
-        <span className="acpmux-goal-copy" title={tooltip}>
-          {copy}
-        </span>
-      )}
-      {expanded && (
-        <div className="acpmux-goal-details acpmux-goal-loop-details" id={panelId}>
-          {prompt && <p className="acpmux-goal-loop-prompt">{prompt}</p>}
-          {goal.reason && <p>{goal.reason}</p>}
-          {goal.detail && <p>{goal.detail}</p>}
-          {goal.steps?.map((step, index) => (
-            <div className="acpmux-goal-step" key={`${step.label}-${index}`} data-status={step.status}>
-              <span aria-hidden="true">{step.status === "done" || step.status === "completed" ? "✓" : "·"}</span>
-              <span>{step.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+  // A Claude Code /loop's next wake-up (ScheduleWakeup, CronCreate) draws nothing here (Leo,
+  // 2026-11-14, of its "Checking back in 19 min." chip: "what even is this? idk if we shuold have
+  // this"). The goal still carries `nextRunAt` for a surface that wants it.
+  if (goal.kind === "loop") return null;
+  return <GoalStrip goal={goal} harness={harness} command={command} now={now} />;
 }
 
 /** What the goal row asks the chat for: Codex's own `/goal` subcommands, and `edit` (a new
@@ -162,8 +87,10 @@ function GoalStrip({
   const canControl = provider === "codex";
   const live = goal.status === "running" || goal.status === "active";
   const done = goal.status === "done" || goal.status === "complete";
+  // A live goal is just "Goal": its mark says it runs; only met, paused and stalled are worded
+  // (Leo, 2026-11-23: ""running" doesn't need text. it can usually just be.").
   const status = live
-    ? t("goal.headRunning")
+    ? t("goal.label")
     : done
       ? t("goal.headMet")
       : goal.status === "paused"
@@ -440,7 +367,7 @@ function GoalStrip({
         </span>
         <GoalTime goal={goal} live={live} />
         <span className="acpmux-goal-chevron" aria-hidden="true">
-          <ChevronDown size={14} />
+          <HatChevron />
         </span>
       </span>
       {error && (

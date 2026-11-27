@@ -10,6 +10,8 @@ use cmux_json::JsonSet as _;
 use super::MutationRequest;
 use super::frontend_browser_history;
 use super::list_workspaces_reply;
+use super::list_workspaces_reply_first;
+use super::list_workspaces_reply_since;
 use super::optional_surface_size;
 use super::origin_gate;
 use super::personal;
@@ -22,12 +24,77 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// What a client holds of the tree (`list-workspaces` `known`): the fields it read from its last
+/// reply. Any field missing or different gets the whole tree.
+#[derive(Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub(super) struct KnownTree {
+    #[serde(default)]
+    pub(super) registry_id: Option<String>,
+    #[serde(default)]
+    pub(super) generation: Option<String>,
+    #[serde(default)]
+    pub(super) workspace_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) pane_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) terminal_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) tree_revision: Option<String>,
+}
+
 /// The tree, and the lines its connection had written when it was read (`lines_written_before_read`,
 /// read first): a line past that count may carry a change the tree lacks. The connection writes its
 /// events on another thread than this reply, so such an event can reach the client before the reply
 /// (#32408).
-pub(super) fn list_workspaces(mux: &Arc<Mux>, lines_written: Option<u64>) -> anyhow::Result<Value> {
-    let mut reply = list_workspaces_reply(mux)?;
+///
+/// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
+/// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
+/// order and `total`, up to a byte budget, from `after` with `next` (`list-workspaces-page-v1`).
+/// Without either, the reply is the same as before they existed, byte for byte.
+pub(super) fn list_workspaces(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    known: Option<&KnownTree>,
+    limit: Option<usize>,
+    after: Option<usize>,
+) -> anyhow::Result<Value> {
+    // `after` pages only with `limit` (`list-workspaces-page-v1`).
+    let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
+    // Each form of the request draws the git HEADs from the cache, stale or not, and never waits on
+    // a read of one: the watch of the HEAD files keeps them current (git_heads.rs).
+    // A remote device that must not see some workspaces (#31210) is answered
+    // from the ones it may see: its page, `total` and revision say nothing of
+    // the others, all read with one view of them.
+    let mut reply = match (known, limit) {
+        (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
+            list_workspaces_reply_since(mux, known, limit, after, view)
+        })?,
+        (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
+            Ok(list_workspaces_reply_first(mux, limit, after, view)?.0)
+        })?,
+        (None, None) => list_workspaces_reply(mux)?,
+    };
+    if let Some(lines) = lines_written {
+        reply.set("lines_written_before_read", json!(lines));
+    }
+    Ok(reply)
+}
+
+/// `list-workspaces {since}` (`workspace-list-delta-v1`, list_workspaces_delta.rs): the
+/// entries that changed past the client's cursor, or the whole tree with a fresh cursor. A
+/// remote device that must not see some workspaces gets its whole pruned tree with no cursor
+/// (the ring is the daemon's whole tree), so it never holds one to send.
+pub(super) fn list_workspaces_delta(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    since: &super::list_workspaces_delta::DeltaCursor,
+) -> anyhow::Result<Value> {
+    let mut reply = super::incognito_remote::list_with_one_view(mux, client, |view| match view {
+        Some(_) => list_workspaces_reply(mux),
+        None => super::list_workspaces_delta::list_workspaces_reply_delta(mux, since),
+    })?;
     if let Some(lines) = lines_written {
         reply.set("lines_written_before_read", json!(lines));
     }
@@ -41,7 +108,11 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    let text = super::list_workspaces_reply_text(mux, &writer.render_service)?;
+    let text = super::tree_reply_text::list_workspaces_reply_text(
+        mux,
+        &writer.render_service,
+        writer.tab_projection(),
+    )?;
     Ok(super::tree_reply_text::TreeReply { text, lines_written_before_read })
 }
 
@@ -52,6 +123,11 @@ pub(super) fn new_workspace(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> anyhow::Result<Value> {
+    // Its plain shell may wait for its first need (mux/terminal_respawn/lazy.rs).
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
+        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
+    );
     let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
     Ok(json!({ "surface": surface.id }))
 }
@@ -62,6 +138,7 @@ pub(super) fn create_workspace(
     name: Option<String>,
     key: Option<String>,
     first_tab: Option<frontend_browser_history::FirstTabParams>,
+    explicit_name: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -79,6 +156,7 @@ pub(super) fn create_workspace(
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,
+        explicit_name,
     )?;
     // `workspace-first-tab-v1`: the first tab in the same request. A replayed
     // create replays a keyed tab and makes no second unkeyed one; a tab that
@@ -155,6 +233,7 @@ pub(super) fn set_workspace_metadata(
     title: Option<Option<String>>,
     pinned: Option<bool>,
     marked_unread: Option<bool>,
+    keep_awake: Option<bool>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
@@ -165,6 +244,7 @@ pub(super) fn set_workspace_metadata(
         title,
         pinned,
         marked_unread,
+        keep_awake,
         ..Default::default()
     };
     let result = mux.set_workspace_metadata(
@@ -186,6 +266,7 @@ pub(super) fn set_workspace_metadata(
         "title": record.title,
         "pinned": record.pinned,
         "marked_unread": record.marked_unread,
+        "keep_awake": record.keep_awake,
         "workspace_revision": result.revision,
         "changed": result.changed,
         "replayed": result.replayed,
@@ -452,6 +533,13 @@ pub(super) fn rename_workspace(
     }))
 }
 
+/// `release-workspace-names`: every user-owned workspace name goes back to the
+/// automatic namer in one call. Idempotent: a second call releases nothing.
+pub(super) fn release_workspace_names(mux: &Arc<Mux>, actor: Actor) -> anyhow::Result<Value> {
+    let (released, still_pinned) = mux.release_workspace_names(&actor)?;
+    Ok(json!({"released": released, "still_pinned": still_pinned}))
+}
+
 pub(super) fn rename_provider_managed_workspace(
     mux: &Arc<Mux>,
     actor: Actor,
@@ -476,6 +564,9 @@ pub(super) fn select_workspace(
     delta: Option<isize>,
 ) -> anyhow::Result<Value> {
     mux.select_workspace_as(&actor, index, delta);
+    // Showing a workspace starts its parked tabs, as the app does
+    // (`wakeParkedTabs`; mux/terminal_respawn/lazy.rs).
+    mux.wake_parked_tabs_of_active_workspace();
     Ok(json!({}))
 }
 

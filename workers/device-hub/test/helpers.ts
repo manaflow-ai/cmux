@@ -66,6 +66,29 @@ async function billingResponse(origin: string, headers: Headers, signal: AbortSi
   });
 }
 
+/**
+ * What the mocked cmux-platform answers on `GET /v1/machines/credentials/self`,
+ * by machine credential; any other credential gets 401, as a revoked one does.
+ */
+export const platformMachines = new Map<string, Record<string, unknown>>();
+/** Every credential the hub asked cmux-platform about. */
+export const platformCalls: string[] = [];
+
+/** The mocked platform TURN minter's origin (`POST /v1/relay/ice-servers`). */
+export const PLATFORM_TURN_ORIGIN = "https://platform-turn.test";
+/**
+ * What the mocked platform TURN minter answers next: a JSON body (200), an HTTP
+ * status with a body, a network failure, or a hang until the caller's deadline.
+ */
+export type PlatformTurnAnswer = { body: unknown } | { status: number; body?: unknown } | "network" | "hang";
+export const platformTurn: { answer: PlatformTurnAnswer; calls: { authorization: string | null; body: unknown }[] } = {
+  answer: { body: { ice: [{ urls: ["turn:platform.test:3478?transport=udp"], username: "pu", credential: "pc" }] } },
+  calls: [],
+};
+
+/** Set `fail` to make the hub's own TURN mint (Cloudflare Realtime) refuse, as a key without TURN rights does. */
+export const localTurn = { fail: false };
+
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
 
@@ -94,7 +117,35 @@ export function mockOutbound() {
       const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
       return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
     }
+    if (url === "https://platform.test/v1/machines/credentials/self") {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const bearer = /^Bearer (\S+)$/.exec(headers.get("authorization") ?? "")?.[1] ?? "";
+      platformCalls.push(bearer);
+      const answer = platformMachines.get(bearer);
+      if (!answer) return Response.json({ _tag: "JoinUnauthorized" }, { status: 401 });
+      return Response.json(answer);
+    }
+    if (url === `${PLATFORM_TURN_ORIGIN}/v1/relay/ice-servers`) {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      let body: unknown = null;
+      try {
+        body = JSON.parse(String(init?.body ?? "null"));
+      } catch {
+        body = null;
+      }
+      platformTurn.calls.push({ authorization: headers.get("authorization"), body });
+      const answer = platformTurn.answer;
+      if (answer === "network") throw new TypeError("network connection lost");
+      if (answer === "hang") {
+        const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+        return new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")));
+        });
+      }
+      return Response.json("status" in answer ? (answer.body ?? {}) : answer.body, { status: "status" in answer ? answer.status : 200 });
+    }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
+      if (localTurn.fail) return Response.json({ errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 });
       return Response.json({
         iceServers: [
           { urls: ["stun:stun.cloudflare.com:3478"] },
@@ -126,14 +177,18 @@ export async function rawCall(method: string, path: string, opts: { body?: unkno
   return { status: res.status, json: text ? (JSON.parse(text) as any) : null };
 }
 
+/** The build space header a dev build sends (src/buildSpace.ts). */
+export const BUILD_SPACE_HEADER = "x-cmux-build-space";
+
 /** Signs in a fresh (or given) Stack user and returns the hub session. */
 /** `sub` is the Stack user id; the returned `userId` is the hub's "<projectId>:<sub>". */
-export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT) {
+/** `space` signs in as a dev build of that build space (`dev:<slug>`); every call of its devices then sends it. */
+export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT, space?: string) {
   mockOutbound();
   const token = await stackToken(stackClaims(sub, {}, project));
-  const res = await rawCall("POST", "/v1/auth/stack", { body: { token } });
-  expect(res.status).toBe(200);
-  return { userId: res.json.userId as string, session: res.json.session as string, stackToken: token, sub };
+  const res = await rawCall("POST", "/v1/auth/stack", { body: { token }, headers: space ? { [BUILD_SPACE_HEADER]: space } : {} });
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  return { userId: res.json.userId as string, session: res.json.session as string, stackToken: token, sub, space };
 }
 
 // ---- WebSocket peer ----
@@ -202,14 +257,16 @@ export class Device {
   signingKey!: string;
   agreementKey!: string;
   user: Peer | null = null;
+  /** The Mac it runs on, as the app sends it at registration (`machine`); unset sends none. */
+  machine: string | undefined;
 
   private constructor(
-    readonly account: { userId: string; session: string },
+    readonly account: { userId: string; session: string; space?: string },
     readonly name: string,
-    readonly platform: "macos" | "ios",
+    readonly platform: "macos" | "ios" | "linux" | "windows",
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" = "macos") {
+  static async create(account: { userId: string; session: string; space?: string }, name = "Mac", platform: "macos" | "ios" | "linux" | "windows" = "macos") {
     const d = new Device(account, name, platform);
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));
@@ -229,10 +286,16 @@ export class Device {
     return { "x-device-id": opts.id ?? this.id, "x-device-ts": ts, "x-device-sig": sig };
   }
 
-  /** A device-signed API call. `replay` reuses a prior call's headers verbatim. */
-  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string> } = {}) {
+  /** The account's build space header, or `space` (null: none) when given. */
+  spaceHeaders(space?: string | null): Record<string, string> {
+    const value = space === undefined ? this.account.space : space;
+    return value ? { [BUILD_SPACE_HEADER]: value } : {};
+  }
+
+  /** A device-signed API call. `replay` reuses a prior call's headers verbatim. `space` overrides the account's build space (null: none). */
+  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string>; space?: string | null } = {}) {
     const bodyText = body === undefined ? "" : JSON.stringify(body);
-    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...(opts.extraHeaders ?? {}) };
+    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...this.spaceHeaders(opts.space), ...(opts.extraHeaders ?? {}) };
     headers.authorization = `Bearer ${opts.session ?? this.account.session}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await worker.fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : bodyText });
@@ -247,13 +310,14 @@ export class Device {
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...(this.machine === undefined ? {} : { machine: this.machine }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;
   }
 
   async connect(): Promise<Peer> {
-    const headers = { ...(await this.headers("GET", "/v1/user/ws", "")), authorization: `Bearer ${this.account.session}`, upgrade: "websocket" };
+    const headers = { ...(await this.headers("GET", "/v1/user/ws", "")), ...this.spaceHeaders(), authorization: `Bearer ${this.account.session}`, upgrade: "websocket" };
     const res = await worker.fetch(`${BASE}/v1/user/ws`, { headers });
     expect(res.status, await (res.status === 101 ? Promise.resolve("") : res.clone().text())).toBe(101);
     this.user = new Peer(res.webSocket!);
@@ -269,7 +333,7 @@ export class Device {
   async signal(ticketMsg: { signalURL: string; ticket: string }, opts: { ticket?: string; ts?: number; id?: string; key?: CryptoKey } = {}) {
     const u = new URL(ticketMsg.signalURL);
     const pathAndQuery = `${u.pathname}?ticket=${encodeURIComponent(opts.ticket ?? ticketMsg.ticket)}`;
-    const headers = { ...(await this.headers("GET", pathAndQuery, "", opts)), upgrade: "websocket" };
+    const headers = { ...(await this.headers("GET", pathAndQuery, "", opts)), ...this.spaceHeaders(), upgrade: "websocket" };
     const res = await worker.fetch(`${BASE}${pathAndQuery}`, { headers });
     if (res.status !== 101) return { status: res.status, json: (await res.json()) as any, peer: null };
     return { status: 101, json: null, peer: new Peer(res.webSocket!) };

@@ -200,6 +200,47 @@ class ReviewTests(unittest.TestCase):
         self.assertIn("11 more", text)
         self.assertNotIn("<img", text)  # images stay in the artifact, not on the public PR (#21400)
 
+    # Leo (ask-6d611b71a0): "be warning against things that differ from expectation without justification".
+    def test_visual_change_line_justifies_a_state_by_id(self):
+        body = "Visual-change: agent-pane.summary-card/open: the card's padding grew on purpose\n"
+        text = gallery_select.section(self.review(), body=body)
+        self.assertIn("| Verdict |", text)
+        row = [line for line in text.splitlines() if "`agent-pane.summary-card/open`" in line][0]
+        self.assertIn("justified: the card's padding grew on purpose", row)
+        new = [line for line in text.splitlines() if "`agent-pane.summary-card/new-state`" in line][0]
+        self.assertIn("unjustified", new)
+        self.assertIn("1 of 2 differing states have no Visual-change line: is each wanted?", text)
+
+    def test_visual_change_star_justifies_every_state(self):
+        text = gallery_select.section(self.review(), body="visual-change: *: the whole card was redrawn")
+        rows = [line for line in text.splitlines() if line.startswith("| `agent-pane.summary-card/")]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertIn("justified: the whole card was redrawn", row)
+        self.assertIn("every visual difference is justified", text)
+        self.assertNotIn("unjustified", text)
+
+    def test_differences_without_a_visual_change_line_are_unjustified(self):
+        # A line naming another state, and one with no reason, justify nothing here.
+        body = "Visual-change: agent-pane.pr-dock/one: unrelated\nVisual-change: agent-pane.summary-card/open:\n"
+        text = gallery_select.section(self.review(), body=body)
+        rows = [line for line in text.splitlines() if line.startswith("| `agent-pane.summary-card/")]
+        self.assertTrue(rows and all(row.rstrip().endswith("| unjustified |") for row in rows), rows)
+        self.assertIn("2 of 2 differing states have no Visual-change line: is each wanted?", text)
+        # The reason is the PR author's text: it cannot break the table or open markup.
+        text = gallery_select.section(self.review(), body="Visual-change: *: a | b <img src=x> `c`")
+        self.assertNotIn("<img", text)
+        self.assertIn("justified: a / b img src=x c", text)
+
+    def test_no_differences_need_no_justification(self):
+        doc = self.review()
+        for image in doc["images"]:
+            image["status"] = "unchanged"
+        text = gallery_select.section(doc, body="")
+        self.assertIn("every visual difference is justified", text)
+        self.assertNotIn("unjustified", text)
+        self.assertNotIn("is each wanted?", text)
+
     def test_stale_marks_an_older_head(self):
         text = gallery_select.section(self.review())
         stale = gallery_select.stale(text, "c" * 40)
@@ -250,7 +291,8 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["comment"]
         self.assertEqual(job["permissions"]["pull-requests"], "write")
         checkout = job["steps"][0]
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.ref }}")
+        # refs/heads/ since #51926: checkout fetches the one branch, not every branch it prefixes.
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/${{ github.event.pull_request.base.ref }}")
         self.assertIn("scripts/ci/gallery_select.py", checkout["with"]["sparse-checkout"])
         download = job["steps"][1]
         self.assertEqual(download["with"]["name"],
@@ -284,7 +326,19 @@ class WorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(self.text)
         on = workflow.get(True) or workflow["on"]
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
-        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
+        # Cut from pull requests on 2026-11-21 (#48517); back on 2026-11-25 for the component
+        # library only (RFD hq#25960 item 9): kit, ui, the shared token CSS and the gallery matrix.
+        pr = on["pull_request"]
+        self.assertEqual(pr["branches"], ["feat-cmux-next"])
+        self.assertEqual(set(pr["types"]), {"opened", "synchronize", "reopened", "edited", "ready_for_review"})
+        self.assertEqual(set(pr["paths"]), {
+            "webviews/src/kit/**", "webviews/src/ui/**",
+            "webviews/src/pages/shared/desktop.css", "webviews/src/pages/shared/pageDensity.css",
+            "scripts/gallery-matrix/**", ".github/workflows/gallery-advisory.yml",
+            # No render reads Markdown: a docs-only pull request starts no gallery run.
+            "!**/*.md"})
+        self.assertNotIn("webviews/**", pr["paths"])
+        self.assertIn("webviews/**", on["push"]["paths"])
         # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
         cond = self.jobs["capture"]["if"]
         self.assertIn("github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && "

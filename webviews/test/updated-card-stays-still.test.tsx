@@ -136,7 +136,7 @@ describe("the Updated card's changes", () => {
     expect(titles).toEqual(["Computer Use in agent chats", longTitle, "Tabs keep their scroll position"]);
     expect(host.querySelector(".wn-notes-row-detail")?.textContent).toBe("Agents can drive apps on your Mac.");
     const whatsNew = host.querySelector<HTMLButtonElement>(".wn-notes-whatsnew")!;
-    expect(whatsNew.textContent).toBe("What's New ↗");
+    expect(whatsNew.textContent).toBe("What's New");
     await act(async () => whatsNew.click());
     await act(async () => host.querySelector<HTMLButtonElement>(".wn-notes-row")!.click());
     expect(opened).toEqual(["open", "open"]);

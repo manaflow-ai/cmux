@@ -340,7 +340,7 @@ final class PollCardView: UIView {
             }
         }
         if animate {
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
+            UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
         } else {
             UIView.performWithoutAnimation(apply)
         }
@@ -414,14 +414,16 @@ extension ConversationViewController {
         guard pollLayout.cardFrame.contains(shifted) else { return false }
         guard pollModel.interactive,
               let optionID = cell.pollCard.optionID(at: cell.pollCard.convert(shifted, from: cell.shiftable)) else { return true }
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
         store.togglePollVote(messageID: model.message.id, optionID: optionID)
         return true
     }
 
     func presentPollComposer() {
         let composer = PollComposerViewController { [weak self] question, choices in
-            self?.store.sendPoll(question: question, choices: choices)
+            guard let self else { return }
+            let send = { [weak self] in _ = self?.store.sendPoll(question: question, choices: choices) }
+            if self.sendGateAllows(retry: send) { send() }
         }
         let nav = UINavigationController(rootViewController: composer)
         if let sheet = nav.sheetPresentationController {
@@ -453,12 +455,14 @@ extension ConversationViewController {
     func presentPollVoteFailed(messageID: String) {
         let alert = UIAlertController(
             title: String(localized: "conversation.poll.voteFailed", defaultValue: "Poll vote failed.", bundle: .module),
+            // retry-prompt-ok: re-sends the person's vote
             message: String(localized: "conversation.poll.voteFailedDescription", defaultValue: "Your vote was not sent. Tap “Try Again” to resend your vote.", bundle: .module),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel) { [weak self] _ in
             self?.store.dismissPollVoteFailure(messageID: messageID)
         })
+        // retry-prompt-ok: re-sends the person's vote
         alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
             self?.store.retryPollVote(messageID: messageID)
         })

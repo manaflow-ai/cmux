@@ -62,6 +62,13 @@ one), [#10518](https://github.com/manaflow-ai/cmux/pull/10518) (keyboard pinning
 The right shape: [#36957](https://github.com/manaflow-ai/cmux/pull/36957), where the autofix now syncs the bundled
 copies itself.
 
+Transient previews and fallback menus are another instance: Settings > Menus used a private solid fill and
+literal corner radii while the actual popup used shared glass. Both the preview and the fallback picker now
+consume `.ui-popup.ui-menu.ui-glass` and the shared row tokens. The detector is
+`webviews/scripts/check-glass-never-opaque.ts` (`glass-never-opaque.test.ts`); remove an `OVERLAY_PENDING`
+entry when its surface migrates. The `pages.settings-menus` gallery keeps generated, customized and terminal
+previews plus three open Move to states, so an audit includes the fallback instead of only the native path.
+
 **Cost:** 72 generated-file fixes and 160 fixes where two copies drifted.
 
 ## 5. Cost stays constant as things grow
@@ -71,6 +78,11 @@ copies itself.
 **Rule:** every loop, timer and observer has a bound and a stop condition. Work scales with what's visible, not with
 the total.
 
+Scaling measurements count the final fixture, including objects created implicitly by windows or Home. A requested
+number of additions is not a total. The launch seed's explicit total mode reads the topology before filling and
+after showing Home, preserves existing workspaces, and refuses a mismatched total. Its detector is
+`scripts/measure/tests/launch-ready-seed.test.py`; compare 5 and 120 with the same window count and launch case.
+
 **Examples:** [#7182](https://github.com/manaflow-ai/cmux/pull/7182) (O(hosted panes) work on every run-loop tick froze
 the main thread), `9660608040d5` (`NSOpenPanel()` built on the main thread blocked it for 40 s when its service didn't
 answer).
@@ -79,6 +91,14 @@ answer).
 
 **Guards:** in webviews, the dev-server `dom-breadth`, `live-intervals` and `long-frame` budgets (pages the dev server serves; built bundles
 carry none) and the `layout-thrash-in-loop` lint ([modding-kit.md](modding-kit.md)); in cmux-tui, clippy's `await_holding_lock`.
+
+**Segmented histories:** paging the records is insufficient if each page enumerates or clones the
+whole segment table. Share immutable metadata and seek the requested range; preserve conservative
+discovery after directory changes. The detectors are
+`repeated_pages_share_the_segment_table_at_every_log_size` (1, 64, and 512 segments) and
+`an_old_reverse_page_does_not_open_every_newer_segment`, with separate rotation and replacement
+tests. Report cold discovery and warm-page costs separately; a warm cache does not prove bounded
+daemon startup or bounded recovery snapshots.
 
 ## 6. A visible change is one state transition
 
@@ -94,7 +114,9 @@ live resize), [#24902](https://github.com/manaflow-ai/cmux/pull/24902) (reply fa
 **Cost:** 597 fixes, the largest product class. The sidebar and the browser have the most.
 
 **Guards:** in webviews, the dev-server `layout-shift` and `react-commit` budgets ([modding-kit.md](modding-kit.md));
-the no-flicker browser tests. Native UI has none yet beyond tests.
+the no-flicker browser tests. Native UI has none yet beyond tests. In recordings of either, `flicker-check.py` finds
+jumps, blinks, staggered settles and flashes (CI step `recording-shifts`); the spurious-UI classes and what designs
+each out: [spurious-ui.md](spurious-ui.md).
 
 ## 7. Lifecycle edges are the normal case
 

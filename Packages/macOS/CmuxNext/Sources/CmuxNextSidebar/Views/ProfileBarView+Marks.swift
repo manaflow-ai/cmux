@@ -72,24 +72,20 @@ extension ProfileBarView {
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor { profile.color?.markColor ?? Palette.textPrimary }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
+    /// The New Space +: the window's standard + (``PlusButtonLook``), its glyph, weight and ink, secondary at rest
+    /// and primary under the pointer, as the tab bar's New Tab + (Lawrence 2026-11-15: one + everywhere).
     func drawPlus(in rect: NSRect) {
-        let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
-        image.accessibilityDescription = Strings.newProfile
-        // Tint opaque, then draw at the dot's alpha: a translucent tint over
-        // the black template would stay nearly black.
-        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.plusIndex ? 0.6 : 0.35)
-        let tinted = image.tinted(color.withAlphaComponent(1))
-        let size = tinted.size
-        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        PlusButtonLook.drawGlyph(in: context, center: CGPoint(x: rect.midX, y: rect.midY),
+                                 ink: PlusButtonLook.glyphInk(hovering: hovered == Self.plusIndex, pressed: false))
     }
 }
 
 /// One pressable dot for VoiceOver.
 nonisolated final class ProfileDotElement: NSAccessibilityElement {
-    private let onPress: @MainActor @Sendable () -> Void
+    private let onPress: @MainActor @Sendable () -> Bool
 
-    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Void) {
+    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Bool) {
         self.onPress = onPress
         super.init()
         setAccessibilityRole(.button)
@@ -101,6 +97,11 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
     /// Faults from a press that arrives off the main thread.
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.accessibility")
 
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
+
     override func accessibilityPerformPress() -> Bool {
         // AppKit calls accessibility actions on the main thread; anywhere else, refuse.
         guard Thread.isMainThread else {
@@ -108,8 +109,7 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
             return false
         }
         let onPress = onPress
-        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
-        return true
+        return MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
     }
 }
 

@@ -1,0 +1,20 @@
+{
+  "name": "focus",
+  "description": "One thing at a time: the chat as messages, not a transcript; the sidebar a rail whose bands hide until you point at it; no hover cards, minimap or running tray; nothing moves; and a New Tab page that asks what you are working on and starts a timed session.",
+  "settings": {
+    "tabs.newTabApp": "local/customize",
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.minimap": "off",
+    "agentPane.display.trayTucked": true,
+    "agentPane.display.environment.placement": "off",
+    "sidebar.style": "rail",
+    "sidebar.minimalMode": "both",
+    "sidebar.controlsOnHover": true,
+    "sidebar.hoverCards.enabled": false,
+    "layout.rows": false,
+    "layout.paneSeparation": "none",
+    "appearance.chromeStyle": "bare",
+    "appearance.focusIndicator": "none",
+    "ui.calm": "still"
+  }
+}

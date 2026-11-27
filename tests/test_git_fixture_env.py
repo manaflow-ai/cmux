@@ -24,6 +24,7 @@ HOOK = """#!/bin/sh
   printf 'maintenance.auto=%s\\n' "$(git config maintenance.auto)"
   printf 'gc.auto=%s\\n' "$(git config gc.auto)"
   printf 'receive.autogc=%s\\n' "$(git config receive.autogc)"
+  printf 'core.fsync=%s\\n' "$(git config core.fsync)"
 } > "$RECORD"
 cat >/dev/null
 """
@@ -86,6 +87,9 @@ class ReceiverSeesOptOut(unittest.TestCase):
         self.assertEqual(seen["maintenance.auto"], "false", seen)
         self.assertEqual(seen["gc.auto"], "0", seen)
         self.assertEqual(seen["receive.autogc"], "false", seen)
+        # No durable flush in a throwaway repository: on macOS git's fsync is F_FULLFSYNC, a whole-drive cache flush
+        # per ref update and pack, which waits on every other job's writes on a shared mini.
+        self.assertEqual(seen["core.fsync"], "none", seen)
 
     def test_python_clone_repo_bare_receiver_sees_opt_out(self):
         seed = git_fixture_env.init_repo(self.root / "seed", "-b", "main", env=self.bare_env)
@@ -96,6 +100,7 @@ class ReceiverSeesOptOut(unittest.TestCase):
         print(f"receiver (clone_repo): {seen}")
         self.assertEqual(seen["maintenance.auto"], "false", seen)
         self.assertEqual(seen["gc.auto"], "0", seen)
+        self.assertEqual(seen["core.fsync"], "none", seen)
 
     def test_shell_git_fixture_init_bare_receiver_sees_opt_out(self):
         bare = self.root / "shell.git"
@@ -107,6 +112,7 @@ class ReceiverSeesOptOut(unittest.TestCase):
         print(f"receiver (git_fixture_init): {seen}")
         self.assertEqual(seen["maintenance.auto"], "false", seen)
         self.assertEqual(seen["gc.auto"], "0", seen)
+        self.assertEqual(seen["core.fsync"], "none", seen)
 
     def test_shell_git_fixture_clone_bare_receiver_sees_opt_out(self):
         seed = git_fixture_env.init_repo(self.root / "seed", "-b", "main", env=self.bare_env)
@@ -119,6 +125,7 @@ class ReceiverSeesOptOut(unittest.TestCase):
         self.hook(bare)
         seen = self.push_and_read(bare)
         self.assertEqual(seen["maintenance.auto"], "false", seen)
+        self.assertEqual(seen["core.fsync"], "none", seen)
 
 
 class EnvironmentLayers(unittest.TestCase):

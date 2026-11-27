@@ -269,6 +269,8 @@ impl WorkspaceRegistry {
                     "UPDATE personal_groups SET profile_id = ?2 WHERE profile_id = ?1",
                     params![id, target],
                 )?;
+                // The sidebar document's pins and groups of the space move in this commit too.
+                crate::state::sidebar_doc_sync::move_room_items(tx, id, target)?;
                 Vec::new()
             }
             None => {
@@ -972,6 +974,35 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let output = Self::pin_workspace_in(&tx, session, key, profile)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    /// Pins `to_key` to the room `from_key` is pinned to, on `session`, when
+    /// `from_key` has a pin and `to_key` has none. A tab or tab group moved
+    /// to a new workspace stays in its space this way; an unpinned source
+    /// leaves the new workspace following its session like the source
+    /// (https://github.com/manaflow-ai/cmux/issues/42754).
+    pub fn inherit_workspace_pin(
+        &mut self,
+        session: &str,
+        from_key: &str,
+        to_key: &str,
+    ) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        let pin_of = |key: &str| {
+            tx.query_row(
+                "SELECT profile_id FROM profile_pins WHERE session_id = ?1 AND workspace_key = ?2",
+                params![session, key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+        };
+        let (Some(profile), None) = (pin_of(from_key)?, pin_of(to_key)?) else {
+            return Ok(false);
+        };
+        let output = Self::pin_workspace_in(&tx, session, to_key, &profile)?;
         tx.commit()?;
         Ok(output)
     }

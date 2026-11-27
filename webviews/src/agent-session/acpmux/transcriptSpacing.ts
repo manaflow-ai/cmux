@@ -13,6 +13,17 @@
 // `pending` names the PR that brings a gap to its value: until it lands the test expects that row to
 // fail (bun `test.failing`), so the landing PR must drop `pending` and the row is enforced from then on.
 
+import {
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_TO_LIVE_STEP,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP_TOKEN,
+  TRANSCRIPT_LIVE_LINE_BOX,
+} from "./transcriptGrid";
+
+/// The live line under a one-line row: its distance comes from its box and gap in transcriptGrid.ts, never typed here.
+const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_LINE_BOX} box, half (transcriptGrid.ts LIVE_GAP_LOOKS)`;
+
 export type SpacingRow = {
   /** The measurement's id, as the test names it. */
   id: string;
@@ -46,21 +57,21 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "footer-to-next",
     between: "the footer's glyph centre and the next row's centre (an inbox row)",
-    value: 51,
+    value: 16 + 24 + TRANSCRIPT_LINE_ROW / 2,
     tolerance: 1,
     source: "16 + 24 + 11; claude.ai and Claude Code desktop 24 from the button row to the next block",
   },
   {
     id: "step-to-prompt",
     between: "a one-line row's centre and the next prompt bubble's top edge",
-    value: 43,
+    value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source: "11 + grid turn gap 32; Codex desktop ~16, Claude Code desktop ~24 after its action row",
   },
   {
     id: "prompt-to-step",
     between: "a prompt bubble's bottom edge and the centre of the one-line row under it",
-    value: 43,
+    value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source:
       '11 + grid turn gap 32: the prompt stays centred (Leo, 2026-11-01: "this is too close to tool calls, center it"; settled-spacing.json turn-gap). claude.ai and chatgpt.com draw 40, holding the bubble\'s own action row',
@@ -68,14 +79,14 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-prose",
     between: "a run's last row and the reply's first line, centre to centre",
-    value: 38.375,
+    value: TRANSCRIPT_LINE_ROW / 2 + 16 + 11.375,
     tolerance: 1,
     source: "11 + 16 + 11.375: Codex transcript run gap 16",
   },
   {
     id: "prose-to-step",
     between: "a reply's last line and the run under it, centre to centre",
-    value: 38.375,
+    value: TRANSCRIPT_LINE_ROW / 2 + 16 + 11.375,
     tolerance: 1,
     source: "as step-to-prose: the Codex activity-to-prose gap is symmetric",
   },
@@ -83,37 +94,38 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     id: "step-pitch",
     between:
       "two consecutive one-line rows (an opened run's commands, received message lines, inbox rows), centre to centre",
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "Claude Code desktop verbose rows 22; Codex desktop 26; chat-transcript.md one-line row pitch (#29965)",
   },
   {
     id: "call-pitch",
     between: "two consecutive calls listed in a running turn's run (sent message lines, a command), centre to centre",
-    value: 26,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
-    source: "22 line + grid base 4 between a run's calls (.cv-tools gap, #42247); Codex desktop 26",
+    source:
+      "the one-line pitch: a row's lines stack flush as rows do (.cv-tools, gap 0). #42247's 4 between them put a row's first line 26 over the next while the rest were 22 (Leo, 2026-11-16: \"why is the spacing different on the first thinking tool call?\")",
   },
   {
     id: "run-to-step",
     between: "a run's last line and the one-line row under it (an inbox row), centre to centre",
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
   },
   {
     id: "step-to-waiting",
     between: 'a one-line row and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
   },
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
 ];
 
@@ -133,42 +145,43 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "footer-to-received",
     between: "a reply footer's glyph centre and the received message line under it, centre to centre",
-    value: 51,
+    value: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
     tolerance: 1,
-    source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
+    source:
+      "16 + 16 + 11: the run gap the next turn's Working for stands under the footer (transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS); Claude 24 from the button row to the next block",
   },
   {
     id: "received-to-status",
     between: 'a received message line and the "Scheduled check" line under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3); no reference shows a received line over a scheduled check",
   },
   {
     id: "status-to-run",
     between: '"Scheduled check" and the "Ran 2 commands" line under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
   },
   {
     id: "run-to-child",
     between: '"Ran 2 commands", opened, and its first command, centre to centre',
-    value: 26,
+    value: TRANSCRIPT_LINE_ROW + 4,
     tolerance: 0.5,
     source: "22 line + grid base 4 between the run header and its opened body (.cv-tools)",
   },
   {
     id: "child-pitch",
     between: "an opened run's two commands, centre to centre",
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "our one-line pitch (rule 3); Codex desktop 26, Claude Code desktop 34 (a card row with dividers)",
   },
   {
     id: "child-to-prose",
     between: "an opened run's last command and the reply under it, centre to centre",
-    value: 38.375,
+    value: TRANSCRIPT_LINE_ROW / 2 + 16 + 11.375,
     tolerance: 1,
     source: "as step-to-prose: 11 + Codex transcript run gap 16 + 11.375",
   },
@@ -183,21 +196,21 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "prompt-to-status",
     between: "a prompt bubble's bottom edge and the compaction line under it, centre",
-    value: 43,
+    value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source: "as prompt-to-step: 32 + 11",
   },
   {
     id: "status-to-prose",
     between: "a finished compaction line and the reply under it, centre to centre",
-    value: 38.375,
+    value: TRANSCRIPT_LINE_ROW / 2 + 16 + 11.375,
     tolerance: 1,
     source: "a status line keeps the Codex run gap 16 from prose",
   },
   {
     id: "step-to-status",
     between: 'a one-line tool row and "Compacting the conversation…" under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source:
       "one-line rows sit flush (rule 3): notices are one-line rows; no reference shows a compaction line by a tool row",
@@ -219,7 +232,7 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     variant: "working-bottom",
     between:
       'the running turn\'s last call ("Read src/turns.ts", its run in sight) and the subagent\'s start line under it ("… started working", #42247), centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
   },
@@ -227,7 +240,7 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "started-to-subagent",
     variant: "working-bottom",
     between: 'the subagent\'s start line and its "… finished" line under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
   },
@@ -235,7 +248,7 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "subagent-to-waiting",
     variant: "working-bottom",
     between: '"Subagent finished" and "1 message from 1 session" under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row (rule 3, step-to-waiting)",
   },
@@ -243,23 +256,23 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "reply-footer-to-received",
     variant: "reply-received",
     between: "an earlier reply's footer glyph centre (hover-revealed) and the received line under it, centre to centre",
-    value: 51,
+    value: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
     tolerance: 1,
-    source: "as footer-to-received: 16 + 24 + 11",
+    source: "as footer-to-received: 16 + 16 + 11",
   },
   {
     id: "received-to-sent",
     variant: "reply-received",
     between: 'another agent\'s received line and the "Sent to" line under it, centre to centre',
-    value: 22,
+    value: TRANSCRIPT_LINE_ROW,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
   },
@@ -267,24 +280,24 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "status-to-prompt",
     variant: "status-prompt",
     between: "a turn's last status row (\"Subagent finished\") and the next prompt bubble's top edge",
-    value: 43,
+    value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source: 'step-to-prompt: 11 + 32 (rule 5); Leo, 2026-11-03: "why is the spacing like this it\'s weird"',
   },
@@ -292,7 +305,7 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "prompt-to-sent",
     variant: "status-prompt",
     between: "a prompt bubble's bottom edge and the centre of its turn's first status row (\"Sent to …\")",
-    value: 43,
+    value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source: "prompt-to-step: 32 + 11 (rule 5)",
   },
@@ -309,11 +322,11 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
  * agent-pane.lone-system-rows by test/transcript-lone-system-rows.test.ts. */
 export const LONE_SYSTEM_ROWS = {
   /** The footer's glyph centre to the line's centre: 16 + 8 + 11. */
-  footerToLine: 35,
+  footerToLine: 16 + 8 + TRANSCRIPT_LINE_ROW / 2,
   /** The line's centre to the next prompt bubble's top edge: 11 + 32 (step-to-prompt). */
-  lineToPrompt: 43,
+  lineToPrompt: TRANSCRIPT_LINE_ROW / 2 + 32,
   /** Another agent's line under the footer: footer-to-received. */
-  footerToReceived: 51,
+  footerToReceived: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
   tolerance: 1,
   variants: [
     "background-update",
@@ -379,4 +392,4 @@ export const BUBBLE = {
  * 22 apart centre to centre, with no gap between them (Leo, 2026-11-02, on a Claude chat where
  * they stood a block apart: "these are all so stupid looking"). Measured by
  * test/transcript-system-rows.test.ts on gallery entry agent-pane.transcript-system-rows. */
-export const SYSTEM_ROW_PITCH = 22;
+export const SYSTEM_ROW_PITCH = TRANSCRIPT_LINE_ROW;

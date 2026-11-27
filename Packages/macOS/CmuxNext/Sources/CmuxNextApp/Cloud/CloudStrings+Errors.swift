@@ -8,13 +8,13 @@ extension CloudStrings {
     /// One Cloud error as a person reads it, never a Swift dump: a server
     /// refusal is its message, its next step and "(trace …)"; the other
     /// ``CloudAPIError`` cases say what to do; a link error reads as ``CloudAppLinks/endedMessage(_:)``;
-    /// any other in plain words (``PlainErrorText/personal(_:)``). Logs keep `String(describing:)`.
+    /// a stalled Keychain call names its item; any other in plain words (``PlainErrorText/personal(_:)``). Logs keep `String(describing:)`.
     static func errorText(_ error: any Error) -> String {
         switch error {
         case let error as CloudAPIError: apiErrorText(error)
         case let error as CloudLinkError: CloudAppLinks.endedMessage(error)
         case let error as ActionFailure: error.message
-        default: PlainErrorText.personal(error)
+        default: CloudStrings.keychainTimedOut(error) ?? PlainErrorText.personal(error)
         }
     }
 
@@ -47,20 +47,20 @@ extension CloudStrings {
 
     /// The support reference after a Cloud server message.
     nonisolated static func trace(_ id: String) -> String {
-        String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module.inAppLanguage), id)
     }
 
     nonisolated static var apiTimedOut: String {
-        String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 
     nonisolated static var apiUnreachable: String {
         String(localized: "cloud.error.unreachablePlain", defaultValue: "Couldn't reach cmux Cloud. Check your network, then try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .module.inAppLanguage)
     }
 
     nonisolated static var apiUnreadable: String {
         String(localized: "cloud.error.unreadable", defaultValue: "cmux Cloud sent an answer this version of cmux can't read. Update cmux, then try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

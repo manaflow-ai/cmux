@@ -266,6 +266,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action live-swift-stop",
         ..Action::DEFAULT
     },
+    // Update Status: one read of the running build, the staged update and whether a relaunch
+    // installs it now (`UpdaterService.statusAnswer`). A CLI run answers the fields
+    // (`cmux settings update-status --json`); a palette run shows the one line as a toast.
+    Action {
+        id: "updates.status",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.status", "Update Status"),
+        hint: Some(t("ActionCatalog", "action.updates.status.hint", "The running build, the staged update and whether a relaunch installs it now.")),
+        description: Some("Reads the running build, the staged update (if any) and relaunch readiness (ready, held and why, installing, or nothing staged). Changes nothing."),
+        keywords: &["update", "status", "version", "build", "staged", "relaunch", "restart", "ready", "idle", "nightly"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings update-status",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "updates.whatsNew",
         group: GROUP,
@@ -339,6 +356,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CHANNEL],
         cli_name: "settings switch-update-channel",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -350,10 +368,13 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward.circle",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        // Not destructive: it quits into the build this Mac kept, and updating again undoes it
+        // (terminals and agents keep running), so a pick runs it. `--confirm` is still taken and
+        // changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
-        is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -367,6 +388,131 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings install-earlier-nightly",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.snooze",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.snooze", "Snooze Update Card…"),
+        keywords: &["update", "snooze", "remind", "remind me later", "later", "hide", "dismiss", "close", "card", "nightly", "version"],
+        category: "settings",
+        symbol: "clock.badge.xmark",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::UPDATE_SNOOZE],
+        cli_name: "action updates-snooze",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.cancelDownload",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.cancelDownload", "Cancel Update Download"),
+        keywords: &["update", "download", "cancel", "stop", "abort", "nightly", "version"],
+        category: "settings",
+        symbol: "xmark.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-cancel-download",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.showDetails",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.showDetails", "Show Update Details"),
+        keywords: &["update", "details", "error", "failed", "failure", "why", "nightly", "version"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-show-details",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.releaseNotes",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.releaseNotes", "Open Update Release Notes"),
+        keywords: &["update", "release notes", "changelog", "changes", "new version", "nightly"],
+        category: "settings",
+        symbol: "doc.text",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action updates-release-notes",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tips.muteDay",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tips.muteDay", "Mute Tips for 1 Day"),
+        keywords: &["tips", "tip", "did you know", "mute", "hide", "snooze", "card", "sidebar", "day"],
+        category: "settings",
+        symbol: "bell.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action tips-mute-day",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tips.muteWeek",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tips.muteWeek", "Mute Tips for 1 Week"),
+        keywords: &["tips", "tip", "did you know", "mute", "hide", "snooze", "card", "sidebar", "week"],
+        category: "settings",
+        symbol: "bell.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action tips-mute-week",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tabs.toolbar.togglePin",
+        group: GROUP,
+        title: t("ActionCatalog", "action.tabs.toolbar.togglePin", "Pin or Unpin Tab Bar Button…"),
+        keywords: &["tab bar", "toolbar", "button", "pin", "unpin", "show in tab bar", "split", "more"],
+        category: "settings",
+        symbol: "pin",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::TAB_BAR_BUTTON],
+        cli_name: "action tabs-toolbar-toggle-pin",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.run",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.run", "Run a PR as This App…"),
+        hint: Some(t("ActionCatalog", "action.app.try.run.hint", "Swap this app to a pull request, branch or commit, with no checkout or build. Undo Last PR Run puts it back.")),
+        keywords: &["try", "pr", "pull request", "branch", "commit", "sha", "hot swap", "swap", "run", "test", "nightly", "build"],
+        category: "settings",
+        symbol: "arrow.triangle.pull",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::APP_TRY_TARGET],
+        cli_name: "action app-try-run",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.undo", "Undo Last PR Run"),
+        keywords: &["try", "undo", "pr", "pull request", "put back", "revert", "roll back", "hot swap", "swap"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    // The recovery key (customization capability matrix row `recovery-hotkey`): one fixed chord
+    // that runs `cmux customize revert`, so a look that broke the window is undone without
+    // finding Settings or a terminal. Its handler runs the bundled CLI's verb (the engine is
+    // cmux-customize `try_on.rs`), as Settings' Revert Now does. The chord is one no other
+    // default, macOS or Ghostty takes (`tests/default_keymap_conflicts.rs`). A person's
+    // keybindings can still rebind it: the catalog has no unbindable flag, and safe mode
+    // (`cmux safe-mode on`) loads the defaults with no customization.
+    Action {
+        id: "customize.revert",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.revert", "Undo Look Change"),
+        hint: Some(t("ActionCatalog", "action.customize.revert.hint", "Stop trying on a look and put back what was there before.")),
+        description: Some("Runs `cmux customize revert`: ends the look being tried on and puts back what was there before."),
+        keywords: &["customize", "customization", "look", "theme", "revert", "undo", "put back", "broken", "recover", "reset", "try on"],
+        default_shortcut: Some(Shortcut { key: "z", modifiers: CTRL | OPT | CMD }),
+        category: "settings",
+        symbol: "arrow.uturn.backward.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-revert",
         ..Action::DEFAULT
     },
     Action {
@@ -913,6 +1059,48 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every dialog keycap style on a real dialog card's buttons, rest, hover and pressed, light and dark (Lawrence
+    // 2026-11-16 on the quit dialog's esc and return chips: "come up with more variations").
+    Action {
+        id: "debug.keycapPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.keycapPlayground", "Keycap Playground"),
+        keywords: &["keycap", "keycaps", "shortcut", "key hint", "dialog", "button", "variants", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "keyboard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-keycap-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every tooltip state on the real tooltip surface, light, dark and an accent theme, with a live toolbar to hover
+    // (Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent").
+    Action {
+        id: "debug.tooltipGallery",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.tooltipGallery", "Tooltip Gallery"),
+        keywords: &["tooltip", "tooltips", "hover", "help", "shortcut", "keycap", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "questionmark.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-tooltip-gallery",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -938,6 +1126,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "debug.envSecretsPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.envSecretsPlayground", "Environment Secrets Playground"),
+        keywords: &["environment", "variables", "secrets", "env", "cloud", "keys", "hosts", "playground", "variants", "debug"],
+        category: "settings",
+        symbol: "key.horizontal",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::VARIANT.optional(), args::STATE.optional(), args::DARK.optional()],
+        cli_name: "action debug-env-secrets-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "debug.sidebarStatesPlayground",
         group: GROUP,
         title: t("ActionCatalog", "action.debug.sidebarStatesPlayground", "Sidebar States Playground"),
@@ -958,6 +1159,18 @@ pub static ACTIONS: &[Action] = &[
         symbol: "slider.horizontal.3",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-row-tuner",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.densityOverlayPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityOverlayPlayground", "Density Overlay Playground"),
+        keywords: &["density", "overlay", "helium", "chrome", "browser", "tab bar", "omnibar", "pixel", "diff", "compare", "tune", "debug"],
+        category: "settings",
+        symbol: "square.on.square.dashed",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-overlay-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

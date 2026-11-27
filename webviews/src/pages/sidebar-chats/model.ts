@@ -18,9 +18,25 @@ export const SidebarChatsOps = {
   menu: "cmux.sidebarChats.menu",
   /** {revision, height}: `revision` is drawn and is `height` CSS px tall (the host's gap for it). */
   ready: "cmux.sidebarChats.ready",
+  /** Stream, host to page: {revision, top, height} in CSS px, the part of this block's page the sidebar shows
+   * (`height` 0: scrolled out). At most one per frame, after each `ready` and each block push, and at once on
+   * subscribe. The page then mounts only the rows near it (`sliceRange`); before the first it draws every row.
+   * The old wire: a host that streams `visibleSlice` sends none. Accepted until that host ships, then it goes. */
+  slice: "cmux.sidebarChats.slice",
+  /** Stream, host to page, subscribed with `{surface}` (`sliceSurface`): {surface, revision, top, height}, the same
+   * slice as `slice` on the page's generic visible-slice stream. Once one arrives for a surface, `slice` events for
+   * it are ignored. */
+  visibleSlice: "cmux.page.visibleSlice",
 } as const;
 
 export type SidebarChatsPart = "pinned" | "earlier";
+
+export const SIDEBAR_CHATS_PARTS: readonly SidebarChatsPart[] = ["pinned", "earlier"];
+
+/** A block's surface on `cmux.page.visibleSlice` (the host's `SidebarChatHistoryHost.surface`). */
+export function sliceSurface(part: SidebarChatsPart): string {
+  return `sidebar-chats:${part}`;
+}
 
 /** One chat row. `meta` is its age ("12m"), formatted by the host; `markColor` is set for a harness no
  * mark knows, whose generic mark takes that stable colour. */
@@ -100,6 +116,48 @@ export function blockHeight(block: SidebarChatsBlock): number {
 /** A row's spoken name: its title, its harness and its age, as the AppKit row read. */
 export function rowLabel(row: SidebarChatRow): string {
   return [row.title, row.harness, row.meta].filter((part): part is string => !!part).join(", ");
+}
+
+/** The visible part of the block's page, in CSS px from its top (`SidebarChatsOps.slice`). */
+export interface SidebarChatsSlice {
+  revision: number;
+  top: number;
+  height: number;
+}
+
+/** The rows a slice mounts, `[start, end)` over `block.rows`: those that meet `[top - height, top + 2 * height]`
+ * (one slice height of overscan each side). Each row takes `row + spacing` under the header, as `blockHeight`
+ * counts it. A slice of height 0 (scrolled out) mounts none. */
+export function sliceRange(block: SidebarChatsBlock, slice: SidebarChatsSlice): { start: number; end: number } {
+  const count = block.folded ? 0 : block.rows.length;
+  if (slice.height <= 0 || count === 0) return { start: 0, end: 0 };
+  const { header, row, spacing } = block.metrics;
+  const stride = row + spacing;
+  if (!(stride > 0)) return { start: 0, end: count };
+  const low = slice.top - slice.height - header;
+  const high = slice.top + 2 * slice.height - header;
+  // Row i spans [i * stride, (i + 1) * stride); it meets [low, high] when it starts before high and ends after low.
+  const start = Math.min(count, Math.max(0, Math.floor(low / stride)));
+  const end = Math.min(count, Math.max(start, Math.ceil(high / stride)));
+  return { start, end };
+}
+
+/** A slice event from the host, checked: anything that is not one (a missing or non-finite field, a negative
+ * height) is dropped. */
+export function parseSlice(data: unknown): SidebarChatsSlice | null {
+  if (!data || typeof data !== "object") return null;
+  const { revision, top, height } = data as Record<string, unknown>;
+  const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+  if (!finite(revision) || !finite(top) || !finite(height) || height < 0) return null;
+  return { revision, top, height };
+}
+
+/** A `cmux.page.visibleSlice` event, checked: its surface (one of the blocks') and the slice; else null. */
+export function parseVisibleSlice(data: unknown): { surface: string; slice: SidebarChatsSlice } | null {
+  const slice = parseSlice(data);
+  const surface = (data as Record<string, unknown> | null)?.surface;
+  if (!slice || !SIDEBAR_CHATS_PARTS.some((part) => sliceSurface(part) === surface)) return null;
+  return { surface: surface as string, slice };
 }
 
 /** A block event from the host, checked: anything that is not one is dropped. */

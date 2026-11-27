@@ -9,6 +9,7 @@ import type { Play } from "../../gallery/play";
 import { cloudStartLook } from "./cloudStart.experiment";
 import { CloudStartView } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
+import { createGitHubPicker } from "./githubRepos";
 
 const begun: CloudStartProgress = {
   key: "gallery",
@@ -18,6 +19,35 @@ const begun: CloudStartProgress = {
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
+const copyProgress = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  machine: known.machine,
+  machineFinishedAt: 12_400,
+  clone: { state: "running", phase: "copy", progress: { filesDone: 1_204, filesTotal: 3_310 } },
+} satisfies Partial<CloudStartProgress>;
+const setupRunning = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  clone: { state: "done", ...timing },
+  setup: { state: "running", status: "building" },
+} satisfies Partial<CloudStartProgress>;
+
+// Connect GitHub's fixture connection: the host opens GitHub, the page never becomes the key one again here, and
+// no host says GitHub changed. Every hook is the fixture's own: the default ones read `window` when the module
+// loads, and the gallery's bun runners (manifest.ts, touched.ts) load this file with no window.
+const galleryGitHub = createGitHubPicker(
+  async () => ({ opened: true }),
+  () => () => undefined,
+  () => false,
+  () => () => undefined,
+);
+
+// The checklist folds behind its summary; open it to show the clone row's line.
+const openChecklist: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-cloud-start__summary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__checklist"));
+};
 
 const showStart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
@@ -36,6 +66,50 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 380,
   variants: {
+    // The quiet view a person sees while a start is on its way (no showSteps): one line that names the
+    // stage and counts its seconds live (then m:ss), never a guess at how long it usually takes. `inline` is the shipped look; the
+    // `quiet-stacked-*`, `quiet-hint-*` and `quiet-thinking` variants show the other arms of
+    // `cloud-start-quiet-look` on the same stages.
+    "quiet-machine": {
+      note: "Just sent: the line says the Cloud machine is starting, with its live seconds.",
+      props: { start: { ...begun, step: "machine" } },
+    },
+    "quiet-copy": {
+      note: "The machine is up and the project copies; with no progress reported, only its seconds.",
+      props: { start: { ...begun, step: "folder", ...known } },
+    },
+    "quiet-copy-progress": {
+      note: "The copy reports its files: the line shows them after its seconds.",
+      props: { start: { ...begun, ...copyProgress } },
+    },
+    "quiet-setup": {
+      note: "The environment's setup script runs for the first time, with its seconds.",
+      props: { start: { ...begun, ...setupRunning } },
+    },
+    "quiet-agent": {
+      note: "Last stage: the agent starts on the machine, with its seconds.",
+      props: { start: { ...begun, step: "opening", agent: "Claude Code", ...known } },
+    },
+    "quiet-stacked-machine": {
+      note: "Arm stacked: the stage and its seconds on the live line, the copy's progress (when it reports) under it.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "stacked" },
+    },
+    "quiet-stacked-setup": {
+      note: "Arm stacked, the setup stage.",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "stacked" },
+    },
+    "quiet-hint-copy": {
+      note: "Arm hint: the inline line over one thin segment per stage this start runs (2 of 4).",
+      props: { start: { ...begun, ...copyProgress, setup: { state: "pending" } }, quietLook: "hint" },
+    },
+    "quiet-hint-setup": {
+      note: "Arm hint, the setup stage (3 of 4).",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "hint" },
+    },
+    "quiet-thinking": {
+      note: "Arm thinking (before this change): Thinking alone, no stage and no wait.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "thinking" },
+    },
     sent: {
       note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },
@@ -102,7 +176,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/Projects",
             repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map(
@@ -129,7 +203,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -155,7 +229,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -180,7 +254,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Downloads is too big to copy to a Cloud machine (at least 20 GB in 1,204 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+            "~/Downloads is too big to copy (at least 20 GB in 1,204 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
           tooBig: { folder: "~/Downloads", repos: [], more: false },
         },
         onPickFolder: () => undefined,
@@ -217,6 +291,78 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onDismiss: () => undefined,
       },
     },
+    "cloud-disabled": {
+      note: "Cloud is off in the app (cloud_disabled): a sentence, never the raw code; Run on This Mac sends the same prompt here, Not now leaves the draft.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "cloud_disabled",
+          message: "Cloud is off in this app right now, so this chat can't start on a Cloud machine.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "folder-not-open": {
+      note: "The pane refused a folder that isn't open in this tab: Pick a folder grants one and sends again, or start without a folder.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "transport.path_outside_roots",
+          refusedHere: true,
+          message: "This folder isn't open in this tab; pick it to send it to Cloud.",
+        },
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "start-failed-retry": {
+      // retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine.
+      note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
+      props: {
+        start: {
+          ...begun,
+          ...known,
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "Claude Code did not start on paint-dev.",
+          machineStartedAt: timing.startedAt,
+          machineFinishedAt: timing.finishedAt,
+          harnessStartedAt: timing.finishedAt,
+        },
+        onRetry: () => undefined,
+        onRunHere: () => undefined,
+      },
+    },
+    "needs-github": {
+      note: "Connecting GitHub would let the start go on (seed.needs_github): Connect GitHub opens the install, Retry runs the same start.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "seed.needs_github",
+          retryable: true,
+          message: "Connect GitHub so the machine can clone manaflow-ai/cmux.",
+        },
+        onRetry: () => undefined,
+        githubStore: galleryGitHub,
+      },
+    },
+    "chat-starting-here": {
+      note: "A chat is already starting in this tab (unavailable_now): Open a new Cloud chat carries the same prompt and folder there.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "unavailable_now",
+          refusedHere: true,
+          message: "A chat is already starting in this tab. Open a new chat to start one in Cloud.",
+        },
+        onOpenNewCloudChat: () => undefined,
+      },
+    },
     "signing-in": {
       note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
       props: { start: { ...begun, signingIn: true } },
@@ -249,6 +395,19 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           clone: { state: "running", ...timing },
         },
       },
+    },
+    "checklist-left-on-mac": {
+      note: "A very large folder sent only a first pass: the copy row says how many files stayed on this Mac, so the copy does not read as complete.",
+      props: {
+        start: {
+          ...begun,
+          machine: known.machine,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", phase: "complete", leftOnMac: 1204, ...timing },
+        },
+        showSteps: true,
+      },
+      play: openChecklist,
     },
     "checklist-setup-cached": {
       note: "The environment snapshot is ready, so setup completes from cache.",

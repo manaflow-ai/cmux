@@ -255,7 +255,7 @@ enum TabHandlers {
 
     /// The previous or next pane of `pane`'s screen in visual order, wrapping; nil when it is the only one.
     private static func siblingPane(of pane: PaneController, offset: Int) -> PaneController? {
-        guard let content = pane.workspace, let order = content.layoutModel.screen(containing: pane.layoutPaneID)?.layout.visualPanes,
+        guard let content = pane.workspace, let order = content.layoutModel.screen(containing: pane.layoutPaneID)?.visualPanes,
               order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else { return nil }
         return content.panes[order[(index + offset + order.count) % order.count]]
     }

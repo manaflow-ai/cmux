@@ -14,9 +14,10 @@ use serde_json::Value;
 
 pub use reads::{GetView, RowView, Snapshot, managed_json};
 pub use replay::REPLAY_CAPACITY;
-pub use state::{FileRead, State};
+pub use state::{FileRead, State, ThemeRead};
 
 use crate::domains::Domains;
+use crate::history::HistoryEntry;
 use crate::keypath::key_path;
 use crate::managed::TeamPolicyLayer;
 use crate::refusal::Refusal;
@@ -113,6 +114,24 @@ pub enum Op {
         edits: Vec<Edit>,
         meta: WriteMeta,
     },
+    /// `settings.undo`: restores the `before` of the newest history entry
+    /// that is not an undo and was not undone yet (`history::undo_pick`).
+    Undo {
+        meta: WriteMeta,
+    },
+    /// `settings.restore`: the file becomes the text it had just before the
+    /// change that produced `revision`, as one write with the checks of
+    /// [`apply_with_history`].
+    Restore {
+        revision: u64,
+        meta: WriteMeta,
+    },
+    /// `settings.reset_group`: every row of a section (`appearance`) or of a
+    /// group in it (`appearance.sidebar`) back to its default, as one edit.
+    ResetGroup {
+        group: String,
+        meta: WriteMeta,
+    },
     /// Accept only from the hosting app's connection (the daemon checks).
     DomainsPublish {
         themes: Vec<String>,
@@ -143,6 +162,11 @@ pub struct Edit {
 pub enum EditKind {
     /// `settings.set` of the value.
     Set(Value),
+    /// `settings.set` of the value without its default removal: a schema
+    /// row set to its default keeps the key. The app sends it, having
+    /// decided keep or remove itself (Swift `isUnsetValue`, the layers
+    /// below the file, `unsetIsNotDefaultKeys`, build defaults).
+    SetExact(Value),
     /// `settings.set` of the value only while the file has no value at the
     /// path (JSON null is a value). Swift `setUnset`.
     SetUnset(Value),
@@ -158,6 +182,7 @@ impl EditKind {
     pub fn wire_name(&self) -> &'static str {
         match self {
             EditKind::Set(_) => "set",
+            EditKind::SetExact(_) => "set_exact",
             EditKind::SetUnset(_) => "set_unset",
             EditKind::Reset => "reset",
             EditKind::ResetUnchanged(_) => "reset_unchanged",
@@ -167,9 +192,10 @@ impl EditKind {
     /// The value it sets or expects.
     pub fn value(&self) -> Option<&Value> {
         match self {
-            EditKind::Set(value) | EditKind::SetUnset(value) | EditKind::ResetUnchanged(value) => {
-                Some(value)
-            }
+            EditKind::Set(value)
+            | EditKind::SetExact(value)
+            | EditKind::SetUnset(value)
+            | EditKind::ResetUnchanged(value) => Some(value),
             EditKind::Reset => None,
         }
     }
@@ -204,14 +230,35 @@ pub struct Applied {
     pub changes: Vec<Change>,
     pub outcome: Outcome,
     pub write: Option<String>,
+    /// The revision a `settings.undo` took back (its history entry records it).
+    pub undoes: Option<u64>,
 }
 
-/// The reducer.
+/// The reducer, without a settings history: `settings.undo` has nothing to
+/// undo and `settings.restore` knows no revision.
 pub fn apply(state: &State, op: Op) -> Result<Applied, Refusal> {
+    apply_with_history(state, op, &[])
+}
+
+/// The reducer with the owner's settings history (oldest first), which
+/// `settings.undo` and `settings.restore` read. A restore (and an undo) is
+/// one write of an earlier file text: refused while the file does not
+/// parse, idempotency and `if_revision` honored, a managed key's file value
+/// may change while the managed value still wins, and an origin other than
+/// the person may change only the rows `settings.set` lets it change.
+pub fn apply_with_history(
+    state: &State,
+    op: Op,
+    history: &[HistoryEntry],
+) -> Result<Applied, Refusal> {
     match op {
-        Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. } => {
-            write::apply_write(state, op)
-        }
+        Op::Set { .. }
+        | Op::Reset { .. }
+        | Op::ResetAll { .. }
+        | Op::Edit { .. }
+        | Op::Undo { .. }
+        | Op::Restore { .. }
+        | Op::ResetGroup { .. } => write::apply_write(state, op, history),
         Op::DomainsPublish { themes, font_families, sounds } => {
             let mut next = state.clone();
             next.domains = Domains::published(themes, font_families, sounds);

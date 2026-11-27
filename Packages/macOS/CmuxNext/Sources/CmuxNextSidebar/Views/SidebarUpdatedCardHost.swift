@@ -292,12 +292,11 @@ final class SidebarUpdatedCardHost: NSView {
     /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
     /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
     static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
-    /// The x's side and its inset from the card's top right: on the title line, inside the padding.
+    /// The x's side.
     static var closeSide: CGFloat { metrics.closeSide }
-    static var closeInset: NSSize {
-        let m = metrics
-        return NSSize(width: max(m.paddingX - 2, 0), height: max(m.paddingY - 2, 0))
-    }
+    /// The x's inset from the card's top and trailing side: in the card's corner, concentric with the glass
+    /// (Lawrence 2026-11-15: the x was not concentric with the card's corner).
+    var closeInset: CGFloat { Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide).padding }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -376,7 +375,20 @@ final class SidebarUpdatedCardHost: NSView {
             return heldHeight > 0 ? held : Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
         }
         let content = island.contentHeight
-        return content > 0 ? max(content, held) : 0
+        // The hold lasts while the words load; once they are final the card is as tall as they are (u51892
+        // review F1: the card's height varies with its change line, so a taller card remembered from the last
+        // showing stood with a blank band above shorter words, its x above their title).
+        guard content > 0 else { return 0 }
+        return island.contentSettled ? content : max(content, held)
+    }
+
+    /// The top of the page's card box (its `.wn-card-rest`) in this view: the page stands its card on the
+    /// view's resting edge (surface.css), so at the bottom, with the preview closed, the words' box is the
+    /// page's reported height up from the bottom even while the slot holds more room than that.
+    private var wordsTop: CGFloat {
+        let card = cardRect
+        guard anchor != .top, !previewIsOpen, let content = island?.contentHeight, content > 0 else { return card.minY }
+        return max(card.minY, bounds.maxY - content)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce
@@ -425,16 +437,13 @@ final class SidebarUpdatedCardHost: NSView {
     /// The hover preview is open: the page asked for room past the card's own height.
     var previewIsOpen: Bool { overlayHeight > height + 0.5 }
 
-    /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height. The title line leads the card's lines at the view's top for a card
-    /// resting at the top, and while the hover preview is open (the page lays its header first,
-    /// Lawrence 2026-11-07: "a header (Updated to <version>, What's New link, close), then the
-    /// items"); else it is at the bottom of the view.
-    var closeTop: CGFloat {
-        let m = Self.metrics, card = height > 0 ? height : bounds.height
-        let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
+    /// The card's own rect in the view: the header leads the view for a card resting at the top and while the
+    /// hover preview is open (the page lays its header first, Lawrence 2026-11-07: "a header (Updated to
+    /// <version>, What's New link, close), then the items"); else the card is at the bottom of the view.
+    var cardRect: NSRect {
+        let card = height > 0 ? height : bounds.height
         let headerOnTop = anchor == .top || previewIsOpen
-        return (headerOnTop ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+        return NSRect(x: 0, y: headerOnTop ? 0 : bounds.height - card, width: bounds.width, height: card)
     }
 
     /// Whether the x shows now (proofs).
@@ -448,10 +457,29 @@ final class SidebarUpdatedCardHost: NSView {
 
     override func layout() {
         super.layout()
-        let side = Self.closeSide
-        closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: closeTop,
-                                   width: side, height: side).integral
         layoutGlass()
+        // On the title line, at the corner's trailing inset (the glass laid out first: its corner follows the zoom).
+        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide)
+        let rect = cardRect
+        var words = rect
+        (words.origin.y, words.size.height) = (wordsTop, rect.maxY - wordsTop)
+        closeButton.frame = Self.closeFrame(corner: corner.topTrailingFrame(side: Self.closeSide, in: rect, flipped: true), card: words,
+                                            titleLineMid: card == nil ? 0 : island?.titleLineMid ?? 0)
+        closeButton.concentricRadius = corner.childRadius
+    }
+
+    /// The x's frame in the card at `card` (flipped), from its concentric frame in the corner (`corner`): at the
+    /// corner's trailing inset, and centered on the
+    /// title line `titleLineMid` points down from the card's top (u51892, 2026-11-23: "why the x icon
+    /// is not aligned vertically with the Updated to Nightly thing? let's put it on the right side in line
+    /// with the Updated to Nightly"). The corner's concentric inset from the top sat the x below the title's
+    /// capitals, and further below once the card grew for its lines. Before the page reports its title line
+    /// (0), the x keeps the concentric corner. It never stands past the card's top.
+    static func closeFrame(corner: NSRect, card: NSRect, titleLineMid: CGFloat) -> NSRect {
+        guard titleLineMid > 0 else { return corner }
+        var frame = corner
+        frame.origin.y = max(card.minY, card.minY + titleLineMid - corner.height / 2)
+        return frame
     }
 
     /// The glass behind the card and its open preview, on the card's resting edge. A preview that opens
@@ -464,7 +492,7 @@ final class SidebarUpdatedCardHost: NSView {
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
         glass.isHidden = card == nil || tall <= 0 || !drawn
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
-        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
+        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
         defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty

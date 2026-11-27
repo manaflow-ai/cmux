@@ -15,7 +15,7 @@
     webviews_test_history.py known HISTORY --inputs KEY --names NAMES.json --out BASE.json
         write to BASE the base verdicts the history already holds for NAMES' reds (a head's results):
         a red name whose file ran on a push with the same inputs KEY takes the newest such push's
-        verdict. Print, one a line, the files the history cannot answer for,
+        verdict, a green one only when at least GREEN_SAMPLES such pushes gave it a verdict. Print, one a line, the files the history cannot answer for,
         which the base must still run
     webviews_test_history.py known-reds HISTORY --before EPOCH --out BASE_REDS.json
         write {"sha", "inputs", "red": [...]} for the newest push no newer than EPOCH (a merge parent's commit
@@ -27,19 +27,33 @@
                                          [--only FILES] [--root DIR]
         print, one a line, shard I's share (of K) of the files BASE_REDS names, kept to the FILES list (the
         change's affected files) and to files under DIR; react-apps-base-early runs them on the merge parent
+    webviews_test_history.py passed-before OUT_DIR --repo R --branch B --shard I --run-id ID
+        write to OUT_DIR the newest PASSED_ARTIFACT list (OUT_DIR/commit, the merge commit it passed at, and
+        OUT_DIR/files) that shard I uploaded on pull request branch B in a run other than ID: the files that passed
+        at the pull request's previous head, which a newer head's shard need not run again when its change cannot
+        reach them (ci-web.yml). Two requests, the list and the download; any failure writes nothing
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
-    webviews_test_history.py heads SHARDS_DIR --count K --out DIR
-        join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
+    webviews_test_history.py heads SHARDS_DIR (--count K | --matrix JSON) --out DIR
+        join the K head shards' (or the matrix's: a pull request runs only the shards webviews_pr_shards.py picks)
+        react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
         results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
         shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
         exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
         of them, else 1
-    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
+    webviews_test_history.py held-red-files HISTORY --before EPOCH --hours H [--changed FILE] --out FILES
+        write to FILES, one a line, the files red on every push for H hours or more before EPOCH (held_red_files)
+    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH [--wait-rate-limit SECONDS]
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
+    webviews_test_history.py shared-name --inputs KEY --runner DIR --workflow FILE
+        print the artifact name a base check shares its replay under: SHARED_ARTIFACT, the merge parent's inputs KEY and
+        the key of the replay's tools (the head's runner copies in DIR and ci-web.yml)
+    webviews_test_history.py fetch-shared HISTORY OUT --repo R --name NAME --inputs KEY --run-id ID
+        write to OUT the history HISTORY with the base replays other pull requests' runs (not ID) shared at NAME, the
+        newest SHARED_KEEP, for known; any failure reads fewer
     webviews_test_history.py stuck HISTORY [--runs N] [--repo OWNER/REPO] [--summary FILE] [--fail]
         name every file red on each of the last N pushes it ran on (default STUCK_RUNS), with the push it first
         went red on and the last one it passed, grouped by that range: one ::error annotation a range, a table in
@@ -76,15 +90,21 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 
+# Pushes at the merge parent's inputs that must give a red name a verdict before the history answers it green. One
+# green push is one sample of a test that may flap: cmux#41254 (run 43006460063) was charged with a webkit timing test
+# on one base sample that passed it. A red needs one (it only excuses, and flaky() names a name those pushes flip on).
+GREEN_SAMPLES = 2
 KEEP = 120  # push runs kept: several hours of feat-cmux-next pushes, a few MB
 # The history itself, uploaded by every push's webviews-test-history job and read by the next push and by each pull
 # request's replay. An artifact, not an Actions cache: on 2026-11-08 no push restored the cache the one before it saved
@@ -115,6 +135,37 @@ def load(path: str | Path) -> list[dict]:
 EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
 
 
+# Where the webview suite's own code lives: a test, a helper, a bench or a webviews script there may read a repository
+# path at runtime (`path.resolve(repo, "Packages/macOS/CmuxNext/Sources")`, `schemas/theme/...json`) that no list
+# above routes.
+RUNTIME_READERS = ("webviews/test", "webviews/scripts", "webviews/bench")
+
+
+def runtime_reads(root: str) -> list[str]:
+    """Every repository path outside webviews/ that a file under RUNTIME_READERS names, as HEAD has it.
+
+    A test that reads the Swift sources, a schema or a plan's tool turns red when that path changes, so a base push's
+    verdict carries to the merge parent only when those paths match too. Names are found by text: a name split over
+    several arguments (`join(root, "Packages", "macOS")`) is not seen."""
+    tops = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    tops = [t for t in tops if t != "webviews"]
+    if not tops:
+        return []
+    pattern = r"(^|[^A-Za-z0-9_.-])(" + "|".join(re.escape(t) for t in tops) + r")/[A-Za-z0-9_./-]*[A-Za-z0-9_-]"
+    found = subprocess.run(["git", "-C", root, "grep", "-h", "-o", "-I", "-E", pattern, "HEAD", "--", *RUNTIME_READERS],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"webview test history: cannot read runtime reads: {found.stderr.strip()}")
+    names = {re.sub(r"^HEAD:", "", line).lstrip("\"'`( =,:").rstrip("/.") for line in found.stdout.splitlines()}
+    names = {n[n.index(t):] for n in names for t in tops if t + "/" in n}
+    if not names:
+        return []
+    present = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-t", "--name-only", "HEAD", "--", *sorted(names)],
+                             check=True, capture_output=True, text=True).stdout.split("\n")
+    return sorted(names & set(present))
+
+
 def inputs(root: str | Path = ".") -> str:
     """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
 
@@ -137,6 +188,10 @@ def inputs(root: str | Path = ".") -> str:
                             check=True, capture_output=True, text=True).stdout.split()
     listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
                              check=True, capture_output=True, text=True).stdout
+    named = runtime_reads(root)
+    if named:
+        listed += subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *named],
+                                 check=True, capture_output=True, text=True).stdout
     if "webviews" not in listed:
         raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
@@ -236,21 +291,77 @@ def flaky_name(runs: list[dict], name: str) -> bool:
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
 
 
-def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+def held_red_files(runs: list[dict], before: float, hours: float, changed: set[str] | None = None) -> list[dict]:
+    """The files red on every push that ran them for at least HOURS before BEFORE (the merge parent's commit time), still
+    red on the newest such push and that push no older than HOURS: [{file, first, hours}], oldest red first.
+
+    A pull request's shards skip them (run-webviews-tests.sh, CMUX_WEB_TEST_HELD_REDS) and the batch runs keep running
+    them, so their history still says when one goes green. Leo, relayed 2026-11-22 07:18Z: "we need to get rid of the
+    notion that we run tests indefinitely after they get created. full stop... vacuously true is as good as waste". On
+    2026-11-22 116 of the 187 webview files red on the base had been red over 24 h, one for 143 h. A file the change
+    edits (CHANGED, paths under webviews/) still runs: that change may be its fix."""
+    if hours <= 0:
+        return []
+    at = [run for run in runs if run["time"] <= before]
+    if not at or at[-1]["time"] < before - hours * 3600:
+        return []
+    out = []
+    for item in stuck(at, 2):
+        first = item["first"]
+        if before - first["time"] >= hours * 3600 and item["file"] not in (changed or set()):
+            out.append({"file": item["file"], "first": first["sha"], "hours": round((before - first["time"]) / 3600, 1)})
+    return sorted(out, key=lambda x: (-x["hours"], x["file"]))
+
+
+# A red name the history has on the last HELD_RED_PUSHES pushes that ran its file, whatever their inputs, the newest no
+# older than HELD_RED_AGE_S, is a base red without a replay. Most feat-cmux-next pushes change a webview input, so a push
+# at the merge parent's exact key is rare: job 137269052440 (2026-11-22) had 225 head red files, the history answered
+# 0 at its key, and 168 replayed for 55 min to the step's cap; 100 of 106 the replay reached failed on the base too.
+HELD_RED_PUSHES = 2
+HELD_RED_AGE_S = 24 * 3600
+
+
+def held_red(runs: list[dict], name: str, now: float) -> bool:
+    """Whether NAME was red on each of the last HELD_RED_PUSHES pushes that gave it a verdict (any inputs), the newest
+    of them no older than HELD_RED_AGE_S before NOW."""
+    file = name.split(" > ", 1)[0]
+    found: list[tuple[float, bool]] = []
+    for run in runs:
+        if file not in run["files"]:
+            continue
+        red = set(run["red"])
+        if name in red:
+            found.append((run["time"], False))
+        elif name != file and file in red:
+            continue  # the file failed without reaching or naming its tests
+        else:
+            found.append((run["time"], True))
+    last = found[-HELD_RED_PUSHES:]
+    return len(last) == HELD_RED_PUSHES and not any(ok for _, ok in last) and last[-1][0] >= now - HELD_RED_AGE_S
+
+
+def known(runs: list[dict], key: str, head: dict[str, bool],
+          now: float | None = None) -> tuple[dict[str, bool], list[str]]:
     """(the base verdicts the history holds for HEAD's reds on inputs KEY, the files it holds none for).
 
     react-apps-base-check replays each head red file once on the merge parent. A push with the same
     inputs key ran the same webview tree, so its verdict answers the same question without the replay's
     install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
-    verdict, as the replay would take its one run's (flaky() still names a name those pushes flip on). A file with any
-    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
+    verdict, a green one only from GREEN_SAMPLES pushes (flaky() still names a name those pushes flip on). A file with any
+    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts. A name no push at
+    KEY answers that held red on the base (held_red) is a base red: the replay would only say so again."""
+    now = time.time() if now is None else now
     at = [run for run in runs if run["inputs"] == key]
     base: dict[str, bool] = {}
     replay: set[str] = set()
     for name in sorted(name for name, ok in head.items() if not ok):
         found = [ok for _, ok in verdicts(at, name)]
-        if found:
-            base[name] = found[-1]  # the newest such push: one old flake does not excuse a change for the whole window
+        # The newest such push: one old flake does not excuse a change for the whole window. A green from fewer than
+        # GREEN_SAMPLES pushes is one sample: the file replays instead (and replays again while it passes there).
+        if found and (not found[-1] or len(found) >= GREEN_SAMPLES):
+            base[name] = found[-1]
+        elif held_red(runs, name, now):
+            base[name] = False
         else:
             replay.add(name.split(" > ", 1)[0])
     return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
@@ -278,12 +389,19 @@ def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[
 
 
 def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
-    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs).
+
+    A file red on the base as a whole (its bare name: it timed out or failed without naming a test there) covers every
+    red its head run names: the head's retry alone could only pass a file the base fails too. Shard 1 of run
+    44987019885 had 51 red files and 5 skipped; 29 of the other 46 were red on the base push by file name only (the
+    gallery files, accent-glass-invariants-2 and control-contrast-12, among them) and the head named their tests. A wrong
+    guess still moves no verdict: react-apps-base-check replays the file on the base and re-runs alone on the head any
+    red it would charge to the change."""
     by_file: dict[str, list[str]] = {}
     for name, ok in head.items():
         if not ok:
             by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
-    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+    return sorted(file for file, names in by_file.items() if file in reds or all(name in reds for name in names))
 
 
 EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
@@ -358,7 +476,21 @@ HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
 
-def join_heads(shards: Path, count: int, out: Path) -> str | None:
+def head_shard_dir(shards: Path, shard: int, picked: int) -> Path:
+    """Where SHARD's downloaded artifact is: its own folder, named after it, except that actions/download-artifact
+    extracts a lone artifact into the download root itself (`isSingleArtifactDownload || mergeMultiple ||
+    artifacts.length === 1` in its download-artifact.ts, pinned 37930b1c). A pull request web-subarea-scope gave one
+    shard downloads exactly one artifact, so it has no such folder: #48267 and #50979, both Swift-only, were refused
+    on 2026-11-22 with "react-apps-head-results-shard1 has no webviews-head-results.json" while shard 1 had uploaded
+    its 165 files and the download verified its digest. A folder of the shard's own name still wins wherever one
+    exists, so nothing a run with several shards reads changes."""
+    here = shards / HEAD_ARTIFACT.format(shard)
+    if picked == 1 and not (here / HEAD_RESULTS).is_file() and (shards / HEAD_RESULTS).is_file():
+        return shards
+    return here
+
+
+def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
     all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
     maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
@@ -368,8 +500,9 @@ def join_heads(shards: Path, count: int, out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in range(1, count + 1):
-        here = shards / HEAD_ARTIFACT.format(shard)
+    picked = list(range(1, count + 1) if isinstance(count, int) else count)
+    for shard in picked:
+        here = head_shard_dir(shards, shard, len(picked))
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
         try:
@@ -543,16 +676,45 @@ def newest(listing: object, branch: str) -> dict | None:
     return best
 
 
-def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dict], str, bool]:
+def rate_wait(status: int, headers: dict | None, now: float) -> float | None:
+    """Seconds until a rate-limited answer (403 or 429 with no requests left, or a Retry-After) may be tried again, or
+    None when STATUS is not a rate limit."""
+    if status not in (403, 429):
+        return None
+    found = {k.lower(): v for k, v in (headers or {}).items()}
+    try:
+        if found.get("retry-after"):
+            return max(0.0, float(found["retry-after"]))
+        if found.get("x-ratelimit-remaining") == "0" and found.get("x-ratelimit-reset"):
+            return max(0.0, float(found["x-ratelimit-reset"]) - now) + RATE_WAIT_SLACK_S
+    except ValueError:
+        return None
+    return None
+
+
+RATE_WAIT_SLACK_S = 5  # past the reset second, so the retry is not early by the clocks' skew
+
+
+def fetch(repo: str, branch: str, token: str | None, get=_get, wait: float = 0,
+          sleep=time.sleep, clock=time.time) -> tuple[list[dict], str, bool]:
     """(the newest history a push on BRANCH uploaded, what was read, whether it was read): two requests, the list and
     the download. Any failure is an empty history that says why and was not read; a missing history only means no
-    flakes, and counts as read."""
+    flakes, and counts as read. A rate-limited list whose reset is at most WAIT seconds away is listed once more after
+    it: the history job's 403 (the repository's token quota spent) saved no history from 2026-11-21 22:21Z, so every pull
+    request's base check read a day-old one (ticks 45026611875 and 45037396919, 2026-11-22)."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
-        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        delay = rate_wait(status, headers, clock())
+        if delay is not None and delay <= wait:
+            print(f"webview test history: the artifact list is rate limited; listing again in {delay:.0f} s", flush=True)
+            sleep(delay)
+            status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
-            return [], f"listing the {ARTIFACT} artifacts answered {status}", False
+            left = {k.lower(): v for k, v in (headers or {}).items()}.get("x-ratelimit-remaining")
+            quota = f" (rate limit remaining {left})" if left is not None else ""
+            return [], f"listing the {ARTIFACT} artifacts answered {status}{quota}", False
         found = newest(json.loads(body), branch)
         if found is None:
             return [], f"no {ARTIFACT} artifact from a push on {branch}", True
@@ -576,6 +738,144 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
         return [], f"{ARTIFACT} {found.get('id')} holds no runs", False
     run = found.get("workflow_run") or {}
     return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})", True
+
+
+# A pull request shard's passes, uploaded as they come (also when a newer head cancels its run), for the same shard at
+# the next head. An artifact, not a cache: a cache a pull request saves is read by that ref alone and fills the store
+# (tests/test_ci_no_run_scoped_cache_keys.py).
+PASSED_ARTIFACT = "react-apps-passed-shard"
+PASSED_PAGE = 100  # the newest uploads of one shard's name, every pull request's: about two hours of runs
+
+
+def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, get=_get) -> str:
+    """Write the newest list shard SHARD uploaded on BRANCH in a run other than RUN_ID to OUT (commit, files); say what
+    was read. Only this repository's runs: a fork's branch may share the name. Any failure writes nothing."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    name = f"{PASSED_ARTIFACT}{shard}"
+    query = urllib.parse.urlencode({"name": name, "per_page": PASSED_PAGE})
+    token = os.environ.get("GITHUB_TOKEN")
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return f"listing the {name} artifacts answered {status}"
+        listing = json.loads(body)
+        best = None
+        items = listing.get("artifacts") if isinstance(listing, dict) else None
+        for item in items if isinstance(items, list) else []:
+            run = item.get("workflow_run") if isinstance(item, dict) and isinstance(item.get("workflow_run"), dict) else {}
+            if (item.get("name") != name or item.get("expired") or run.get("head_branch") != branch
+                    or run.get("id") == run_id or not run.get("repository_id")
+                    or run.get("head_repository_id") != run.get("repository_id")):
+                continue
+            if best is None or str(item.get("created_at") or "") > str(best.get("created_at") or ""):
+                best = item
+        if best is None:
+            return f"no {name} artifact from an earlier run on {branch}"
+        status, headers, body = get(str(best.get("archive_download_url") or ""), token)
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get("Location") or headers.get("location") or ""
+            status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+        if status != 200 or len(body) > MAX_BYTES:
+            return f"downloading {name} {best.get('id')} answered {status}"
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            commit = archive.read("commit").decode().strip()
+            files = archive.read("files").decode()
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        return f"reading the {name} artifact failed: {error}"
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return f"{name} {best.get('id')} names no commit"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "files").write_text(files, encoding="utf-8")
+    (out / "commit").write_text(commit + "\n", encoding="utf-8")
+    run = best.get("workflow_run") or {}
+    return f"{name} {best.get('id')} from run {run.get('id')} at {commit[:12]}: {len(files.splitlines())} files"
+
+
+# A pull request's base replay, shared with every other pull request at the same base. react-apps-base-check replays its
+# head reds on the merge parent; on a busy day several pull requests share a merge parent's webview inputs (feat-cmux-next
+# 2026-11-22: 803 first-parent commits, 165 inputs keys, a key's life 4.5 min at the median and 16 min weighted by time),
+# and each replayed the same base reds alone: cmux#50132's base check spent 16.3 of its 30 min there (run 45020212584,
+# 21 files; the push history answered none). Each base check uploads its replay as a one-run history named by the
+# inputs key and the replay's tools; the next one at that name reads it, and `known` answers from it as from a push at
+# that key (a red from the newest run, a green from GREEN_SAMPLES runs). The tools key holds the head's runner copies and
+# ci-web.yml: a pull request that changes how the replay runs writes and reads only its own name, so it can never answer
+# for another. An artifact, not a cache: a cache a pull request saves is read by that ref alone.
+SHARED_ARTIFACT = "webviews-base-replay"
+SHARED_KEEP = 4  # the newest uploads at one name read: past two, more reds are no new answer
+
+
+def tools_key(runner: str | Path, workflow: str | Path) -> str:
+    """The key of what runs the replay: every file in RUNNER (the head's runner copies) and WORKFLOW (ci-web.yml)."""
+    digest = hashlib.sha256()
+    for path in sorted(Path(runner).iterdir()) if Path(runner).is_dir() else []:
+        if path.is_file():
+            digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    digest.update(b"workflow\0" + Path(workflow).read_bytes())
+    return digest.hexdigest()[:20]
+
+
+def shared_name(key: str, tools: str) -> str:
+    return f"{SHARED_ARTIFACT}-{key}-{tools}"
+
+
+def shared_items(listing: object, name: str, run_id: int) -> list[dict]:
+    """The newest SHARED_KEEP unexpired NAME artifacts this repository's runs uploaded, other than run RUN_ID's (a fork's
+    run is never one: what it wrote would excuse reds)."""
+    items = listing.get("artifacts") if isinstance(listing, dict) else None
+    found = []
+    for item in items if isinstance(items, list) else []:
+        run = item.get("workflow_run") if isinstance(item, dict) and isinstance(item.get("workflow_run"), dict) else {}
+        if (item.get("name") != name or item.get("expired") or run.get("id") == run_id or not run.get("repository_id")
+                or run.get("head_repository_id") != run.get("repository_id")):
+            continue
+        found.append(item)
+    found.sort(key=lambda i: str(i.get("created_at") or ""), reverse=True)
+    return found[:SHARED_KEEP]
+
+
+def fetch_shared(repo: str, name: str, key: str, run_id: int, token: str | None, get=_get) -> tuple[list[dict], str]:
+    """(the runs other pull requests' base checks shared at NAME, whose inputs are KEY; what was read). Any failure
+    reads fewer runs and says why: a file with no answer replays as before."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    query = urllib.parse.urlencode({"name": name, "per_page": LIST_PAGE})
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return [], f"listing {name} answered {status}"
+        items = shared_items(json.loads(body), name, run_id)
+    except (OSError, ValueError) as error:
+        return [], f"listing {name} failed: {error}"
+    runs, notes = [], []
+    for item in items:
+        try:
+            status, headers, body = get(str(item.get("archive_download_url") or ""), token)
+            if status in (301, 302, 303, 307, 308):
+                location = headers.get("Location") or headers.get("location") or ""
+                status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+            if status != 200 or len(body) > MAX_BYTES:
+                notes.append(f"{item.get('id')} answered {status}")
+                continue
+            with zipfile.ZipFile(io.BytesIO(body)) as archive:
+                data = json.loads(archive.read(ARTIFACT_FILE))
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+            notes.append(f"{item.get('id')} unread: {error}")
+            continue
+        got = data.get("runs") if isinstance(data, dict) else None
+        for run in got if isinstance(got, list) else []:
+            if (isinstance(run, dict) and run.get("inputs") == key and isinstance(run.get("sha"), str)
+                    and isinstance(run.get("time"), (int, float)) and isinstance(run.get("files"), list)
+                    and isinstance(run.get("red"), list)):
+                runs.append(run)
+    said = f"{len(runs)} shared base replays from {len(items)} {name} artifacts"
+    return runs, said + (f" ({'; '.join(notes)})" if notes else "")
+
+
+def with_shared(history: list[dict], shared: list[dict]) -> list[dict]:
+    """HISTORY with the SHARED runs, oldest first (one per sha and attempt, as record keeps them)."""
+    seen = {(r["sha"], r.get("attempt", 1), r["time"]) for r in history}
+    runs = history + [r for r in shared if (r["sha"], r.get("attempt", 1), r["time"]) not in seen]
+    runs.sort(key=lambda r: (r["time"], r["sha"], r.get("attempt", 1)))
+    return runs
 
 
 def main(argv: list[str]) -> int:
@@ -624,18 +924,45 @@ def main(argv: list[str]) -> int:
     fo.add_argument("--names", required=True)
     hd = sub.add_parser("heads")
     hd.add_argument("shards")
-    hd.add_argument("--count", type=int, required=True)
+    hd_count = hd.add_mutually_exclusive_group(required=True)
+    hd_count.add_argument("--count", type=int)
+    hd_count.add_argument("--matrix", help="the shard matrix JSON ([{\"shard\": I, ...}, ...]) of the shards that ran")
     hd.add_argument("--out", required=True)
     rf = sub.add_parser("rerun-fits")
     rf.add_argument("files")
     rf.add_argument("--shards", required=True)
     rf.add_argument("--cap", type=int, required=True)
+    hr = sub.add_parser("held-red-files")
+    hr.add_argument("history")
+    hr.add_argument("--before", type=float, required=True)
+    hr.add_argument("--hours", type=float, required=True)
+    hr.add_argument("--changed", help="a file of the change's paths under webviews/, one a line")
+    hr.add_argument("--out", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    fe.add_argument("--wait-rate-limit", type=float, default=0, metavar="SECONDS",
+                    help="list once more after a rate limit that resets within SECONDS (default 0: no wait)")
+    pb = sub.add_parser("passed-before")
+    pb.add_argument("out")
+    pb.add_argument("--repo", required=True)
+    pb.add_argument("--branch", required=True)
+    pb.add_argument("--shard", type=int, required=True)
+    pb.add_argument("--run-id", type=int, required=True)
+    sn = sub.add_parser("shared-name")
+    sn.add_argument("--inputs", required=True)
+    sn.add_argument("--runner", required=True)
+    sn.add_argument("--workflow", required=True)
+    fs = sub.add_parser("fetch-shared")
+    fs.add_argument("history")
+    fs.add_argument("out")
+    fs.add_argument("--repo", required=True)
+    fs.add_argument("--name", required=True)
+    fs.add_argument("--inputs", required=True)
+    fs.add_argument("--run-id", type=int, required=True)
     st = sub.add_parser("stuck")
     st.add_argument("history")
     st.add_argument("--runs", type=int, default=STUCK_RUNS)
@@ -654,8 +981,36 @@ def main(argv: list[str]) -> int:
             with open(args.summary, "a", encoding="utf-8") as handle:
                 handle.write(summary)
         return 1 if args.fail and found else 0
+    if args.command == "shared-name":
+        print(shared_name(args.inputs, tools_key(args.runner, args.workflow)))
+        return 0
+    if args.command == "fetch-shared":
+        shared, said = fetch_shared(args.repo, args.name, args.inputs, args.run_id, os.environ.get("GITHUB_TOKEN"))
+        runs = with_shared(load(args.history), shared)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps({"runs": runs}, separators=(",", ":")) + "\n", encoding="utf-8")
+        print(f"webview test history: {said}")
+        return 0
+    if args.command == "passed-before":
+        print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
+        return 0
+    if args.command == "held-red-files":
+        changed = set()
+        if args.changed:
+            try:
+                changed = {line.strip() for line in Path(args.changed).read_text(encoding="utf-8").splitlines() if line.strip()}
+            except OSError:
+                changed = set()
+        found = held_red_files(load(args.history), args.before, args.hours, changed)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text("".join(item["file"] + "\n" for item in found), encoding="utf-8")
+        print(f"webview test history: {len(found)} files red on the base for {args.hours:g} h or more; pull request "
+              "shards skip them, batch runs keep them (CMUX_WEB_TEST_HELD_RED_HOURS=0 runs them)")
+        for item in found:
+            print(f"  HELD RED {item['file']} since {item['first'][:12]} ({item['hours']} h)")
+        return 0
     if args.command == "fetch":
-        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
+        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"), wait=args.wait_rate_limit)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": found}, separators=(",", ":")) + "\n", encoding="utf-8")
         print(f"webview test history: {len(found)} push runs ({said})")
@@ -707,7 +1062,17 @@ def main(argv: list[str]) -> int:
             print(file)
         return 0
     if args.command == "heads":
-        why = join_heads(Path(args.shards), args.count, Path(args.out))
+        ran: "int | list[int]" = args.count
+        if args.matrix is not None:
+            try:
+                ran = sorted({int(entry["shard"]) for entry in json.loads(args.matrix)})
+            except (ValueError, TypeError, KeyError):
+                print(f"::error title=Webview head results::the shard matrix {args.matrix!r} is unreadable")
+                return 1
+            if not ran:
+                print("::error title=Webview head results::the shard matrix names no shard")
+                return 1
+        why = join_heads(Path(args.shards), ran, Path(args.out))
         if why:
             print(f"::error title=Webview head results::{why}: that head shard published no results to judge")
             return 1

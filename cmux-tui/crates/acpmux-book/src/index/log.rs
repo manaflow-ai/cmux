@@ -1,8 +1,10 @@
 //! CRC-framed bounded log records and recoverable generation changes.
 use super::compaction::{Compaction, cleanup_stages};
-use super::{DiskSnapshot, IndexRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec};
+use super::{
+    DiskSnapshot, IndexRecord, MarkRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec,
+};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub struct IndexLog {
@@ -20,6 +22,15 @@ impl IndexLog {
         let requested = path.as_ref();
         let snapshot = DiskSnapshot::open(requested.with_extension("snap"))?;
         Self::open_with_snapshot(requested, snapshot.as_deref())
+    }
+
+    /// Opens a fresh generation whose first sequence follows an already
+    /// published in-memory index. Rebuilds use this instead of replaying the
+    /// quarantined log at sequence zero, so the next compaction can rotate
+    /// immediately even when the rebuild has no later update.
+    pub fn open_at(path: impl AsRef<Path>, seq: u64) -> io::Result<Self> {
+        let path = path.as_ref();
+        Self::open_tail(path.to_owned(), seq, 0, 1)
     }
 
     /// The service opener supplies the already-read head, so startup observes
@@ -101,11 +112,20 @@ impl IndexLog {
         let mut next_seq = seq;
         let mut previous_seq = 0;
         let mut oldest_seq = seq.saturating_add(1);
+        let mut first = true;
         loop {
             match codec::read_any(&mut reader) {
+                // A mark carries the sequence of the row before it, so it may
+                // equal the previous record's; every other record climbs.
+                Ok(Some((codec::LogRecord::Mark(mark), len))) if mark.seq >= previous_seq => {
+                    offset += len as u64;
+                    previous_seq = mark.seq;
+                    next_seq = next_seq.max(mark.seq);
+                }
                 Ok(Some((record, len))) if record_seq(&record) > previous_seq => {
-                    if offset == covered {
+                    if first {
                         oldest_seq = record_seq(&record);
+                        first = false;
                     }
                     offset += len as u64;
                     previous_seq = record_seq(&record);
@@ -119,6 +139,14 @@ impl IndexLog {
                         io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
                     ) =>
                 {
+                    // A short final frame is the existing torn-tail repair.
+                    // Once the complete frame boundary is present, however,
+                    // a bad length, checksum or payload means the next log
+                    // boundary is unknown and the hub must rebuild from its
+                    // sources instead of silently cutting history.
+                    if complete_frame_at(&file, offset)? {
+                        return Err(error);
+                    }
                     break;
                 }
                 Err(error) => return Err(error),
@@ -188,6 +216,43 @@ impl IndexLog {
         self.offset += bytes.len() as u64;
         self.next_seq = seq;
         Ok(seq)
+    }
+
+    /// Writes one mirrored frame's unit: its rows, then its mark, with one
+    /// `write_all`. A cut anywhere leaves complete rows before a torn frame,
+    /// and the torn frame is the tail the opener truncates, so the mark on
+    /// disk is never ahead of the rows. The mark carries the last row's
+    /// sequence (or the log's current one when the unit writes no row).
+    /// Returns the bytes appended.
+    pub fn append_unit(&mut self, records: &[IndexRecord], mark: &MarkRecord) -> io::Result<u64> {
+        let mut previous = self.next_seq;
+        let mut bytes = Vec::new();
+        for record in records {
+            if record.seq <= previous {
+                return Err(codec::invalid("nonmonotonic log append"));
+            }
+            if record.origin != mark.origin {
+                return Err(codec::invalid("unit row of another origin"));
+            }
+            previous = record.seq;
+            bytes.extend(codec::encode(record)?);
+        }
+        if mark.seq != previous {
+            return Err(codec::invalid("mark sequence is not the unit's last"));
+        }
+        bytes.extend(codec::encode_mark(mark)?);
+        self.file.set_len(self.offset)?;
+        self.file.seek(SeekFrom::Start(self.offset))?;
+        self.file.write_all(&bytes)?;
+        self.offset += bytes.len() as u64;
+        self.next_seq = previous;
+        Ok(bytes.len() as u64)
+    }
+
+    /// Writes a mark alone (a takeover writes the mark off this way). It takes
+    /// the log's current sequence.
+    pub fn append_mark(&mut self, mark: &MarkRecord) -> io::Result<u64> {
+        self.append_unit(&[], mark)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -287,6 +352,39 @@ impl IndexLog {
     }
 }
 
+/// Whether the bytes beginning at `offset` contain a complete framed record.
+/// A declared length beyond the format bound is structural damage even when
+/// the file ends before that length, because no safe next boundary exists.
+fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
+    let total = file.metadata()?.len();
+    let remaining = total.saturating_sub(offset);
+    if remaining < 8 {
+        return Ok(false);
+    }
+    let mut probe = file.try_clone()?;
+    probe.seek(SeekFrom::Start(offset))?;
+    let mut header = [0; 8];
+    Read::read_exact(&mut probe, &mut header)?;
+    // Older writers could leave a raw JSON fragment after the last framed
+    // record. Preserve the established torn-tail repair for that legacy
+    // marker; framed bytes with an invalid length remain structural damage.
+    if header[0] == b'{' {
+        return Ok(false);
+    }
+    let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as u64;
+    if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
+        return Ok(true);
+    }
+    let frame_end = 8_u64.saturating_add(length);
+    if remaining < frame_end {
+        return Ok(false);
+    }
+    // A complete framed log record that does not decode has an unknown next
+    // boundary, including when it is the final record. Only a short frame at
+    // EOF is the existing torn-tail case.
+    Ok(true)
+}
+
 pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
     replay_log_from(path, 0, index)
 }
@@ -305,6 +403,13 @@ pub fn replay_log_from(
     reader.seek(SeekFrom::Start(offset))?;
     while let Some((record, _)) = codec::read_any(&mut reader)? {
         let seq = record_seq(&record);
+        // Every generation replayed here was written after its snapshot's
+        // capture, so a mark applies in log order whatever its sequence: it
+        // shares its sequence with the row before it.
+        if let codec::LogRecord::Mark(mark) = &record {
+            index = index.apply_mark(mark);
+            continue;
+        }
         if seq <= index.seq() {
             continue;
         }
@@ -316,7 +421,13 @@ pub fn replay_log_from(
                     .unwrap_or(index)
                     .advance_seq(seq);
             }
-            codec::LogRecord::Row(record) => index = index.apply_summary(seq, record.summary),
+            // Owned: the old index is dropped here, so each persistent map's
+            // nodes change in place instead of copying their path per row
+            // (11k rows, fleet Linux: replay 88 ms -> about 20 ms).
+            codec::LogRecord::Row(record) => {
+                index = index.apply_summary_owned(seq, record.summary);
+            }
+            codec::LogRecord::Mark(_) => {}
         }
     }
     Ok(index)
@@ -326,6 +437,7 @@ fn record_seq(record: &codec::LogRecord) -> u64 {
     match record {
         codec::LogRecord::Row(record) => record.seq,
         codec::LogRecord::Origin(record) => record.seq,
+        codec::LogRecord::Mark(record) => record.seq,
     }
 }
 

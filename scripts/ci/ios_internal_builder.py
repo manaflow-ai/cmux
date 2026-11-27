@@ -4,6 +4,7 @@
 Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 
   ios_internal_builder.py plan --head SHA [--repo DIR]   decide (GitHub Actions, needs GH_TOKEN)
+  ios_internal_builder.py dispatch --sha SHA [--base B]  start the build plan chose (needs GH_TOKEN)
   ios_internal_builder.py stamp [--project-yml FILE]     print MARKETING_VERSION and the build number
   ios_internal_builder.py admit                          runner job-started hook; exit 1 refuses
   ios_internal_builder.py watch [--loop]                 one health tick on the builder mini
@@ -35,9 +36,23 @@ PROJECT_YML = "cmux-next-ios/project.yml"
 BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 # A failing builder backs off instead of building every new head: after the second failure in a row it waits
 # FAILURE_BACKOFF_START, doubling per failure up to FAILURE_BACKOFF_MAX, and the same iOS input as the newest
-# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it.
+# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it, and so does a new
+# commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
+# At most one upload per MIN_UPLOAD_GAP, counted from the newest successful or in-flight build's dispatch. Every
+# upload mailed the team an ITMS-90725 email while builds used the iOS 26 SDK (2026-11-22: eight in five hours), so
+# the gap was 3 h. The archive and the signer now pin Xcode 27 (that warning is gone), and the 3 h gap alone held
+# every iPhone fix up to 3 h before its build began (2026-11-25: 8c8416506ba1 uploaded 20:09Z, the next head waited
+# until 22:04Z; merge to TestFlight p50 7.9 h over 299 iOS commits since 11-24). Leo, 2026-11-25: "Why are these
+# iPhone builds still so slow and unverified?" The goal is merge to INTERNAL within about 1 h, so the gap is under
+# one build (dispatch to upload about 40 to 65 min): a head merged during a build is dispatched once the build is
+# MIN_UPLOAD_GAP old and waits in the concurrency group, starting the moment the build ends. A person's dispatch
+# (force) skips the gap.
+MIN_UPLOAD_GAP = dt.timedelta(minutes=30)
+# iPhone YOLO builds (scripts/ci/ios_internal_yolo.py): feat-cmux-next plus a named list of PRs, stacked on a branch
+# under this prefix and built by the same builder. The plan tells them from nightlies by that branch's tip.
+YOLO_PREFIX = "ios-yolo/"
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -125,19 +140,29 @@ def failure_backoff(streak: int) -> dt.timedelta:
     return min(FAILURE_BACKOFF_MAX, FAILURE_BACKOFF_START * 2 ** min(streak - 2, 16))
 
 
+# A run that has not started: a newer run in the builder's concurrency group replaces it.
+WAITING_STATUSES = frozenset({"queued", "pending", "waiting", "requested"})
+
+
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
          now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
-         since_failure: list[str] | None = None, force: bool = False) -> Decision:
+         since_failure: list[str] | None = None, force: bool = False,
+         builder_sha: str | None = None) -> Decision:
     """Whether to dispatch a build of `head`.
 
-    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
+    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at, submittable, yolo}.
+    A yolo run (an ios-yolo/ stack, not a feat-cmux-next head) is never a nightly's base and never counts as a
+    nightly failure; waiting, it is not replaced; uploaded or running, it counts for MIN_UPLOAD_GAP.
     changed: files changed from the last uploaded SHA to head; None when unknown.
     since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
     force: a person dispatched the trigger; the failure backoff does not apply.
+    builder_sha: BUILDER_REF's tip, None when unknown. A failure whose run's "builder" (the BUILDER_REF commit it
+    ran) differs holds nothing: the builder moved since, so the next build runs (one try per builder change).
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
-    last_ok = next((r for r in runs if r.get("conclusion") == "success"), None)
+    nightly = [r for r in runs if not r.get("yolo")]
+    last_ok = next((r for r in nightly if r.get("conclusion") == "success"), None)
     base = last_ok["sha"] if last_ok else None
     if not has_cmux_next_ios:
         return Decision(False, "cmux-next-ios/ is not on feat-cmux-next yet (a191's merge)", base)
@@ -149,26 +174,46 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
+    # The builder's concurrency group keeps one waiting run, and a newer dispatch cancels it. A person's
+    # submittable build (an App Store candidate) waiting there would be replaced by the next push's nightly
+    # (run 45037765374, 2026-11-22, cancelled in under 3 min), so no nightly is dispatched until it starts.
+    waiting = next((r for r in runs if (r.get("submittable") or r.get("yolo"))
+                    and r.get("status") in WAITING_STATUSES), None)
+    if waiting:
+        kind = "submittable" if waiting.get("submittable") else "YOLO"
+        return Decision(False, f"{kind} build run {waiting.get('id')} of {waiting['sha'][:12]} is waiting to "
+                               "start; a dispatch now would replace it", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
-    failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
+    def on_older_builder(r: dict) -> bool:
+        return bool(builder_sha and r.get("builder") and r["builder"] != builder_sha)
+
+    failed = next((r for r in nightly if r["sha"] == head and r.get("conclusion") == "failure"), None)
+    if failed and on_older_builder(failed):
+        failed = None
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
         return Decision(False, f"{head[:12]} already failed in run {failed.get('id')}; waiting for a new head", base)
-    streak, newest_failure = failure_streak(runs)
+    streak, newest_failure = failure_streak(nightly)
     if newest_failure and not force:
         failed_at, run_id = _parse(newest_failure["created_at"]), newest_failure.get("id")
-        if any(r.get("status") != "completed" for r in runs):
+        if any(r.get("status") != "completed" for r in nightly):
             # A dispatch now would start the moment the running build ends, before the plan sees how it ended.
             return Decision(False, f"BLOCKED: the builder is failing (run {run_id}) and a build is still running; "
                                    "the next push after it ends plans again", base)
-        if since_failure is not None and not touches_ios(since_failure, prefixes) \
+        moved = on_older_builder(newest_failure)
+        if not moved and since_failure is not None and not touches_ios(since_failure, prefixes) \
                 and now - failed_at < FAILURE_BACKOFF_MAX:
             return Decision(False, f"BLOCKED: run {run_id} failed on {newest_failure['sha'][:12]} and nothing the app "
                                    f"builds from changed since; it retries after {FAILURE_BACKOFF_MAX} (an infra "
                                    "failure) or on an iOS change", base)
         wait = failure_backoff(streak)
-        if now - failed_at < wait:
+        if not moved and now - failed_at < wait:
             return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
                                    f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
+    recent = next((r for r in runs if r.get("conclusion") == "success" or r.get("status") != "completed"), None)
+    if recent and not force and now - _parse(recent["created_at"]) < MIN_UPLOAD_GAP:
+        due = _parse(recent["created_at"]) + MIN_UPLOAD_GAP
+        return Decision(False, f"run {recent.get('id')} of {recent['sha'][:12]} started under {MIN_UPLOAD_GAP} ago; "
+                               f"the next upload waits until {due.isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:
@@ -215,11 +260,16 @@ def _gh_json(args: list[str], runner=subprocess.run, sleep=time.sleep, attempts:
 
     Other failures raise CalledProcessError with gh's stderr attached and printed.
     """
+    return json.loads(_gh_api(args, runner=runner, sleep=sleep, attempts=attempts))
+
+
+def _gh_api(args: list[str], runner=subprocess.run, sleep=time.sleep, attempts: int = 4) -> str:
+    """`gh api ARGS`'s stdout, with _gh_json's retries."""
     detail = ""
     for attempt in range(attempts):
         r = runner(["gh", "api", *args], capture_output=True, text=True)
         if r.returncode == 0:
-            return json.loads(r.stdout)
+            return r.stdout
         detail = (r.stderr or r.stdout or "").strip()
         if not _TRANSIENT.search(detail):
             print(f"gh api {' '.join(args)}: {detail}", file=sys.stderr)
@@ -230,6 +280,49 @@ def _gh_json(args: list[str], runner=subprocess.run, sleep=time.sleep, attempts:
                   file=sys.stderr)
             sleep(wait)
     raise GitHubUnavailable(detail)
+
+
+# A plan or a dispatch that meets a spent or failing GitHub API waits for it instead of dropping the head. On
+# 2026-11-25 the installation's REST limit was spent ("API rate limit exceeded for installation"): decide runs
+# wrote "skip: GitHub API rate-limited or down; the next push re-plans", the next push met the same limit, and no
+# INTERNAL build ran from 19:04Z to 21:47Z until a person dispatched one (trigger run 45707227721). Waiting never
+# floods: the trigger's concurrency group runs one decide at a time and keeps only the newest push waiting. GET
+# /rate_limit spends no budget, so the wait asks it when the limit resets. The decide job's timeout-minutes
+# covers both waits.
+PLAN_API_WAIT = dt.timedelta(minutes=45)
+DISPATCH_API_WAIT = dt.timedelta(minutes=20)
+API_WAIT_STEP_S = 60  # between tries when GitHub names no reset time (a secondary limit, a 5xx)
+
+
+def api_reset_in(runner=subprocess.run, clock=time.time) -> float | None:
+    """Seconds until the spent core REST limit resets; None when it is not spent or GitHub cannot say."""
+    try:
+        r = runner(["gh", "api", "rate_limit"], capture_output=True, text=True)
+        core = json.loads(r.stdout)["resources"]["core"] if r.returncode == 0 else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(core, dict) or core.get("remaining", 1) > 0 or not isinstance(core.get("reset"), (int, float)):
+        return None
+    return max(0.0, core["reset"] - clock())
+
+
+def with_api_wait(read, budget: dt.timedelta, what: str, runner=subprocess.run, sleep=time.sleep, clock=time.time):
+    """read() until it stops raising GitHubUnavailable, sleeping to the limit's reset between tries, for up to
+    `budget`; then re-raises the last GitHubUnavailable."""
+    deadline = clock() + budget.total_seconds()
+    for _ in range(10_000):  # bounded by the deadline; the count only guards a clock that never moves
+        try:
+            return read()
+        except GitHubUnavailable as error:
+            left = deadline - clock()
+            if left <= 0:
+                raise
+            reset = api_reset_in(runner=runner, clock=clock)
+            wait = min(left, API_WAIT_STEP_S if reset is None else reset + 5)
+            print(f"::warning::GitHub API unavailable for {what}: {str(error)[:200]}; trying again in {int(wait)}s "
+                  f"({int(left)}s of {int(budget.total_seconds())}s left)")
+            sleep(wait)
+    raise GitHubUnavailable(f"{what}: gave up after 10000 tries")
 
 
 def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
@@ -247,7 +340,24 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
         m = re.search(r"\b([0-9a-f]{40})\b", r.get("display_title") or "")
         if m:
             runs.append({"id": r["id"], "sha": m.group(1), "status": r["status"],
-                         "conclusion": r.get("conclusion"), "created_at": r["created_at"]})
+                         "conclusion": r.get("conclusion"), "created_at": r["created_at"],
+                         "builder": r.get("head_sha"),
+                         "submittable": "(submittable)" in (r.get("display_title") or "")})
+    return runs
+
+
+def yolo_shas(runner=subprocess.run, sleep=time.sleep) -> set[str]:
+    """Tips of the ios-yolo/ stack branches; empty when there are none or GitHub cannot say."""
+    try:
+        data = _gh_json([f"repos/{REPO}/git/matching-refs/heads/{YOLO_PREFIX}"], runner=runner, sleep=sleep)
+    except (subprocess.CalledProcessError, GitHubUnavailable, OSError, ValueError):
+        return set()
+    return {r["object"]["sha"] for r in data if isinstance(r, dict) and r.get("object", {}).get("type") == "commit"}
+
+
+def mark_yolo(runs: list[dict], shas: set[str]) -> list[dict]:
+    for r in runs:
+        r["yolo"] = r["sha"] in shas
     return runs
 
 
@@ -297,6 +407,15 @@ def _git_has_builder_script(repo: str) -> bool | None:
     return found.stdout.strip() == BUILDER_SCRIPT
 
 
+def builder_tip(repo: str = ".") -> str | None:
+    """BUILDER_REF's tip as _git_has_builder_script fetched it; None when git has not fetched it."""
+    ref = f"refs/ios-internal-upstream/{BUILDER_REF.removeprefix('refs/heads/')}"
+    try:
+        return _git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
 def builder_has_script(repo: str = ".") -> bool:
     """Whether the signing branch carries this layout's testflight-build.sh. Read with git first; the contents API
     is the fallback, which fails open on API errors."""
@@ -322,29 +441,98 @@ def _write_outputs(decision: Decision) -> None:
             fh.write(f"reason={decision.reason}\n")
 
 
-def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False) -> int:
+def _read_runs(runner, sleep) -> list[dict]:
+    """The builder's runs, YOLO-marked. A rate limit on GH_TOKEN retries once on GH_FALLBACK_TOKEN.
+
+    2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was spent, so two decides in a
+    row skipped and nothing built (Leo: "Why are these iPhone builds still so slow and unverified?"). The
+    trigger now reads with its own App token (GH_TOKEN) and keeps the workflow token as GH_FALLBACK_TOKEN,
+    so one exhausted quota never skips a dispatch."""
+    try:
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+    except GitHubUnavailable as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN") or ""
+        if not fallback or fallback == os.environ.get("GH_TOKEN"):
+            raise
+        print(f"::warning::GH_TOKEN rate-limited or down ({error}); reading again with GH_FALLBACK_TOKEN")
+        os.environ["GH_TOKEN"] = fallback
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+
+
+def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False,
+             clock=time.time, api_wait: dt.timedelta = PLAN_API_WAIT) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
-        runs = builder_runs(runner=runner, sleep=sleep)
+        runs = with_api_wait(lambda: _read_runs(runner, sleep), api_wait, "the builder's run list", runner=runner, sleep=sleep, clock=clock)
     except GitHubUnavailable as error:
-        # Without the run list the plan cannot tell a new head from one already uploaded, so it
-        # dispatches nothing; the next feat-cmux-next push plans again.
-        print(f"::warning::GitHub API unavailable after retries: {error}")
-        _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
+        # Still no run list after the whole wait: build the head (fail open), as the plan does when the diff is
+        # unknown. A skip here lost every head of the outage (2026-11-25, 19:04Z to 21:47Z). The builder's
+        # concurrency group runs one build and keeps one waiting, and a newer dispatch replaces the waiting one,
+        # so an outage that outlasts the wait costs at most one build per build time, never a flood.
+        print(f"::warning::GitHub API unavailable for {api_wait}: {error}")
+        if not has_cmux_next_ios:
+            _write_outputs(Decision(False, "cmux-next-ios/ is not on feat-cmux-next yet (a191's merge)", None))
+            return 0
+        _write_outputs(Decision(True, f"the builder's run list stayed unreadable for {api_wait} (GitHub API "
+                                      "rate-limited or down); building the head (fail open)", None))
         return 0
     ready = builder_has_script(repo)
+    tip = builder_tip(repo)
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
-    _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
+    _, newest_failure = failure_streak(sorted((r for r in runs if not r.get("yolo")), key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
                                               reverse=True))
     since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
                     relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready,
-                    since_failure=since_failure, force=force)
+                    since_failure=since_failure, force=force, builder_sha=tip)
     _write_outputs(decision)
     if decision.reason.startswith("BLOCKED"):
         # An annotation on the decide run; for a failure backoff the builder's own newest run stays red.
         print(f"::error title=cmux INTERNAL builder held::{decision.reason}")
+    return 0
+
+
+def _dispatch_once(args: list[str], runner, sleep):
+    """One dispatch with GH_TOKEN, then GH_FALLBACK_TOKEN (the trigger's App token) when GH_TOKEN's quota is spent."""
+    try:
+        return _gh_api(args, runner=runner, sleep=sleep)
+    except GitHubUnavailable as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN") or ""
+        if not fallback or fallback == os.environ.get("GH_TOKEN"):
+            raise
+        print(f"::warning::dispatch with GH_TOKEN failed ({str(error)[:200]}); trying GH_FALLBACK_TOKEN")
+        saved = os.environ.get("GH_TOKEN")
+        os.environ["GH_TOKEN"] = fallback
+        try:
+            return _gh_api(args, runner=runner, sleep=sleep)
+        finally:
+            if saved is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = saved
+
+
+def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, clock=time.time,
+                 api_wait: dt.timedelta = DISPATCH_API_WAIT) -> int:
+    """Dispatch BUILD_WORKFLOW on BUILDER_REF for `sha`, waiting out a spent or failing API like the plan does
+    (a bare `gh workflow run` meets the same limit and loses the head the plan just picked)."""
+    args = ["-X", "POST", f"repos/{REPO}/actions/workflows/{Path(BUILD_WORKFLOW).name}/dispatches",
+            "-f", f"ref={BUILDER_REF.removeprefix('refs/heads/')}", "-f", f"inputs[sha]={sha}",
+            "-f", f"inputs[base]={base}"]
+    try:
+        with_api_wait(lambda: _dispatch_once(args, runner, sleep), api_wait, f"the dispatch of {sha[:12]}",
+                      runner=runner, sleep=sleep, clock=clock)
+    except GitHubUnavailable as error:
+        print(f"::error title=cmux INTERNAL dispatch lost::{sha[:12]}: GitHub API unavailable for {api_wait}: "
+              f"{str(error)[:200]}; the next push plans again")
+        return 1
+    line = f"dispatched cmux-next-ios INTERNAL {sha} (base {base or 'none'})"
+    print(line)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a") as fh:
+            fh.write(line + "\n")
     return 0
 
 
@@ -550,6 +738,9 @@ def main(argv: list[str]) -> int:
     p.add_argument("--head", required=True)
     p.add_argument("--repo", default=".")
     p.add_argument("--force", action="store_true", help="a person asked: skip the failure backoff")
+    d = sub.add_parser("dispatch")
+    d.add_argument("--sha", required=True)
+    d.add_argument("--base", default="")
     s = sub.add_parser("stamp")
     s.add_argument("--project-yml", type=Path, default=Path(PROJECT_YML))
     s.add_argument("--last", default=None)
@@ -562,6 +753,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.cmd == "plan":
         return cmd_plan(args.head, args.repo, force=args.force)
+    if args.cmd == "dispatch":
+        return cmd_dispatch(args.sha, args.base)
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":

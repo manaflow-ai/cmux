@@ -61,7 +61,7 @@ struct UpdateSheetView: View {
             HStack(spacing: Metrics.space4) {
                 if let link = content.link {
                     Button(link.title) { press(link) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cmuxPressFill)
                         .font(Font(Typography.caption))
                         .foregroundStyle(Color(nsColor: Palette.textSecondary))
                         .underline()

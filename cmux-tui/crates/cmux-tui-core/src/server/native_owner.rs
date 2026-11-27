@@ -27,6 +27,8 @@ const COMMANDS: &[&str] = &[
     "new-conversation-tab",
     "set-client-info",
     "agent-session-start",
+    // The owner's refreshed model credential: owner-Cloud only in its handler.
+    "agent-session-credentials",
     "agent-session-trust",
     "agent-session-attach",
     "agent-session-events",
@@ -41,6 +43,22 @@ const COMMANDS: &[&str] = &[
     "agent-session-typing",
     "agent-session-view",
     "agent-session-context",
+    // A Cloud chat's held guest prompts and its share links: the owner decides and shares on
+    // their own machine (cloud multiplayer lane C). `-share-redeem` stays the room bridge's.
+    "agent-session-queue-approve",
+    "agent-session-queue-decline",
+    "agent-session-team-list",
+    "agent-session-of",
+    "agent-session-share-create",
+    "agent-session-share-list",
+    "agent-session-share-revoke",
+    "agent-session-share-kick",
+    "agent-session-share-room",
+    "agent-session-share-invite",
+    "agent-session-share-invite-chat",
+    "agent-session-share-uninvite",
+    "agent-session-share-request-approve",
+    "agent-session-share-request-decline",
     // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
     "agent-session-btw",
     "agent-transfer-receive",
@@ -75,6 +93,8 @@ const COMMANDS: &[&str] = &[
     "set-split-ratio",
     "set-divider-visible",
     "set-viewport-pane-width",
+    // The values of `set-split-ratio` and `set-viewport-pane-width` as one change.
+    "set-layout-sizes",
     "set-row-heights",
     "undo-layout",
     "zoom-pane",
@@ -83,6 +103,7 @@ const COMMANDS: &[&str] = &[
     "set-tab-pinned",
     "read-screen",
     "read-scrollback",
+    "terminal-find",
     "send-key",
     "list-terminals",
     "set-attach-visibility",
@@ -114,6 +135,9 @@ const CAPABILITIES: &[&str] = &[
     VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
+    // `set-layout-sizes` is in COMMANDS. The app sends it only where identify lists this name;
+    // without it here a resize gesture's values go as single commands, each its own commit.
+    LAYOUT_SIZES_BATCH_CAPABILITY,
     // Both ride commands this carrier already admits (`set-divider-visible`, `split`).
     crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
     split_kind::SPLIT_AROUND_CAPABILITY,
@@ -124,6 +148,8 @@ const CAPABILITIES: &[&str] = &[
     crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
+    SCREEN_DEVICE_IDENTITY_CAPABILITY,
+    AGENT_PRESENCE_REPLAY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
@@ -140,11 +166,18 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
     agent_inventory::CAPABILITY,
     agent_inventory::OWNER_CAPABILITY,
     agent_inventory::REFRESH_CAPABILITY,
@@ -164,7 +197,11 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+    crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // A projected folder on the owner's own machine: its stream dial passes
+    // `fs_wire::remote_dial_admits` for the owner's Native dial only.
+    crate::projection::PROJECTION_CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 
@@ -237,6 +274,10 @@ pub(super) fn try_handle(
     {
         return Some(handle_request(mux, client, request, writer));
     }
+    if command == "agent-session-team-list" {
+        let data = agent_session_attach::member::team_list(mux, client);
+        return Some(writer.send_control(&json!({"id": id, "ok": true, "data": data})).is_ok());
+    }
     agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
@@ -292,7 +333,7 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
 pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::Subscribe { surface: None, .. }
-        | Command::ListWorkspaces
+        | Command::ListWorkspaces { .. }
         | Command::CreateWorkspace { .. }
         | Command::CreateTerminal { .. }
         | Command::SetDefaultColors { .. }
@@ -311,6 +352,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetSplitRatio { .. }
         | Command::SetDividerVisible { .. }
         | Command::SetViewportPaneWidth { .. }
+        | Command::SetLayoutSizes { .. }
         | Command::SetRowHeights { .. }
         | Command::UndoLayout { .. }
         | Command::ZoomPane { .. }
@@ -319,6 +361,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetTabPinned { .. }
         | Command::ReadScreen { .. }
         | Command::ReadScrollback { .. }
+        | Command::TerminalFind { .. }
         | Command::SendKey { .. }
         | Command::ListTerminals
         | Command::SetAttachVisibility { .. }
@@ -335,20 +378,5 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
 }
 
 #[cfg(test)]
-mod fork_admission_tests {
-    use super::*;
-
-    #[test]
-    fn a_native_owner_may_fork_its_attached_chat() {
-        assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
-        assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
-    }
-
-    /// A Cloud chat's New side chat and `/side` (agent_session_side.rs): the owner's carrier
-    /// reaches it, and the carrier's identify names it.
-    #[test]
-    fn a_native_owner_may_open_a_side_chat_of_its_attached_chat() {
-        assert!(admits(r#"{"cmd":"agent-session-side","surface":1,"live":true}"#));
-        assert!(CAPABILITIES.contains(&agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY));
-    }
-}
+#[path = "native_owner_fork_admission_tests.rs"]
+mod fork_admission_tests;

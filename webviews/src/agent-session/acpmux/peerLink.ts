@@ -21,6 +21,9 @@ export type PeerLink = {
   why?: LinkWhy;
   /// A person must act (sign-in, an update): no Reconnect.
   stuck?: true;
+  /// When acpmux says the link took its current state (ms since the epoch), for a link that is not
+  /// connected: the row counts its quiet time from it (afterDelay.ts `useLinkDownSaid`).
+  since?: number;
 };
 
 type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true } | null;
@@ -38,6 +41,8 @@ export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   authFailed: { link: "offline", why: "authFailed", stuck: true },
   updateRequired: { link: "offline", why: "updateRequired", stuck: true },
   paused: null,
+  // Left closed because unused: the machine was reachable, and using it connects it.
+  idle: { link: "connected" },
 };
 
 const LOCAL = "localNetwork" satisfies LinkCause;
@@ -50,6 +55,8 @@ type LinkSnapshot = {
   peerConnected?: Record<string, boolean> | undefined;
   /// The chat drawn from the Mac's copy while its machine does not answer: the peer copy banner shows.
   peerCopy?: { peer: string; offline: boolean } | undefined;
+  /// The tab's chat is not listed because its machine is not connected: the unavailable state says so.
+  unavailable?: { reason: string } | undefined;
 };
 
 /// The link of the peer the open chat runs on (the session this Mac's acpmux mirrors,
@@ -77,6 +84,10 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
   const cloud = snapshot.peerKinds?.[peer] === "cloud";
   const banner = snapshot.peerCopy?.offline === true && snapshot.peerCopy.peer === peer;
   if (cloud && !known.stuck && (known.link === "offline" || (known.link !== "connected" && banner))) return null;
+  // One line per cause (Leo, 2026-11-14): a link the peer copy banner or the missing chat's state
+  // already says is down is not said again here, on any machine. A step a person must take stays.
+  const toldAbove = banner || snapshot.unavailable?.reason === "offline";
+  if (!known.stuck && known.link !== "connected" && toldAbove) return null;
   const why: LinkWhy | undefined =
     known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   return {
@@ -85,5 +96,6 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
     ...(known.reconnecting ? { reconnecting: true } : {}),
     ...(why ? { why } : {}),
     ...(known.stuck ? { stuck: true } : {}),
+    ...(known.link !== "connected" && detail?.since !== undefined ? { since: detail.since } : {}),
   };
 }

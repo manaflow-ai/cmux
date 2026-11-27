@@ -33,6 +33,10 @@ echo "swift $*" >> "$FAKE_SWIFT_LOG"
 case "$1" in
   build) echo "Build complete!" ;;
   test)
+    if [ "${2:-}" = list ]; then
+      printf '%s\\n' 'PkgTests.FooTests/testOne()' 'PkgTests.ATests/testOne()' 'PkgTests.BTests/testOne()' 'PkgTests.CTests/testOne()' 'CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests/testOne()'
+      exit 0
+    fi
     if [ -n "${FAKE_SWIFT_NO_TESTS:-}" ]; then echo "Build complete!"; exit 0; fi
     filter="${@: -1}"
     if [ -n "${FAKE_SWIFT_FAIL_FILTER:-}" ] && [ "$filter" = "$FAKE_SWIFT_FAIL_FILTER" ]; then
@@ -185,9 +189,32 @@ def main() -> int:
         elif calls.index("--build-tests") > calls.index("--filter FooTests"):
             failures.append("the build ran after the tests")
 
+        # The isolated native gallery still reaches Pages resources, but needs no
+        # daemon binary. Verify preparation through the real suite entrypoint.
+        gallery = repo / "Packages/macOS/CmuxNativeSidebarGallery"
+        gallery.mkdir(parents=True)
+        (gallery / "Package.swift").write_text("// swift-tools-version: 6.2\n")
+        preparation = scratch / "preparation.log"
+        (repo / "scripts/ci/ensure-web-bundles.sh").write_text(
+            '#!/bin/bash\nprintf "web\\n" >> "$GALLERY_PREPARATION_LOG"\n')
+        daemon = repo / "scripts/cmux-next/pin-cmux-tui.sh"
+        daemon.write_text('#!/bin/bash\nprintf "daemon\\n" >> "$GALLERY_PREPARATION_LOG"\nexit 1\n')
+        daemon.chmod(0o755)
+        log.write_text("")
+        r = run(repo, {**env, "GALLERY_PREPARATION_LOG": str(preparation)},
+                "suite", "Packages/macOS/CmuxNativeSidebarGallery",
+                "CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests")
+        if r.returncode != 0:
+            failures.append(f"native gallery suite failed: {r.stdout}{r.stderr}")
+        prepared = preparation.read_text().splitlines() if preparation.exists() else []
+        if prepared != ["web"]:
+            failures.append(f"native gallery must prepare web resources only: {prepared!r}")
+        if "--package-path Packages/macOS/CmuxNativeSidebarGallery --skip-build --filter" not in log.read_text():
+            failures.append("native gallery did not execute its isolated package")
+
         # A filter that runs no test fails: an empty match is not a pass.
         log.write_text("")
-        r = run(repo, {**env, "FAKE_SWIFT_NO_TESTS": "1"}, "suite", "Packages/macOS/Pkg", "NoSuchTests")
+        r = run(repo, {**env, "FAKE_SWIFT_NO_TESTS": "1"}, "suite", "Packages/macOS/Pkg", "FooTests")
         if r.returncode == 0:
             failures.append("a filter that ran no tests passed")
 
@@ -242,9 +269,10 @@ def main() -> int:
             calls = log.read_text().splitlines()
             if r.returncode != 0:
                 failures.append(f"debug info {value}: run failed ({r.returncode}): {r.stdout}{r.stderr}")
-            if len(calls) != 3:
-                failures.append(f"debug info {value}: want one build and two suites: {calls!r}")
-            for call in calls:
+            configured_calls = [call for call in calls if call.startswith(("swift build ", "swift test "))]
+            if len(configured_calls) != 4 or sum(call.startswith("swift test list ") for call in configured_calls) != 1:
+                failures.append(f"debug info {value}: want one build, one discovery and two suites: {calls!r}")
+            for call in configured_calls:
                 if want is not None and want not in call + " ":
                     failures.append(f"debug info {value}: {call!r} lacks {want.strip()!r}")
                 if want is None and "-debug-info-format" in call:

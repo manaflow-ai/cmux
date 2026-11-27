@@ -4,6 +4,7 @@
 use super::*;
 use crate::mesh::{HubError, Sender};
 use crate::mesh_control::{Command, ControlRequest, MeshControlRelay, Recipient};
+use std::time::Duration;
 
 fn recipient(value: &Value) -> Result<Recipient, RpcError> {
     let object =
@@ -19,6 +20,23 @@ fn recipient(value: &Value) -> Result<Recipient, RpcError> {
     }
 }
 
+/// A start's `session/new` params, stamped with `answer`, this Mac's answer to cmux's tools: the
+/// chat there follows it, never the caller's (`hub/cmux_tools_answer.rs`), as a `session/new`
+/// forwarded to a peer does.
+fn start_params(params: &Value, answer: &str) -> Result<serde_json::Map<String, Value>, RpcError> {
+    let mut start = Value::Object(
+        params
+            .as_object()
+            .cloned()
+            .ok_or_else(|| RpcError::invalid_params("start requires params"))?,
+    );
+    crate::hub::cmux_tools_answer::stamp(&mut start, answer);
+    match start {
+        Value::Object(params) => Ok(params),
+        _ => Err(RpcError::internal("start params are not an object")),
+    }
+}
+
 fn error(error: HubError) -> RpcError {
     let code = error.code.as_deref().unwrap_or("mesh.unavailable");
     RpcError::new(-32000, error.message.clone()).with_data(json!({
@@ -26,11 +44,8 @@ fn error(error: HubError) -> RpcError {
     }))
 }
 
-pub(super) async fn handle(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    params: &Value,
-) -> Result<Value, RpcError> {
+/// Mesh controls come from this daemon's own local socket, never from a remote-controlled turn.
+fn local_only(hub: &Hub, conn: &Conn) -> Result<(), RpcError> {
     if conn.origin != Origin::Local || conn.auth != ConnAuth::LocalSocket {
         return Err(RpcError::new(-32003, "mesh controls require this daemon's local socket")
             .with_data(json!({"reason": "mesh.local_only"})));
@@ -46,6 +61,15 @@ pub(super) async fn handle(
             .with_data(json!({"reason": "mesh.local_only"})));
         }
     }
+    Ok(())
+}
+
+pub(super) async fn handle(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    local_only(hub, conn)?;
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::new(-32000, "mesh relay is not configured"))?;
     if let Some(id) = params.get("receipt").and_then(Value::as_str) {
@@ -57,12 +81,25 @@ pub(super) async fn handle(
     }
     let to = recipient(&params["to"])?;
     let command = match params["op"].as_str() {
-        Some("start") => Command::Start {
-            params: params["params"]
-                .as_object()
-                .cloned()
-                .ok_or_else(|| RpcError::invalid_params("start requires params"))?,
-        },
+        Some("start") => {
+            let start = start_params(
+                &params["params"],
+                crate::hub::cmux_tools_answer::here_for(
+                    crate::user_settings::text().as_deref(),
+                    &params["params"],
+                ),
+            )?;
+            // The person's start level, or a full-access caller's, as a start through an ssh
+            // peer carries it (`hub/full_access_children.rs`): the machine serves the relay as a
+            // peer daemon, so without it every such chat started asking there (hq#11835 row 4).
+            let mut start = Value::Object(start);
+            let person = super::requests::person_start(conn, &start);
+            hub.forward_start_policy(person, conn.caller(), &mut start).await;
+            let Value::Object(params) = start else {
+                return Err(RpcError::invalid_params("start requires params"));
+            };
+            Command::Start { params }
+        }
         Some("resume") => Command::Resume,
         Some("stop") => Command::Stop,
         _ => return Err(RpcError::invalid_params("op must be start, resume or stop")),
@@ -75,12 +112,165 @@ pub(super) async fn handle(
     let sender = Sender {
         name: conn.caller().map(|id| hub.session_name(id)),
         session_id: conn.caller().map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         ..Sender::default()
     };
     let relay = MeshControlRelay::new(mesh.clone(), sender);
     let receipt = crate::mesh_control::submit(&relay, &request).await.map_err(error)?;
     let mut reply = serde_json::to_value(receipt).map_err(|e| RpcError::internal(e.to_string()))?;
-    reply["idempotencyKey"] = json!(key);
+    if let Some(reply) = reply.as_object_mut() {
+        reply.insert("idempotencyKey".into(), json!(key));
+    }
     Ok(reply)
+}
+
+/// How long a `new` started through the hub waits for the machine there to say it started.
+// timeout: the start's receipt is kept; the caller reads it with `acpmux session receipt ID`.
+const START_WAIT: Duration = Duration::from_secs(120);
+
+/// A `session/new` for `host`, a machine only the mesh hub reaches (`hub/mesh_book.rs`): sent as
+/// the hub's start control, as `acpmux session start NAME --machine HOST` sends it, and answered
+/// as a peer's start is (`sessionId`, `peer`), with `via: "hub"`, once that machine started it.
+/// Before, a placed `new` there was refused as no peer (a lane VM, 2026-11-24: every
+/// fleet host was hub-only). Its prompts then go through the hub (`mesh_read.rs` `prompt`).
+pub(super) async fn start_through_hub(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    host: &str,
+) -> Result<Value, RpcError> {
+    local_only(hub, conn)?;
+    let mesh =
+        hub.mesh.get().ok_or_else(|| RpcError::new(-32000, "mesh relay is not configured"))?;
+    let mut p = params.clone();
+    super::peer_forward::strip_new_meta(&mut p);
+    let meta = p.pointer("/_meta/acpmux");
+    // A create key that fits the hub's key keeps a resent `new` from starting a second chat.
+    let key = crate::hub::create_key::requested(meta)
+        .ok()
+        .flatten()
+        .filter(|k| k.len() >= 8)
+        .map(|k| format!("new:{k}"))
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let name = meta.and_then(|m| m.get("name")).and_then(Value::as_str).map(str::to_owned);
+    let answer =
+        crate::hub::cmux_tools_answer::here_for(crate::user_settings::text().as_deref(), &p);
+    let mut start = Value::Object(start_params(&p, answer)?);
+    let person = super::requests::person_start(conn, params);
+    hub.forward_start_policy(person, conn.caller(), &mut start).await;
+    let Value::Object(start) = start else {
+        return Err(RpcError::invalid_params("start requires params"));
+    };
+    let to = Recipient::Host { host: host.to_owned() };
+    let request = ControlRequest::new(to, Command::Start { params: start }, key.clone())
+        .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+    let sender = Sender {
+        name: conn.caller().map(|id| hub.session_name(id)),
+        session_id: conn.caller().map(str::to_owned),
+        host: Some(crate::pairing::mesh_host()),
+        ..Sender::default()
+    };
+    let relay = MeshControlRelay::new(mesh.clone(), sender);
+    let receipt = crate::mesh_control::submit(&relay, &request).await.map_err(error)?;
+    let receipt = settled(mesh.as_ref(), receipt, START_WAIT).await?;
+    let started = started(receipt, host, name.as_deref(), &key)?;
+    if let Some(id) = started.get("sessionId").and_then(Value::as_str) {
+        hub.note_created_remote(host, id, name.as_deref());
+    }
+    Ok(started)
+}
+
+/// `receipt`, waited on through the hub until it is delivered, refused or expired, or `wait`
+/// passes.
+async fn settled(
+    mesh: &dyn crate::mesh::MeshHub,
+    mut receipt: crate::mesh::Receipt,
+    wait: Duration,
+) -> Result<crate::mesh::Receipt, RpcError> {
+    let until = tokio::time::Instant::now() + wait;
+    while !matches!(receipt.state.as_str(), "delivered" | "refused" | "expired") {
+        let left = until.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let id = receipt.message_id.clone();
+        receipt = mesh.answer(&id, left.min(Duration::from_secs(25))).await.map_err(error)?;
+    }
+    Ok(receipt)
+}
+
+/// The answer to a `session/new` started through the hub, from its start's `receipt`.
+fn started(
+    receipt: crate::mesh::Receipt,
+    host: &str,
+    name: Option<&str>,
+    key: &str,
+) -> Result<Value, RpcError> {
+    let detail = receipt.detail.clone().unwrap_or_default();
+    match receipt.state.as_str() {
+        "delivered" if !detail.is_empty() => {
+            let mut v = json!({"sessionId": detail, "peer": host, "via": "hub"});
+            if let (Some(name), Some(fields)) = (name, v.as_object_mut()) {
+                fields.insert("_meta".into(), json!({"acpmux": {"name": name}}));
+            }
+            Ok(v)
+        }
+        "refused" | "expired" => Err(RpcError::new(
+            -32000,
+            format!("{host} did not start it through the mesh hub ({}): {detail}", receipt.state),
+        )
+        .with_data(json!({"reason": "mesh.start_refused", "peer": host, "via": "hub"}))),
+        state => Err(RpcError::new(
+            -32000,
+            format!(
+                "{host} has not said it started the session through the mesh hub ({state}); \
+                 read it with `acpmux session receipt {}` (idempotency key {key})",
+                receipt.message_id
+            ),
+        )
+        .with_data(json!({"reason": "mesh.start_pending", "peer": host, "via": "hub",
+            "messageId": receipt.message_id, "retryable": true}))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A start carries this Mac's answer over whatever its caller put there; its other fields stay.
+    #[test]
+    fn a_start_carries_this_macs_answer_not_the_callers() {
+        let caller =
+            json!({"cwd": "/w", "_meta": {"acpmux": {"cmuxTools": "on", "harness": "codex"}}});
+        let params = start_params(&caller, "off").unwrap();
+        assert_eq!(params["_meta"]["acpmux"]["cmuxTools"], "off");
+        assert_eq!(params["_meta"]["acpmux"]["harness"], "codex");
+        assert_eq!(params["cwd"], "/w");
+        assert_eq!(
+            start_params(&json!({"cwd": "/w"}), "on").unwrap()["_meta"]["acpmux"]["cmuxTools"],
+            "on"
+        );
+        assert!(start_params(&json!("x"), "on").is_err());
+    }
+
+    fn receipt(state: &str, detail: Option<&str>) -> crate::mesh::Receipt {
+        serde_json::from_value(json!({"messageId": "msg_1", "state": state, "detail": detail}))
+            .unwrap()
+    }
+
+    /// A start through the hub answers as a peer's start does once the machine there started it,
+    /// and says why it did not otherwise.
+    #[test]
+    fn a_start_through_the_hub_answers_as_a_peers_start() {
+        let v = started(receipt("delivered", Some("s-1")), "lane-17", Some("w"), "k").unwrap();
+        assert_eq!(v["sessionId"], "s-1");
+        assert_eq!(v["peer"], "lane-17");
+        assert_eq!(v["via"], "hub");
+        assert_eq!(v["_meta"]["acpmux"]["name"], "w");
+        assert_eq!(crate::session_identity::routed_id(&v).unwrap(), "lane-17/s-1");
+        let refused = started(receipt("refused", Some("no")), "lane-17", None, "k").unwrap_err();
+        assert!(refused.message.contains("no"), "{}", refused.message);
+        let pending = started(receipt("leased", None), "lane-17", None, "key-1").unwrap_err();
+        assert!(pending.message.contains("msg_1"), "{}", pending.message);
+    }
 }

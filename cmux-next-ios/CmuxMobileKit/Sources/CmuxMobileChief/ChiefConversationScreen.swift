@@ -1,7 +1,9 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileArtifacts
+import CmuxMobileDesign
 import CmuxConversationUI
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import SwiftUI
@@ -43,15 +45,21 @@ public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
+    /// A Chief's look (header menu, "Message Chief"), or a conversation with people's.
+    let options: ConversationPresentationOptions
     @Environment(\.dismiss) private var dismiss
     @State private var showsInfo = false
     @State private var link = ChiefScreenLink()
+    /// Chief unavailable with something to try (a dropped Mac link, a kept conversation): it tries
+    /// again on its own, with backoff and at once back in the foreground, never a Try Again
+    /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
+    @State private var autoReconnect = AutoRetry()
 
-    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
+    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false,
+                options: ConversationPresentationOptions = .chief) {
+        self.options = options
         #if DEBUG
-        if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
-            self.session = Self.outboxDemo
-        } else if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-stale-demo") {
+        if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-stale-demo") {
             self.session = Self.staleDemo
         } else {
             self.session = session
@@ -64,27 +72,17 @@ public struct ChiefConversationScreen: View {
     }
 
     #if DEBUG
-    /// An isolated, memory-only outbox for capture; never changes a real queue.
-    private static let outboxDemo: ChiefSession = {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
-        session.status = "Offline"
-        session.send(ConversationComposeMessage(text: "Check the latest build."), asksForAlerts: false)
-        session.send(ConversationComposeMessage(text: "Let me know when the tests finish."), asksForAlerts: false)
-        return session
-    }()
-
     /// A Mac conversation kept from a dropped link (CMUX-30), as ``MacConversationLoader``
     /// marks it; memory only.
     private static let staleDemo: ChiefSession = {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         MacConversationLoader.markStale(session, tryAgain: {})
-        session.send(ConversationComposeMessage(text: "Run the tests again when the Mac is back."), asksForAlerts: false)
         return session
     }()
     #endif
 
     public var body: some View {
-        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, link: link,
+        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, options: options, link: link,
                                     back: { dismiss() }, openInfo: { showsInfo = true })
             // The conversation draws one store; a new backend (Try Again, a new link) makes a
             // new store, so the open screen is rebuilt on it instead of waiting on the old one.
@@ -92,9 +90,13 @@ public struct ChiefConversationScreen: View {
             // Focus carries only to a screen rebuilt in place; one that never
             // showed leaves none for the next visit (its text stays).
             .onDisappear { session.dropCarriedComposerFocus() }
+            .autoRetry(autoReconnect, failing: session.needsReconnect) { await session.reconnectAndWait() }
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
+            // Its own layer: the list's bar, or Settings', never draws over the
+            // chat through a push or a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
                 ChiefSettingsView(session: session) { [link] in
@@ -116,6 +118,12 @@ public struct ChiefConversationScreen: View {
 /// Chief's service line in the transcript's start header, replacing
 /// Messages' "iMessage / Encrypted".
 extension ConversationPresentationOptions {
+    /// A conversation with people (New Message's DM or group): the Messages placeholder, no Chief header menu.
+    /// No start line: the header already names the person, and naming the service says nothing new.
+    public static func people(_ title: String) -> ConversationPresentationOptions {
+        ConversationPresentationOptions(placeholder: String(localized: "Message"), serviceTitle: "", serviceSubtitle: "")
+    }
+
     public static var chief: ConversationPresentationOptions {
         ConversationPresentationOptions(
             placeholder: String(localized: "Message Chief"),
@@ -125,6 +133,9 @@ extension ConversationPresentationOptions {
             trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
+                // Text under the header stops at it (iOS release bar read-back, 2026-11-22,
+                // shot 07; tbd d-189cea06b1).
+                hardTopEdge: true,
                 actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
@@ -137,18 +148,22 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
+    let options: ConversationPresentationOptions
     let link: ChiefScreenLink
     let back: () -> Void
     let openInfo: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
-        let conversation = ConversationViewController(store: session.store, options: .chief,
+        let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show
         // the new one before the old one leaves.
         if let previous = link.container { previous.handOffComposer() }
         let container = ChiefConversationContainer(conversation: conversation, session: session)
+        // A conversation with Chief (not one with people) asks before its first send (5.1.2(i)).
+        container.asksAIConsent = options.serviceTitle == "Chief"
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
         container.focusesComposerOnAppear = focusesComposer && !link.focusedComposer
@@ -203,6 +218,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
     let session: ChiefSession
+    /// Sends ask ``ChiefAIConsent`` first until the person agrees (a conversation with Chief).
+    var asksAIConsent = false
     private var popRecognizers: [UIGestureRecognizer] = []
     private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
     private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
@@ -258,8 +275,22 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// and then drops the message (its store has no sender yet). The send
     /// button goes through this gate: once Chief takes sends it runs the
     /// package's own action; until then the text stays in the composer and
-    /// the screen says why, with Try Again and Send When Chief Connects.
+    /// the screen says why (and Chief is tried again on its own).
     private func installSendGate() {
+        // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
+        // The conversation asks this before every send path (Send, Return, the effect
+        // picker, voice, polls, Send Now); Not Now keeps the draft and sends nothing.
+        conversation.sendGate = { [weak self] retry in
+            guard let self, self.asksAIConsent, !ChiefAIConsent.isGranted else { return true }
+            if self.presentedViewController == nil {
+                // Agreeing sends it, unless Chief can't take sends yet: then the draft stays.
+                self.present(ChiefAIConsent.alert { [weak self] in
+                    guard let self else { return }
+                    if self.session.acceptsSendsNow { retry() } else { self.holdUnsentMessage() }
+                }, animated: true)
+            }
+            return false
+        }
         guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
         else { return }
         var actions: [UIAction] = []
@@ -290,35 +321,17 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
-    /// The message stays in the composer; the alert says why and offers to
-    /// try Chief again or to send it once Chief connects (the outbox).
+    /// The message stays in the composer; the alert says why. Chief is tried again at once
+    /// (the person just asked to send; there is nothing to decide), and on its own after that.
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
-        let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        session.retryConnecting()
         let alert = UIAlertController(
             title: String(localized: "mobile.chief.notSent", defaultValue: "Not sent", bundle: .module),
             message: String(localized: "mobile.chief.draftKept", defaultValue: "Your draft is saved here.", bundle: .module),
             preferredStyle: .alert)
-        if session.canRetryConnecting {
-            alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
-                self?.session.retryConnecting()
-            })
-        }
-        if !text.isEmpty {
-            alert.addAction(UIAlertAction(title: String(localized: "Send When Chief Connects"), style: .default) { [weak self] _ in
-                self?.moveComposerToOutbox(text)
-            })
-        }
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
-    }
-
-    private func moveComposerToOutbox(_ text: String) {
-        session.send(ConversationComposeMessage(text: text))
-        guard let field = composerTextView else { return }
-        field.text = ""
-        // The composer follows its field through the delegate (send button, height).
-        field.delegate?.textViewDidChange?(field)
     }
 
     /// Follows the session for the gate and the spinner.
@@ -473,9 +486,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
-    /// over the end of the transcript. Only the status line and its details
-    /// take touches (``ChiefLiveHitArea``); everywhere else the transcript
-    /// under it scrolls and takes long-presses as usual.
+    /// over the end of the transcript. The reply text, status line and details
+    /// take touches in their own bounds. The rest passes through to the transcript.
     private let liveHitArea = ChiefLiveHitArea()
     private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
         let host = UIHostingController(rootView: ChiefLiveBubble(session: session, hitArea: liveHitArea))
@@ -549,22 +561,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         headerTakenOver = true
     }
 
-    /// Messages written before Chief connected are not in the transcript
-    /// yet; say so, with why, instead of showing nothing.
-    private func showOutboxIfWaiting() {
-        guard !session.outbox.isEmpty, !session.isConnected, presentedViewController == nil else { return }
-        let count = session.outbox.count
-        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
-        let alert = UIAlertController(
-            title: count == 1 ? String(localized: "Message Not Sent Yet") : String(localized: "\(count) Messages Not Sent Yet"),
-            message: String(localized: "\(reason) It will send when Chief connects."),
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: String(localized: "Keep"), style: .cancel))
-        alert.addAction(UIAlertAction(title: String(localized: "Delete"), style: .destructive) { [weak self] _ in
-            self?.session.discardOutbox()
-        })
-        present(alert, animated: true)
-    }
     /// Pushes Chief's info on the navigation stack (``ChiefConversationScreen``).
     var openInfo: (() -> Void)?
 
@@ -619,6 +615,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         super.viewWillAppear(animated)
         isCovered = false
         restoreCarriedComposer()
+        session.unsentTextSink = self
     }
 
     // MARK: Composer across screens and app switches
@@ -634,6 +631,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     func handOffComposer() {
         guard !handedOffComposer, isViewLoaded else { return }
         handedOffComposer = true
+        // Its field is handed off: unsent text waits for the screen replacing it.
+        if session.unsentTextSink === self { session.unsentTextSink = nil }
         let focused = composerTextView?.isFirstResponder == true || composerFocusedWhenSceneLeft
         session.carryComposerText(composerTextView?.text ?? "", focused: focused)
     }
@@ -642,12 +641,15 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// in the field before the screen shows, so a reopened Chief opens with it
     /// instead of filling it in after the push settles.
     private func restoreCarriedComposer() {
-        guard let carried = session.takeCarriedComposer() else { return }
-        if let text = carried.text, let field = composerTextView, field.text.isEmpty {
-            field.text = text
-            field.delegate?.textViewDidChange?(field)
+        if let carried = session.takeCarriedComposer() {
+            if let text = carried.text, let field = composerTextView, field.text.isEmpty {
+                field.text = text
+                field.delegate?.textViewDidChange?(field)
+            }
+            if carried.focused { focusesCarriedComposer = true }
         }
-        if carried.focused { focusesCarriedComposer = true }
+        // After it, a message Chief could not send while no Chief screen was open (no outbox).
+        if let unsent = session.takeUnsentText() { showUnsent(unsent) }
     }
 
     /// Back in the foreground the field gets its keyboard again if it had it
@@ -789,6 +791,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         isCovered = true
+        if session.unsentTextSink === self { session.unsentTextSink = nil }
         // Unsent text goes with the session to the next screen (it reads it
         // before appearing); a screen replaced in place already handed it off.
         if !handedOffComposer { session.carryComposerText(composerTextView?.text ?? "") }
@@ -913,5 +916,18 @@ extension ChiefSession {
     /// The conversation a Chief screen shows now, nil when none is on screen:
     /// a notification about it needs no banner.
     public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
+}
+
+extension ChiefConversationContainer: ChiefUnsentTextSink {
+    /// A message Chief could not send, back in the field (no outbox), after what is typed.
+    public func showUnsent(_ text: String) {
+        guard let field = composerTextView, !handedOffComposer else {
+            session.keepForNextScreen(text)
+            return
+        }
+        field.text = field.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : field.text + "\n" + text
+        // The composer follows its field through the delegate (send button, height).
+        field.delegate?.textViewDidChange?(field)
+    }
 }
 #endif

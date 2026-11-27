@@ -20,7 +20,6 @@
 use std::collections::BTreeMap;
 
 use base64::Engine as _;
-use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
 
 /// Public, no credentials. Served with max-age 60, but the CDN does not
@@ -56,19 +55,6 @@ pub const CMUX_TUI_HOOK: &str = "cmux-tui-hook";
 /// add the next key here and ship it in machines before CI signs with it.
 pub const KEYS: &[(&str, &str)] =
     &[("e5d7bbcacc70703d", "uroy2ajE6JWnMjkx3FNdn88SJN4DCMfLpqZjkwx45WY=")];
-
-#[derive(Deserialize)]
-struct Envelope {
-    schema: u64,
-    payload: String,
-    signatures: Vec<Signature>,
-}
-
-#[derive(Deserialize)]
-struct Signature {
-    key_id: String,
-    sig: String,
-}
 
 /// One binary of a build.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -151,26 +137,21 @@ pub fn trusted_keys() -> Vec<(String, [u8; 32])> {
         .collect()
 }
 
+/// The exact payload bytes of the envelope `body` when a `keys` signature
+/// covers them; else why not. Every file signed with this envelope opens
+/// here before any payload field is read: this channel's ([`verify`]) and the
+/// Mac's per-commit live update file (`cmux app try`, cmux-tui
+/// cli/app/try_cmd.rs), each of which then checks its own `purpose`. The
+/// envelope itself is `cmux-signed-envelope`'s, shared with the store
+/// packages' `STORE.sig`, which trusts only its own keys.
+pub fn open_envelope(body: &[u8], keys: &[(String, [u8; 32])]) -> Result<Vec<u8>, String> {
+    cmux_signed_envelope::open(body, keys)
+}
+
 /// The payload of `body` when a `keys` signature covers it and it is this
 /// channel's, unexpired at `now` (unix seconds); else why not.
 pub fn verify(body: &[u8], keys: &[(String, [u8; 32])], now: u64) -> Result<Payload, String> {
-    let envelope: Envelope =
-        serde_json::from_slice(body).map_err(|_| "the channel file is not an envelope")?;
-    if envelope.schema != SCHEMA {
-        return Err(format!("unknown envelope schema {}", envelope.schema));
-    }
-    let b64 = base64::engine::general_purpose::STANDARD;
-    let payload = b64.decode(&envelope.payload).map_err(|_| "the payload is not base64")?;
-    let signed = envelope.signatures.iter().any(|signature| {
-        let Some((_, key)) = keys.iter().find(|(id, _)| *id == signature.key_id) else {
-            return false;
-        };
-        let Ok(sig) = b64.decode(&signature.sig) else { return false };
-        UnparsedPublicKey::new(&ED25519, key).verify(&payload, &sig).is_ok()
-    });
-    if !signed {
-        return Err("no valid signature by a trusted key".to_owned());
-    }
+    let payload = open_envelope(body, keys)?;
     let payload: Payload =
         serde_json::from_slice(&payload).map_err(|e| format!("the payload does not parse: {e}"))?;
     if payload.schema != SCHEMA {
@@ -324,9 +305,20 @@ impl Cache {
 
 /// This machine's Rust target, as the published binaries name it.
 pub fn local_target() -> Option<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Some("x86_64-unknown-linux-musl"),
-        "aarch64" => Some("aarch64-unknown-linux-musl"),
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The published target for an OS and architecture. Only Linux musl builds are published; any
+/// other OS gets none (the updater turns itself off), never a Linux binary it cannot run.
+pub fn target_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-musl"),
+        ("linux", "aarch64") => Some("aarch64-unknown-linux-musl"),
         _ => None,
     }
+}
+
+/// What `local_target` found no build for, as the updater's off line names it.
+pub fn local_platform() -> String {
+    format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
 }

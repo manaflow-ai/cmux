@@ -86,7 +86,8 @@ impl CloudTurnClient {
         // Installing the ring provider is idempotent when another path won the
         // race, and prevents rustls' "no crypto provider configured" panic.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))

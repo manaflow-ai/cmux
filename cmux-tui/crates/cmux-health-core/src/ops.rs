@@ -6,7 +6,7 @@
 //! |----|---------|-------|
 //! | `register` | `{id, kind, label, nowMs?, visible?}` | `{nextTickMs}` |
 //! | `unregister` | `{id}` | `{nextTickMs}` |
-//! | `beat` | `{id, nowMs}` | `{nextTickMs}` |
+//! | `beat` | `{id, rest?, nowMs}` (`rest: true`: a page at rest, untimed until it beats again) | `{nextTickMs}` |
 //! | `input` | `{id, sent, handled, nowMs}` | `{nextTickMs}` |
 //! | `visibility` | `{id, visible, nowMs}` | `{nextTickMs}` |
 //! | `event` | `{id, event, nowMs, pid?, value?}` | `{nextTickMs}` |
@@ -81,6 +81,18 @@ fn yes() -> bool {
 #[derive(Deserialize)]
 struct Id {
     id: String,
+}
+
+/// `beat`: the part answered; `rest: true` (a page) also says it beats no more until something
+/// happens in it ([`crate::model::Health::rest`]).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Beat {
+    id: String,
+    #[serde(default)]
+    rest: bool,
+    #[serde(deserialize_with = "ms")]
+    now_ms: u64,
 }
 
 #[derive(Deserialize)]
@@ -167,8 +179,8 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         }
         "unregister" => health.unregister(&de::<Id>(request)?.id),
         "beat" => {
-            let r: At = de(request)?;
-            health.beat(&r.id, r.now_ms);
+            let r: Beat = de(request)?;
+            if r.rest { health.rest(&r.id, r.now_ms) } else { health.beat(&r.id, r.now_ms) }
         }
         "input" => {
             let r: Input = de(request)?;
@@ -189,7 +201,11 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "tick" => {
             let r: At = de(request)?;
             let actions = health.tick(r.now_ms);
-            return Ok(json!({ "actions": actions, "nextTickMs": health.next_tick_ms() }));
+            return Ok(json!({
+                "actions": actions,
+                "nextTickMs": health.next_tick_ms(),
+                "nextTickId": health.next_tick_id(),
+            }));
         }
         "repairResult" => {
             let r: RepairResult = de(request)?;
@@ -198,7 +214,11 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "repairNow" => {
             let r: At = de(request)?;
             let actions = health.repair_now(&r.id, r.now_ms);
-            return Ok(json!({ "actions": actions, "nextTickMs": health.next_tick_ms() }));
+            return Ok(json!({
+                "actions": actions,
+                "nextTickMs": health.next_tick_ms(),
+                "nextTickId": health.next_tick_id(),
+            }));
         }
         "snapshot" => {
             return serde_json::to_value(health.snapshot()).map_err(|_| OpError::Invalid);
@@ -212,5 +232,5 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "inject" => return Ok(json!({ "ok": true })),
         _ => return Err(OpError::Unknown),
     }
-    Ok(json!({ "nextTickMs": health.next_tick_ms() }))
+    Ok(json!({ "nextTickMs": health.next_tick_ms(), "nextTickId": health.next_tick_id() }))
 }

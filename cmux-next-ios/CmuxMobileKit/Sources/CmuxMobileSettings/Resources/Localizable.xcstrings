@@ -1,18 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.account.deleteAppStore.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your subscription keeps renewing"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dein Abo verlängert sich weiter"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Votre abonnement continue de se renouveler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سيستمر تجديد اشتراكك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tu suscripción se seguirá renovando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你的訂閱將繼續續訂"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你的订阅将继续续订"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "구독은 계속 갱신됩니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サブスクリプションは引き続き更新されます"}}
+      }
+    },
+    "mobile.account.deleteAppStore.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Löschen deines cmux-Kontos kündigt dein App Store-Abo nicht: Kündige es im App Store. Das Löschen meldet dich überall ab und ist endgültig."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Supprimer votre compte cmux n'annule pas votre abonnement App Store : annulez-le dans l'App Store. La suppression vous déconnecte partout et est définitive."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حذف حساب cmux لا يلغي اشتراكك في App Store، لذا ألغِه في App Store. يؤدي الحذف إلى تسجيل خروجك من كل مكان ولا يمكن التراجع عنه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eliminar tu cuenta de cmux no cancela tu suscripción de App Store: cancélala allí. Eliminarla cierra tu sesión en todas partes y es definitivo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "刪除 cmux 帳號不會取消你的 App Store 訂閱，請在 App Store 中取消。刪除會讓你在所有裝置上登出，且無法復原。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "删除 cmux 账户不会取消你的 App Store 订阅，请在 App Store 中取消。删除会让你在所有设备上退出登录，且无法撤销。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "cmux 계정을 삭제해도 App Store 구독은 취소되지 않으니 App Store에서 취소하세요. 삭제하면 모든 곳에서 로그아웃되며 되돌릴 수 없습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "cmux アカウントを削除しても App Store のサブスクリプションは解約されないため、App Store で解約してください。削除するとすべての場所でサインアウトされ、元に戻せません。"}}
+      }
+    },
+    "mobile.account.deleteAppStore.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Manage Subscription"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abo verwalten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gérer l'abonnement"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إدارة الاشتراك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Gestionar suscripción"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "管理訂閱"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "管理订阅"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "구독 관리"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サブスクリプションを管理"}}
+      }
+    },
     "mobile.devices.loadFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices. Pull to retry."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden. Zum Wiederholen nach unten ziehen."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils. Tirez pour réessayer."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة. اسحب لإعادة المحاولة."}},
-        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos. Desliza para volver a intentarlo."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。下拉以重試。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。下拉以重试。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다. 아래로 당겨 다시 시도하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。下に引いて再試行してください。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。"}}
       }
     },
     "mobile.devices.networkUnavailable": {
@@ -153,6 +195,34 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "重新启用 Mobile，或在该 Mac 上再次登录。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "Mobile을 다시 활성화하거나 해당 Mac에서 다시 로그인하세요."}},
         "ja": {"stringUnit": {"state": "translated", "value": "Mobile を再び有効にするか、その Mac で再度サインインしてください。"}}
+      }
+    },
+    "mobile.settings.cloudAutoMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "de": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "es": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "AutoCloud"}}
+      }
+    },
+    "mobile.settings.cloudAutoMode.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "AutoCloud shows the chats that keep running in the Cloud when your Mac sleeps or goes offline."}},
+        "de": {"stringUnit": {"state": "translated", "value": "AutoCloud zeigt die Chats, die in der Cloud weiterlaufen, wenn dein Mac schläft oder offline geht."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "AutoCloud affiche les discussions qui continuent dans le Cloud lorsque votre Mac est en veille ou hors ligne."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض AutoCloud المحادثات التي تستمر في العمل في السحابة عندما يدخل الـ Mac في وضع السكون أو ينقطع اتصاله."}},
+        "es": {"stringUnit": {"state": "translated", "value": "AutoCloud muestra los chats que siguen ejecutándose en la nube cuando tu Mac entra en reposo o se desconecta."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "AutoCloud 會顯示在 Mac 睡眠或離線時仍在雲端執行的聊天。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "AutoCloud 会显示在 Mac 睡眠或离线时仍在云端运行的聊天。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "AutoCloud는 Mac이 잠자거나 오프라인일 때 클라우드에서 계속 실행되는 채팅을 표시합니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "AutoCloud は、Mac がスリープまたはオフラインのときもクラウドで実行され続けるチャットを表示します。"}}
       }
     }
   },

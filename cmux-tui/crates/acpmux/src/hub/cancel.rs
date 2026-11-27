@@ -20,7 +20,7 @@
 //! Codex's `turn/interrupt`, ACP `session/cancel`), and if the turn is still open [`INTERRUPT_GRACE`]
 //! later acpmux ends its process (its own process group, `ChildAgent::kill`), ends the turn,
 //! and starts it again on the same conversation before the next turn can start
-//! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
+//! (`turns/finish.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
 //! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
@@ -76,6 +76,24 @@ const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 /// How long an agent that did not answer within [`CANCEL_GRACE`] gets after its second cancel before
 /// acpmux ends its process.
 const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long a Stop waits for the chat's agent slot (`session.child`). Another operation can hold
+/// it without bound: an agent's start or kill, a write to a harness that stopped reading
+/// (`tools.rs`), the end of a hosted agent whose link does not answer. A Stop that waited on it
+/// never answered and its turn never ended (freeze map, ask-bb427cbcae). Past this the Stop is
+/// taken all the same and its escalation ends the turn itself (`stop_escalated` `slot_held`).
+const SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Another operation held the agent slot through [`SLOT_WAIT`].
+struct SlotHeld;
+
+/// The agent in the chat's slot now, waiting at most [`SLOT_WAIT`] for the slot.
+async fn slot_agent(session: &Session) -> Result<Option<Arc<ChildAgent>>, SlotHeld> {
+    match tokio::time::timeout(SLOT_WAIT, session.child.lock()).await {
+        Ok(slot) => Ok(slot.clone()),
+        Err(_) => Err(SlotHeld),
+    }
+}
 
 /// The answer acpmux gives a turn it ended itself; `restarted` when it ended the agent's
 /// process for it too.
@@ -185,6 +203,27 @@ impl Hub {
         first
     }
 
+    /// The Stop's turn ends without its agent: another operation holds the agent slot, so
+    /// neither a second cancel nor a restart can reach the agent. Only acpmux's turn ends, as a
+    /// spared one does; the agent and whatever holds its slot run on.
+    fn end_past_held_slot(&self, session: &Session, turn: &TurnInfo) {
+        tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent slot stayed held through the Stop: ending only its turn");
+        self.append(
+            session,
+            "mux",
+            "stop_escalated",
+            json!({"turnId": turn.turn_id, "step": "slot_held"}),
+        );
+        Self::force_cancel(session, turn);
+    }
+
+    /// The turn reads `stopping`; its first Stop starts the escalation that ends it.
+    fn take_stop(self: &Arc<Self>, session: &Arc<Session>, turn: &TurnInfo) {
+        if self.mark_stopping(session, turn) {
+            tokio::spawn(self.clone().escalate_stop(session.clone(), turn.clone()));
+        }
+    }
+
     /// An open turn gets a second cancel, then recovery if it still has not ended.
     /// Silence is not an acknowledgement: a wedged harness can stop producing events
     /// while its process remains alive. Background work still prevents a process restart.
@@ -210,9 +249,16 @@ impl Hub {
             return;
         }
         // The agent that runs the turn now: a failover may have replaced the one the Stop saw.
-        let Some(child) = session.child.lock().await.clone() else {
-            Self::force_cancel(&session, &current);
-            return;
+        let child = match slot_agent(&session).await {
+            Ok(Some(child)) => child,
+            Ok(None) => {
+                Self::force_cancel(&session, &current);
+                return;
+            }
+            Err(SlotHeld) => {
+                self.end_past_held_slot(&session, &current);
+                return;
+            }
         };
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent has not answered Stop: cancelling again");
         self.append(
@@ -233,9 +279,16 @@ impl Hub {
         }
         tokio::time::sleep_until(deadline).await;
         let Some(current) = open() else { return };
-        let Some(child) = session.child.lock().await.clone() else {
-            Self::force_cancel(&session, &current);
-            return;
+        let child = match slot_agent(&session).await {
+            Ok(Some(child)) => child,
+            Ok(None) => {
+                Self::force_cancel(&session, &current);
+                return;
+            }
+            Err(SlotHeld) => {
+                self.end_past_held_slot(&session, &current);
+                return;
+            }
         };
         // Keep the harness while unread steering messages still need its acknowledgement.
         // Killing it first loses the proof needed to return an unread message without
@@ -322,7 +375,10 @@ impl Hub {
         {
             // Under the agent slot: it is still this agent's, and the turn still runs, as the
             // marks are set, so the turn's end (`finish_turn`) reads them, whenever it comes.
-            let mut slot = session.child.lock().await;
+            let Ok(mut slot) = tokio::time::timeout(SLOT_WAIT, session.child.lock()).await else {
+                self.end_past_held_slot(session, turn);
+                return;
+            };
             if slot.as_ref().is_none_or(|c| c.generation != child.generation) {
                 return;
             }
@@ -357,12 +413,21 @@ impl Hub {
         self.cancel_pending_permissions(session);
         // Its own process group only (`ChildAgent::kill`), and it waits for the process to end.
         child.kill().await;
+        // A host that did not take the terminate still runs the stopped agent, and the agent
+        // that starts again would be that same host adopted.
+        if child.host_unended() {
+            self.end_unadopted_host(session).await;
+        }
         if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
             session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(true))));
         }
     }
 
     pub async fn cancel(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
+        // A chat a cmux terminal drives stops that terminal's turn (`terminal_input.rs`).
+        if let Some(stopped) = self.stop_in_terminal(session).await {
+            return stopped;
+        }
         self.cancel_preserving_queued(session, None).await
     }
 
@@ -441,7 +506,18 @@ impl Hub {
         // The exact prompt path already fenced only its own continuation before matching.
         // The turn was captured with its fence before waiting for the child writer.
         // A second Stop must not retarget a queued or auto-resumed next turn.
-        let Some(child) = session.child.lock().await.clone() else {
+        let slot = match slot_agent(session).await {
+            Ok(slot) => slot,
+            // Another operation holds the agent slot: the Stop is taken, and its escalation
+            // ends the turn if the slot stays held (`end_past_held_slot`).
+            Err(SlotHeld) => {
+                if let Some(turn) = turn.and_then(|turn| Self::carried_on(session, &turn)) {
+                    self.take_stop(session, &turn);
+                }
+                return Ok(());
+            }
+        };
+        let Some(child) = slot else {
             // No agent runs the turn right now: it starts, or a failover's fallback does
             // (`turns.rs`). The Stop counted above keeps the turn's prompt from that agent, and the
             // turn then ends as cancelled; until then it reads `stopping`, so the Stop shows.
@@ -488,9 +564,7 @@ impl Hub {
         // Show Stop and start recovery before any writer wait. A full pipe or a
         // stalled handoff must not prevent the cancellation deadline from running.
         let write_deadline = if !compacting && let Some(turn) = turn.as_ref() {
-            if self.mark_stopping(session, turn) {
-                tokio::spawn(self.clone().escalate_stop(session.clone(), turn.clone()));
-            }
+            self.take_stop(session, turn);
             Some(tokio::time::Instant::now() + CANCEL_GRACE)
         } else {
             None
@@ -551,8 +625,12 @@ impl Hub {
             if turn.as_ref().is_some_and(|turn| Self::carried_on(session, turn).is_none()) {
                 return Ok(());
             }
-            if session.child.lock().await.as_ref().is_none_or(|c| c.generation != child.generation)
-            {
+            let same = match tokio::time::timeout(SLOT_WAIT, session.child.lock()).await {
+                Ok(slot) => slot.as_ref().is_some_and(|c| c.generation == child.generation),
+                // Held: the escalation owns recovery, as for a writer that does not take it.
+                Err(_) => false,
+            };
+            if !same {
                 return Ok(());
             }
         }

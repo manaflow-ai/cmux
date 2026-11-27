@@ -62,7 +62,7 @@ type Scene = {
   below?: true;
 };
 
-/// A lone read; a second read arrives (the runs arm groups them under "Read 2 files").
+/// A lone read; a second read arrives as its own flat row (reads never group, readPath.ts).
 const lone: Scene = {
   before: [read("pin-c1", "fetch.ts")],
   after: [read("pin-c1", "fetch.ts"), read("pin-c2", "retry.ts")],

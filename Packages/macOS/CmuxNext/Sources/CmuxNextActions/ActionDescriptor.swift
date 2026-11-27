@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
 
 /// A shortcut that stands for a numbered family, such as Cmd-1 to Cmd-9.
 public nonisolated enum ShortcutFamily: Sendable, Hashable {
@@ -194,4 +197,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         }
         return "action " + result
     }
+}
+
+extension ActionDescriptor {
+    /// The daemon request the catalog row names (`ActionCatalog.requests`), which the App sends
+    /// with no handler of its own; nil for an action a handler runs. Not a stored field: the
+    /// catalog dump compares the stored ones with the Swift catalog's.
+    public var catalogRequest: ActionCatalogRequest? { ActionCatalog.requests[id] }
 }

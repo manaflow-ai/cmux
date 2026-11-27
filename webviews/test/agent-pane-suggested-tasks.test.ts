@@ -23,6 +23,7 @@
 //   chat. A Claude Code envelope has no chat to answer: no Reply.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
@@ -525,6 +526,11 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       emit(socket!, record("dequeued", { promptId }));
       emit(socket!, record("user_message", { text, client: "acpmux", promptId, _meta: { provenance } }));
       await drawn(page);
+      // The turn's end folds once (turnEndFold.ts): until that motion settles, an inert copy of the
+      // queued line fades out where it was (`acpmux-row--fold-ghost`). Read the chat at rest, as
+      // agent-pane-steer.test.ts does; counting during the fold saw that copy as a second line.
+      await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
+      expect(await page.locator(".acpmux-row--fold-ghost").count()).toBe(0);
       expect(await line.count()).toBe(1);
       expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
       await page.close();
@@ -620,7 +626,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
       expect(
         await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height),
-      ).toBe(22);
+      ).toBe(ROW_METRIC.height);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");

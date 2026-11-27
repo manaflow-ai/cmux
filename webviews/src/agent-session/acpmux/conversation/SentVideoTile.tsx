@@ -17,31 +17,64 @@
 // the row: its tile reads them from the file (`video.info`, as the composer's chip does), at the size
 // the row gave it, so nothing moves when they land; where the host cannot read it, the tile stays the
 // square with its play glyph (Leo, 2026-11-06: "how come this didn't give a preview and only has
-// file name?").
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+// file name?"). Its length is one line in the tile's bottom-right corner, or not drawn where a narrow
+// bubble leaves it no room clear of the play glyph (composer/videoLengthFit.ts).
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { callChipHost, tryChipHost } from "../chips/host";
 import { lengthOf } from "../composer/videoPrompt";
+import { useVideoLengthFit } from "../composer/videoLengthFit";
 import { parseVideoInfo, type VideoInfo } from "../composer/videoAttachments";
 import { MediaPlayer, VideoViewer } from "../chips/ReplyMedia";
 import { loadPlayableMedia } from "../chips/replyMediaModel";
 import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
 import { TurnActionsContext } from "./turnActions";
-import type { SentVideo } from "./sentVideos";
+import { noteVideoSize, type SentVideo } from "./sentVideos";
+import { sentVideoSize } from "./userBubbleModel";
+import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
+import { FileAttachment } from "../FileAttachment";
 
 /// Where a granted video plays: in place in the bubble, or large over the pane.
 type Shown = { src: string; expanded: boolean };
 
-/// `width` and `height`: the tile's, at a sent image's height (UserBubble.tsx `sentImageWidth`). The
-/// poster fills it, cropped, loaded or still loading.
-export function SentVideoTile({ video: sent, width, height }: { video: SentVideo; width: number; height: number }) {
+/// `width` and `height`: the tile's box, by default its video's own shape under a sent image's rule
+/// (userBubbleModel.ts `sentVideoSize`), which the row's estimate reads too. The poster fills it
+/// whole, loaded or still loading: the box is the picture's shape, so it has no bands and no crop.
+type SentVideoTileProps = { video: SentVideo; width?: number; height?: number };
+
+/// A sent video's tile. One whose preview throws while it draws is the video's file chip instead
+/// (composer/AttachmentPreviewBoundary.tsx): the message and the pane stay.
+export function SentVideoTile(props: SentVideoTileProps) {
+  return (
+    <AttachmentPreviewBoundary
+      attachment={props.video}
+      fallback={
+        <span className="cv-sent-video-failed" data-preview-failed="true">
+          <FileAttachment file={{ name: props.video.name, path: props.video.path }} />
+        </span>
+      }
+    >
+      <SentVideoTilePreview {...props} />
+    </AttachmentPreviewBoundary>
+  );
+}
+
+function SentVideoTilePreview({ video: sent, ...box }: SentVideoTileProps) {
   const t = useT();
   const video = useReadVideo(sent);
+  const own = sentVideoSize(video);
+  const width = box.width ?? own.width;
+  const height = box.height ?? own.height;
   const [shown, setShown] = useState<Shown>();
   /// Nothing could play it: the pane's player was refused it and Quick Look too.
   const [unplayable, setUnplayable] = useState(false);
   const asked = useRef(0);
+  const tile = useRef<HTMLButtonElement>(null);
+  useVideoLengthFit(
+    tile,
+    video.length ? `${video.length}${unplayable ? " unplayable" : ""}${shown ? " shown" : ""}` : undefined,
+  );
   const quickLook = (ask: number) =>
     void tryChipHost("video.quickLook", { src: video.path }).then((played) => {
       if (ask === asked.current) setUnplayable(!played);
@@ -84,6 +117,7 @@ export function SentVideoTile({ video: sent, width, height }: { video: SentVideo
   return (
     <>
       <button
+        ref={tile}
         type="button"
         className="cv-user__video"
         // A send from the latest row lands its chip's copy here (sendMorph.ts).
@@ -92,24 +126,31 @@ export function SentVideoTile({ video: sent, width, height }: { video: SentVideo
         aria-label={
           video.length ? t("composer.playVideo", { name: video.name, length: video.length }) : t("media.play")
         }
-        style={{ width }}
+        // Its shape, so a short wide tile draws a smaller play glyph (conversation.css).
+        style={{ width, "--sent-video-ratio": String(width / height) } as CSSProperties}
         onClick={() => open(false)}
         onDoubleClick={() => open(true)}
       >
         {video.poster ? (
           <Poster video={video} width={width} height={height} />
         ) : (
-          <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
+          <span
+            className="cv-user__image-placeholder"
+            aria-hidden="true"
+            style={{ width, aspectRatio: `${width} / ${height}`, flexBasis: width }}
+          />
         )}
         {unplayable ? (
-          <output className="cv-user__video-unplayable">{t("media.cantPlayHere")}</output>
+          <output className="cv-user__video-unplayable" data-video-glyph="">
+            {t("media.cantPlayHere")}
+          </output>
         ) : (
-          <span className="ui-glass cv-user__video-play" aria-hidden="true">
+          <span className="ui-glass cv-user__video-play" data-video-glyph="" aria-hidden="true">
             <PlayTriangle size={16} style={{ color: "inherit" }} />
           </span>
         )}
         {video.length && (
-          <span className="cv-user__video-length" aria-hidden="true">
+          <span className="cv-user__video-length" data-video-length="" aria-hidden="true">
             {video.length}
           </span>
         )}
@@ -139,10 +180,18 @@ function readVideo(path: string): Promise<VideoInfo | undefined> {
   let read = reads.get(path);
   if (!read) {
     // A refusal is not kept: a host not ready yet (a reload, a reconnect) is asked again by the next tile.
-    read = callChipHost("video.info", { src: path }).then(parseVideoInfo, () => {
-      reads.delete(path);
-      return undefined;
-    });
+    read = callChipHost("video.info", { src: path }).then(
+      (answer) => {
+        const info = parseVideoInfo(answer);
+        // A tile drawn again, and its row's estimate, take this box from the first frame.
+        if (info) noteVideoSize(path, info);
+        return info;
+      },
+      () => {
+        reads.delete(path);
+        return undefined;
+      },
+    );
     reads.set(path, read);
     if (reads.size > READS_KEPT) reads.delete(reads.keys().next().value!);
   }
@@ -170,6 +219,8 @@ function useReadVideo(video: SentVideo): SentVideo {
         ? {
             ...video,
             length: video.length ?? lengthOf(read.durationMs),
+            // Its own shape once read, when the row knew neither its size nor its chip's shape.
+            ...((video.width && video.height) || video.shape ? {} : { width: read.width, height: read.height }),
             poster: { id: `${video.path}:poster`, mimeType: "image/jpeg", src: read.poster },
           }
         : video,
@@ -182,9 +233,15 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
   const { promptImage } = useContext(TurnActionsContext);
   const image = video.poster!;
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, video);
+  // A poster never read (imageEntries.ts IMAGE_READ_MS) leaves the tile its plain slot with the play
+  // glyph: the video still plays; only its picture is missing.
   if (shown.src === undefined)
     return (
-      <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
+      <span
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ width, aspectRatio: `${width} / ${height}`, flexBasis: width }}
+      />
     );
   return (
     <img
@@ -194,7 +251,8 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
       decoding={shown.decoded ? "sync" : "async"}
       width={video.width}
       height={video.height}
-      style={{ width, height }}
+      // Its own shape at its width: a narrow column scales the poster down whole, never squeezed.
+      style={{ width, aspectRatio: `${width} / ${height}` }}
       onLoad={shown.onLoad}
     />
   );

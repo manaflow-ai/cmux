@@ -154,15 +154,15 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  # #33340, then nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the job
-  # ends in the owned nightly-only pool, not a Linux runner pool or a Blacksmith label.
-  in_prepare && /runs-on: .*vars\.CI_NIGHTLY_ONLY_RUNNER \|\| .glaeda-nightly-only-m4pro./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
+  # #33340, then #49544: the preparation is Linux work on the owned cmux-linux label, never a
+  # Blacksmith label or a runner-pool variable.
+  in_prepare && /runs-on: .*.cmux-linux./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
   END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_linux_pool && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must run on the owned nightly-only Mac pool, keep its fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on the owned cmux-linux label, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -418,10 +418,12 @@ if ! awk '
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
-  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.published-build.outputs.resolve_build_sha }}\"") { saw_build_sha=1 }
+  # The step script compares against RESOLVE_BUILD_SHA, which the step env: sets from published-build.
+  job == "republish" && index($0, "\"$current_sha\" != \"$RESOLVE_BUILD_SHA\"") { saw_build_cmp=1 }
+  job == "republish" && index($0, "RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}") { saw_build_env=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_cmp && saw_build_env && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1
@@ -480,9 +482,9 @@ if ! awk '
   exit 1
 fi
 
-# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
-if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
+# NIGHTLY and nightly-next ship arm64 only (tests/test_nightly_next_arm64_only.py); only RC keeps all three.
+if ! grep -Fq "const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: only the RC channel builds the Intel and universal variants; NIGHTLY and nightly-next are arm64 only (Leo, 2026-11-25)"
   exit 1
 fi
 
@@ -494,8 +496,7 @@ fi
 # cmux-next ships no legacy Cloud tunnel system extension. The opt-in Cloud
 # Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md) is handled only by its own
 # "Prepare the Cloud Tunnel extension" step, which signs or removes it, so that
-# step is left out of this check. It does ship the Computer Use helper (D19;
-# tests/test_nightly_next_computer_use_helper.py). The Chromium engine artifact
+# step is left out of this check. The Chromium engine artifact
 # is arm64 only, so an x86_64 variant drops it before thinning.
 if awk '
   /^      - name: Prepare the Cloud Tunnel extension$/ { skip=1; next }
@@ -570,6 +571,8 @@ for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts 
   step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' "$WORKFLOW_FILE")"
   expected="$ACCEPTED_ONLY"
   [ "$step" = "Gate distribution with syspolicy_check" ] || expected="$NOT_NOTARY_TEST"
+  # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT).
+  step_if="${step_if% && !env.LEFT_SLOT}"
   if [ "$step_if" != "$expected" ]; then
     echo "FAIL: $step must run only for an Accepted build: $step_if"
     exit 1
@@ -803,6 +806,21 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Move channel release tag to built commit/ || /^      - name: Move the nightly-next tag to the published build/ {
+    in_move=1
+    moves++
+    next
+  }
+  in_move && /^      - name:/ { in_move=0 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token++ }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared++ }
+  END { exit !(moves == 2 && saw_app_token == 2 && saw_github_token_cleared == 2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: both nightly tag moves must keep the scoped app token and intentionally clear GITHUB_TOKEN"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Mint release tag app token/ { in_token=1; next }
   in_token && /^      - name:/ { in_token=0 }
   in_token && /actions\/create-github-app-token@/ { saw_action=1 }
@@ -938,8 +956,6 @@ BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && 
 # A run whose build a newer published build is above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, after the build gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
-# The build can prepare the variant itself; only an unprepared app needs this job (#42179).
-NOT_PREPARED="needs.build-nightly-app.outputs.prepared != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
@@ -951,7 +967,7 @@ HELPER_NEEDS_OK="$APP_NEEDS_OK && needs.resolve-nightly-ghostty-cli-helper.resul
 PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE && $NOT_PREPARED\"" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \

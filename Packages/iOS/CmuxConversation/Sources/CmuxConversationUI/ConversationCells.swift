@@ -63,6 +63,13 @@ final class MessageCell: UICollectionViewCell {
     private(set) lazy var accessibility = MessageCellAccessibility(cell: self)
 
     private(set) var model: MessageRowModel?
+    weak var activeTextSelection: BubbleTextSelectionView?
+    var selectableLabel: UILabel? {
+        if !textLabel.isHidden, (textLabel.attributedText?.length ?? 0) > 0 { return textLabel }
+        if !emojiLabel.isHidden, !(emojiLabel.text ?? "").isEmpty { return emojiLabel }
+        return nil
+    }
+
     private var previousRowID: String?
     /// The row's send flight is in the air (see `setFlightHidden`).
     var isFlightHidden = false
@@ -143,6 +150,7 @@ final class MessageCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        activeTextSelection?.end()
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         previousRowID = nil
@@ -182,6 +190,11 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureContents(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
+        if let selection = activeTextSelection, selection.rowID != model.rowID ||
+            selection.frame != (layout.textFrame ?? layout.emojiFrame.map { MessageCellLayout.emojiGlyphFrame(in: $0) }) ||
+            selection.text != (layout.textFrame == nil ? model.message.text : text.string) {
+            selection.end()
+        }
         let wasScheduled = self.model?.rowID == model.rowID && self.model?.message.isScheduled == true
         self.model = model
         self.cellLayout = layout
@@ -355,15 +368,17 @@ final class MessageCell: UICollectionViewCell {
             UIView.performWithoutAnimation { failedBadge.setUntransformedFrame(frame) }
         }
         if sameRow, badgeWasHidden, !failedBadge.isHidden {
-            // A send failing on this row: the red badge pops in.
+            // A send failing on this row: the red badge pops in (under
+            // Reduce Motion it only fades in, at its full size).
             let pop = CABasicAnimation(keyPath: "transform.scale")
             pop.fromValue = 0.3
             pop.toValue = 1
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             let group = CAAnimationGroup()
-            group.animations = [pop, fade]
+            group.animations = UIView.reducesMotion ? [fade] : [pop, fade]
             group.duration = 0.25
             group.timingFunction = CAMediaTimingFunction(name: .easeOut)
             failedBadge.layer.add(group, forKey: "failedPop")
@@ -483,6 +498,7 @@ final class MessageCell: UICollectionViewCell {
             imageTasks.append(Task { @MainActor [weak self, weak view] in
                 let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth)
                 guard let self, let view, self.model?.rowID == rowID, !Task.isCancelled else { return }
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: view, duration: 0.18, options: .transitionCrossDissolve) {
                     view.image = image
                 }
@@ -560,9 +576,11 @@ final class MessageCell: UICollectionViewCell {
 
     /// Appearing: grows from its center on a critically damped spring
     /// (response 0.52 s) while fading in over 0.25 s; leaving: fades and
-    /// shrinks to 0.9 in 0.1 s.
+    /// shrinks to 0.9 in 0.1 s. Under Reduce Motion only the fades run, at
+    /// full size.
     static func statusAnimation(appearing: Bool) -> CAAnimation {
         let group = CAAnimationGroup()
+        let reducesMotion = UIView.reducesMotion
         if appearing {
             let scale = CASpringAnimation(keyPath: "transform")
             scale.isAdditive = true
@@ -572,22 +590,24 @@ final class MessageCell: UICollectionViewCell {
             scale.fromValue = CATransform3DMakeScale(0.01, 0.01, 1)
             scale.toValue = CATransform3DIdentity
             scale.duration = scale.settlingDuration
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             fade.duration = 0.25
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            group.animations = [scale, fade]
-            group.duration = scale.duration
+            group.animations = reducesMotion ? [fade] : [scale, fade]
+            group.duration = reducesMotion ? fade.duration : scale.duration
         } else {
             let scale = CABasicAnimation(keyPath: "transform")
             scale.isAdditive = true
             scale.fromValue = CATransform3DIdentity
             scale.toValue = CATransform3DMakeScale(0.9, 0.9, 1)
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
             fade.toValue = 0
-            group.animations = [scale, fade]
+            group.animations = reducesMotion ? [fade] : [scale, fade]
             group.duration = 0.1
         }
         return group
@@ -705,6 +725,7 @@ extension MessageCell {
             bubble.strokeColor = nil
             if wasScheduled {
                 bubble.animateFill(from: .clear, duration: 0.3)
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: textLabel, duration: 0.3, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
             }
             return
@@ -910,9 +931,11 @@ final class ConversationStartCell: UICollectionViewCell {
     static func text(title: String, subtitle: String, color: UIColor) -> NSAttributedString {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
-        let text = NSMutableAttributedString(string: title + "\n", attributes: [
+        let text = NSMutableAttributedString(string: subtitle.isEmpty ? title : title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
+        // A service line without a subtitle (no encryption claim): no lock.
+        guard !subtitle.isEmpty else { return text }
         let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
         // A 9.33 pt tall lock on the baseline at the symbol's own proportions

@@ -16,6 +16,7 @@ import http.server
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -115,7 +116,7 @@ class FakeApi(px.Api):
         self.calls.append(path)
         if path.startswith("actions/artifacts?"):
             name = path.split("name=")[1].split("&")[0]
-            return {"artifacts": [a for tree, items in self.packs.items() for a in items if px.pack_name(tree) == name]}
+            return {"artifacts": [a for items in self.packs.values() for a in items if a["name"] == name]}
         if path.startswith("actions/workflows/"):
             assert f"branch={px.BRANCH}" in path
             return {"workflow_runs": self.listed}
@@ -331,6 +332,14 @@ class TakesOnlyTrustedIntactPacks(unittest.TestCase):
     def test_a_pack_missing_an_export_is_refused(self):
         files = {rel: b"x" for rel in NAMES[:-1]}
         self.assert_miss(self.api_with(pack_zip(self.tree, 7, self.sha, files)), "exactly the exports")
+
+    def test_a_previous_recipe_pack_is_not_downloaded(self):
+        old = artifact(self.tree, 7, 70)
+        old["name"] = old["name"].replace("-v2-", "-v1-")
+        self.assertNotEqual(old["name"], px.pack_name(self.tree))
+        api = self.api_with(pack_zip(self.tree, 7, self.sha), art=old)
+        self.assert_miss(api, "none is coming")
+        self.assertFalse(any(call.startswith("https://") for call in api.calls))
 
     def test_a_manifest_of_another_tree_or_run_is_refused(self):
         self.assert_miss(self.api_with(pack_zip(oid(999), 7, self.sha)), "another tree")
@@ -611,6 +620,15 @@ class PackScript(unittest.TestCase):
         self.assertEqual((self.repo / NAMES[0]).read_text(), "left by the checks\n")
         self.assertEqual((self.repo / NAMES[1]).read_text(), f"committed {NAMES[1]}\n")
 
+    def test_a_pack_without_the_full_catalog_dump_is_refused(self):
+        dump = "plans/cmux-next/action-catalog.json"
+        self.assertIn(dump, px.ACTION_EXPORTS, "the action pack must carry the full catalog")
+        result, out = self.run_pack([rel for rel in px.ACTION_EXPORTS if rel != dump],
+                                    [rel for rel in NAMES if rel not in px.ACTION_EXPORTS])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(dump, result.stderr)
+        self.assertNotIn("name=", result.stdout)
+
     def test_an_export_a_failing_test_did_not_rewrite_makes_no_pack(self):
         actions = list(px.ACTION_EXPORTS)
         settings = [rel for rel in NAMES if rel not in actions][:-1]
@@ -777,7 +795,8 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
         self.assertEqual(steps[names.index(pack["name"]) + 1]["name"], px.UPLOAD_STEP)
         self.assertEqual(NEXT["jobs"]["daemon-test"]["name"], px.DAEMON_JOB)
-        self.assertEqual(NEXT["jobs"]["generated-files"]["name"], px.GENERATED_JOB)
+        # The fleet Linux job holds the name; the Mac job is its logged fallback.
+        self.assertEqual(NEXT["jobs"]["generated-files-linux"]["name"], px.GENERATED_JOB)
 
     def test_both_workflows_start_on_changes_to_the_scripts(self):
         autofix_paths = AUTOFIX[True]["push"]["paths"]
@@ -786,6 +805,355 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
 
     def test_ci_runs_this_test(self):
         self.assertIn("tests/test_base_autofix_pushed_exports.py", (ROOT / ".github/workflows/cmux-next.yml").read_text())
+
+
+PR_AUTOFIX = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())
+PR_NUMBER, PR_HEAD, MERGE, MERGE_TREE = 77, oid(0xA1), oid(0xB1), oid(0xC1)
+
+
+def pr_run(run_id: int, **overrides) -> dict:
+    run = {"id": run_id, "event": "pull_request", "path": px.WORKFLOW_PATH, "head_branch": "lane/x",
+           "head_sha": PR_HEAD, "status": "in_progress", "repository": {"full_name": REPO},
+           "head_repository": {"full_name": REPO}, "pull_requests": [{"number": PR_NUMBER}]}
+    run.update(overrides)
+    return run
+
+
+def generated_job(status: str, conclusion=None, uploaded: bool = False) -> dict:
+    steps = [{"name": px.PR_UPLOAD_STEP, "status": "completed" if uploaded else "queued"}]
+    return {"name": px.GENERATED_JOB, "status": status, "conclusion": conclusion, "steps": steps}
+
+
+class FakePrApi(px.Api):
+    """A pull request's cmux-next runs (by head), their jobs, their artifacts, and a clock."""
+
+    def __init__(self, *, runs=None, jobs=None, artifacts=None, blobs=None, wait=600.0):
+        self.runs, self.jobs, self.artifacts, self.blobs = runs or [], jobs or {}, artifacts or {}, blobs or {}
+        self.now, self.deadline = 0.0, wait
+        self.calls: list[str] = []
+        self.on_sleep = None
+
+    def left(self) -> float:
+        return self.deadline - self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+        if self.on_sleep:
+            self.on_sleep(self)
+
+    def json(self, path: str) -> dict:
+        self.calls.append(path)
+        if path.startswith("actions/workflows/"):
+            assert "event=pull_request" in path and f"head_sha={PR_HEAD}" in path, path
+            return {"workflow_runs": self.runs}
+        run_id = int(path.split("/")[2].split("?")[0])
+        if "/jobs" in path:
+            return {"jobs": self.jobs.get(run_id, [])}
+        if "/artifacts" in path:
+            return {"artifacts": self.artifacts.get(run_id, [])}
+        raise AssertionError(path)
+
+    def download(self, url: str, dest: Path) -> None:
+        self.calls.append(url)
+        dest.write_bytes(self.blobs[int(url.rsplit("/", 1)[1])])
+
+
+def pr_artifact(run_id: int, ident: int, tree: str = MERGE_TREE) -> dict:
+    return {"id": ident, "name": px.pr_pack_name(tree), "expired": False, "created_at": "2026-11-17T12:00:00Z",
+            "archive_download_url": f"https://api/artifacts/{ident}", "workflow_run": {"id": run_id}}
+
+
+class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
+    """cmux-next-pr-autofix.yml's Mac job ("action exports (Mac)") built the package again for the merge
+    commit its pull request's cmux-next generated-files job had already built. The generated-files job
+    now packs the same exports (base-autofix-exports-pack.sh --pr), the autofix takes that pack
+    (pr-lookup) and its Mac job runs only on a miss."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.into = Path(self.tmp.name) / "staged"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def lookup(self, api, **kw):
+        return px.pr_lookup(api, MERGE, MERGE_TREE, PR_HEAD, PR_NUMBER, ENV, NAMES, self.into, poll=60,
+                            first_run_grace=kw.get("grace", 0), defer=kw.get("defer", False))
+
+    def done_api(self, blob: bytes, **overrides) -> FakePrApi:
+        return FakePrApi(runs=[pr_run(5, **overrides)], jobs={5: [generated_job("completed", "failure")]},
+                         artifacts={5: [pr_artifact(5, 50)]}, blobs={50: blob})
+
+    def test_the_pack_of_this_merge_commit_is_taken_and_unpacked(self):
+        api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
+        hit = self.lookup(api)
+        self.assertEqual(hit["hit"], "true")
+        self.assertEqual(hit["source_run_id"], "5")
+        for rel in NAMES:
+            self.assertEqual((self.into / rel).read_bytes(), f"fresh {rel}\n".encode())
+
+    def test_a_pack_of_another_commit_tree_or_run_is_a_miss(self):
+        for blob in (pack_zip(MERGE_TREE, 5, oid(0xDD)), pack_zip(oid(0xEE), 5, MERGE), pack_zip(MERGE_TREE, 6, MERGE)):
+            with self.subTest():
+                with self.assertRaises(px.Miss):
+                    self.lookup(self.done_api(blob))
+                self.assertFalse(self.into.exists())
+
+    def test_a_replaced_file_an_extra_path_or_a_missing_export_is_a_miss(self):
+        files = {rel: f"fresh {rel}\n".encode() for rel in NAMES}
+        tampered = pack_zip(MERGE_TREE, 5, MERGE, files)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("manifest.json", json.dumps({
+                "schema": px.SCHEMA, "tree": MERGE_TREE, "run_id": 5, "source_sha": MERGE,
+                "files": {**{rel: sha256(data) for rel, data in files.items()}, NAMES[0]: "0" * 64}}))
+            for rel, data in files.items():
+                archive.writestr(rel, data)
+        bad_digest = buffer.getvalue()
+        extra = pack_zip(MERGE_TREE, 5, MERGE, {**files, ".github/workflows/evil.yml": b"x"})
+        missing = pack_zip(MERGE_TREE, 5, MERGE, {rel: data for rel, data in files.items() if rel != NAMES[-1]})
+        self.assertEqual(self.lookup(self.done_api(tampered))["hit"], "true")
+        for blob in (bad_digest, extra, missing):
+            with self.subTest():
+                if self.into.exists():
+                    shutil.rmtree(self.into)
+                with self.assertRaises(px.Miss):
+                    self.lookup(self.done_api(blob))
+                self.assertFalse((self.into / ".github").exists())
+
+    def test_only_this_pull_requests_own_run_at_this_head_is_read(self):
+        blob = pack_zip(MERGE_TREE, 5, MERGE)
+        for overrides in ({"head_sha": oid(0x99)}, {"pull_requests": [{"number": 78}]}, {"event": "push"},
+                          {"path": ".github/workflows/other.yml"}, {"head_repository": {"full_name": "fork/cmux"}}):
+            with self.subTest(overrides=overrides):
+                api = self.done_api(blob, status="completed", **overrides)
+                with self.assertRaises(px.Miss):
+                    self.lookup(api)
+                self.assertFalse(any("/artifacts" in call for call in api.calls))
+
+    def test_it_waits_while_the_generated_files_job_is_queued_then_takes_the_pack(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, artifacts={5: []},
+                        blobs={50: pack_zip(MERGE_TREE, 5, MERGE)})
+
+        def upload(fake):
+            if fake.now >= 240:
+                fake.jobs[5] = [generated_job("in_progress", uploaded=True)]
+                fake.artifacts[5] = [pr_artifact(5, 50)]
+        api.on_sleep = upload
+        hit = self.lookup(api)
+        self.assertEqual(hit["hit"], "true")
+        self.assertEqual(hit["waited"], "240")
+
+    def test_a_failed_read_does_not_end_the_wait(self):
+        api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
+        listing = FakePrApi.json
+        failures = []
+
+        def flaky(self_, path):
+            if path.startswith("actions/workflows/") and not failures:
+                failures.append(path)
+                raise px.Miss("GET runs failed: HTTP 502")
+            return listing(self_, path)
+        with mock.patch.object(FakePrApi, "json", flaky):
+            hit = self.lookup(api)
+        self.assertEqual(hit["hit"], "true")
+        self.assertEqual(api.now, 60)
+
+    def test_a_skipped_job_or_a_finished_run_without_it_is_a_miss_at_once(self):
+        for jobs, status in (([generated_job("completed", "skipped")], "in_progress"), ([], "completed")):
+            with self.subTest(status=status):
+                api = FakePrApi(runs=[pr_run(5, status=status)], jobs={5: jobs})
+                with self.assertRaises(px.Miss):
+                    self.lookup(api)
+                self.assertEqual(api.now, 0)
+
+    def test_a_job_that_finished_without_a_pack_is_a_miss(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("completed", "success")]}, artifacts={5: []})
+        with self.assertRaises(px.Miss) as caught:
+            self.lookup(api)
+        self.assertIn("uploaded no pack", str(caught.exception))
+
+    def test_no_run_gets_a_grace_and_the_wait_is_bounded(self):
+        with self.assertRaises(px.Miss):
+            self.lookup(FakePrApi(), grace=180)
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, wait=600)
+        with self.assertRaises(px.Miss) as caught:
+            self.lookup(api)
+        self.assertIn("within the wait", str(caught.exception))
+        self.assertLessEqual(api.now, 600)
+
+    def test_a_zero_wait_looks_once_takes_a_pack_already_there_and_never_sleeps(self):
+        # The PR autofix passes --wait 0: the producer takes 20-39 minutes and starts with this run.
+        api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
+        api.deadline = 0.0
+        self.assertEqual(self.lookup(api)["hit"], "true")
+        for jobs in ([generated_job("queued")], []):
+            api = FakePrApi(runs=[pr_run(5)], jobs={5: jobs}, wait=0)
+            with self.assertRaises(px.Miss) as caught:
+                self.lookup(api, grace=180)
+            self.assertIn("within the wait", str(caught.exception))
+            self.assertEqual(api.now, 0.0)
+
+    def test_only_the_wanted_exports_that_differ_from_the_merge_commit_reach_the_artifact(self):
+        repo = Path(self.tmp.name) / "repo"
+        for rel in NAMES:
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(f"fresh {rel}\n")
+        (repo / NAMES[0]).write_text("committed\n")
+        (repo / NAMES[-1]).write_text("committed\n")
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "m"]):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+        self.lookup(self.done_api(pack_zip(MERGE_TREE, 5, MERGE)))
+        out = Path(self.tmp.name) / "out"
+        actions_only = [rel for rel in NAMES if rel in px.ACTION_EXPORTS]
+        self.assertEqual(px.changed_exports(repo, self.into, actions_only, out), [NAMES[0]])
+        self.assertFalse((out / NAMES[-1]).exists())
+
+    def test_the_pack_script_names_a_pr_pack_apart_from_the_bases(self):
+        self.assertNotEqual(px.pr_pack_name(MERGE_TREE), px.pack_name(MERGE_TREE))
+        self.assertIn('[[ "${2:-}" == --pr ]] && key+=(--pr)', PACK_SCRIPT.read_text())
+
+    def test_the_producer_packs_on_a_same_repo_pull_request_and_never_fails_its_job(self):
+        steps = NEXT["jobs"]["generated-files"]["steps"]
+        names = [s.get("name") for s in steps]
+        pack = next(s for s in steps if s.get("id") == "pr-exports")
+        self.assertIn("github.event_name == 'pull_request'", pack["if"])
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", pack["if"])
+        self.assertTrue(pack["continue-on-error"])
+        self.assertIn("git archive HEAD^1 scripts/cmux-next", pack["run"])
+        self.assertIn('"$pack" "$RUNNER_TEMP/pr-exports" --pr', pack["run"])
+        self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
+        self.assertLess(names.index(pack["name"]), names.index("Regenerate stale files"))
+        upload = steps[names.index(pack["name"]) + 1]
+        self.assertEqual(upload["name"], px.PR_UPLOAD_STEP)
+        self.assertEqual(upload["with"]["name"], "${{ steps.pr-exports.outputs.name }}")
+
+    def test_the_mac_job_is_skipped_when_a_matching_pack_exists_and_runs_otherwise(self):
+        mac = PR_AUTOFIX["jobs"]["action-exports"]
+        self.assertIn("generated-exports", mac["needs"])
+        condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
+        # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
+        # Cut at the job's own term: the tier term holds ") && " pairs of its own (ready-to-land with
+        # CI_LAND_FULL_PER_PR), so the first ") && " no longer ends it.
+        condition = condition[condition.index("(!cancelled()"):]
+        # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
+        condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
+
+        def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false",
+                 linux: str = "success", fallback: str = "true") -> bool:
+            values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
+                      "needs.action-areas.result": result,
+                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
+                      # action-exports-linux's exporter ran and could not decide: this Mac job is its fallback.
+                      "needs.action-exports-linux.result": linux,
+                      "needs.action-exports-linux.outputs.fallback": fallback,
+                      "needs.settings-exports-linux.result": "skipped",
+                      "needs.settings-exports-linux.outputs.fallback": "false"}
+            expression = condition.replace("!cancelled()", "True")
+            for key, value in values.items():
+                expression = expression.replace(key, repr(value))
+            return bool(eval(expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}))
+        self.assertFalse(runs("true"))
+        self.assertTrue(runs("false"))
+        self.assertTrue(runs(""))  # generated-exports skipped (a fork) or failed: the Mac job regenerates
+        self.assertFalse(runs("false", actions="false"))
+        self.assertFalse(runs("false", result="failure"))
+        # This head's generated-files job regenerates the same exports: no second Mac build.
+        self.assertFalse(runs("false", coming="true"))
+        self.assertTrue(runs("", coming=""))  # generated-exports skipped (a fork): the Mac job regenerates
+        # Leo, 2026-11-26: "How about freeing up the Mac's from doing things that don't need Mac's asap?" The Mac
+        # makes the action exports only when the Linux exporter ran and could not decide, or the Linux job did not
+        # run (CMUX_ACTION_EXPORTS_LINUX=0). A Linux job that failed before its exporter (the pool's GitHub fetch
+        # stalling) leaves the exports unverified, and the Mac, which failed the same way in 282 of 290 runs
+        # (2026-11-25), stays free.
+        self.assertTrue(runs("false", linux="skipped", fallback=""))
+        self.assertFalse(runs("false", linux="failure", fallback="false"))
+        self.assertFalse(runs("false", linux="success", fallback="false"))
+        self.assertTrue(runs("false", linux="success", fallback="true"))
+
+    def test_the_consumer_reads_only_waits_on_the_app_token_and_feeds_repair(self):
+        job = PR_AUTOFIX["jobs"]["generated-exports"]
+        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
+        lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
+        # cmux-bot's read token first (its own installation budget), the routing App's when it is not minted.
+        self.assertEqual(lookup["env"]["GH_TOKEN"],
+                         "${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}")
+        self.assertIn("pr-lookup", lookup["run"])
+        # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
+        self.assertIn("--wait 0 ", lookup["run"])
+        self.assertLess(int(lookup["timeout-minutes"]), int(job["timeout-minutes"]))
+        for step in job["steps"]:
+            self.assertTrue(step.get("continue-on-error"), step.get("name") or step.get("uses"))
+        upload = next(s for s in job["steps"] if s.get("id") == "upload")
+        self.assertEqual(upload["with"]["name"], "action-exports")
+        repair = PR_AUTOFIX["jobs"]["repair"]
+        self.assertIn("generated-exports", repair["needs"])
+        env = next(s for s in repair["steps"] if s.get("name") == "Repair")["env"]
+        self.assertIn("needs.generated-exports.outputs.hit == 'true'", env["EXPORTS_VERIFIED"])
+        download = next(s for s in repair["steps"] if s.get("name") == "Download the regenerated action exports")
+        self.assertIn("needs.generated-exports.outputs.exports == 'true'", download["if"])
+        self.assertIn("generated-exports", PR_AUTOFIX["jobs"]["push"]["needs"])
+
+
+class PrAutofixLeavesTheExportsToAComingGeneratedFilesJob(unittest.TestCase):
+    """A pull request's cmux-next generated-files job takes 20-70 min and starts with the PR autofix, so the
+    10-minute lookup missed on nearly every head (74 of 74, 2026-11-21 14:30-20:31Z) and action-exports
+    built the same package again on a second Mac (~20 min each, 124-174 runner-h/day), only for a copy in
+    pr-autofix-patch: push never runs for a pull_request event. With --defer-to-producer a coming
+    generated-files job ends the lookup at once and the Mac job does not run."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.into = Path(self.tmp.name) / "staged"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def lookup(self, api, defer=True, grace=0):
+        return px.pr_lookup(api, MERGE, MERGE_TREE, PR_HEAD, PR_NUMBER, ENV, NAMES, self.into, poll=60,
+                            first_run_grace=grace, defer=defer)
+
+    def test_a_queued_running_or_unlisted_job_is_coming_at_once(self):
+        for jobs in ([generated_job("queued")], [generated_job("in_progress")], []):
+            with self.subTest(jobs=jobs):
+                api = FakePrApi(runs=[pr_run(5)], jobs={5: jobs})
+                out = self.lookup(api)
+                self.assertEqual((out["hit"], out["coming"], out["source_run_id"]), ("false", "true", "5"))
+                self.assertEqual(api.now, 0)
+                self.assertFalse(any("/artifacts" in call for call in api.calls))
+
+    def test_a_finished_pack_is_still_taken(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("in_progress", uploaded=True)]},
+                        artifacts={5: [pr_artifact(5, 50)]}, blobs={50: pack_zip(MERGE_TREE, 5, MERGE)})
+        out = self.lookup(api)
+        self.assertEqual(out["hit"], "true")
+        self.assertNotIn("coming", out)
+
+    def test_a_job_that_will_not_regenerate_is_still_a_miss(self):
+        for jobs, status in (([generated_job("completed", "skipped")], "in_progress"), ([], "completed"),
+                             ([generated_job("completed", "success")], "completed")):
+            with self.subTest(status=status, jobs=jobs):
+                with self.assertRaises(px.Miss):
+                    self.lookup(FakePrApi(runs=[pr_run(5, status=status)], jobs={5: jobs}))
+
+    def test_no_run_listed_yet_waits_its_grace_then_misses(self):
+        with self.assertRaises(px.Miss):
+            self.lookup(FakePrApi(), grace=180)
+
+    def test_without_defer_it_waits_as_before(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, wait=600)
+        with self.assertRaises(px.Miss):
+            self.lookup(api, defer=False)
+        self.assertGreater(api.now, 0)
+
+    def test_the_workflow_defers_only_with_a_base_lookup_that_knows_the_flag(self):
+        job = PR_AUTOFIX["jobs"]["generated-exports"]
+        lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
+        self.assertIn("vars.CMUX_NEXT_PR_EXPORTS_DEFER", lookup["env"]["DEFER"])
+        self.assertIn("grep -q -- '--defer-to-producer' \"$lookup\"", lookup["run"])
+        self.assertIn("steps.lookup.outputs.coming == 'true'", job["outputs"]["coming"])
+        self.assertIn("needs.generated-exports.outputs.coming != 'true'", PR_AUTOFIX["jobs"]["action-exports"]["if"])
 
 
 if __name__ == "__main__":

@@ -47,6 +47,9 @@ public final class KeepAwakeService {
         self.menuBar = menuBar
         power.onChange = { [weak self] onBattery in self?.policy.onBattery = onBattery }
         policy.onBattery = power.start()
+        // A hold taken before this (the Keep Mac Awake action, the iPhone host: keep-awake starts after the first
+        // frame) began with no menu bar to tell; tell it now. A policy that did not change here applies nothing.
+        apply()
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             let work = ObservedItemsFeed<WorkspaceModel, WorkspaceWork>(
@@ -80,12 +83,7 @@ public final class KeepAwakeService {
         }
     }
 
-    /// Phones can reach this Mac now (`MobileHostService.isServing`).
-    public func setPhoneServing(_ serving: Bool) {
-        policy.phoneServing = serving
-    }
-
-    /// NEXT phones can reach this Mac; turning either host off preserves the other hold.
+    /// iPhones can reach this Mac now (`IPhoneHostService`).
     public func setIPhoneServing(_ serving: Bool) {
         policy.iPhoneServing = serving
     }

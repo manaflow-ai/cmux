@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -85,43 +86,46 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
   /// Where the stack's parts end against the pane, and every box that holds more than it shows.
   const measure = async (page: Page) => {
     await settled(page);
-    return page.evaluate(() => {
-      const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
-      const requiredRect = (selector: string) => {
-        const box = rect(selector);
-        if (!box) throw new Error(`expected ${selector} to be rendered`);
-        return box;
-      };
-      const main = requiredRect(".acpmux-main");
-      const past = (selector: string) => Math.round(requiredRect(selector).bottom - main.bottom);
-      const overflow = (element: Element | null) =>
-        element ? Math.max(0, element.scrollHeight - element.clientHeight) : null;
-      const prompt = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
-      return {
-        // How far each part of the stack ends below the pane's bottom (0 or less: inside it).
-        past: {
-          dock: past(".acpmux-main > .acpmux-dock"),
-          card: past(".acpmux-composer-box"),
-          foot: past(".acpmux-composer-foot"),
-        },
-        // Content past the box of the page and of the pane's wrappers: only the transcript, the
-        // prompt and the queue scroll.
-        overflow: {
-          page: overflow(document.scrollingElement),
-          body: overflow(document.body),
-          root: overflow(document.getElementById("root")),
-          shell: overflow(document.querySelector(".acpmux-shell")),
-          main: overflow(document.querySelector(".acpmux-main")),
-          dock: overflow(document.querySelector(".acpmux-main > .acpmux-dock")),
-        },
-        prompt: {
-          height: prompt.getBoundingClientRect().height,
-          cap: parseFloat(getComputedStyle(prompt).maxHeight),
-          scrolls: prompt.scrollHeight > prompt.clientHeight + 1,
-        },
-        transcriptAbove: (rect(".acpmux-main > .acpmux-dock")?.top ?? 0) - (rect(".acpmux-scroll")?.top ?? 0),
-      };
-    });
+    return page.evaluate(
+      ({ MAIN_DOCK }) => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+        const requiredRect = (selector: string) => {
+          const box = rect(selector);
+          if (!box) throw new Error(`expected ${selector} to be rendered`);
+          return box;
+        };
+        const main = requiredRect(".acpmux-main");
+        const past = (selector: string) => Math.round(requiredRect(selector).bottom - main.bottom);
+        const overflow = (element: Element | null) =>
+          element ? Math.max(0, element.scrollHeight - element.clientHeight) : null;
+        const prompt = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
+        return {
+          // How far each part of the stack ends below the pane's bottom (0 or less: inside it).
+          past: {
+            dock: past(MAIN_DOCK),
+            card: past(".acpmux-composer-box"),
+            foot: past(".acpmux-composer-foot"),
+          },
+          // Content past the box of the page and of the pane's wrappers: only the transcript, the
+          // prompt and the queue scroll.
+          overflow: {
+            page: overflow(document.scrollingElement),
+            body: overflow(document.body),
+            root: overflow(document.getElementById("root")),
+            shell: overflow(document.querySelector(".acpmux-shell")),
+            main: overflow(document.querySelector(".acpmux-main")),
+            dock: overflow(document.querySelector(MAIN_DOCK)),
+          },
+          prompt: {
+            height: prompt.getBoundingClientRect().height,
+            cap: parseFloat(getComputedStyle(prompt).maxHeight),
+            scrolls: prompt.scrollHeight > prompt.clientHeight + 1,
+          },
+          transcriptAbove: (rect(MAIN_DOCK)?.top ?? 0) - (rect(".acpmux-scroll")?.top ?? 0),
+        };
+      },
+      { MAIN_DOCK },
+    );
   };
 
   const inside = { dock: 0, card: 0, foot: 0 };
@@ -153,8 +157,29 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         }
       });
 
+  // Under 260 px the transcript's floor gives way (bottomStack.css, ask c-6a24624c5c): in a 140 or 200 px
+  // pane the floor left the stack 32 or 92 px, so the card and the quiet row ran past the pane's bottom.
+  // The stack now takes the pane under the header, and the card, its controls and the quiet row stay in it.
   for (const name of browsers.keys())
-    test(`${name}: in a tall pane the grown prompt uses the 12-line cap before 40%`, async () => {
+    for (const [label, width, height] of [
+      ["a 140 px pane", 360, 140],
+      ["a 200 px pane", 360, 200],
+    ] as const)
+      test(`${name}: in ${label} the card, its controls and the quiet row stay inside the pane`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height });
+        try {
+          await grow(page, 16);
+          const drawn = await measure(page);
+          expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
+          expect(drawn.overflow).toEqual(flat);
+        } finally {
+          await page.close();
+        }
+      });
+
+  for (const name of browsers.keys())
+    test(`${name}: in a tall pane the grown prompt uses the 30-line cap before 60%`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 900, height: 760 });
       try {
@@ -162,8 +187,9 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         const drawn = await measure(page);
         expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
         expect(drawn.overflow).toEqual(flat);
-        // Goldilocks cap: twelve body lines when that is shorter than 40% of the pane. This keeps
-        // long prompts readable without repeating the oversized growth Lawrence called out.
+        // The cap: thirty body lines when that is shorter than 60% of the pane (Leo 2026-11-22: "look
+        // at how big claude code can grow"; it was twelve lines or 40%, after Lawrence called out an
+        // oversized growth, so 60% of the pane still bounds it).
         const styles = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
           const computed = getComputedStyle(node);
           // Custom properties retain calc() text. Measure their used length, rather than treating
@@ -175,7 +201,7 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
           control.remove();
           return { line: parseFloat(computed.lineHeight), control: controlHeight };
         });
-        expect(drawn.prompt.cap).toBeCloseTo(Math.min(760 * 0.4, styles.line * 12 + styles.control), 0);
+        expect(drawn.prompt.cap).toBeCloseTo(Math.min(760 * 0.6, styles.line * 30 + styles.control), 0);
         expect(drawn.prompt.scrolls).toBe(true);
         expect(drawn.prompt.height).toBeGreaterThanOrEqual(drawn.prompt.cap - 0.5);
       } finally {

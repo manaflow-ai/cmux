@@ -170,6 +170,9 @@
 				<string>org.webmproject.webp</string>
 				<string>public.avif</string>
 				<string>public.svg-image</string>
+				<string>public.heic</string>
+				<string>public.tiff</string>
+				<string>public.image</string>
 			</array>
 		</dict>
 		<dict>
@@ -229,12 +232,6 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>CMUX_IROH_V2_ENVIRONMENT</key>
-	<string>$(CMUX_IROH_V2_ENVIRONMENT)</string>
-	<key>CMUX_IROH_V2_BASE_URL</key>
-	<string>$(CMUX_IROH_V2_BASE_URL)</string>
-	<key>CMUX_IROH_V2_FORCE_RELAY</key>
-	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
@@ -465,6 +462,27 @@
 			<array>
 				<string>NSFilenamesPboardType</string>
 				<string>public.plain-text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Send to $(PRODUCT_NAME) Chat</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>sendToChat</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+			</array>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.png</string>
+				<string>public.tiff</string>
+				<string>public.image</string>
 			</array>
 		</dict>
 	</array>

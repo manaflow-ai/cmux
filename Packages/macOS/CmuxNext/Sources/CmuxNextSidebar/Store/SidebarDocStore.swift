@@ -1,5 +1,7 @@
+import CmuxNextActions
 public import Foundation
 public import Observation
+import os
 
 /// The home session's sidebar document as this app shows it
 /// (`sidebar-doc-v1`). The daemon owns the document; this store keeps the
@@ -41,8 +43,11 @@ public final class SidebarDocStore {
 
     @ObservationIgnored private let mirror: SidebarMirror
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
-    /// A refusal or failure to show (the refusal HUD).
+    /// Why the person's own change was refused or failed (the refusal HUD); a change nobody here made is only logged.
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
+    /// Above zero inside ``automatically(_:)``.
+    @ObservationIgnored private var automaticDepth = 0
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.doc")
     /// The space a band edit is made in (the acting window's): a link, tab or app pinned to Pinned stores it
     /// (`extra.room`) and draws only in that space (spaces.md). Nil stores none.
     @ObservationIgnored public var newItemRoom: @MainActor () -> String? = { nil }
@@ -54,10 +59,40 @@ public final class SidebarDocStore {
     /// The idempotency key of the last change sent (a list matches a drop's notifications by it).
     public private(set) var lastIntentKey: String?
 
-    /// Tells the App and every list that the change `key` was refused.
-    private func refuse(_ message: String, key: String? = nil) {
-        NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": key ?? lastIntentKey ?? ""])
-        onRefused(message)
+    /// Tells every list that the change `key` was refused, logs its code, and shows why (`onRefused`) only when the
+    /// person made it: a change nobody here asked for (auto-archive, an agent's or script's run, a replay) is no
+    /// move of theirs to explain (Leo, 2026-11-14, on a toast for such a change: "what am i seeing here").
+    private func refuse(_ code: String, origin: SidebarDocChangeOrigin, key: String, detail: String = "", ops: Data? = nil) {
+        NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": key])
+        tell(code, origin: origin, key: key, detail: detail, ops: ops)
+    }
+
+    /// Logs why the change `key` did not apply: its code, who made it, its title and error, and its ops (private: a
+    /// group's name may be in them). Error level, so the line is kept on disk and can be read after the fact (a notice
+    /// for Leo's toast of 2026-11-14 was nowhere in the unified log). Shows it only when the person made the change.
+    private func tell(_ code: String, origin: SidebarDocChangeOrigin, key: String, detail: String = "", ops: Data? = nil) {
+        Self.logger.error("""
+            sidebar change \(key, privacy: .public) not applied: \(code, privacy: .public) \
+            (\(origin.rawValue, privacy: .public)) \(detail, privacy: .public) \
+            ops \(ops.map { String(decoding: $0.prefix(2048), as: UTF8.self) } ?? "", privacy: .private)
+            """)
+        guard origin == .person else { return }
+        onRefused(SidebarDocStrings.refused(code))
+    }
+
+    /// Who makes the change being sent now: an action run's origin (`user` is the person), else the person (a click
+    /// or drag runs outside action runs) unless ``automatically(_:)`` is on.
+    var changeOrigin: SidebarDocChangeOrigin {
+        if automaticDepth > 0 { return .automatic }
+        guard let run = ActionRunScope.current else { return .person }
+        return run.origin == .user ? .person : .automatic
+    }
+
+    /// Runs `body`, whose changes nobody here asked for (auto-archive's background pass): a refusal is logged, never shown.
+    public func automatically<T, E: Error>(_ body: () throws(E) -> T) throws(E) -> T {
+        automaticDepth += 1
+        defer { automaticDepth -= 1 }
+        return try body()
     }
     /// A user's move that can be undone: the title and the undo. The App
     /// puts it on its undo surface (the toast and Cmd-Z).
@@ -312,9 +347,10 @@ public final class SidebarDocStore {
     }
 
     /// What a drop of `items` may do beside each row (one FFI call per drag).
-    /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
+    /// Pinned takes a drop like any section: a drag into it pins, a drag out unpins, as the palette and
+    /// the API do (the reducer remembers where an item came from when it enters Pinned).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? records.keepingPinned(mirror.acceptance(dragging: items), dragging: items) : [:]
+        isActive ? mirror.acceptance(dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
@@ -344,6 +380,17 @@ public final class SidebarDocStore {
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
+        // Pin keeps a group member in its group. Only a top-level item entering Pinned takes the acting
+        // window’s Space. An already pinned item still belongs to the window that pinned it.
+        if let room = newItemRoom() {
+            let records = settledRecords
+            let entering = items.filter { id in
+                guard let record = records.items[id] else { return false }
+                return record.parent == nil && record.section != Self.pinnedSection
+            }
+            let stamps = Self.roomOps(moving: entering, into: Self.pinnedSection, room: room, records: records)
+            if !stamps.isEmpty { return send(ops: [["op": "pin", "items": items]] + stamps, title: title) }
+        }
         send(.pin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.pin(items, key: key)
         }
@@ -383,7 +430,7 @@ public final class SidebarDocStore {
             // Refused at once (the document is not active, or the mirror refuses it): say why, as a later refusal does (#26382).
             foldRefusals[intent.idempotencyKey] = nil
             refused()
-            onRefused(error.message)
+            showIfPerson(error)
         }
     }
 
@@ -420,8 +467,15 @@ public final class SidebarDocStore {
             try submit(intent, title: title, undoable: undoable, body)
         } catch {
             if let origin = undoOrigin { onUndoRefused(origin) }
-            onRefused(error.message)
+            showIfPerson(error)
         }
+    }
+
+    /// A change refused at once: logged, and shown when the person made it (``refuse(_:origin:key:detail:)``).
+    private func showIfPerson(_ error: SidebarDocSendRefusal) {
+        let origin = changeOrigin
+        Self.logger.error("sidebar change refused at once: \(error.code, privacy: .public) (\(origin.rawValue, privacy: .public))")
+        if origin == .person { onRefused(error.message) }
     }
 
     /// Applies `intent` to the mirror and sends it; throws (after telling every list) when it is refused at once.
@@ -429,19 +483,19 @@ public final class SidebarDocStore {
     private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true,
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
-        func refused(_ message: String) -> SidebarDocSendRefusal {
+        func refused(_ code: String) -> SidebarDocSendRefusal {
             NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
-            return SidebarDocSendRefusal(message: message)
+            return SidebarDocSendRefusal(code: code)
         }
-        guard isActive, let remote else { throw refused(SidebarDocStrings.unavailable) }
+        guard isActive, let remote else { throw refused("unavailable") }
         let stamped: Data?
         do {
             stamped = try mirror.apply(intent: intent)
-        } catch let refusal as SidebarMirror.Refusal {
-            throw refused(SidebarDocStrings.refused(refusal.code))
         } catch {
-            throw refused(SidebarDocStrings.unavailable)
+            throw refused(SidebarDocStrings.code(error))
         }
+        // Who made it, read now: the reply comes in a task that no longer runs inside the action run.
+        let changeOrigin = changeOrigin
         if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
         let key = intent.idempotencyKey
         // A rename, recolor or new group draws from its records: they show with the rows, not at the echo (#26382).
@@ -455,6 +509,8 @@ public final class SidebarDocStore {
             defer { self?.answered() }
             // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
+            // A failure that is no refusal (a decode or protocol error) is asked once more, quietly, before it shows.
+            var failedOnce = false
             for asked in 1...Self.unsettledAsks {
                 do {
                     let reply = try await body(remote, key, stamped)
@@ -486,6 +542,12 @@ public final class SidebarDocStore {
                     // same key asks again and the daemon replays a committed change (cx-ml98q: a timed-out drop flew
                     // back to its source, then the late echo moved it again).
                     continue
+                } catch where !(error is SidebarMirror.Refusal) && !(error is SidebarDocUnsettled) && !failedOnce
+                    && asked < Self.unsettledAsks {
+                    // Same key: a change the daemon did commit is replayed, not applied twice.
+                    failedOnce = true
+                    Self.logger.notice("sidebar change \(key, privacy: .public) failed, asking once more: \(String(describing: error), privacy: .public)")
+                    continue
                 } catch {
                     guard let self else { return }
                     if let origin { self.onUndoRefused(origin) }
@@ -495,12 +557,14 @@ public final class SidebarDocStore {
                         // A fold stops holding its look: the load shows the document's fold.
                         self.foldRefusals.removeValue(forKey: key)?()
                         self.settleByLoad(key)
+                        self.tell("no_answer", origin: changeOrigin, key: key, detail: title, ops: intent.ops)
                         return
                     }
-                    // The daemon refused it: no batch will echo the key. The rows spring back once.
+                    // The daemon refused it (or it failed twice): no batch will echo the key. The rows spring back
+                    // once, in the same redraw as the notice.
                     self.foldRefusals.removeValue(forKey: key)?()
                     self.drop(key)
-                    self.refuse(SidebarDocStrings.describe(error), key: key)
+                    self.refuse(SidebarDocStrings.code(error), origin: changeOrigin, key: key, detail: "\(title): \(error)", ops: intent.ops)
                     return
                 }
             }
@@ -529,7 +593,12 @@ public final class SidebarDocStore {
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
 }
 
-/// A change refused before it was sent, with the message the refusal HUD shows.
+/// A change refused before it was sent: the reducer's code (or `unavailable`, `failed`) and the text the refusal
+/// HUD shows for it.
 public nonisolated struct SidebarDocSendRefusal: Error, Hashable, Sendable {
-    public var message: String
+    public var code: String
+
+    public init(code: String) { self.code = code }
+
+    public var message: String { SidebarDocStrings.refused(code) }
 }

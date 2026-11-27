@@ -26,11 +26,7 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     let topBar: NSView?
     /// The edge `topBar` sits on (`browser.toolbarPosition`); the pane sets it.
     var toolbarPosition: ToolbarPosition = .top {
-        didSet {
-            guard toolbarPosition != oldValue else { return }
-            barEdge.activate(toolbarPosition)
-            needsLayout = true
-        }
+        didSet { if toolbarPosition != oldValue { barEdge.activate(toolbarPosition); needsLayout = true } }
     }
     /// The constraints that put `topBar` above or below the content; one set is active.
     private let barEdge = ToolbarEdgeConstraints()
@@ -112,10 +108,11 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     }
 }
 
-extension InternalPageView: ToolbarEdgeHosting {}
+extension InternalPageView: ToolbarEdgeHosting { var showsToolbarRow: Bool { topBar.map { !$0.isHidden } ?? false } }
+extension InternalPageView { var meetsTabStrip: Bool { get { (topBar as? MarkdownOmnibarBar)?.toolbar.meetsTabStrip ?? false } set { (topBar as? MarkdownOmnibarBar)?.toolbar.meetsTabStrip = newValue } } }
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
-extension InternalPageView: PageHistoryHosting {}
+extension InternalPageView: PageHistoryHosting, DrawnWebParkable { var drawnWebPage: PageWebView? { PageWebView.shown(in: content) } } // a swipe runs `navigate`; waits drawn off screen on a tab switch
 extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { (content as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0 } }
 /// Its hover-card picture (``PageTabPictures``): a React page's, nothing for a native page.
 extension InternalPageView: PagePictureSubject { var pictureKey: String { key }; var pictureLook: String { effectiveAppearance.name.rawValue }; var isOnScreen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }; func picture(maxPixelWidth: CGFloat) async -> CGImage? {

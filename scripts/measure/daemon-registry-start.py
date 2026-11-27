@@ -5,12 +5,14 @@ Each start reports, from spawn: time to listen (the socket file exists), to iden
 first identify answer) and to ready (identify says lifecycle_ready), and the laps of the
 owner's startup-timings.jsonl line. A bumped start first sets the agent roster snapshot
 (journal_reducer.agent_roster in meta) one version back, as after a reducer version bump,
-so the owner re-folds the whole journal. One DRS {json} line per start on stdout.
+so the owner re-folds the whole journal. One DRS {json} line per start on stdout. With
+--trees 1, one DRS-TREES {json} line before the first start and one after each start.
 """
 
 import argparse
 import fcntl
 import json
+import math
 import os
 import socket
 import sqlite3
@@ -66,6 +68,94 @@ def identify(path, timeout):
         return None
 
 
+def request(path, message, timeout):
+    """One request on a connection of its own: (the reply with the request's id, or None; ms
+    from the send to that reply)."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(path)
+            sent = time.monotonic()
+            conn.sendall(json.dumps(message).encode() + b"\n")
+            data = b""
+            while True:
+                while b"\n" not in data:
+                    chunk = conn.recv(65536)
+                    if not chunk:
+                        return None, round((time.monotonic() - sent) * 1000, 2)
+                    data += chunk
+                line, data = data.split(b"\n", 1)
+                value = json.loads(line)
+                if isinstance(value, dict) and value.get("id") == message["id"]:
+                    return value, round((time.monotonic() - sent) * 1000, 2)
+    except (OSError, ValueError):
+        return None, None
+
+
+def server_stats(path):
+    """The daemon's own counters: the locks by site and the resource projections."""
+    reply, _ = request(path, {"id": "drs-stats", "cmd": "server-stats",
+                              "include": ["locks", "resource_projection"]}, 10.0)
+    if reply is None:
+        return None
+    return reply.get("data", reply)
+
+
+def timed_creates(path, label, phase, count):
+    """`count` empty workspaces, one request after the other; each with its ms as the client
+    sees it."""
+    out = []
+    for index in range(count):
+        key = f"drs-{label}-{phase}-{index}-{os.getpid()}"
+        reply, ms = request(path, {
+            "protocol": "cmux.protocol/2", "type": "request", "id": key,
+            "operation": "workspace.create",
+            "params": {"machine": "current", "session": "current", "name": key,
+                       "initial_content": "empty"},
+            "idempotency_key": key,
+        }, 60.0)
+        ok = reply is not None and reply.get("ok") is True
+        error = None if ok or reply is None else ((reply.get("error") or {}).get("code") or "refused")
+        out.append({"ms": ms, "ok": ok, "error": "no reply" if reply is None else error})
+    return out
+
+
+def after_ready_laps(timings, pid):
+    """The last start line of startup-timings.jsonl, and whether it is the line of the owner
+    `pid` with its after_ready list."""
+    try:
+        lines = [line for line in timings.read_text().splitlines() if line.strip()]
+        laps = json.loads(lines[-1]) if lines else None
+    except (OSError, ValueError):
+        laps = None
+    return laps, isinstance(laps, dict) and laps.get("pid") == pid and "after_ready" in laps
+
+
+def measure_after_ready(args, sdir, label, pid):
+    """After ready: the first create between two reads of the daemon's counters, the other
+    early creates, a bounded wait for the daemon's after_ready laps, then the late creates."""
+    timings = sdir / "startup-timings.jsonl"
+    result = {"stats_ready": server_stats(args.socket)}
+    early = timed_creates(args.socket, label, "early", min(args.creates_early, 1))
+    result["stats_first_create"] = server_stats(args.socket)
+    early += timed_creates(args.socket, label, "early-more", max(args.creates_early - 1, 0))
+    result["creates_early"] = early
+    result["laps_seen_at_early_end"] = after_ready_laps(timings, pid)[1]
+    waited = time.monotonic()
+    seen = False
+    while time.monotonic() - waited < 120:
+        seen = after_ready_laps(timings, pid)[1]
+        if seen:
+            break
+        time.sleep(0.05)
+    result["laps_seen"] = seen
+    result["laps_wait_ms"] = round((time.monotonic() - waited) * 1000, 1)
+    result["stats_laps"] = server_stats(args.socket)
+    result["creates_late"] = timed_creates(args.socket, label, "late", args.creates_late)
+    result["stats_end"] = server_stats(args.socket)
+    return result
+
+
 def session_dir(state):
     for entry in Path(state).iterdir():
         if (entry / REGISTRY).is_file():
@@ -95,6 +185,36 @@ def file_size(path):
         return os.path.getsize(path)
     except OSError:
         return 0
+
+
+def tree_sizes(args, registry, when):
+    """The pages and bytes of each b-tree of the registry and the file's free pages, `when`
+    (before the first start, or the label of the start that just ended). None without --trees.
+
+    The generator's `--trees` reads them (`dbstat`, in the SQLite that the owner has), read
+    only, while no owner has the file open. The read goes through the whole file, so the file
+    is in the file cache after it. A read that fails is `{"error": ...}`, not a failed run.
+    The printed line has the 12 largest b-trees; the report has each one.
+    """
+    if not args.trees:
+        return None
+    done = subprocess.run([args.synth, "--trees", "--registry", str(registry)], stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3600, check=False)
+    sizes = None
+    if done.returncode == 0:
+        try:
+            sizes = json.loads(done.stdout)
+        except ValueError:
+            pass
+    if not isinstance(sizes, dict):
+        lines = done.stderr.decode(errors="replace").splitlines()
+        safe_print(f"DRS-TREES-FAILED {when}: {lines[-1][:200] if lines else ''}", file=sys.stderr, flush=True)
+        sizes = {"error": f"exit {done.returncode}"}
+    line = {"when": when, **sizes}
+    if isinstance(sizes.get("trees"), list):
+        line.update(trees=sizes["trees"][:12], trees_in_all=len(sizes["trees"]))
+    safe_print("DRS-TREES " + json.dumps(line), flush=True)
+    return sizes
 
 
 def start(args, label, bumped):
@@ -144,6 +264,10 @@ def start(args, label, bumped):
             ready = time.monotonic() - started
             break
         time.sleep(0.01)
+    after = None
+    if ready is not None and (args.creates_early > 0 or args.creates_late > 0):
+        after = measure_after_ready(args, sdir, label, child.pid)
+        after["sampled_start"] = sampler is not None
     if sampler is not None:
         try:
             sampler.wait(timeout=60)
@@ -191,15 +315,89 @@ def start(args, label, bumped):
         "ready_ms": ms(ready),
         "exited_early": exited,
         "startup": laps,
+        "after_ready": after,
         # From spawn to the owner's startup clock (exec and main before its first lap). The
         # owner writes at_ms (wall clock) when its clock reads total_ms.
         "before_clock_ms": None
         if not laps or "at_ms" not in laps or "total_ms" not in laps
         else round(laps["at_ms"] - laps["total_ms"] - spawned_at_ms, 1),
         **before,
+        # What the start and the stop left in the 2 files.
+        "registry_bytes_after": file_size(registry),
+        "wal_bytes_after": file_size(str(registry) + "-wal"),
     }
-    safe_print("DRS " + json.dumps(result), flush=True)
+    # The printed line keeps the laps and a short form of the counters; the report has all.
+    safe_print("DRS " + json.dumps({**result, "after_ready": None}), flush=True)
+    if after is not None:
+        own = laps if isinstance(laps, dict) and laps.get("pid") == child.pid else None
+        safe_print("DRS-AFTER " + json.dumps(after_summary(label, own, after)), flush=True)
+    if args.trees:
+        # After the DRS line: the b-trees are in the report and in their own line.
+        result["trees_after"] = tree_sizes(args, registry, label)
     return result
+
+
+def rank(values, share):
+    """The nearest-rank value at `share` of the sorted list (0.5 the median, 0.95 the p95)."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, max(0, math.ceil(share * len(ordered) - 1e-9) - 1))]
+
+
+def after_summary(label, laps, after):
+    """A short form of one start's after-ready work: the parts' holds from the daemon's laps,
+    the creates as the client saw them, and the daemon's counters at the four reads."""
+    listed = (laps or {}).get("after_ready") or []
+    parts = [lap.get("ms") for lap in listed if lap.get("step") == "session.restate.part"]
+    parts = [value for value in parts if isinstance(value, (int, float))]
+    other = [lap for lap in listed if lap.get("step") != "session.restate.part"]
+    reads = ("stats_ready", "stats_first_create", "stats_laps", "stats_end")
+
+    def counter(name):
+        return [((after.get(read) or {}).get("resource_projection") or {}).get(name) for read in reads]
+
+    def sites(read):
+        registry = (((after.get(read) or {}).get("locks") or {}).get("registry") or {})
+        return {
+            "hold_us": registry.get("hold_us"),
+            "wait_us": registry.get("wait_us"),
+            "sites": [
+                [site.get("site", "").rsplit("/", 1)[-1], site.get("acquisitions"),
+                 site.get("hold_total_us"), site.get("hold_max_us"), site.get("hold_p99_us"),
+                 site.get("wait_max_us")]
+                for site in registry.get("by_hold_total") or []
+            ],
+        }
+
+    def times(name):
+        return [item.get("ms") for item in after.get(name) or []]
+
+    return {
+        "label": label,
+        "sampled_start": after.get("sampled_start"),
+        "parts": len(parts),
+        "part_ms": {"median": rank(parts, 0.5), "p95": rank(parts, 0.95),
+                    "max": max(parts) if parts else None, "sum": round(sum(parts), 2)},
+        "other_laps": other,
+        "laps_seen": after.get("laps_seen"),
+        "laps_seen_at_early_end": after.get("laps_seen_at_early_end"),
+        "laps_wait_ms": after.get("laps_wait_ms"),
+        "creates_early_ms": times("creates_early"),
+        "creates_late_ms": times("creates_late"),
+        "create_errors": [item.get("error") for name in ("creates_early", "creates_late")
+                          for item in after.get(name) or [] if not item.get("ok")],
+        "projections": counter("projections"),
+        "full_projections": counter("full_projections"),
+        "scoped_projections": counter("scoped_projections"),
+        "scope_fallbacks": counter("scope_fallbacks"),
+        "commits": counter("commits"),
+        "commit_us_end": ((after.get("stats_end") or {}).get("resource_projection") or {}).get("commit_us"),
+        # [file:line, acquisitions, hold total us, hold max us, hold p99 us, wait max us]
+        "registry_lock_ready": sites("stats_ready"),
+        "registry_lock_laps": sites("stats_laps"),
+        "registry_lock_end": sites("stats_end"),
+    }
 
 
 def warm_start(args):
@@ -254,7 +452,17 @@ def main():
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--bump", type=int, default=1)
     parser.add_argument("--ready-timeout", type=float, default=3600)
+    parser.add_argument("--creates-early", type=int, default=0)
+    parser.add_argument("--creates-late", type=int, default=0)
+    # --trees 1: the b-trees of the registry before the first start and after each start, read
+    # by --synth (the generator of this checkout). --made-by: the commit whose generator wrote
+    # the registry, for the report.
+    parser.add_argument("--trees", type=int, default=0)
+    parser.add_argument("--synth", default="")
+    parser.add_argument("--made-by", default="")
     args = parser.parse_args()
+    if args.trees and not args.synth:
+        parser.error("--trees 1 needs --synth")
     generated = json.loads(Path(args.generate).read_text())
     registry = session_dir(args.state) / REGISTRY
     # The first exec of a binary just linked pays for macOS's check of it, before main and
@@ -275,6 +483,7 @@ def main():
         print(f"error: the warm start did not get ready: {warm_last_line or '(no output)'}",
               file=sys.stderr, flush=True)
         return 1
+    trees_before = tree_sizes(args, registry, "before")
     starts = []
     for index in range(max(args.rounds, 1)):
         # The generator wrote the first bump; later rounds set it again.
@@ -284,6 +493,10 @@ def main():
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
     report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "warm_ready_ms": warm_ready, "starts": starts}
+    if args.made_by:
+        report["made_by"] = args.made_by
+    if args.trees:
+        report["trees_before"] = trees_before
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 

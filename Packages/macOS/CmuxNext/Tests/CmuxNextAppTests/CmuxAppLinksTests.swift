@@ -22,10 +22,42 @@ struct CmuxAppLinksTests {
 
     @Test func chiefsBackgroundLinkRunsChangeBackground() {
         // Chief's first-launch welcome offers it; it is the palette's and the CLI's Change Background….
-        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == "appearance.changeBackground")
-        #expect(CmuxAppLinks.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme) == "appearance.changeBackground")
-        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
-        #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsAction(for: URL(string: "cmux://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")
+        #expect(DeepLink.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")
+        #expect(DeepLink.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/integrations?connected=linear&id=mcs_1")!, linkScheme: scheme) == "#/settings/integrations")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/connections")!, linkScheme: scheme) == "#/settings/integrations")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud")!, linkScheme: scheme) == "#/settings/cloud")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/claude")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.claude")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/cloud/api-key")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.apiKey")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
+        // ask-6bed134465: every setting and connection has a link that lands exactly on it.
+        for path in ["connections/github", "github", "accounts/github"] {
+            #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/\(path)")!, linkScheme: scheme)
+                == "#/settings/accounts?focus=connection.github")
+        }
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/terminal.fontSize")!, linkScheme: scheme) == "#/settings/terminal.fontSize")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/accounts/machines")!, linkScheme: scheme) == "#/settings/accounts?focus=machines")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/connections/linear")!, linkScheme: scheme) == "#/settings/connections?focus=linear")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/nonsense")!, linkScheme: scheme) == "#/settings/nonsense")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings")!, linkScheme: scheme) == "#/settings")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/start-agent-from-any-app")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
+    }
+
+    @Test func theWelcomesStartAgentLinkTurnsTheSystemWideKeyOnAndNeverOff() throws {
+        // Chief's first-launch welcome lists Start Agent from Any App with this link while its key is off.
+        for text in ["cmux://settings/start-agent-from-any-app", "\(scheme)://settings/start-agent-from-any-app"] {
+            let action = try #require(DeepLink.settingsAction(for: URL(string: text)!, linkScheme: scheme))
+            #expect(action.id == "palette.toggleSetting")
+            #expect(action.arguments == ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)])
+        }
+        #expect(DeepLink.settingsAction(for: URL(string: "https://settings/start-agent-from-any-app")!, linkScheme: scheme) == nil)
     }
 
     @Test func paneTabAndSessionLinksOpenToo() {

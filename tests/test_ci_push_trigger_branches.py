@@ -43,6 +43,12 @@ ARBITRARY_BRANCH_PUSH = {
     ),
 }
 
+# Lane pushes do not publish cmux-tui trees. The feat-cmux-next tree-request
+# workflow remains the explicit repair path when a consumer needs one.
+EXCLUDED_BRANCH_PUSH = {
+    "cmux-tui-artifacts.yml": ("lane/no-open-pr", "lane/open-pr"),
+}
+
 
 def branch_pattern(glob: str) -> re.Pattern[str]:
     """GitHub's branch filter glob: ** crosses '/', * does not, [] is a class, and
@@ -142,6 +148,18 @@ class PushTriggerBranchesTest(unittest.TestCase):
                     any(push_matches(triggers[name], b) for b in ARBITRARY_BRANCHES),
                     f"{name} no longer matches arbitrary branches; drop it from ARBITRARY_BRANCH_PUSH",
                 )
+
+    def test_excluded_branches_start_no_run(self) -> None:
+        triggers = push_triggers()
+        for name, branches in EXCLUDED_BRANCH_PUSH.items():
+            with self.subTest(workflow=name):
+                self.assertIn(name, triggers)
+                for branch in branches:
+                    with self.subTest(branch=branch):
+                        self.assertFalse(
+                            push_matches(triggers[name], branch),
+                            f"{name}: a push of excluded branch {branch} starts a run",
+                        )
 
 
 if __name__ == "__main__":

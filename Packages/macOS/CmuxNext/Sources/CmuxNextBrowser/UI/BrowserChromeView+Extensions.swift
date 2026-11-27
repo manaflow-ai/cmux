@@ -9,6 +9,7 @@ extension BrowserChromeView {
     /// Accessibility identifiers of the toolbar (UI automation, e2e suites).
     public static let backIdentifier = "browser.toolbar.back"
     public static let forwardIdentifier = "browser.toolbar.forward"
+    // retry-prompt-ok: the toolbar's Reload command, not a retry prompt
     public static let reloadIdentifier = "browser.toolbar.reload"
     public static let omnibarIdentifier = "browser.toolbar.omnibar"
     public static let pageGoneIdentifier = "browser.page.gone"
@@ -59,15 +60,15 @@ extension BrowserChromeView {
     public var isExtensionsMenuShown: Bool { extensionToolbar.isMenuShown || extensionToolbar.presentedMenu != nil }
 
     /// What the open Extensions bubble or extension menu shows (`debug.extensions.menu`): each
-    /// item's title, identifier, extension id and enabled state; "-" titles are separators. Nil
+    /// item's title, identifier, extension id, enabled state and row tooltip; "-" titles are separators. Nil
     /// when nothing is open.
-    public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool)]? {
+    public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool, tooltip: String?)]? {
         if let menu = extensionToolbar.presentedMenu {
             return menu.items.map { item in
-                (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled)
+                (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled, nil)
             }
         }
-        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
+        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled, $0.tooltip) }
     }
 
     /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row control (`run`, `pin`,
@@ -177,7 +178,7 @@ extension BrowserChromeView {
     func applyToolbarLayout() {
         let resolved = BrowserToolbarLayout.resolve(
             width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
-            showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
+            showsExtensions: extensionToolbar.isShowingExtensions, metrics: toolbarMetrics
         )
         guard resolved != toolbarLayout else { return }
         toolbarLayout = resolved
@@ -185,11 +186,13 @@ extension BrowserChromeView {
         extensionToolbar.visibleLimit = resolved.visiblePinned
     }
 
-    static var toolbarMetrics: BrowserToolbarLayout.Metrics {
-        BrowserToolbarLayout.Metrics(
-            button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
-            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
-            margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
+    /// The toolbar's sizes on this window's pixels (``OmnibarStyle/onPixels(_:scale:)``), as its views draw them.
+    var toolbarMetrics: BrowserToolbarLayout.Metrics {
+        let scale = OmnibarStyle.scale(of: self)
+        return BrowserToolbarLayout.Metrics(
+            button: OmnibarStyle.buttonSize(scale: scale), navigationSpacing: OmnibarStyle.buttonSpacing(scale: scale),
+            extensionSpacing: OmnibarStyle.buttonSpacing(scale: scale), inset: OmnibarStyle.toolbarInset,
+            margin: OmnibarStyle.barMargin(scale: scale), preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
     }

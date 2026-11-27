@@ -8,7 +8,8 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case controlAnyway
     /// The viewer pressed Stop; the transport closes the session.
     case stop
-    /// The viewer pressed Reconnect; a new session starts connecting.
+    /// A new session starts connecting: the pane's own retry of a lost path, or the viewer's
+    /// Reconnect after an end someone chose.
     case reconnect
     /// Take over or Hand back: the live session ends and a new one starts in the requested
     /// mode (`cmux.rd/1` fixes a session's mode at its start), shown as reconnecting over
@@ -22,6 +23,11 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case stopAllUpstreams
     /// The latency hold's flip came due with no new sample (``RemoteLatencyHold/due``).
     case latencyCheck
+    /// A quiet reconnect's notice bound came due (``RemotePaneState/reconnectNoticeDelay``).
+    case reconnectNoticeCheck
+    /// A first connect's notice bound came due (``RemotePaneState/connectNoticeDelay``); the pane also sends it
+    /// once at its start, which stamps when the connect began.
+    case connectNoticeCheck
 }
 
 /// The pane's single writer. Pure: `reduce` maps a state, an event and the time it
@@ -33,6 +39,24 @@ public struct RemotePaneReducer {
         var next = reduceEvent(state, event)
         // A new session's path is not measured yet: nothing to hold.
         if next.status?.rttMs == nil { next.latency.reset() } else { next.latency.sample(over: next.sampleOverLimit, at: now) }
+        // A reconnect over the last frame is silent until it has run for the notice bound.
+        if next.reconnecting {
+            let since = next.reconnectingSince ?? now
+            next.reconnectingSince = since
+            next.reconnectNoticeDue = now - since >= RemotePaneState.reconnectNoticeDelay
+        } else {
+            next.reconnectingSince = nil
+            next.reconnectNoticeDue = false
+        }
+        // A first connect is silent for the short coming-up time; its card has Cancel once it shows.
+        if next.comingUp {
+            let since = next.connectingSince ?? now
+            next.connectingSince = since
+            next.connectNoticeDue = now - since >= RemotePaneState.connectNoticeDelay
+        } else {
+            next.connectingSince = nil
+            next.connectNoticeDue = false
+        }
         return next
     }
 
@@ -41,6 +65,9 @@ public struct RemotePaneReducer {
         switch event {
         case let .status(status):
             let wasEnded = if case .ended = state.sessionState { true } else { false }
+            // A session that already ended (the person's Stop, the host's choice) keeps its reason:
+            // its path closing afterwards says nothing new, and the card keeps that end's Reconnect.
+            if wasEnded, case .ended(.connectionLost) = status.state { break }
             next.status = status
             if case .connecting = status.state, wasEnded {
                 next.controlDespiteLatency = false
@@ -91,7 +118,7 @@ public struct RemotePaneReducer {
         case .stopAllUpstreams:
             next.status?.upstream.active = []
             next.status?.upstream.requested = []
-        case .latencyCheck:
+        case .latencyCheck, .reconnectNoticeCheck, .connectNoticeCheck:
             break
         }
         return next

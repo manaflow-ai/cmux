@@ -7,8 +7,9 @@ import Testing
 /// Lawrence 2026-11-11 (8:04 PM screenshot: Home, six pinned rows, then the "Workspaces" heading): "spacing here is not
 /// consistent anymore either". Home, every pinned row and the workspace rows under them keep one rhythm at every app
 /// density (Default draws the Codex rows, #39984) and every sidebar density: one row height, one pitch from row to row
-/// (Home to the first pin as between two pins), the list's one row gap under the last pin, one left edge (Home's glyph,
-/// the pins, a text-only title) and one title column. No label sits between the pins and the list: the first workspace
+/// (Home to the first pin as between two pins, plus the top section's gap), the list's one row gap under the last pin, one left edge (Home's glyph
+/// and a text-only title), one glyph center line (the pins center under Home's glyph,
+/// https://github.com/manaflow-ai/cmux/issues/42431) and one title column. No label sits between the pins and the list: the first workspace
 /// row is the next row under the last pin (https://github.com/manaflow-ai/cmux/issues/42373).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTopRowsRhythmTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
@@ -40,7 +41,7 @@ import Testing
 
     /// The sidebar document's top: the top block (Home), the Pinned block (three text-only pinned workspaces), then one
     /// computer's list.
-    static func list() -> (SidebarListView, NSWindow) {
+    static func list(look: SectionsLookVariant = .quiet, drawsLines: Bool = false) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
         let pinned = SidebarLayoutDocument.pinnedSection(items: pins)
@@ -61,7 +62,7 @@ import Testing
         var metrics = SidebarRegionMetrics.standard
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: infos, collapsed: [],
-                                        look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
+                                        look: look, metrics: metrics, drawsLines: drawsLines, appHeights: [:])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -106,8 +107,10 @@ import Testing
             }
             for index in 1..<fills.count {
                 let step = abs(fills[index].midY - fills[index - 1].midY)
-                #expect(abs(step - pitch) <= Self.tolerance,
-                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, workspace rows \(pitch) pt")
+                // Home to the first pin adds the top section's gap (the Chief's row stands apart from the workspaces).
+                let expected = index == 1 ? pitch + SidebarListBlocks.topSectionGap : pitch
+                #expect(abs(step - expected) <= Self.tolerance,
+                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, expected \(expected) pt")
             }
             // No heading between the pins and the list (https://github.com/manaflow-ai/cmux/issues/42373): the first
             // workspace row is one row gap under the last pin.
@@ -117,16 +120,20 @@ import Testing
             #expect(abs(space(lastPin, a) - gap) <= Self.tolerance,
                     "\(c.testDescription): the first workspace row is \(space(lastPin, a)) pt under the last pin, the row gap is \(gap) pt")
 
-            // One left edge and one title column.
+            // One optical column (wide Home ink fits by height and starts on the title's column, so its left edge is the
+            // titles'). A text-only pinned row leads as a text-only workspace row does, with no pin (Leo 2026-11-23, ask
+            // c-b5d3e0efb6): its title starts where the workspace row's does.
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
-            let inks = try pins.map { list.convert(try #require($0.pinInkFrame, "a pinned row drew no pin"), from: $0) }
             let titleX = list.convert(rowA.title.alignmentRect(forFrame: rowA.title.frame), from: rowA).minX
-            for (name, x) in [("Home's glyph", homeInk.minX)] + inks.map({ ("a pin", $0.minX) }) {
-                #expect(abs(x - titleX) <= Self.tolerance, "\(c.testDescription): \(name) starts at \(x), a text-only title at \(titleX)")
-            }
-            let titles = ([home] + pins).map { list.convert($0.titleFrame, from: $0).minX }
-            for x in titles {
-                #expect(abs(x - titles[0]) <= Self.tolerance, "\(c.testDescription): a top row's title at \(x), Home's at \(titles[0])")
+            let target = SidebarStyle.rowGlyphOpticalSide
+            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), the title's column at \(titleX)")
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink keeps the shared optical size")
+            for pin in pins {
+                #expect(pin.pinInkFrame == nil, "\(c.testDescription): a pinned row draws a pin")
+                let x = list.convert(pin.title.alignmentRect(forFrame: pin.title.frame), from: pin).minX
+                #expect(abs(x - titleX) <= Self.tolerance, "\(c.testDescription): a pinned row's title at \(x), a workspace row's at \(titleX)")
             }
             print("TOPRHYTHM|\(c.testDescription)|pitch \(pitch) gap \(gap) row \(a.height)|fills \(fills.map { "\($0.minY)+\($0.height)" })"
                   + "|rows \(a.minY) \(b.minY)|titleX \(titleX) homeInk \(homeInk.minX)")
