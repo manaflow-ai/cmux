@@ -523,7 +523,10 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ${{ steps.pane-compiler-cache.outputs.dir }}
           key: ${{ steps.pane-compiler-cache.outputs.key }}
           restore-keys: ${{ steps.pane-compiler-cache.outputs.prefix }}
@@ -541,7 +544,13 @@ jobs:
         if: ${{ steps.pane-compiler-cache.outputs.key != '' && steps.pane-compiler-cache-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
         uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
         with:
+          backend: r2
           path: ${{ steps.pane-compiler-cache.outputs.dir }}
           key: ${{ steps.pane-compiler-cache.outputs.key }}
 
@@ -1891,9 +1900,14 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Published binaries must not read GitHub's PR-writable cache scope.
+      # The reviewed sysroot is shared through the public R2 cache store.
+      - name: Restore the reviewed MinGW-Builds sysroot
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
           key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
