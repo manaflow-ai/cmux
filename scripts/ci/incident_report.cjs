@@ -139,8 +139,8 @@ async function viaGraphql(github, core, what, fn) {
   throw last || new Error(`no GraphQL client for ${what}`);
 }
 
-const FIND_QUERY = `query($owner: String!, $repo: String!, $label: String!) {
-  repository(owner: $owner, name: $repo) {
+const FIND_QUERY = `query($owner: String!, $name: String!, $label: String!) {
+  repository(owner: $owner, name: $name) {
     id
     label(name: $label) { id }
     issues(labels: [$label], states: OPEN, first: 10, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id number } }
@@ -148,7 +148,7 @@ const FIND_QUERY = `query($owner: String!, $repo: String!, $label: String!) {
 }`;
 
 async function upsertGraphql(graphql, { owner, repo, label, title, body, color, description }) {
-  const { repository } = await graphql(FIND_QUERY, { owner, repo, label });
+  const { repository } = await graphql(FIND_QUERY, { owner, name: repo, label });
   const open = (repository.label && repository.issues.nodes) || [];
   if (open.length > 0) {
     await graphql('mutation($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { clientMutationId } }', { id: open[0].id, body });
@@ -170,7 +170,7 @@ async function upsertGraphql(graphql, { owner, repo, label, title, body, color, 
 }
 
 async function closeGraphql(graphql, { owner, repo, label, body }) {
-  const { repository } = await graphql(FIND_QUERY, { owner, repo, label });
+  const { repository } = await graphql(FIND_QUERY, { owner, name: repo, label });
   const open = (repository.label && repository.issues.nodes) || [];
   for (const issue of open) {
     await graphql('mutation($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { clientMutationId } }', { id: issue.id, body });

@@ -8,8 +8,8 @@ cmux-tui-artifacts-retry workflow calls this after the run completes.
 "Re-run failed jobs" also reruns the jobs that depend on them, so the publish
 jobs are evaluated again.
 
-Only tree-publishing runs (feat-cmux-next's workflow, with its tree preflight
-job) are retried; main's own cmux-tui artifacts runs share the workflow name
+Only tree-publishing runs (feat-cmux-next's and nightly-next's pushes, with
+the tree preflight job) are retried; main's own cmux-tui artifacts runs share the workflow name
 and are left alone.
 
 An immutable R2 conflict (annotation title immutable-r2-conflict, written by
@@ -39,6 +39,7 @@ import urllib.request
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
+RETRIED_BRANCHES = ("feat-cmux-next", "nightly-next")
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
 
 
@@ -115,9 +116,13 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
                         + ", ".join(job["name"] for job in orphaned))
     if run.get("status") != "completed" or run.get("conclusion") != "failure":
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
-    # The pushes nightly-next promotes from; a red lane branch or PR is usually a real failure.
-    if run.get("event") != "push" or not (branch == "feat-cmux-next" or branch.startswith("cmux-tui-pin-")):
-        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next and cmux-tui-pin-* pushes are retried")
+    # The pushes nightly-next promotes from, and nightly-next itself: its run signs the Linux release file
+    # the linux-nightly channel follows (2026-11-27 run 45981368445 at 7682aa45 failed on an aarch64 runner
+    # shutdown, was never retried, and the channel stayed a NIGHTLY behind). A red lane branch or PR is
+    # usually a real failure.
+    if run.get("event") != "push" or not (branch in RETRIED_BRANCHES or branch.startswith("cmux-tui-pin-")):
+        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only "
+                        + ", ".join(RETRIED_BRANCHES) + " and cmux-tui-pin-* pushes are retried")
     # main's cmux-tui artifacts workflow has the same name but publishes no tree;
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):

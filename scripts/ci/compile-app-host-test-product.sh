@@ -279,7 +279,14 @@ build() {
   # cacheable tasks with 56 changed inputs (run 38232844046), 1 of 2,713 (run
   # 38318336606) and 76 of 2,856 (run 38201033789), 2,711-2,844 SwiftCompile
   # tasks each. So the app builds without the cache on every Xcode.
-  cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  # Keep the historical safe default off until a production canary measures
+  # the current toolchain and restored seed. The repository variable is opt-in
+  # so the canary can collect real hit, miss and wall-time receipts.
+  if [ "${CMUX_CI_ENABLE_APP_COMPILATION_CACHE:-0}" != 1 ]; then
+    cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  else
+    echo "app compilation cache canary enabled" >&2
+  fi
   if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
     cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
   fi
