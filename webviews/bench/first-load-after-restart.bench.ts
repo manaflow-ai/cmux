@@ -177,7 +177,10 @@ if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRA
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
-/// printed as the functions with the most self time over all rounds (an unminified build).
+/// printed as the functions with the most self time over all rounds (an unminified build). In a relaunch mode
+/// (down, ...): a CPU profile of each relaunch, from first content to settled (the window the page's own fixed cost
+/// sits in), and each long task of the load with when it ran (ms from navigation) and what ran most in it. The
+/// profiler starts on a blank page of the same origin first, so the relaunch's renderer is not a cold one.
 const PROFILE = process.env.PROFILE === "1";
 /// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
 /// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
@@ -868,8 +871,114 @@ function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
   });
   profiled += 1;
 }
+/// PROFILE=1 in a relaunch mode: the long tasks (a busy run of samples of 20 ms or more) of each round, in order.
+const relaunchTasks: string[] = [];
+/// Adds one relaunch's samples from first content (`fromMs`, from navigation) to settled (`untilMs`), and lists its
+/// long tasks to settled. `nowMs` is the page's performance.now() just before the profiler stopped: the profile's
+/// end, so each sample's time from navigation is `nowMs - (endTime - t) / 1000`.
+function addRelaunchProfile(
+  profile: CpuProfile & { startTime: number; endTime: number },
+  nowMs: number,
+  fromMs: number,
+  untilMs: number,
+  round: number,
+): void {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const stackOf = (id: number) => {
+    const keys: string[] = [];
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      if (up.callFrame.url) keys.push(nodeKey(up.callFrame));
+    }
+    return keys;
+  };
+  // What ran when, by stretch: the outermost two bundle functions on the stack and the innermost component (a
+  // capitalized function) under them, a stretch per run of samples with the same label.
+  const labelOf = (id: number) => {
+    const keys: string[] = [];
+    let component: string | undefined;
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      if (!up.callFrame.url) continue;
+      keys.push(up.callFrame.functionName || "(anonymous)");
+      if (component === undefined && /^[A-Z]/.test(up.callFrame.functionName)) component = up.callFrame.functionName;
+    }
+    const outer = keys.slice(-2).reverse().join(" > ") || byId.get(id)!.callFrame.functionName;
+    return component ? `${outer} … ${component}` : outer;
+  };
+  let stretch: { from: number; to: number; label: string } | undefined;
+  const stretches: string[] = [];
+  const endStretch = () => {
+    if (stretch && stretch.to - stretch.from >= 3)
+      stretches.push(`    ${stretch.from.toFixed(0)}-${stretch.to.toFixed(0)} ${stretch.label}`);
+    stretch = undefined;
+  };
+  let t = profile.startTime;
+  let task: { from: number; to: number; by: Map<string, number> } | undefined;
+  const close = () => {
+    if (task && task.to - task.from >= 20) {
+      const top = [...task.by]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([key, ms]) => `${ms.toFixed(0)} ${key}`)
+        .join("; ");
+      relaunchTasks.push(
+        `  round ${round} task ${task.from.toFixed(0)}-${task.to.toFixed(0)} ms (${(task.to - task.from).toFixed(0)} ms): ${top}`,
+      );
+    }
+    endStretch();
+    if (task && task.to - task.from >= 20) relaunchTasks.push(...stretches);
+    stretches.length = 0;
+    task = undefined;
+  };
+  profile.samples.forEach((id, index) => {
+    const ms = profile.timeDeltas[index] / 1000;
+    t += profile.timeDeltas[index];
+    const at = nowMs - (profile.endTime - t) / 1000;
+    const node = byId.get(id);
+    if (!node) return;
+    if (at > untilMs + 50) return close();
+    // (program) is the renderer's own work outside script (style, layout, paint, parsing): busy, not idle.
+    if (node.callFrame.functionName === "(idle)") {
+      if (task && at - task.to > 2) close();
+    } else {
+      if (!task) task = { from: at, to: at, by: new Map() };
+      task.to = at;
+      const label = labelOf(id);
+      if (stretch?.label !== label) {
+        endStretch();
+        stretch = { from: at, to: at, label };
+      } else stretch.to = at;
+      // Inclusive per bundle function, each once per sample.
+      for (const key of new Set(stackOf(id))) bump(task.by, key, ms);
+      if (!node.callFrame.url) bump(task.by, `${node.callFrame.functionName} (built-in)`, ms);
+    }
+    if (at < fromMs || at > untilMs || node.callFrame.functionName === "(idle)") return;
+    bump(selfMs, nodeKey(node.callFrame), ms);
+    const seen = new Set<string>();
+    let caller: string | undefined;
+    for (let up: number | undefined = id; up !== undefined; up = parent.get(up)) {
+      const one = byId.get(up);
+      if (!one || one.callFrame.functionName === "(root)") break;
+      const key = nodeKey(one.callFrame);
+      if (!seen.has(key)) bump(totalMs, key, ms);
+      seen.add(key);
+      if (caller === undefined && up !== id && one.callFrame.url) caller = key;
+    }
+    if (!node.callFrame.url && caller) bump(nativeByCaller, `${node.callFrame.functionName} <- ${caller}`, ms);
+  });
+  close();
+  profiled += 1;
+}
 function printProfile(): void {
   if (!profiled) return;
+  const relaunched = relaunchTasks.length > 0 || !MODES.includes("reopen-spare");
+  const what = relaunched ? `${LINK_NAME} relaunch, first content to settled` : "reopen-spare adopt";
+  if (relaunched) console.log(`${LINK_NAME} relaunch long tasks (ms from navigation):\n${relaunchTasks.join("\n")}`);
   const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
   const top = (title: string, map: Map<string, number>, count: number) => {
     console.log(title);
@@ -877,12 +986,12 @@ function printProfile(): void {
       console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
   };
   top(
-    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
+    `${what} profile: ${(total / profiled).toFixed(1)} ms busy per round (n=${profiled}), top self time:`,
     selfMs,
     30,
   );
-  top("reopen-spare adopt profile, inclusive:", totalMs, Number(process.env.PROFILE_TOP ?? 45));
-  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
+  top(`${what} profile, inclusive:`, totalMs, Number(process.env.PROFILE_TOP ?? 45));
+  top(`${what} profile, built-ins by caller:`, nativeByCaller, 20);
 }
 
 type Round = {
@@ -1599,15 +1708,16 @@ try {
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      // PROFILE=1: the profiler runs in the renderer the relaunch loads in (a blank page of the same origin first).
+      const cdp = PROFILE ? await context.newCDPSession(page) : null;
+      if (cdp) {
+        await page.goto(new URL("/__profile-blank", url).href);
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await cdp.send("Profiler.start");
+      }
       wireT0 = Date.now();
       endOpenTurn = OPEN_ENDS_MS > 0;
-      // PROFILE=1: the relaunched page's main thread from navigation to its newest answer drawn.
-      const relaunchCdp = PROFILE ? await page.context().newCDPSession(page) : null;
-      if (relaunchCdp) {
-        await relaunchCdp.send("Profiler.enable");
-        await relaunchCdp.send("Profiler.setSamplingInterval", { interval: 100 });
-        await relaunchCdp.send("Profiler.start");
-      }
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
@@ -1657,13 +1767,18 @@ try {
           rowsTaken: w.__benchHost.rowsTaken,
         };
       });
+      if (cdp) {
+        const nowMs = await page.evaluate(() => performance.now());
+        const { profile } = (await cdp.send("Profiler.stop")) as {
+          profile: CpuProfile & { startTime: number; endTime: number };
+        };
+        await cdp.detach();
+        const metrics = classifyFrames(got.frames);
+        const settledMs = restartSettled(got.frames, metrics, got.liveLatestAt || null).settledMs ?? nowMs;
+        addRelaunchProfile(profile, nowMs, metrics.firstContentMs ?? 0, settledMs, profiled + 1);
+      }
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
-      if (relaunchCdp) {
-        const { profile } = (await relaunchCdp.send("Profiler.stop")) as { profile: CpuProfile };
-        await relaunchCdp.detach();
-        addProfile(profile, 0, got.liveLatestAt || windowMs);
-      }
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
       const boundMs = BOUND ? await drawBound(page) : null;
       return {

@@ -75,13 +75,29 @@ def decide(lag_min: float | None, runs: list[Run], now: float, *, lag_bound: flo
     return "dispatch", None, f"lag {lag_txt}; no recent failed run to rerun"
 
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+class GhError(RuntimeError):
+    pass
+
+
 def gh(method: str, path: str, body: dict | None = None) -> dict:
-    args = ["gh", "api", "-X", method, path]
+    """`gh api` through scripts/ci/gh_budget_wait.sh, so a spent github.token budget is waited out (within
+    the job's 5 minutes) instead of failing the tick. 2026-11-25 20:43Z and 21:29Z: the runs read exited 1
+    and the tick died on a bare CalledProcessError, gh's own stderr captured and never printed."""
+    wrapper = os.path.join(HERE, "gh_budget_wait.sh")
+    args = (["bash", wrapper] if os.path.isfile(wrapper) else ["gh"]) + ["api", "-X", method, path]
     if body is not None:
         args += ["--input", "-"]
-    out = subprocess.run(args, input=json.dumps(body) if body is not None else None, text=True,
-                         capture_output=True, check=True).stdout
-    return json.loads(out) if out.strip() else {}
+    env = dict(os.environ)
+    env.setdefault("GH_BUDGET_WAIT_MAX_SECONDS", "150")
+    proc = subprocess.run(args, input=json.dumps(body) if body is not None else None, text=True,
+                          capture_output=True, env=env)
+    if proc.returncode != 0:
+        said = " | ".join((proc.stderr or proc.stdout or "").strip().splitlines()[-4:]) or "no output"
+        raise GhError(f"gh api -X {method} {path} exited {proc.returncode}: {said}")
+    return json.loads(proc.stdout) if proc.stdout.strip() else {}
 
 
 def channel_commit(url: str) -> str:
@@ -130,4 +146,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except GhError as err:
+        print(f"::error title=channel heal could not reach GitHub::{err}", flush=True)
+        sys.exit(1)

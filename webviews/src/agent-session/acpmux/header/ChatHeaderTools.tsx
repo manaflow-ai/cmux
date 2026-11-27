@@ -107,7 +107,16 @@ import {
 /// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
 /// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
 export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
-  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
+  // A web row whose menu surely has rows reads them only as it opens (ChatMenu's `items`), so the
+  // pane's render builds none: chatMenuItems was ~6.5 ms of each attach's renders, twice (here and
+  // in the view). The native row publishes its rows, and a menu that may be empty is drawn
+  // disabled, so those still read them on every render.
+  const lazyMenu = props.menuHasRows === true && props.nativeRowTools?.enabled !== true;
+  const stable = useStableProps(
+    props,
+    lazyMenu ? { summary: [[true], [false]] } : { menu: [[]], summary: [[true], [false]] },
+    chat,
+  );
   return <ChatHeaderToolsMemo {...stable} />;
 }
 
@@ -129,6 +138,7 @@ function ChatHeaderToolsView({
   tabTools = true,
   summary,
   menu,
+  menuHasRows = false,
   onMenuOpen,
   expand,
   onExpanded,
@@ -179,6 +189,9 @@ function ChatHeaderToolsView({
   summary: ReactNode | ((native: boolean) => ReactNode);
   /// The menu's rows, read when it opens.
   menu: () => ChatMenuItem[];
+  /// The menu has rows whatever the chat's state (chatMenuHasRows): a header without the native row
+  /// then reads them only when the menu opens, never while it renders.
+  menuHasRows?: boolean;
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
   /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
@@ -414,8 +427,8 @@ function ChatHeaderToolsView({
   // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
   // this below once it knows what folds. `standard` keeps today's order untouched.
   if (headerIcons !== "standard") live.current.overflow = relevance.dormant;
-  const chatRows = rows();
-  const chatMenu = nativeChatMenu(chatRows);
+  const chatRows = menuHasRows && nativeRowTools?.enabled !== true ? undefined : rows();
+  const chatMenu = chatRows && nativeChatMenu(chatRows);
   const nativeSearch: RowToolBinding[] =
     glassLook !== "off" && onSearch
       ? [
@@ -592,7 +605,7 @@ function ChatHeaderToolsView({
     native && glassLook !== "off" ? null : (
       <ChatMenu
         items={rows}
-        disabled={chatRows.length === 0}
+        disabled={chatRows?.length === 0}
         onOpen={onMenuOpen}
         nativeOpen={
           native && chatMenu

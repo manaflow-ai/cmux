@@ -41,7 +41,8 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryBusy, retryParts, retryShown, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
 import { useAgentSignature } from "./agentSignatureModel";
@@ -500,6 +501,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  retryAt,
   pulse,
   glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
@@ -562,9 +564,12 @@ export function Thinking({
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
-  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
-  /// never "Thinking" (`retryParts`).
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that
+  /// (`retryParts`), a model out of reach once it has lasted the shared bound (`retryShown`).
   retry?: AcpmuxTurnRetry;
+  /// When the retries began (the line's `retryAt`, conversation/turns.ts `withRetry`): the bound
+  /// counts from then; without it, from when the line first saw the retry.
+  retryAt?: number;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
   /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
@@ -673,8 +678,11 @@ export function Thinking({
                 : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  // "Can't reach the model" waits out the shared bound; until then the line reads as it did.
+  const unreachableLasting = useConnectionQuietFrom(retry !== undefined && !retryBusy(retry), retryAt, now);
+  const retrying = retryShown(retry, unreachableLasting);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
-  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  const away = waiting !== undefined || retrying || startLook !== "thinking";
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
@@ -792,7 +800,7 @@ export function Thinking({
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
-  if (retry && !waiting) {
+  if (retry && !waiting && retrying) {
     const parts = retryParts(t, retry, retryNow);
     return (
       <div

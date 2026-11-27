@@ -17,6 +17,8 @@ on:
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"
       - ".github/workflows/cmux-rd-windows-host-build.yml"
+      # Prose builds nothing: a docs-only pull request starts no Windows build (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
