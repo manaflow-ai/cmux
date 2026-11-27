@@ -79,6 +79,7 @@ run's, step by step.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -307,7 +308,14 @@ def main(argv: list[str]) -> int:
     comparable = [step for step in comparable if step not in red_again]
     new = [step for step in comparable if step not in flaky and step not in flapped]
     flaked = [step for step in comparable if step in flaky or step in flapped]
+    # A red that reaches this compare is still red after the head's own retry alone, so one excused by the base's
+    # flakiness failed twice on the head. CMUX_FLAKE_EXCUSE_STRICT=1 (ci-web.yml's repo variable, off by default)
+    # charges those to the change, with no head re-run to excuse them; off, they warn and say they failed twice.
+    twice = flaked if os.environ.get("CMUX_FLAKE_EXCUSE_STRICT") == "1" else []
+    if twice:
+        flaked, new = [], sorted(new + twice)
     if new_files:
+        new = [step for step in new if step not in twice]
         for file in sorted({test_file(step) for step in new}):
             print(file)
         return 0
@@ -321,7 +329,7 @@ def main(argv: list[str]) -> int:
             return rerun[step] is True
         return rerun.get(test_file(step)) is True
 
-    passed_again = [step for step in new if passed_in_rerun(step)]
+    passed_again = [step for step in new if step not in twice and passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
     old = sorted(step for step, ok in head.items()
@@ -352,13 +360,17 @@ def main(argv: list[str]) -> int:
         print(f"::warning title={label} red on the base too::{step}")
     for step in unknown:
         print(f"::warning title={label} base result unavailable::{step}")
+    # One title for every excused flake, on every workflow that excuses one: HQ's tap_flakes counts these annotations
+    # on pull request runs as the reruns the excuse saved, and the failed-twice ones apart.
     for step in flaked:
         where = ("passed again alone on the head" if step in passed_again
-                 else "passed and failed on the base's replays" if step in flapped and step not in flaky
-                 else "flaky on the base")
-        print(f"::warning title={label} {where}::{step}")
+                 else "failed twice on the head, passed and failed on the base's replays"
+                 if step in flapped and step not in flaky
+                 else "failed twice on the head, flaky on the base")
+        print(f"::warning title=Known flake excused::{label} {where}::{step}")
     for step in new:
-        print(f"::error title={label} red on this change::{step}")
+        why = "failed twice on the head (CMUX_FLAKE_EXCUSE_STRICT)" if step in twice else "red on this change"
+        print(f"::error title={label} {why}::{step}")
     for step, extra in named_new.items():
         print(f"{step}: red on the base too, but " + (
             "its head failure names what the base's does not: " + ", ".join(extra[:20])

@@ -1556,6 +1556,8 @@ jobs:
           CMUX_WEB_TEST_ALONE_RETRY_BUDGET: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_ALONE_RETRY_BUDGET || '300') || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          # A pull request's test file the merge parent lacks is never excused by its pass alone (run-webviews-tests.sh).
+          CMUX_WEB_TEST_NEW_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
@@ -2345,6 +2347,10 @@ jobs:
           CMUX_NEXT_STYLE_GUARDS: warn
           CMUX_WEB_TEST_JOBS: "1"
           CMUX_WEB_TEST_RETRIES: "0"
+          # Off unless the repo variable says 1: a red the head failed twice (its first run and its retry alone) is
+          # still excused when it is flaky on the base, and warns `Known flake excused` naming it failed twice
+          # (guards_new_reds.py). 1 makes those reds the change's.
+          CMUX_FLAKE_EXCUSE_STRICT: ${{ vars.CMUX_FLAKE_EXCUSE_STRICT || '0' }}
         run: |
           files="$RUNNER_TEMP/base-files"
           if [ -n "${KNOWN_REPLAY:-}" ]; then
@@ -2455,8 +2461,17 @@ jobs:
           fi
           status=0
           python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
-          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
-            > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
+          # A test file the base lacks is new in the change: its pass alone would excuse it as a flake, so it is not
+          # re-run and its reds stay the change's.
+          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" |
+            while IFS= read -r file; do
+              if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
+                printf '%s\n' "$file"
+              elif [ -n "$file" ]; then
+                echo "::error title=Webview test (new flaky test)::$file is red and the merge base does not have it:" \
+                  "a test file this change adds is not re-run alone to excuse it" >&2
+              fi
+            done > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
           # At most 25 from any one head shard, the cap each head shard's own base check held.
           echo "rerun=$([ "$status" -ne 0 ] && python3 "$runner/webviews_test_history.py" rerun-fits "$RUNNER_TEMP/head-rerun-files" \
             --shards "$RUNNER_TEMP/head-results/shards.json" --cap 25 && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"

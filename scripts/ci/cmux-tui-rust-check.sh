@@ -511,9 +511,9 @@ rerun_max="${CMUX_RUST_CHECK_RERUN_MAX:-12}"
 rerun_notes=()
 # a reused checkout never shows an older run's table
 rm -f "$test_log" "$junit_full" "$junit_rerun"
-junit_tool() { # failed FULL | expr FULL | verdict FULL RERUN | table FULL RERUN
+junit_tool() { # failed FULL | expr FULL | verdict FULL RERUN | table FULL RERUN | tap FULL
   python3 -I - "$@" <<'PY'
-import os, re, sys
+import json, os, re, sys
 import xml.etree.ElementTree as ET
 op, full = sys.argv[1], sys.argv[2]
 rerun = sys.argv[3] if len(sys.argv) > 3 else ""
@@ -550,6 +550,23 @@ elif op == "verdict":
             red += 1
             print(f"gate-notice: RED: {b} {n}: failed in the full run and {'failed alone' if r else 'did not run alone'}")
     sys.exit(1 if red else 0)
+elif op == "tap":
+    # The full run's outcome of every test, as test_reds.py's TAP rows (exported_observations): HQ's tap_flakes
+    # scores flips from these, and the alone rerun is left out, since a retry hides the flake it measures. A
+    # failure's signature is its panic message's first line (at most 4096 bytes); a test with none is scored but
+    # can never be excused by a quarantine.
+    print("::group::TAP final named results")
+    for tc in ET.parse(full).getroot().iter("testcase"):
+        binary, name = tc.get("classname", ""), tc.get("name", "")
+        if not binary or not name or any(c.tag == "skipped" for c in tc):
+            continue
+        bad = [c for c in tc if c.tag in ("failure", "error")]
+        said = (bad[0].get("message") or bad[0].text or "").strip().splitlines() if bad else []
+        signature = said[0].encode("utf-8")[:4096].decode("utf-8", "ignore") if said else ""
+        print("tap-test/v1 " + json.dumps({"schema": "tap-test/v1", "file": binary, "test": f"{binary} > {name}",
+                                           "outcome": "fail" if bad else "pass", "signature": signature},
+                                          ensure_ascii=True))
+    print("::endgroup::")
 elif op == "table":
     res, rows = alone(), {}
     for b, n, bad, t in cases(full):
@@ -796,6 +813,11 @@ workspace_tests() {
   cargo nextest show-config test-groups "${test_scope[@]}" --locked --profile ci 2>&1 || echo "test groups: show-config failed"
   reap_leaked "after the full run, before reruns"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
+  # Every test's outcome feeds the flake history (TAP_CI_ENABLED=0 turns it off), green runs too: a flip rate needs
+  # the passes. Best effort: a JUnit file it cannot read prints nothing and changes no verdict.
+  if [[ "${TAP_CI_ENABLED:-1}" != 0 && -f "$junit_full" ]]; then
+    junit_tool tap "$junit_full" 2>/dev/null | tee -a "$test_log" || echo "tap: the JUnit file was not read"
+  fi
   [[ "$rc" -ne 0 ]] || return 0
   # nextest exits 100 when a test failed; any other code (build, list) stays red.
   if [[ "$rc" -ne 100 || "$fail_fast" == 1 || "$rerun_max" -eq 0 || ! -f "$junit_full" ]]; then
