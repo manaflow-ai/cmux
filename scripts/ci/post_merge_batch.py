@@ -419,14 +419,19 @@ def job_base(name: str) -> str:
 GALLERY_SUITE = "gallery-health"
 STATES_CAP = 20000
 WHOLE = "WHOLE"
+# The step that judges a shard's red states: a red leg that failed elsewhere only (bun install on a runner whose temp
+# dir it could not write, 6 of 22 legs of run 46058976708) rendered nothing, so it names no state and adds none.
+GALLERY_JUDGE_STEP = "Judge the red states against the base"
 
 
-def red_states(suite: str, name: str, verdicts: dict[str, tuple[str, str]], reds_dir: Path | None) -> str:
+def red_states(suite: str, name: str, verdicts: dict[str, tuple[str, str]], reds_dir: Path | None,
+               steps: dict[str, frozenset] | None = None) -> str:
     """The red states (entry#variant, comma-joined) of every red matrix leg of name's gallery-health job on this
     batch run, from each leg's reds-N.txt (gallery-health.yml "Name the red states for a bisect probe"), so its
     probes render those alone: one shard, not the ~22 a whole render takes (~16k runner-min a day of probes, 11-27).
     "" (the whole render) for any other suite, or when a red leg named none (WHOLE: a crash or no health.json), has
-    no file (the job failed past its render, or the download failed), or the list runs past STATES_CAP."""
+    no file (the download failed, or no failing step is known) unless its failing steps are known and exclude the
+    judge's (a setup red, before any render), or the list runs past STATES_CAP."""
     if suite != GALLERY_SUITE or reds_dir is None or not reds_dir.is_dir():
         return ""
     legs = [n for n, (s, c) in verdicts.items() if s == suite and c == "failure" and job_base(n) == job_base(name)]
@@ -435,13 +440,15 @@ def red_states(suite: str, name: str, verdicts: dict[str, tuple[str, str]], reds
         shard = re.search(r" \((\d+)\)$", leg)
         path = reds_dir / f"reds-{shard.group(1)}.txt" if shard else None
         if path is None or not path.is_file():
+            if steps is not None and steps.get(leg) and GALLERY_JUDGE_STEP not in steps[leg]:
+                continue
             return ""
         lines = [line.strip() for line in path.read_text(errors="replace").splitlines() if line.strip()]
         if not lines or WHOLE in lines or not all("#" in line and "," not in line for line in lines):
             return ""
         states.update(lines)
     joined = ",".join(sorted(states))
-    return joined if legs and len(joined) <= STATES_CAP else ""
+    return joined if len(joined) <= STATES_CAP else ""
 
 
 def failing_steps(jobs: list[dict]) -> dict[str, frozenset]:
@@ -1244,7 +1251,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
                           step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
-                          states=red_states(suite, name, verdicts, reds_dir))
+                          states=red_states(suite, name, verdicts, reds_dir, steps_of(args.run_id)))
             summary(args.summary, f"- New red `{name}`: green on `{good[:11]}`; probing `{args.sha[:11]}` once to confirm, then bisecting.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, probe)
@@ -1255,7 +1262,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
             span = first_parent_range(good, bad)
             probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].probe_only(inner), good, bad, str(args.run_id), span,
                                                       STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
-                                                      red_states(suite, name, verdicts, reds_dir)), span, jobs_of, steps_of)
+                                                      red_states(suite, name, verdicts, reds_dir, steps_of(args.run_id))), span, jobs_of, steps_of)
             for note in known_notes:
                 summary(args.summary, f"  - {note}")
             if probe is None:
