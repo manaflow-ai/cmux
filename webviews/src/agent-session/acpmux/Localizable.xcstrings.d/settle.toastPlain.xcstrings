@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "commandRules.connecting" : {
-      "comment" : "Agent pane: a background ssh session with no command; {host} is the machine",
+    "settle.toastPlain" : {
+      "comment" : "Agent pane: toast when a chat was settled (archived as done) by hand. {title} is the chat's title.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settled: {title}"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "جارٍ الاتصال بـ {host}"
+            "value" : "تمت التسوية: {title}"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Povezivanje na {host}"
+            "value" : "Završeno: {title}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Forbinder til {host}"
+            "value" : "Afsluttet: {title}"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Verbindung zu {host}"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connecting to {host}"
+            "value" : "Abgeschlossen: {title}"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Conectando a {host}"
+            "value" : "Cerrado: {title}"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Connexion à {host}"
+            "value" : "Classé : {title}"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Connessione a {host}"
+            "value" : "Concluso: {title}"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host} に接続中"
+            "value" : "完了済み: {title}"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំពុងភ្ជាប់ទៅ {host}"
+            "value" : "បានបញ្ចប់៖ {title}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host}에 연결 중"
+            "value" : "정리됨: {title}"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kobler til {host}"
+            "value" : "Avsluttet: {title}"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Łączenie z {host}"
+            "value" : "Zakończono: {title}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Conectando a {host}"
+            "value" : "Concluído: {title}"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Подключение к {host}"
+            "value" : "Завершено: {title}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "กำลังเชื่อมต่อกับ {host}"
+            "value" : "ปิดแล้ว: {title}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host} sunucusuna bağlanılıyor"
+            "value" : "Tamamlandı: {title}"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Підключення до {host}"
+            "value" : "Завершено: {title}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đang kết nối tới {host}"
+            "value" : "Đã khép lại: {title}"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在连接 {host}"
+            "value" : "已归结：{title}"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在連線至 {host}"
+            "value" : "已歸結：{title}"
           }
         }
       }
