@@ -12,11 +12,15 @@ import ObjectiveC
 /// window its tests created that is still open, names them on stderr, and records an issue on the
 /// suite, so the suite that leaks fails by name instead of slowing every suite after it.
 ///
+/// Nonisolated, as the other suite traits here are (`GhosttyOverridesGate`, `PaletteRankerRequired`):
+/// this target is main-actor by default, and `@Suite(...)` reads its traits outside the main actor, so
+/// a main-actor `closesItsWindows` stopped the Settings tests compiling on Xcode 27.2.
+///
 /// Windows are tagged with the suite and test that created them when they are created
 /// (Tests/Support/CmuxNextTestExitTrace/CmuxNextTestWindowCensus.c), so a suite running in
 /// parallel with others closes only its own. A window its test closed is not a leak, even when
 /// something still holds it; a window that was never closed is, whether or not it is on screen.
-public struct WindowLeakCheck: SuiteTrait, TestScoping {
+nonisolated public struct WindowLeakCheck: SuiteTrait, TestScoping {
     public var isRecursive: Bool { false }
 
     @concurrent public nonisolated func provideScope(
@@ -65,7 +69,7 @@ extension NSWindow {
 
 extension Trait where Self == WindowLeakCheck {
     /// Closes, names and fails on the windows a suite's tests left open (``WindowLeakCheck``).
-    public static var closesItsWindows: Self { WindowLeakCheck() }
+    nonisolated public static var closesItsWindows: Self { WindowLeakCheck() }
 }
 
 /// What the window census knows about a window (CmuxNextTestWindowCensus.c). Main-actor: the
