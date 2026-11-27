@@ -519,6 +519,43 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+/// The sender gets its acceptance while a configuration writer is still active.
+#[tokio::test]
+async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
+    let (hub, session) = hub_with_chat("inbox-writer");
+    let _writer = hub.config.write().await;
+    let blocks = [json!({"type": "text", "text": "command finished"})];
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut accept = |notice| tx.send(notice).unwrap();
+    let prompt = hub.inbox_accept(
+        &session,
+        &blocks,
+        "test",
+        "after-restore",
+        "acpmux",
+        PromptClass::Result,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &mut accept,
+    );
+    tokio::pin!(prompt);
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::select! {
+            result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+            ack = rx.recv() => ack.expect("acceptance"),
+        }
+    })
+    .await
+    .expect("an inbox delivery is accepted while configuration is being written");
+    assert_eq!(answer["promptId"], "after-restore");
+    assert_eq!(answer["inbox"], true);
+    assert_eq!(answer["queued"], true);
+    assert!(session.inbox().items.iter().any(|item| item.prompt_id == "after-restore"));
+}
+
 /// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
 /// takes the path it took before the surge inbox, with nothing held or counted.
 #[tokio::test]
@@ -1510,6 +1547,13 @@ async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in
 /// a question still wake after the burst window.
 #[tokio::test]
 async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
+    // Batching is off by default; this chat's person turned it on (compacting first stays off).
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
     let now = now_ms();
     let cold = |session: &Session, expires: u64| {
         let mut m = session.meta.lock().unwrap();
@@ -1594,15 +1638,20 @@ fn judged(mut item: Item, folds: &page_rule::Folds, session: bool) -> Item {
 
 #[test]
 fn the_coordinator_list_is_the_page_rule_config_by_name_or_host_slash_name() {
-    let mut cfg = crate::config::Config::default();
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord"), "unset: no chat is listed");
-    cfg.page_rule = Some(crate::config::PageRuleConfig {
-        sessions: vec!["cosmic-gray/claude-sr2-coord".into(), "interim-coord-2".into()],
-    });
-    assert!(page_rule::listed(&cfg, "claude-sr2-coord"));
-    assert!(page_rule::listed(&cfg, "interim-coord-2"));
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord-old"));
-    assert!(!page_rule::listed(&cfg, ""));
+    assert!(page_rule::session_names(None).is_empty());
+    let rule = crate::config::PageRuleConfig {
+        sessions: vec![
+            " cosmic-gray/claude-sr2-coord ".into(),
+            "interim-coord-2".into(),
+            " ".into(),
+        ],
+    };
+    let names = page_rule::session_names(Some(&rule));
+    assert!(names.contains("cosmic-gray/claude-sr2-coord"));
+    assert!(names.contains("claude-sr2-coord"));
+    assert!(names.contains("interim-coord-2"));
+    assert!(!names.contains("claude-sr2-coord-old"));
+    assert!(!names.contains(""));
 }
 
 #[test]

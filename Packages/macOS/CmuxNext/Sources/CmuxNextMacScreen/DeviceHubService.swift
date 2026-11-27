@@ -294,6 +294,17 @@ public final class DeviceHubService {
         logger.info("device hub started")
     }
 
+    /// `hub` runs a device this Mac should no longer use (the acpmux daemon came online as another, ShareHostDevice.swift):
+    /// the hub starts again for the same account and address, so ``makeRemoteHub`` picks the device again. The old one only
+    /// stops: no sign-out, so its sharing bit stays as the person set it and its sessions end as the hub ends an offline
+    /// device's. Nothing when `hub` no longer runs.
+    func restartHub(replacing hub: DeviceHub) {
+        guard self.hub === hub, let running else { return }
+        logger.info("device hub restarting: this Mac's device changed")
+        stopHub(endingSessions: false)
+        startHub(url: running.url, user: running.user)
+    }
+
     /// A sign-out starts (the account's tokens still work): the hub hears
     /// `signed_out` now, not after the rest of the sign-out.
     public func willSignOut() {
@@ -378,6 +389,10 @@ public final class DeviceHubService {
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
         let completion = Task {
+            // Signed out, this Mac is no longer the account's to view: its sharing bit goes off first (the
+            // hub's sign-out keeps it; a removal clears it there). Not the person's off: a later sign-in
+            // turns it on again by default.
+            await Self.clearSharing(hub)
             await hub.freezeForCapture()
             for start in starts { await start.completion.value }
             await hub.signOut(ending: ids, reason: MacScreenHubReason.signedOut.rawValue)
@@ -385,6 +400,13 @@ public final class DeviceHubService {
         }
         trackStop(completion)
         logger.info("device hub signing out")
+    }
+
+    /// Sign-out turns this Mac's sharing bit off when the hub has it on (one write; it fails only with
+    /// the hub unreachable, and then no device can reach this Mac through it either).
+    static func clearSharing(_ hub: DeviceHub) async {
+        guard hub.thisDevice?.macScreenShared == true else { return }
+        try? await hub.setMacScreenShared(false)
     }
 
     private func trackLoading(_ task: Task<Void, Never>) {

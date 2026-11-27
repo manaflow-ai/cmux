@@ -142,23 +142,16 @@ impl Terminal {
         let Some(origin) = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, 0) else {
             return false;
         };
-        let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            start: origin,
-            end: origin,
-            rectangle: false,
-        };
+        let selection = sys::GhosttySelection { start: origin, end: origin, rectangle: false };
         let mut opts = Self::vt_replay_options(Some(&selection), false, false);
-        opts.extra = sys::GhosttyFormatterTerminalExtra {
-            size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+        opts.extra = FormatterTerminalExtra {
             palette: false,
             modes: false,
             scrolling_region: true,
             tabstops: false,
             pwd: false,
             keyboard: false,
-            screen: sys::GhosttyFormatterScreenExtra {
-                size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+            screen: FormatterScreenExtra {
                 cursor: false,
                 style: false,
                 hyperlink: false,

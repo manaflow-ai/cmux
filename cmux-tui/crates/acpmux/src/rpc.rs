@@ -394,6 +394,10 @@ impl Message {
 }
 
 /// ACP method names used by acpmux. Kept as constants so the wire is explicit.
+/// `_acpmux/status` with this `true` answers only the listing's counts and peers
+/// (`Hub::list_counts`); a daemon before it ignores it and sends the full status.
+pub const LIST_COUNTS: &str = "listCounts";
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const AUTHENTICATE: &str = "authenticate";
@@ -406,6 +410,9 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Each named session's dot glyph, a pure function of its id (`server/requests/signature.rs`):
+    /// `{sessionIds}` (at most 512) to `{signatures: {<id>: Glyph}}`.
+    pub const SESSION_SIGNATURE: &str = "session/signature";
     /// Dedicated, scoped Cloud trigger chat operations. These never fall
     /// through to the ordinary session/new, session/prompt or info paths.
     pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
@@ -494,6 +501,13 @@ pub mod method {
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
+    /// The rooms (chats, workspaces) a client shows now; replaces its set (`hub/presence.rs`,
+    /// RFD 0141 phase 2).
+    pub const MUX_ROOMS: &str = "_acpmux/rooms";
+    /// One watched room's snapshot or change, as `cmux-presence` records and deltas.
+    pub const MUX_ROOM: &str = "_acpmux/room";
+    /// Whom the caller follows, or nobody; rides its rooms' records (RFD 0141 phase 3).
+    pub const MUX_FOLLOW: &str = "_acpmux/follow";
     /// A client's heartbeat for its person on one device (`hub/here.rs`).
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
@@ -592,6 +606,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// A peer daemon's one-hop send to a host this daemon peers (`server/send_hop.rs`).
+    pub const MUX_SEND_HOP: &str = "_acpmux/send_hop";
     /// Local socket: enqueue or read a mesh lifecycle control receipt.
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
@@ -768,6 +784,9 @@ pub mod method {
     /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
     /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
     pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
+    /// A paused machine's file tree and search from its replica and journal, with no wake
+    /// (`server/paused_files.rs`, RFD 0144); the person only.
+    pub const MUX_PAUSED_FILES: &str = "_acpmux/paused_files";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";
@@ -854,6 +873,9 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    /// Forgets a folder harness profile's confirmations (`cmux harness
+    /// disable`): the undo of `_acpmux/harness_enable`, from the same callers.
+    pub const MUX_HARNESS_DISABLE: &str = "_acpmux/harness_disable";
     // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
     // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
     // restore and registry: also the local app. Never Web or peer.
@@ -1053,10 +1075,6 @@ pub mod method {
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
-    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
-    /// agent or its Chief when the harness writes no plan of its own, and read back.
-    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
-    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
@@ -1074,14 +1092,30 @@ pub mod method {
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
+    /// Delete old chats' history (`hub/history_delete.rs`): `{dryRun?, olderThanDays?, export?}`
+    /// -> the chats deleted (hidden for the undo window) and purged, or with `dryRun` the preview
+    /// of those a pass would delete. `{deleted: true}` -> Recently deleted; `{restore: id}` ->
+    /// `{sessionId, restored}`, the undo.
+    pub const MUX_HISTORY_DELETE: &str = "_acpmux/history_delete";
+    /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
+    /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
+    pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
+    /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
+    pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
     pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
-    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
-    /// `{autoSession}`, the chat's row field after the switch.
+    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, mode}` with `local`,
+    /// `auto` or `cloud`, or `{sessionId, auto, keepInCloud?}` -> `{autoSession}`, the chat's
+    /// row field after the switch.
     pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// Moves an Auto chat now: `{sessionId, to}` with `cloud` or `local` -> `{autoSession}`. A
+    /// move the Cloud refuses is the request's error, in plain words.
+    pub const MUX_AUTO_SESSION_MOVE: &str = "_acpmux/auto_session/move";
     /// Move one chat between Local, Cloud and AutoCloud (`chat_place.rs`): `{sessionId, on,
-    /// reason?}` -> `{status: moved|already|needs_person, from, to, autoSession?, command?, why?}`.
+    /// reason?}` -> `{status: moved|moving|already|needs_person, from, to, autoSession?, command?,
+    /// why?}`. `moving`: the Cloud took the move and the chat is on its way (`autoSession.moving`).
     /// The person may make any move; a chat's own agent only the ones `chat_place::consent` allows.
     pub const MUX_CHAT_MOVE: &str = "_acpmux/chat_move";
     /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->
@@ -1221,7 +1255,7 @@ pub mod method {
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
-    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// agent request or answer, `server/delivery.rs` `deliver`): `{sessionId, seq}`, so the owner's
     /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
     pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to

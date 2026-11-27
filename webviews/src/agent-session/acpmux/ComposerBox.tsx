@@ -80,9 +80,8 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
-  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  /// A loading chip's × (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
-  onRetryAttachment?(id: string): void;
   /// A cancelled loading chip's node came back (undo): read its file again; false when it can't.
   onReviveAttachment?(id: string): boolean;
   /// Why a staged image's original failed to upload, by chip id (AttachmentStrip).
@@ -156,7 +155,6 @@ export function ComposerBox({
   codex = false,
   onRemoveAttachment,
   onCancelAttachment,
-  onRetryAttachment,
   onReviveAttachment,
   originalFailures,
   onReorderAttachment,
@@ -242,7 +240,6 @@ export function ComposerBox({
     setAttachments,
     pending: pending ?? [],
     cancel: (id) => onCancelAttachment?.(id),
-    retry: (id) => onRetryAttachment?.(id),
     revive: (id) => onReviveAttachment?.(id) ?? false,
     expand: (id) => {
       pastedChips.expand(id);
@@ -388,7 +385,6 @@ export function ComposerBox({
           }}
           selected={whole}
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
-          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
@@ -407,6 +403,7 @@ export function ComposerBox({
             }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            inlineHidden={attachmentView === "strip"}
             onWholeSelection={setWhole}
             onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
@@ -480,14 +477,16 @@ export function ComposerBox({
                 onKeyDown?.(event);
                 return;
               }
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-              const backspaced = composing
-                ? undefined
-                : backspacedAttachment(
-                    event,
-                    prompt.current?.atStart() ?? false,
-                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-                  );
+              // Backspace at the prompt's start takes back the last chip outside the text
+              // (backspacedAttachment), in the inline view only: the strip's attachments go by their ×.
+              const backspaced =
+                composing || attachmentView === "strip"
+                  ? undefined
+                  : backspacedAttachment(
+                      event,
+                      prompt.current?.atStart() ?? false,
+                      attachments.filter((chip) => !placed.has(chip.id)),
+                    );
               if (backspaced) {
                 event.preventDefault();
                 inline.remove(backspaced.id);

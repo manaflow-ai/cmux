@@ -85,10 +85,8 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import type { ResumeActions } from "../subagents/ResumeControl";
-import { AlsoHereSection } from "./AlsoHereSection";
 import { CarriedSection, carriedSummary } from "./CarriedSection";
 import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
-import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
@@ -97,8 +95,6 @@ import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { AgentSideRows } from "./AgentSideRows";
 import type { AgentSideRow } from "./agentSide";
-import { ProgressSection } from "./ProgressSection";
-import { planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
@@ -111,7 +107,6 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { type UsageEntry } from "./usageEntries";
 import type { ChatPlace } from "../chatMachine";
 import { samePanelProps } from "./samePanelProps";
-import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
 import {
   type SessionInfoPlacement,
@@ -124,6 +119,7 @@ import {
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
+import { useLiveSummary } from "../liveSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -186,6 +182,9 @@ export function SessionInfoPanel({
   // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
   // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
   const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
+  // Inline (a band atop the transcript, in the chat's flow): the column's width, no drag handle (CSS), no
+  // glass and no cut out of the transcript, which runs under it, not behind it.
+  const inline = placement === "inline";
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
@@ -194,7 +193,11 @@ export function SessionInfoPanel({
   // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
   // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
   // flicker EVER when im scrolling"). Its place re-measures when it moves.
-  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
+  useChatCut(
+    frame,
+    !inline && !presence?.leaving,
+    `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`,
+  );
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
@@ -258,7 +261,7 @@ export function SessionInfoPanel({
       data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
-          width,
+          width: inline ? undefined : width,
           // Pushing, its enter and exit run its right margin from minus this (sessionInfo.css).
           "--acpmux-session-info-width": `${width}px`,
           ...(under ? { "--acpmux-session-info-top": under } : {}),
@@ -347,7 +350,7 @@ const NO_AGENT_SIDE: readonly AgentSideRow[] = [];
 
 /// The sections for one chat.
 export function SessionInfo({
-  summary,
+  summary: drawnSummary,
   machineName,
   peerKinds,
   place,
@@ -359,7 +362,6 @@ export function SessionInfo({
   rows = [],
   outputFiles,
   produced: givenProduced,
-  plan,
   toolCalls,
   agents = [],
   waiting = new Set(),
@@ -383,6 +385,7 @@ export function SessionInfo({
   sections,
   onSection,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -402,7 +405,6 @@ export function SessionInfo({
   onShowTurn,
   allSessions,
   usageSessions = allSessions,
-  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -438,8 +440,6 @@ export function SessionInfo({
   /// The pull requests, issues and commits the chat produced (producedLinks.ts), where the caller reads
   /// them; else read from `rows`.
   produced?: readonly ProducedLink[];
-  /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
-  plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
@@ -481,6 +481,8 @@ export function SessionInfo({
   sections?: SessionInfoSections;
   onSection?: (id: SessionInfoSectionId, open: boolean) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  /// Removes one of the chat's additional directories and restarts it with the remaining folders.
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -503,10 +505,9 @@ export function SessionInfo({
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
   /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
-  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  /// (usageEntries.ts).
   usageSessions?: readonly UsageEntry[];
-  alsoHere?: readonly AlsoHere[];
-  /// Opens one of them.
+  /// Opens a chat (a Usage row).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -547,6 +548,8 @@ export function SessionInfo({
   imessage?: IMessageView | false;
 }) {
   const t = useT();
+  // A usage update reaches the sections without the pane (liveSummary.ts).
+  const summary = useLiveSummary(drawnSummary);
   const liveIMessage = useIMessage(imessageFixture === undefined);
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
@@ -809,6 +812,7 @@ export function SessionInfo({
         folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenBeside={onOpenUrl}
         onOpenImage={onOpenImage}
         readImage={readPromptImage}
@@ -847,27 +851,6 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
-  // The agent's plan, live: its steps done of its steps, on Context's meter.
-  const planSteps = plan?.entries.length ?? 0;
-  const stepsDone = plan ? planDone(plan) : 0;
-  const progressSection = plan && planSteps > 0 && (
-    <SessionInfoSection
-      id="progress"
-      title={t("sessionInfo.progress")}
-      open={state.progress ?? true}
-      onOpenChange={fold("progress")}
-      meta={
-        <>
-          {value(t("sessionInfo.progress.count", { done: stepsDone, total: planSteps }))}
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${Math.round((stepsDone / planSteps) * 100)}%` }} />
-          </span>
-        </>
-      }
-    >
-      <ProgressSection plan={plan} />
-    </SessionInfoSection>
-  );
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
@@ -904,28 +887,13 @@ export function SessionInfo({
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
   // A command a workflow's agent started is listed under that agent, not as the chat's own.
   const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
-  // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
-  // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
-  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
-  const alsoHereSection = alsoHereRows.length > 0 && (
-    <SessionInfoSection
-      id="alsoHere"
-      title={t("sessionInfo.alsoHere")}
-      open={state.alsoHere}
-      onOpenChange={fold("alsoHere")}
-      meta={value(String(alsoHereRows.length))}
-    >
-      <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
-    </SessionInfoSection>
-  );
   const tasks = servers.length + commands.length + scheduled.length + workflows.length + agentSide.length > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
       open={state.tasks}
       onOpenChange={fold("tasks")}
-      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text"), as Also here's count.
+      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text").
       meta={running > 0 ? value(String(running)) : undefined}
     >
       {workflows.length > 0 && (
@@ -1001,10 +969,8 @@ export function SessionInfo({
           changes,
           sources: sourcesSection,
           outputs: outputsSection,
-          progress: progressSection,
           subagents: subagentsSection,
           tasks,
-          alsoHere: alsoHereSection,
           ...appNodes,
         }}
       />
