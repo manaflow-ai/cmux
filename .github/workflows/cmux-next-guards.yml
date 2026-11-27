@@ -476,7 +476,13 @@ jobs:
     needs: [coalesce, fast-check-route]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') }}
+    # full-ci no longer starts it on a pull request into feat-cmux-next either (land's full-ci pulse put it on
+    # every landing pull request): in the timing feed of 11-22T18Z..11-26T18Z it ran 1,644 times, 28,593 runner-min,
+    # 707 min/h at 14-18Z, and 1,258 of its 1,400 pull request verdicts were red, red on the base too (base verdict
+    # read 403, so the base re-ran every red step; a step flagged new only by a memory address in its failure text).
+    # In no hour did most of its pull request runs pass. The push still runs it at every tip, and the merge gate
+    # judges a skipped job as no red. The repository variable CI_GUARD_GROUP_ON_FULL_CI=1 restores it.
+    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || vars.CI_GUARD_GROUP_ON_FULL_CI == '1') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
     # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
@@ -1416,10 +1422,22 @@ jobs:
           # pool VM; the next job's checkout removes this folder as untracked.
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
 
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
@@ -1780,7 +1798,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
 
-
+      - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
+        id: tt-swift-cloud-http-tests
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http-tests ')) }}
+        run: python3 -I tests/test_swift_cloud_http.py
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
@@ -1952,6 +1973,12 @@ jobs:
         id: tt-media-merge-base
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-merge-base ')) }}
         run: bash scripts/ci/tests/media-merge-base.test.sh
+
+      # One dropped ghostty-next clone lost every What's New before at 8f9660c2 (run 45837430593).
+      - name: media_tree_submodules.sh takes a tour tree's submodules from the head's clones, three tries
+        id: tt-media-tree-submodules
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-tree-submodules ')) }}
+        run: bash scripts/ci/tests/media-tree-submodules.test.sh
 
       # launch-ready.sh judges each restore case against its expectation (the launch reopens exactly where the person
       # was, Home included) and flags an A/B whose arms first showed different surfaces as not like for like.

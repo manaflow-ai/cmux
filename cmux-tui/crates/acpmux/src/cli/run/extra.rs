@@ -569,6 +569,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
+        Command::Register { auto: true, name: Some(name), .. } => {
+            // cmux's hook's step: bounded, and never a failure the session sees.
+            let v = crate::cli::reply_address::auto(name).await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
         Command::Register { renew: true, .. } => {
             // A hook's step: bounded, silent, and never a failure the session sees.
             let v = crate::cli::reply_address::renew().await;
@@ -577,7 +585,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Register { name, code, renew: false } => {
+        Command::Register { name, code, renew: false, .. } => {
             let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -1341,8 +1349,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel, now, allow_downgrade }) => {
-            crate::cli::hosts::self_update(&channel, now, allow_downgrade, json_out).await
+        Command::Host(PeerCmd::SelfUpdate {
+            channel,
+            now,
+            allow_downgrade,
+            fast_patch,
+            commit,
+        }) => {
+            let fast_patch = fast_patch.then_some(commit);
+            crate::cli::hosts::self_update(&channel, now, allow_downgrade, fast_patch, json_out)
+                .await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1752,11 +1768,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel, now, allow_downgrade } => {
+                PeerCmd::SelfUpdate { channel, now, allow_downgrade, fast_patch, commit } => {
                     return crate::cli::hosts::self_update(
                         &channel,
                         now,
                         allow_downgrade,
+                        fast_patch.then_some(commit),
                         json_out,
                     )
                     .await;
