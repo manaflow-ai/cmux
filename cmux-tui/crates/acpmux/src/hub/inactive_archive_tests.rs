@@ -55,6 +55,10 @@ async fn a_pass_archives_only_inactive_chats_with_nothing_at_work() {
     let running = chat(&hub, "running", "running", old, json!({}));
     let waiting = chat(&hub, "waiting", "waiting", old, json!({}));
     let pinned = chat(&hub, "pinned", "closed", old, json!({"pinned": "1"}));
+    // Pinned in the person's list (`_acpmux/pin`), no tag: kept as well.
+    let sidebar = chat(&hub, "sidebar", "closed", old, json!({}));
+    hub.set_pinned(&sidebar, true).unwrap();
+    assert_eq!(hub.inactive_archivable(&sidebar, now - 7 * DAY_MS, now), Err("kept"));
     let side = chat(&hub, "side", "closed", old, json!({"side": "closed"}));
     let shelved = chat(&hub, "shelved", "closed", old, json!({"archived": "5"}));
     let gone = chat(&hub, "gone", "idle", old, json!({}));
@@ -69,7 +73,7 @@ async fn a_pass_archives_only_inactive_chats_with_nothing_at_work() {
         );
         assert_eq!(tag(archived, ARCHIVED_BY_TAG).as_deref(), Some(ARCHIVED_BY_AUTO));
     }
-    for kept in [&recent, &running, &waiting, &pinned, &side, &gone] {
+    for kept in [&recent, &running, &waiting, &pinned, &sidebar, &side, &gone] {
         assert_eq!(tag(kept, ARCHIVED_TAG), None, "{}", kept.id);
     }
     // One archived already keeps its own archive: its time, and no marker.
