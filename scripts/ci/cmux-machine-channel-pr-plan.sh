@@ -12,7 +12,7 @@
 # cmux_tui_tree_key.py takes `[--version V] [REV]`: the `key` subcommand every caller named before (#56753) is no
 # argument it reads, so each key came back empty and every full-tier head built both targets.
 #
-# Env: HEAD_REPO (the head's owner/name), GITHUB_REPOSITORY, GITHUB_BASE_REF, GITHUB_OUTPUT; optional HEAD_SHA and
+# Env: HEAD_REPO (the head's owner/name), GITHUB_REPOSITORY, GITHUB_BASE_REF, GITHUB_OUTPUT; optional HEAD_SHA, HEAD_REF and
 # GH_TOKEN (actions: read) for the earlier-build lookup, GITHUB_RUN_ID to leave this run out of it.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -46,15 +46,37 @@ if [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GIT
       build=false
     fi
   fi
+  # A base that took a commit in the last QUIET minutes has a push run of cmux-machine-channel.yml for it, waiting
+  # on its head's build or building. That group runs one and keeps one waiting, and every newer push replaces the
+  # waiting one, so this head's merge, minutes later, is coalesced into whichever push runs next and its build is
+  # never taken. 2026-11-25 21Z..11-26 21Z: 1,290 merges, a median 36 s apart, none 20 min after the one before;
+  # 27 push runs; about 1,700 PR head builds a target (a build cost about 50k job-min, 48 min a merged PR) for at
+  # most 27 takes. A base quiet that long (a slow hour) still builds, and the push run builds whenever no PR build
+  # has its tree, as before. MACHINE_CHANNEL_PR_HEAD_QUIET_MIN (vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN) 0 turns
+  # it off. Before the earlier-build lookup, so a skip costs no API call.
+  quiet="${MACHINE_CHANNEL_PR_HEAD_QUIET_MIN:-30}"
+  if [[ "$build" == true && "$quiet" =~ ^[0-9]+$ && "$quiet" -gt 0 ]]; then
+    based="$(git log -1 --format=%ct HEAD^1 2>/dev/null)" || based=""
+    if [[ "$based" =~ ^[0-9]+$ ]]; then
+      age=$(( ($(date +%s) - based) / 60 ))
+      if (( age < quiet )); then
+        echo "::notice title=machine channel PR head build::the base took a commit ${age} min ago (< ${quiet}): its push run coalesces this merge, no PR head build"
+        build=false
+      fi
+    fi
+  fi
   # The same head handed to land again (ready-to-land, then full-ci, a label pulsed, a re-queue) builds the same
   # bytes: the build checks out the head SHA, and the merge's finder takes any of its runs with both artifacts.
-  # Skip it when an earlier pr-router run of this head has them (cmux_machine_channel_head_built.py).
+  # Skip it when an earlier pr-router run of this head has them (cmux_machine_channel_head_built.py). A base merge
+  # makes a new head SHA with the same tree key when the base moved no input: an earlier head of the branch with
+  # key $mine built the same inputs, so it counts too (--key, --branch; the merge's finder takes it the same way).
   if [[ "$build" == true && "${HEAD_SHA:-}" =~ ^[0-9a-f]{40}$ && -n "${GH_TOKEN:-}" ]]; then
     prefix="$(sed -n 's/^artifact_prefix=//p' "$GITHUB_OUTPUT" | tail -n1)"
-    prior="$("$here/timeout.sh" 45 python3 -I "$here/cmux_machine_channel_head_built.py" "$HEAD_SHA" \
-      --exclude-run "${GITHUB_RUN_ID:-0}" --prefix "${prefix:-machine-channel-}" 2>/dev/null)" || prior=""
+    prior="$("$here/timeout.sh" 90 python3 -I "$here/cmux_machine_channel_head_built.py" "$HEAD_SHA" \
+      --exclude-run "${GITHUB_RUN_ID:-0}" --prefix "${prefix:-machine-channel-}" \
+      --key "$mine" --branch "${HEAD_REF:-}" 2>/dev/null)" || prior=""
     if [[ "$prior" =~ ^[0-9]+$ ]]; then
-      echo "::notice title=machine channel PR head build::run $prior already built head $HEAD_SHA: no second build"
+      echo "::notice title=machine channel PR head build::run $prior already built head $HEAD_SHA or a head with its tree key $mine: no second build"
       build=false
     fi
   fi

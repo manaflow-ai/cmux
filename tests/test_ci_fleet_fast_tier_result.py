@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("fleet_fast_tier_result", ROOT / "scripts/ci/fleet_fast_tier_result.py")
 m = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(m)
@@ -167,7 +169,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(job["name"], "cmux-next fast tier (build fleet)")
         self.assertEqual(job["runs-on"], "cmux-linux")
         self.assertIn("verdict", job["outputs"])
-        text = "\n".join(s.get("run", "") for s in job["steps"])
+        text = "\n".join(step_run(s) for s in job["steps"])
         self.assertIn("fleet_fast_tier_result.py", text)
         self.assertNotIn("gateway_runner", str(job.get("if", "")))
 
@@ -177,7 +179,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("fast-tier-fleet", job["needs"])
         self.assertIn("needs.fast-tier-fleet.outputs.verdict == 'unavailable'", job["if"])
         self.assertIn("gateway_runner", str(job["runs-on"]))
-        text = "\n".join(s.get("run", "") for s in job["steps"])
+        text = "\n".join(step_run(s) for s in job["steps"])
         self.assertIn("::warning title=mac fallback::", text)
         self.assertIn("verdict", job["outputs"])
 
