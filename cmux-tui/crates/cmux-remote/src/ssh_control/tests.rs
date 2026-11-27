@@ -272,6 +272,37 @@ async fn auth_clock_records_master_authentication_time() {
     assert_eq!(clock.excluded(Instant::now() + Duration::from_secs(5)), spent);
 }
 
+#[test]
+fn auth_clock_counts_overlapping_targets_once() {
+    let clock = SshAuthClock::default();
+    let target_a = SshTarget {
+        ssh_binary: "ssh".into(),
+        destination: "a".into(),
+        port: None,
+        extra_args: Vec::new(),
+    };
+    let target_b = SshTarget { destination: "b".into(), ..target_a.clone() };
+    let start = Instant::now();
+    let end = start + Duration::from_secs(10);
+    let mut states = clock.state.lock().unwrap();
+    states.insert(
+        target_a.clone(),
+        AuthClockState {
+            intervals: vec![(start, start + Duration::from_secs(7))],
+            ..AuthClockState::default()
+        },
+    );
+    states.insert(
+        target_b.clone(),
+        AuthClockState {
+            intervals: vec![(start + Duration::from_secs(3), end)],
+            ..AuthClockState::default()
+        },
+    );
+    drop(states);
+    assert_eq!(clock.excluded_for_targets(&[target_a, target_b], end), Duration::from_secs(10));
+}
+
 #[tokio::test]
 async fn failed_authentication_reports_ssh_exit_and_is_not_retried() {
     let fake = FakeSsh::new(Mode::Fail { delay_ms: 0 });
@@ -451,7 +482,7 @@ async fn unavailable_socket_is_retried_once_on_reconnect() {
     assert!(share.client_arguments(&target).await.unwrap().is_empty());
     assert!(share.client_arguments(&target).await.unwrap().is_empty());
     assert_eq!(fake.authentications(), 1, "no repeated prompts within one connect");
-    share.retry_unavailable();
+    share.retry_unavailable(&[target.clone()]).await;
     let (first, second) =
         tokio::join!(share.client_arguments(&target), share.client_arguments(&target));
     let first = first.unwrap();
