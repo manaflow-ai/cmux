@@ -337,6 +337,7 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
       // A relaunch's page loads its later chunks while the app is still busy launching: each comes
       // LATE_MS late, as a busy launch's loader serves them.
       await context.route(/\/assets\/Highlighted[^/]*\.js$/, async (route) => {
+        // fixed-wait: inject slow chunk delivery during relaunch; this delay is the load under test.
         await new Promise((done) => setTimeout(done, LATE_MS));
         await route.continue();
       });
