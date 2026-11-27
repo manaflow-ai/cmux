@@ -19,7 +19,7 @@ extension CEFDeferredFocusTests {
     @Test func aHostedPageWithTheKeysShownAgainKeepsItsWindowAndTheKeys() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         let (tab, host) = try createdTab(runtime, browser: 47)
@@ -77,7 +77,7 @@ extension CEFDeferredFocusTests {
     @Test func aFocusAskForAPageThatHasTheFocusAndTheKeysGrantsNothing() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let (tab, _) = try createdTab(runtime, browser: 48)
         try #require(window.contentView).addSubview(tab.contentView)
