@@ -166,7 +166,7 @@ pub(super) struct Rule {
 
 /// The path a call's input names, made absolute against `cwd`.
 pub(super) fn touched_path(input: &Value) -> Option<PathBuf> {
-    let tool_input = &input["tool_input"];
+    let tool_input = input.get("tool_input")?;
     let raw = ["file_path", "notebook_path", "path"]
         .iter()
         .find_map(|k| tool_input.get(*k).and_then(Value::as_str))
@@ -175,7 +175,7 @@ pub(super) fn touched_path(input: &Value) -> Option<PathBuf> {
     if path.is_absolute() {
         return Some(path);
     }
-    let cwd = input["cwd"].as_str().filter(|c| !c.is_empty())?;
+    let cwd = input.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty())?;
     Some(Path::new(cwd).join(path))
 }
 
@@ -240,11 +240,8 @@ fn cut(text: &str, file: &Path) -> String {
     if text.len() <= MAX_FILE_BYTES {
         return text.to_owned();
     }
-    let mut end = MAX_FILE_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}\n[cut at {MAX_FILE_BYTES} bytes; the rest is in {}]", &text[..end], file.display())
+    let head = text.get(..text.floor_char_boundary(MAX_FILE_BYTES)).unwrap_or_default();
+    format!("{head}\n[cut at {MAX_FILE_BYTES} bytes; the rest is in {}]", file.display())
 }
 
 /// The text added to the call's result.
@@ -270,7 +267,8 @@ impl Translator {
     async fn dir_rules_output(&self, req: &Value) -> Value {
         let pass = json!({});
         let input = req.get("input").cloned().unwrap_or(Value::Null);
-        if !enabled() || input["hook_event_name"].as_str() != Some("PostToolUse") {
+        if !enabled() || input.get("hook_event_name").and_then(Value::as_str) != Some("PostToolUse")
+        {
             return pass;
         }
         let Some(path) = touched_path(&input) else { return pass };
