@@ -32,7 +32,7 @@ thread_local! {
 }
 
 /// How many of the hubs built since the last call outlive their simulation.
-pub fn left_alive() -> (usize, usize) {
+fn left_alive() -> (usize, usize) {
     HUBS.with(|h| {
         let hubs = std::mem::take(&mut *h.borrow_mut());
         (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
@@ -96,6 +96,8 @@ pub struct Run {
     pub uninterrupted: Option<Outcome>,
     pub trace: Vec<String>,
     pub simulated: Duration,
+    /// Of the hubs this run's simulations built, how many outlived them, and how many there were.
+    pub hubs: (usize, usize),
 }
 
 pub fn human(d: Duration) -> String {
@@ -108,6 +110,8 @@ pub fn human(d: Duration) -> String {
 }
 
 pub fn run(seed: u64, opts: &Options) -> Run {
+    // Whatever an earlier run left is its own: this run counts only the hubs it builds.
+    let _ = left_alive();
     let mut rng = Rng::new(seed);
     let plan = Plan::draw(&mut rng.split(1), opts.faults.0);
     let faulty = simulate(seed, &plan, opts);
@@ -124,7 +128,7 @@ pub fn run(seed: u64, opts: &Options) -> Run {
     trace.extend(same_instant_sorted(&faulty.app.trace));
     let simulated =
         faulty.simulated + uninterrupted.as_ref().map_or(Duration::ZERO, |u| u.simulated);
-    Run { plan, faulty, uninterrupted, trace, simulated }
+    Run { plan, faulty, uninterrupted, trace, simulated, hubs: left_alive() }
 }
 
 /// The trace in time order, and within one simulated instant in text order. Within an instant

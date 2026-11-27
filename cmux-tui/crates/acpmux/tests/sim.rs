@@ -125,14 +125,15 @@ fn seeds_hold_the_delivery_invariants() {
         return;
     }
     let seeds = env_u64("SIM_SEEDS").unwrap_or(64);
-    // Every hub a seed builds outlives its simulation (about 13 MB and 2 fds a seed, one
-    // `acpmux-audit` thread a hub; SIM_LEAK_TRACE=1 shows it): 4000 seeds in one process reached
-    // 31 GB and filled a pool host's disk with swap (acpmux-sim-sweep run 45768539377). Until
-    // what keeps them is found, a process runs at most this many and the sweep runs chunks.
+    // A sweep runs chunks of at most this many seeds a process (acpmux-sim-sweep.yml), so one
+    // process's memory stays bounded whatever a seed leaves behind. 4000 seeds in one process
+    // once reached 31 GB (acpmux-sim-sweep run 45768539377): every hub outlived its simulation
+    // through the session tap's strong `Hub` (`hub/tap.rs`), now checked on every seed by the
+    // invariant "every hub is gone with its simulation".
     assert!(
         seeds <= SEEDS_PER_PROCESS,
         "SIM_SEEDS={seeds} is over {SEEDS_PER_PROCESS} in one process: run chunks of at most \
-         that many with SIM_SEED_BASE offsets (acpmux-sim-sweep.yml), each seed's hubs stay alive"
+         that many with SIM_SEED_BASE offsets (acpmux-sim-sweep.yml)"
     );
     let base = env_u64("SIM_SEED_BASE").unwrap_or(0);
     let started = std::time::Instant::now();
@@ -147,7 +148,7 @@ fn seeds_hold_the_delivery_invariants() {
     let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
-        let (alive, built) = world::left_alive();
+        let (alive, built) = run.hubs;
         if trace_leaks {
             let count = |d: &str| std::fs::read_dir(d).map_or(0, |r| r.count());
             let mut names: BTreeMap<String, usize> = BTreeMap::new();
@@ -169,15 +170,6 @@ fn seeds_hold_the_delivery_invariants() {
             );
         }
         simulated += run.simulated;
-        // Every hub a simulation built is gone with it: one kept alive keeps its audit thread and
-        // runtime (~13 MB a seed), which ran the known-gap sweep's runner out of memory (a
-        // strong `Hub` in the session tap, `hub/tap.rs`).
-        if alive > 0 {
-            failures.push(format!(
-                "seed {seed}: {alive} of {built} hubs outlived the simulation\n  replay: {}",
-                replay_command(seed, &opts)
-            ));
-        }
         if let Err(failure) = invariants::check(&run) {
             let known =
                 if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
@@ -321,6 +313,11 @@ const MUTATIONS: &[Mutation] = &[
             let g = calm.given[0].clone();
             calm.given.push(g);
         },
+    },
+    Mutation {
+        invariant: "every hub is gone with its simulation",
+        what: "one hub outlived the run",
+        apply: |run| run.hubs.0 = run.hubs.1.max(1),
     },
 ];
 
