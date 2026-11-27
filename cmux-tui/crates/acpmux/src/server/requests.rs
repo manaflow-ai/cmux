@@ -779,12 +779,12 @@ async fn dispatch_brief(
         let row = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,
             "target":selected,"host":if forwarded {params.get("host").cloned().unwrap_or(json!("local"))}else{json!("local")},"stopCondition":stop,"fromSession":conn.caller()});
         if cancelling {
-            return Box::pin(workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
+            return heap(|| workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
         }
-        return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
+        return heap(|| workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
     let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
+        match heap(|| dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
             Ok(created) => created,
             Err(error) => {
                 hub.briefs.release(&id);
@@ -1584,7 +1584,7 @@ async fn dispatch_request_with_identity(
         }
         // Boxed: dispatch_brief's future is large, and inline it widens every request's future
         // (a debug test thread's stack overflowed on an unrelated request).
-        method::MUX_DISPATCH => Box::pin(dispatch_brief(hub, conn, params)).await,
+        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
@@ -3116,11 +3116,9 @@ async fn dispatch_request_with_identity(
             super::peer_status::wireguard_admit(hub, conn.origin, &params).await
         }
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
-        super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         super::autocloud_enroll::METHOD => {
             super::autocloud_enroll::handle(hub, conn, &params).await
         }
-        super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
         "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
@@ -4640,6 +4638,11 @@ async fn dispatch_request_with_identity(
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
+            // A method with its own file (`methods/mod.rs`) before the harness gets it.
+            if let Some(reply) = heap(|| super::methods::dispatch(hub, conn, other, &params)).await
+            {
+                return reply;
+            }
             let key = session_key(&params).map_err(|_| match other {
                 method::MUX_SUBAGENT_STOP | method::MUX_STEER_WITHDRAW | method::MUX_STEP_NOW => {
                     RpcError::invalid_params("sessionId is required")

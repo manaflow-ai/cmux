@@ -5,8 +5,9 @@
 //! constant (`method::X`, `| method::X`), a string literal, a module's `METHOD` or a catalog RPC
 //! name, a module's alias of a method constant (`super::browser_workspaces::SET`), or a guard
 //! over a group of methods (`composer::handles(m)`, `queued::handles(m)`,
-//! `agent_login::METHODS`, `harness_admin::METHODS`), whose members are read from their files. A
-//! head of any other form panics: teach this file the new form.
+//! `agent_login::METHODS`, `harness_admin::METHODS`, `account_sign_in::METHODS`,
+//! `connections::METHODS`), whose members are read from their files. A head of any other form
+//! panics: teach this file the new form.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,8 +17,9 @@ const COMPOSER: &str = include_str!("../../src/server/requests/composer.rs");
 const QUEUED: &str = include_str!("../../src/server/requests/queued.rs");
 const AGENT_LOGIN: &str = include_str!("../../src/server/agent_login.rs");
 const HARNESS_ADMIN: &str = include_str!("../../src/server/harness_admin.rs");
-const VM_HOST: &str = include_str!("../../src/server/vm_host.rs");
-const HOST_NOTICE: &str = include_str!("../../src/server/host_notice.rs");
+const ACCOUNT_SIGN_IN: &str = include_str!("../../src/server/account_sign_in.rs");
+const CONNECTIONS: &str = include_str!("../../src/server/connections.rs");
+const AUTOCLOUD_ENROLL: &str = include_str!("../../src/server/autocloud_enroll.rs");
 const BROWSER_WORKSPACES: &str = include_str!("../../src/server/browser_workspaces.rs");
 
 /// Every method name `dispatch_request` has an arm for.
@@ -33,17 +35,22 @@ pub fn methods() -> BTreeSet<String> {
             ("queued::handles(m)", QUEUED, "fn handles("),
             ("agent_login::METHODS", AGENT_LOGIN, "const METHODS"),
             ("harness_admin::METHODS", HARNESS_ADMIN, "const METHODS"),
+            ("account_sign_in::METHODS", ACCOUNT_SIGN_IN, "const METHODS"),
+            ("connections::METHODS", CONNECTIONS, "const METHODS"),
         ] {
             if head.contains(token) {
                 found.extend(constant_values(&block(source, start), &constants));
             }
         }
-        for (token, source) in
-            [("super::vm_host::METHOD", VM_HOST), ("super::host_notice::METHOD", HOST_NOTICE)]
-        {
+        // A retained module arm names its own method constant directly.
+        for (token, source) in [("super::autocloud_enroll::METHOD", AUTOCLOUD_ENROLL)] {
             if pattern.contains(token) {
                 found.extend(literals(&block(source, "const METHOD: &str")));
             }
+        }
+        // `controls::METHOD` is a re-export of a method constant rather than a string literal.
+        if pattern.contains("super::controls::METHOD") {
+            found.push(acpmux::rpc::method::MUX_CONTROLS.to_owned());
         }
         // A module's own alias of a method constant (`super::browser_workspaces::SET`), read from
         // its `const NAME: &str = method::X;` line.
@@ -72,6 +79,25 @@ pub fn methods() -> BTreeSet<String> {
         );
         names.extend(found);
     }
+    // The methods with a file of their own, which the `other` arm asks (`server/methods/mod.rs`).
+    names.extend(method_files());
+    names
+}
+
+/// The `METHOD` of each method file in `src/server/methods/` (all but `mod.rs` and `*_tests.rs`).
+fn method_files() -> Vec<String> {
+    let folder = concat!(env!("CARGO_MANIFEST_DIR"), "/src/server/methods");
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(folder).expect("src/server/methods") {
+        let path = entry.expect("an entry of src/server/methods").path();
+        let Some(file) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        if !file.ends_with(".rs") || file == "mod.rs" || file.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("a method file");
+        names.extend(literals(&block(&source, "const METHOD: &str")));
+    }
+    assert!(!names.is_empty(), "no method file in {folder}");
     names
 }
 
