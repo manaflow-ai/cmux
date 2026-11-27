@@ -122,6 +122,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_SESSION_AUTH,
     method::MUX_SESSION_FILES,
     method::MUX_SESSION_HOLD,
+    method::MUX_SESSION_RESOURCES,
     method::MUX_SET_DIRECTORIES,
     method::MUX_SET_POLICY,
     method::MUX_SET_TOOLS,

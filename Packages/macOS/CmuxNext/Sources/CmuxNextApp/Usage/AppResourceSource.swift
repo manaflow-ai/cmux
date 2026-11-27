@@ -16,7 +16,10 @@ import Foundation
 ///   `--renderer-client-id`). GPU, network, utility and extension
 ///   renderers are shared, never a tab's; so is a renderer that also hosts
 ///   another page's frames, for one tab's card.
-/// - WebKit tabs and agent chats: the web view's WebContent process.
+/// - WebKit tabs: the web view's WebContent process.
+/// - Agent chats: the page's WebContent process, plus the chat's agent, which runs in the acpmux
+///   daemon, not under the app: that daemon reports its process tree (`_acpmux/session_resources`,
+///   `AcpmuxSessionResources`), a peer's chat its own machine's.
 /// - The app process is shared (chrome, Ghostty, Chromium's browser process).
 ///
 /// Resolution reads the main-actor model; process counters are read off
@@ -33,6 +36,14 @@ final class AppResourceSource: ResourceSampleSource {
     private struct TerminalQuery {
         var tabID: String
         var surface: SurfaceID
+    }
+
+    /// An agent chat whose agent's numbers come from acpmux.
+    private struct AgentQuery {
+        var tabID: String
+        var session: String
+        /// The `ProcessKey` host of its processes: this Mac's, or the machine the chat runs on.
+        var host: String
     }
 
     private struct DaemonQuery {
@@ -79,6 +90,29 @@ final class AppResourceSource: ResourceSampleSource {
 
         var samples = await ProcessSample.sampleLocal(Array(localPIDs))
 
+        // Agent chats: acpmux measures each chat's agent, all at once, each within its deadline.
+        if let socket = resolved.acpmuxSocket, !resolved.agents.isEmpty {
+            let agents = resolved.agents
+            let replies = await withTaskGroup(of: (Int, AcpmuxSessionResources?).self) { group in
+                for (index, agent) in agents.enumerated() {
+                    group.addTask { (index, await AcpmuxSessionResources.sample(socketPath: socket, sessionId: agent.session)) }
+                }
+                var replies: [Int: AcpmuxSessionResources] = [:]
+                for await (index, reply) in group { replies[index] = reply }
+                return replies
+            }
+            for (offset, agent) in agents.enumerated() {
+                guard let reply = replies[offset], !reply.processes.isEmpty, let index = tabIndex[agent.tabID] else { continue }
+                for process in reply.processes {
+                    let key = ProcessKey(host: agent.host, pid: process.pid)
+                    samples[key] = ProcessSample(key: key, name: process.name, cpuNanos: process.cpuNanos,
+                                                 memoryBytes: process.memoryBytes, sampledAtNanos: reply.sampledAtNanos)
+                    tabs[index].processes.append(key)
+                }
+                tabs[index].available = true
+            }
+        }
+
         // Terminals: one request per daemon.
         for query in resolved.daemons {
             let request = TerminalResourcesRequest(surfaces: query.terminals.map(\.surface))
@@ -112,6 +146,9 @@ final class AppResourceSource: ResourceSampleSource {
         var tabs: [TabResourceSources] = []
         var daemons: [DaemonQuery] = []
         var rendererClients: [String: [Int32]] = [:]
+        var agents: [AgentQuery] = []
+        /// The local acpmux, asked only when an agent chat is in the target.
+        var acpmuxSocket: String?
         /// One tab's sample: the renderer clients of every other page (a renderer they share is not its own).
         var foreignRendererClients: [Int32] = []
         var includesAppShare = false
@@ -144,6 +181,8 @@ final class AppResourceSource: ResourceSampleSource {
             resolved.includesAppShare = true
         }
         var daemonIndex: [ObjectIdentifier: Int] = [:]
+        // This install's `AgentSessionRef.host`, read once for the target's first agent chat.
+        var localAgentHost: String??
         for (tab, daemon) in entries {
             switch tab.kind {
             case .pty:
@@ -185,12 +224,20 @@ final class AppResourceSource: ResourceSampleSource {
                 let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
                                                         processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
+                // Leo 2026-11-27: "the memory line... it should be the ram usage. why dont we have ram usage?" The page
+                // alone was often unmatched ("Memory –") and never held the agent, which runs in acpmux.
+                if let ref = tab.agentSession, let session = ref.session {
+                    if localAgentHost == nil { localAgentHost = .some((try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))) }
+                    let local = localAgentHost.flatMap { $0 } == ref.host
+                    resolved.agents.append(AgentQuery(tabID: tab.id, session: session, host: local ? ProcessKey.localHost : ref.host))
+                }
             case .remoteTerminal, .conversation, .other:
                 // A remote reference or a conversation's processes run on its own session.
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .other,
                                                         processes: [], available: false))
             }
         }
+        if !resolved.agents.isEmpty { resolved.acpmuxSocket = QuitAgents.environment(services)?.socketPath }
         return resolved
     }
 }

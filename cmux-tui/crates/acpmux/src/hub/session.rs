@@ -671,6 +671,17 @@ impl<T: Default> std::ops::Deref for OnFirstUse<T> {
 }
 
 impl Session {
+    /// The pid whose process tree is this chat's agent (`_acpmux/session_resources`): its host's,
+    /// which runs the harness and what it starts, or the agent this daemon runs as its own child.
+    /// `Some(None)`: no agent runs (a new or hibernated chat); `None`: a start or stop held the
+    /// slot past `wait`.
+    pub(crate) async fn agent_root_pid(&self, wait: std::time::Duration) -> Option<Option<u32>> {
+        let slot = tokio::time::timeout(wait, self.child.lock()).await.ok()?;
+        let child = (*slot).clone();
+        drop(slot);
+        Some(child.and_then(|c| c.host_record().map(|r| r.host_pid).or(c.pid)))
+    }
+
     /// The chat's inbound channel, made now when this is its first use.
     pub(super) fn inbound_channel(&self) -> &InboundChannel {
         self.inbound.get_or_init(|| {
