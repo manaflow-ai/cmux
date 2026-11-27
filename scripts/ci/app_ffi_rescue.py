@@ -43,8 +43,9 @@ WATCH_MINUTES = 100.0  # the build's own wait in its concurrency group plus RESC
 POLL_S = 120.0  # at most WATCH_MINUTES * 60 / POLL_S (50) reads of one jobs page per run
 # A watch that cannot read its jobs cannot rescue either: the dispatch and the cancel spend the same GITHUB_TOKEN
 # budget the read was refused on. 2026-11-26 20:00-22:30Z: 17 watches held a Linux runner 236 min, 8 of them 18-42 min
-# with every read a 403 (jobs 140147823858: 21 of 21; 140154316847: 13 of 13) and none dispatched. The watch now ends
-# at a rate-limit refusal whose reset is past the next read, or after BLIND_READS unread pages in a row.
+# with every read a 403 (jobs 140147823858: 21 of 21; 140154316847: 13 of 13) and none dispatched. The watch now sleeps
+# once to a rate-limit reset within RESCUE_MINUTES (time left to rescue), ends at a later one, and ends after
+# BLIND_READS unread pages in a row.
 BLIND_READS = 3
 RESCUE_SWITCHES = ("pr-rescue", "on")
 RESCUE_INPUT = "blacksmith"
@@ -155,12 +156,21 @@ def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callabl
             page = api("GET", f"repos/{repo}/actions/runs/{run}/attempts/{attempt}/jobs?per_page=100", token)
             jobs = list((page or {}).get("jobs") or [])
         except (urllib.error.URLError, TimeoutError, ValueError) as error:
-            jobs, unread, reset = None, unread + 1, refused_until(error, now)
-            if (reset is not None and reset > now + POLL_S) or unread >= BLIND_READS:
-                why = (f"rate-limited until {time.strftime('%H:%M:%SZ', time.gmtime(reset))}" if reset is not None
-                       and reset > now + POLL_S else f"{unread} reads in a row unread")
-                out(f"::warning::jobs unread ({type(error).__name__}: {error}), {why}: the watch cannot read or "
-                    f"dispatch on this token, so it ends instead of holding the runner")
+            jobs, reset = None, refused_until(error, now)
+            if reset is not None and reset > now + POLL_S:
+                until = time.strftime('%H:%M:%SZ', time.gmtime(reset))
+                if reset - now <= RESCUE_MINUTES * 60 and reset < start + WATCH_MINUTES * 60:
+                    # A reset this close still leaves time to rescue: one sleep to it, no reads spent meanwhile.
+                    out(f"jobs unread ({type(error).__name__}: {error}), rate-limited until {until}: next read then")
+                    sleep(reset - now + 1)
+                    continue
+                out(f"::warning::jobs unread ({type(error).__name__}: {error}), rate-limited until {until}: the "
+                    f"watch cannot read or dispatch on this token before then, so it ends instead of holding the runner")
+                return WAIT
+            unread += 1
+            if unread >= BLIND_READS:
+                out(f"::warning::jobs unread ({type(error).__name__}: {error}), {unread} reads in a row unread: the "
+                    f"watch cannot read or dispatch on this token, so it ends instead of holding the runner")
                 return WAIT
             out(f"jobs unread ({type(error).__name__}: {error}); next read in {POLL_S:.0f} s")
         if jobs is not None:

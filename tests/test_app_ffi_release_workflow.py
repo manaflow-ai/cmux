@@ -1999,7 +1999,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         def api(method, path, token, body=None):
             calls.append(method)
             gets = calls.count("GET")
-            if method == "GET" and gets <= len(errors):
+            if method == "GET" and gets <= len(errors) and errors[gets - 1] is not None:
                 code, headers = errors[gets - 1]
                 raise refusal(code, **{k: (v + clock[0] if k == "x_ratelimit_reset" else v)
                                        for k, v in headers.items()})
@@ -2018,7 +2018,11 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         m = self.rescue_module
         spent = (403, {"x_ratelimit_remaining": "0", "x_ratelimit_reset": 1800})
         self.assertEqual(self.blind_watch([spent]), (m.WAIT, 1, []))
-        self.assertEqual(self.blind_watch([(429, {"retry_after": "900"})]), (m.WAIT, 1, []))
+        self.assertEqual(self.blind_watch([(429, {"retry_after": "1500"})]), (m.WAIT, 1, []))
+        # A reset within RESCUE_MINUTES still leaves time to rescue: one sleep to it, then the watch goes on.
+        for close in ((403, {"x_ratelimit_remaining": "0", "x_ratelimit_reset": 600}), (429, {"retry_after": "900"})):
+            verdict, gets, posts = self.blind_watch([close, close])
+            self.assertEqual((verdict, len(posts)), (m.RESCUE, 2), close)
         # A reset before the next read is waited out, and the watch goes on to rescue.
         soon = (403, {"x_ratelimit_remaining": "0", "x_ratelimit_reset": 30})
         verdict, _gets, posts = self.blind_watch([soon])
@@ -2030,6 +2034,13 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.blind_watch([bare] * 5), (m.WAIT, m.BLIND_READS, []))
         # Two unread pages, then readable ones: the watch goes on and rescues.
         verdict, _gets, posts = self.blind_watch([bare, bare])
+        self.assertEqual((verdict, len(posts)), (m.RESCUE, 2))
+
+    def test_a_readable_page_resets_the_unread_count(self):
+        m = self.rescue_module
+        bare = (403, {})
+        # Two unread, one readable (errors has a None slot), two unread again: never three in a row, so it rescues.
+        verdict, _gets, posts = self.blind_watch([bare, bare, None, bare, bare])
         self.assertEqual((verdict, len(posts)), (m.RESCUE, 2))
 
 
