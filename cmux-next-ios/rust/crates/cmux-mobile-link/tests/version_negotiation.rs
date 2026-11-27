@@ -14,7 +14,9 @@ use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::{
     ChannelEvent, DialOptions, LinkConfig, ResumeRegistry, SignalingClient, TransportKind,
 };
+use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
+use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const BOUND: Duration = Duration::from_secs(15);
 
@@ -28,11 +30,61 @@ fn options(reliable: bool, input_lane: bool) -> DialOptions {
     }
 }
 
+// Change the real Mac response on the wire, before the phone's production
+// signaling decoder sees it. Everything else, including keys and endpoints,
+// passes through unchanged; the proxy never manufactures a handshake answer.
+async fn future_response_proxy(backend: &str, phone_id: &str) -> (String, tokio::task::JoinHandle<usize>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let mut request = cmux_mobile_link::signaling::signal_url(backend, "team", phone_id)
+        .unwrap()
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert("authorization", "Bearer user:alice".parse().unwrap());
+    let task = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let phone = tokio_tungstenite::accept_async(socket).await.unwrap();
+        let (backend, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        let (mut phone_write, mut phone_read) = phone.split();
+        let (mut backend_write, mut backend_read) = backend.split();
+        let mut responses = 0;
+        loop {
+            tokio::select! {
+                message = phone_read.next() => {
+                    let Some(message) = message else { break };
+                    let message = message.expect("phone signaling frame");
+                    if matches!(message, Message::Close(_)) { break; }
+                    backend_write.send(message).await.expect("forward phone signaling");
+                }
+                message = backend_read.next() => {
+                    let mut message = message.expect("backend signaling stays open")
+                        .expect("backend signaling frame");
+                    if let Message::Text(text) = &message {
+                        let mut wire: serde_json::Value = serde_json::from_str(text).unwrap();
+                        if wire["type"] == "signal" && wire["payload"]["kind"] == "wg-resp" {
+                            wire["futureEnvelopeField"] = json!({"ignored": true});
+                            wire["payload"]["version"] = json!(99);
+                            wire["payload"]["futureCapability"] = json!({"revision": 7});
+                            wire["payload"]["lanes"].as_array_mut().unwrap()
+                                .push(json!("future-lane-v99"));
+                            message = Message::Text(wire.to_string().into());
+                            responses += 1;
+                        }
+                    }
+                    phone_write.send(message).await.expect("forward Mac signaling");
+                }
+            }
+        }
+        responses
+    });
+    (base, task)
+}
+
 async fn pair(
     legacy_version: bool,
     phone_reliable: bool,
     mac_reliable: bool,
-    future: bool,
+    (future_offer, future_response): (bool, bool),
     input_lanes: (bool, bool),
 ) {
     let server =
@@ -41,7 +93,10 @@ async fn pair(
     let mac_id = uuid::Uuid::new_v4().to_string();
     let phone_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
-    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let proxy =
+        if future_response { Some(future_response_proxy(&server.base_url, &phone_id).await) } else { None };
+    let phone_base = proxy.as_ref().map_or(server.base_url.as_str(), |(base, _)| base.as_str());
+    let phone = SignalingClient::connect(phone_base, "user:alice", "team", &phone_id).await.unwrap();
     let agreed = phone_reliable && mac_reliable;
     let answer = tokio::spawn(async move {
         let session = mac.next_session().await.expect("phone's real wg-init");
@@ -52,7 +107,7 @@ async fn pair(
         if legacy_version {
             assert_eq!(*version, 0, "missing version must take the legacy path");
         }
-        if future {
+        if future_offer {
             // Transform the real offer, preserving its real ephemeral tunnel key/endpoints.
             // Deserialize with the production decoder, then answer with the production dialer.
             let mut wire = serde_json::to_value(&first).unwrap();
@@ -109,31 +164,44 @@ async fn pair(
     connected.link.close("done");
     host.link.close("done");
     phone.close();
+    if let Some((_, proxy)) = proxy {
+        assert_eq!(proxy.await.expect("response proxy must not panic"), 1, "mutated the real wg-resp");
+    }
     mac.close();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn legacy_version_zero_exchanges_real_channel_bytes() {
-    tokio::time::timeout(BOUND, pair(true, true, true, false, (true, true))).await.unwrap();
+    tokio::time::timeout(BOUND, pair(true, true, true, (false, false), (true, true))).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn missing_reliable_capability_falls_back_in_both_directions() {
     for (phone, mac) in [(false, true), (true, false), (false, false)] {
-        tokio::time::timeout(BOUND, pair(false, phone, mac, false, (true, true))).await.unwrap();
+        tokio::time::timeout(BOUND, pair(false, phone, mac, (false, false), (true, true))).await.unwrap();
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn future_version_fields_and_lane_preserve_real_handshake() {
-    tokio::time::timeout(BOUND, pair(false, true, true, true, (true, true))).await.unwrap();
+    tokio::time::timeout(BOUND, pair(false, true, true, (true, false), (true, true))).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn future_response_fields_and_lane_preserve_real_handshake() {
+    // A future Mac answering today's phone, then both sides adding fields.
+    for future_offer in [false, true] {
+        tokio::time::timeout(BOUND, pair(false, true, true, (future_offer, true), (true, true)))
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn missing_input_lane_preserves_data_with_each_reliable_offer() {
     for input_lanes in [(false, true), (true, false), (false, false)] {
         for (phone, mac) in [(false, false), (false, true), (true, false), (true, true)] {
-            tokio::time::timeout(BOUND, pair(false, phone, mac, false, input_lanes))
+            tokio::time::timeout(BOUND, pair(false, phone, mac, (false, false), input_lanes))
                 .await
                 .unwrap_or_else(|_| panic!("input={input_lanes:?}, reliable=({phone},{mac}) timed out"));
         }
