@@ -345,6 +345,34 @@ class OnlineRunnerCounts(unittest.TestCase):
         self.assertEqual((pools[STD]["slots"], pools[STD]["saturated"]), (60, False))
 
 
+class WorkflowHourBudget(unittest.TestCase):
+    NOW = dt.datetime(2026, 11, 26, 11, 20, tzinfo=dt.timezone.utc)
+
+    def rec(self, at, workflow, seconds):
+        return {"at": at, "workflow": workflow, "seconds": seconds, "id": 1, "attempt": 1}
+
+    def test_unset_or_bad_budget_judges_nothing(self):
+        self.assertEqual(ew.budgets(None), {})
+        self.assertEqual(ew.budgets("3000"), {})
+        self.assertEqual(ew.budgets('{"pr router": true, "x": -1}'), {})
+        self.assertEqual(ew.workflow_budget([self.rec("2026-11-26T10:30:00Z", "pr router", 60)], self.NOW, {}), {})
+
+    def test_the_last_whole_hour_is_judged_and_over_names_what_a_hold_would_queue(self):
+        records = [self.rec("2026-11-26T10:05:00Z", "pr router", 120 * 60),
+                   self.rec("2026-11-26T10:59:59Z", "pr router", 60 * 60),
+                   self.rec("2026-11-26T11:10:00Z", "pr router", 900 * 60),  # this hour: not yet judged
+                   self.rec("2026-11-26T09:59:00Z", "pr router", 900 * 60),  # the hour before
+                   self.rec("2026-11-26T10:30:00Z", "rust workspaces", 30 * 60)]
+        found = ew.workflow_budget(records, self.NOW, {"pr router": 150, "rust workspaces": 100})
+        self.assertEqual(found["pr router"], {"hour": "2026-11-26T10:00:00Z", "min": 180.0, "budget": 150,
+                                              "over": True, "would_hold_min": 30.0})
+        self.assertFalse(found["rust workspaces"]["over"])
+        self.assertEqual(found["rust workspaces"]["would_hold_min"], 0.0)
+
+    def test_no_records_is_no_verdict(self):
+        self.assertEqual(ew.workflow_budget(None, self.NOW, {"pr router": 1}), {})
+
+
 class Admission(unittest.TestCase):
     def test_no_controller_reads_nothing_and_publishes_nothing(self):
         def request(url, seconds):
