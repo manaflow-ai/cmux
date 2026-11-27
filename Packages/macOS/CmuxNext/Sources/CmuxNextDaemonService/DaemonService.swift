@@ -568,6 +568,7 @@ public final class DaemonService {
         startup = .connected
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
+        onConnected?(identity)
     }
 
     /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
@@ -713,6 +714,9 @@ public final class DaemonService {
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Each connect to the daemon, after its handshake: a Cloud machine's session re-sends its chats' model credentials,
+    /// which the machine's acpmux holds in memory only and loses when an update or crash restarts it (cmux#57192).
+    @ObservationIgnored public var onConnected: (@MainActor (DaemonIdentity) -> Void)?
     /// How many times the connection was shut down (`detachConnection`): a write sent again while unanswered stops
     /// at the next one (`performUntilAnswered`).
     @ObservationIgnored var shutdowns = 0
