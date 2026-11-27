@@ -80,6 +80,9 @@ jobs:
       # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
       # ui-proof-status below, which reads the proof record at the head.
       ui_status: ${{ steps.route.outputs.ui_status }}
+      # `false` when every changed path is one no web bundle reads (pr_router.py preflight_web, pr_router.json's
+      # compile preflight `paths-ignore`); the compile preflight's job then skips with no runner.
+      preflight_web: ${{ steps.route.outputs.preflight_web }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -495,12 +498,17 @@ jobs:
   compile-preflight:
     # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
     # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
-    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
-    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    # build, and cmux#57269 landed a web bundle build break through them. A change whose every path no web bundle
+    # reads (the route's preflight_web: Rust, Swift, Python, prose, other workflows) passes web: false and the
+    # callee's job skips before taking a runner (Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can
+    # reuse, we reuse."); any other change starts it, and its first step decides from the exact web bundle inputs,
+    # so a change that reaches a web bundle always gets a verdict, never "skipped".
     name: compile preflight
     needs: route
     if: ${{ !cancelled() && needs.route.result == 'success' }}
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    with:
+      web: ${{ needs.route.outputs.preflight_web || 'true' }}
     permissions:
       contents: read
 
