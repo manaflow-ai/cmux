@@ -40,19 +40,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Chat-open hang fix check: c180b906 (#57970) hangs at chat open, its parent passes
+          # Chat-open split: both fixes still fail chat open (run 45926759178); each leg reverts one
+          # group of c180b906 (#57970) on both fixes: A composer width, B history head, C layout shift.
+          # Was: c180b906 (#57970) hangs at chat open, its parent passes
           # (run 45923179190); terminal input from 5645d3ad (#55155). Base vs each fix and both, one harness.
-          - leg: base-b45337bf
-            ref: b45337bfd392c4088adb74449d0dad560f342828
-            buildfix: false
-          - leg: base+probe-fix
-            ref: 18783557b5aef74349802960948c1dec1c507d71
-            buildfix: false
-          - leg: base+uploader-fix
-            ref: 11cabf376882ec0bd3dec7ba56ab21a6e024936e
-            buildfix: false
           - leg: base+both-fixes
             ref: edabb86f3748eec650913dddab24d2577d3db762
+            buildfix: false
+          - leg: both-revert-A-composer-width
+            ref: da5c3acf071040f15a43bccd1a824357ba56c878
+            buildfix: false
+          - leg: both-revert-B-history-head
+            ref: 2a0098f46008e41b721609affd7a3bea2f76e9a0
+            buildfix: false
+          - leg: both-revert-C-layout-shift
+            ref: 5643ac38e001180c5c156cbcb014e6d02e9a8af9
             buildfix: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -140,6 +142,6 @@ jobs:
           path: |
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
-            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/**
           retention-days: 3
           if-no-files-found: warn
