@@ -67,6 +67,7 @@ struct CopyMachines {
     parent: PathBuf,
     disks: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
     deleted: Mutex<Vec<String>>,
+    sizes: Mutex<Vec<Option<String>>>,
     refuse: bool,
 }
 
@@ -76,6 +77,7 @@ impl CopyMachines {
             parent: parent.to_owned(),
             disks: Default::default(),
             deleted: Default::default(),
+            sizes: Default::default(),
             refuse: false,
         }
     }
@@ -95,6 +97,15 @@ impl Machines for CopyMachines {
     async fn delete(&self, machine: &str) -> Result<(), String> {
         self.deleted.lock().unwrap().push(machine.to_owned());
         Ok(())
+    }
+    async fn fork_sized(
+        &self,
+        machine: &str,
+        key: &str,
+        size: Option<&str>,
+    ) -> Result<String, String> {
+        self.sizes.lock().unwrap().push(size.map(str::to_owned));
+        self.fork(machine, key).await
     }
 }
 
@@ -146,7 +157,8 @@ async fn run_it<L: ForkLink>(
 ) -> (Ran, Vec<String>) {
     let mut lines = Vec::new();
     let mut out = |l: &str| lines.push(l.to_owned());
-    let ran = on_fork(machines, link, "vm_a", "a test run", command, cwd, None, &mut out).await;
+    let ran =
+        on_fork(machines, link, "vm_a", "a test run", command, cwd, None, None, &mut out).await;
     (ran, lines)
 }
 
@@ -208,4 +220,69 @@ async fn outside_a_git_checkout_it_runs_here() {
     let (ran, _) = run_it(machines.clone(), &Unreachable, "cargo test", dir.path()).await;
     assert!(matches!(ran, Ran::Here { .. }));
     assert!(machines.disks.lock().unwrap().is_empty(), "no fork taken");
+}
+
+fn predicted(runs: usize, vcpu: f64, mem_gib: f64) -> Predicted {
+    use crate::placement::command_shadow::{Shape, Source};
+    Predicted {
+        source: if runs == 0 { Source::ClassDefault } else { Source::History },
+        runs,
+        wall_s: None,
+        need: Some(Shape { vcpu, mem_gib }),
+        listens: false,
+        outlives: false,
+        third_party: false,
+    }
+}
+
+#[test]
+fn a_run_vm_starts_at_the_smallest_size_that_covers_its_prediction() {
+    // At or under the source's own `sm`: no size asked.
+    assert_eq!(sizing(&predicted(3, 1.4, 3.0)), None);
+    let s = sizing(&predicted(3, 5.2, 6.0)).unwrap();
+    assert_eq!((s.size, s.vcpu, s.mem_gib, s.runs), ("lg", 8.0, 16.0, 3));
+    // Memory alone can push it up a step.
+    assert_eq!(sizing(&predicted(2, 3.0, 20.0)).unwrap().size, "xl");
+    // Past the ladder: the largest size there is.
+    assert_eq!(sizing(&predicted(5, 60.0, 90.0)).unwrap().size, "2xl");
+    // Nothing known: no size.
+    let mut none = predicted(0, 1.0, 1.0);
+    none.need = None;
+    assert_eq!(sizing(&none), None);
+}
+
+#[test]
+fn the_notice_row_says_what_it_runs_on_and_why() {
+    let s = sizing(&predicted(4, 12.0, 10.0)).unwrap();
+    assert_eq!(
+        sizing_notice("a Rust test run", &s),
+        "[run-vm] a Rust test run: running on a 16 vCPU, 32 GiB run VM, sized from its last 4 runs here"
+    );
+    let s = sizing(&predicted(0, 6.0, 4.0)).unwrap();
+    assert!(sizing_notice("a Rust build", &s).ends_with("sized from the usual need of the class"));
+}
+
+#[tokio::test]
+async fn the_asked_size_reaches_the_fork_and_its_row() {
+    let parent = checkout();
+    let p = parent.path();
+    let machines = Arc::new(CopyMachines::new(p));
+    let link =
+        ShellLink { disks: machines.disks.clone(), parent: p.to_owned(), jobs: Default::default() };
+    let mut out = |_: &str| {};
+    let ran = on_fork(
+        machines.clone(),
+        &link,
+        "vm_a",
+        "a test run",
+        "true",
+        p,
+        None,
+        Some("xl"),
+        &mut out,
+    )
+    .await;
+    let Ran::Done { row, .. } = ran else { panic!("ran here: {ran:?}") };
+    assert_eq!(row.size.as_deref(), Some("xl"));
+    assert_eq!(*machines.sizes.lock().unwrap(), vec![Some("xl".to_owned())]);
 }
