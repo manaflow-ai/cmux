@@ -41,7 +41,7 @@ jobs:
       matrix:
         include:
           - leg: profile
-            ref: d605bad0560c6d2ab5e799d40d46e4283ff6c598
+            ref: da5881a0b2876fd548be58f191b6662cc395ec3b
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
