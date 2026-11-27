@@ -20,9 +20,12 @@
 //!    [`super::sub_fork::ForkGuard`] deletes the fork on every exit;
 //! 3. wakes it and opens one ssh stream to it (`sub_fork_run::CloudLink`), which runs
 //!    `acpmux sub-fork-job` there with a [`Job`] that carries the command: `sh -c CMD` in the
-//!    same directory with the agent's `PATH`, stdout and stderr streamed line by line;
+//!    same directory with the caller's environment (`run_vm_env.rs` names the few variables held
+//!    back), stdout and stderr streamed as raw bytes and replayed each to its own fd here (one
+//!    pipe on the fork when they are one file here, so their order holds: `run_vm_shell.rs`);
 //! 4. applies the fork's patch (its changes inside the checkout, `.gitignore`d outputs left out)
-//!    to this checkout, whatever the command's exit;
+//!    to this checkout, whatever the command's exit, then what a patch cannot carry: empty
+//!    folders and exact modes (`run_vm_tree.rs`);
 //! 5. exits with the command's exit code.
 //!
 //! Anything that fails before the command's first output line (no credential, the fork refused,
@@ -33,9 +36,10 @@
 
 use super::command_shadow::{Predicted, Shape, workload_shape};
 use super::sub_fork::{self, ForkGuard, Machines};
-use super::sub_fork_run::{ForkLink, Frame, Harness, Job};
+use super::sub_fork_run::{ForkLink, Frame, Job};
+use super::sub_fork_wire::B64;
 use base64::Engine as _;
-use serde::Serialize;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -158,61 +162,10 @@ pub fn wrap(words: &[String], command: &str) -> String {
     crate::agent_tools::quoted(&all)
 }
 
-/// The fork's end for a command job: `sh -c CMD` in the job's directory, stdout and stderr as
-/// one stream of lines, the exit code (a signal is 128 + its number).
-pub struct ShellHarness;
-
-impl Harness for ShellHarness {
-    async fn run(&self, job: &Job, out: &mut (dyn FnMut(&str) + Send)) -> Result<i32, String> {
-        let command = job.command.as_deref().ok_or("no command")?;
-        let mut cmd = cmux_process::Command::new("/bin/sh");
-        // One stream: stderr joins stdout in the shell itself, so their order is kept.
-        cmd.arg("-c").arg(format!("exec 2>&1\n{command}"));
-        cmd.current_dir(job.cwd.as_deref().unwrap_or(&job.checkout));
-        if let Some(path) = job.path.as_deref().filter(|p| !p.is_empty()) {
-            cmd.env("PATH", path);
-        }
-        // Decided: a shim under it (a build script's `cc`, `make`'s `cargo`) runs the real
-        // program here, on the run VM, never routes again (`exec_router.rs`).
-        cmd.env(super::exec_router::ROUTED_ENV, "fork");
-        // Its own group: dropped mid-run (the stream gone), the child ends the whole command.
-        cmd.process_group(0)
-            .stdin(cmux_process::Stdio::null())
-            .stdout(cmux_process::Stdio::piped())
-            .stderr(cmux_process::Stdio::null());
-        let mut child = cmd.spawn().map_err(|e| format!("sh: {e}"))?;
-        let stdout = child.stdout.take().ok_or("sh: no stdout")?;
-        // A blocking reader hands lines over; the child stays here, so a drop ends it.
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let reader = tokio::task::spawn_blocking(move || {
-            use std::io::BufRead as _;
-            for line in std::io::BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-        while let Some(l) = rx.recv().await {
-            out(&l);
-        }
-        let _ = reader.await;
-        // Its stdout closed: the shell is ending, so this wait is short.
-        let status = child.wait().map_err(|e| format!("sh: {e}"))?;
-        Ok(exit_code(status))
-    }
-}
-
-fn exit_code(status: std::process::ExitStatus) -> i32 {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt as _;
-        if let Some(sig) = status.signal() {
-            return 128 + sig;
-        }
-    }
-    status.code().unwrap_or(1)
-}
+pub use super::run_vm_rows::{
+    ROWS_MAX_BYTES, Row, bound_rows, program_of, rows_path, write_forced_here, write_row,
+};
+pub use super::run_vm_shell::{ShellHarness, exit_code};
 
 /// The fork sizes a run VM can start at, smallest first: (name, vCPU, GiB), the platform's chat
 /// ladder (cmux-platform `Sizes.ts`). A fork never starts smaller than its source.
@@ -264,7 +217,13 @@ pub fn sizing_floored(
         .or(LADDER.last())
         .copied()?;
     let floor = floor.filter(|_| floored).map(|(p, _)| p.name());
-    (size != LADDER[0].0).then_some(Sizing { size, vcpu, mem_gib, runs: predicted.runs, floor })
+    (Some(size) != LADDER.first().map(|(s, _, _)| *s)).then_some(Sizing {
+        size,
+        vcpu,
+        mem_gib,
+        runs: predicted.runs,
+        floor,
+    })
 }
 
 /// The notice row for a sized run VM: what it starts at and why, in place of an ask.
@@ -281,49 +240,6 @@ pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
     )
 }
 
-/// Where a run ended up, one row of `run-vm.jsonl`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Row {
-    pub class: String,
-    /// The ladder size the run VM was asked for, when above the source's (RFD 0144 piece 8).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<String>,
-    /// `fork` when it ran on a run VM, `here` when it fell back.
-    pub ran: &'static str,
-    /// What sent it: `hook` (Claude Code's Bash call), `shim` (a PATH shim, any process), `cli`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub via: Option<&'static str>,
-    /// The program it ran (its first word's file name, never its arguments).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub program: Option<String>,
-    /// Bytes of file changes the run VM sent back.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub patch_bytes: Option<usize>,
-    /// Bytes of output the run VM streamed back.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub out_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fork: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fork_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first_output_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wall_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub files: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fork_deleted: Option<bool>,
-    /// Why it ran here instead, or why its files did not come back.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
-}
-
 /// How a run on a fork ended.
 #[derive(Debug)]
 pub enum Ran {
@@ -333,38 +249,41 @@ pub enum Ran {
     Here { row: Row },
 }
 
-/// Run `command` on a fork of `machine`: snapshot, fork, wake, stream, apply back, delete.
-/// `out` gets each output line as it comes.
-#[allow(clippy::too_many_arguments)]
+/// One command a caller hands to a run VM.
+#[derive(Debug, Clone)]
+pub struct Call<'a> {
+    pub class: &'a str,
+    pub command: &'a str,
+    pub cwd: &'a Path,
+    /// The caller's whole environment: [`super::run_vm_env::forward`] decides what goes.
+    pub env: Vec<(OsString, OsString)>,
+    /// The caller's stdout and stderr are one file ([`super::run_vm_shell::same_file`]).
+    pub merged: bool,
+    /// The ladder size to start the run VM at ([`sizing`]); None is the source's size.
+    pub size: Option<&'a str>,
+}
+
+/// What a run's output is handed to: the fd it belongs on (1 or 2) and its raw bytes.
+pub type Out<'a> = &'a mut (dyn FnMut(u8, &[u8]) + Send);
+
+/// Run `call` on a fork of `machine`: snapshot, fork, wake, stream, apply back, delete. `out`
+/// gets the command's output as it comes, and this router's own words on fd 2.
 pub async fn on_fork<M: Machines, L: ForkLink>(
     machines: Arc<M>,
     link: &L,
     machine: &str,
-    class: &str,
-    command: &str,
-    cwd: &Path,
-    path: Option<String>,
-    size: Option<&str>,
-    out: &mut (dyn FnMut(&str) + Send),
+    call: &Call<'_>,
+    out: Out<'_>,
 ) -> Ran {
+    let (command, cwd) = (call.command, call.cwd);
     let began = Instant::now();
     let mut row = Row {
-        class: class.to_owned(),
-        size: size.map(str::to_owned),
+        class: call.class.to_owned(),
+        size: call.size.map(str::to_owned),
         ran: "here",
         via: None,
         program: program_of(command),
-        patch_bytes: None,
-        out_bytes: None,
-        fork: None,
-        fork_ms: None,
-        start_ms: None,
-        first_output_ms: None,
-        wall_ms: None,
-        files: None,
-        exit: None,
-        fork_deleted: None,
-        cause: None,
+        ..Row::default()
     };
     let here = |mut row: Row, cause: String| {
         row.cause = Some(cause);
@@ -380,15 +299,14 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     };
     let key = format!("run-vm-{}-{}", std::process::id(), began.elapsed().as_nanos());
     let fork_began = Instant::now();
-    let fork = match machines.fork_sized(machine, &key, size).await {
+    let fork = match machines.fork_sized(machine, &key, call.size).await {
         Ok(id) => id,
         Err(e) => return here(row, format!("fork: {e}")),
     };
     row.fork_ms = Some(fork_began.elapsed().as_millis() as u64);
     row.fork = Some(fork.clone());
     let guard = ForkGuard::new(machines, fork.clone());
-    let ran =
-        stream(link, &fork, &checkout, &base, command, cwd, path, &began, &mut row, out).await;
+    let ran = stream(link, &fork, &checkout, &base, call, &began, &mut row, out).await;
     row.fork_deleted = Some(guard.delete().await);
     row.wall_ms = Some(began.elapsed().as_millis() as u64);
     match ran {
@@ -402,7 +320,7 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
             // It started there and broke mid-run: not rerun here (it may not be idempotent).
             row.ran = "fork";
             row.exit = Some(255);
-            out(&format!("[run-vm] the run VM failed mid-command: {cause}"));
+            out(2, format!("[run-vm] the run VM failed mid-command: {cause}\n").as_bytes());
             row.cause = Some(cause);
             Ran::Done { exit: 255, row }
         }
@@ -416,25 +334,28 @@ async fn stream<L: ForkLink>(
     fork: &str,
     checkout: &Path,
     base: &str,
-    command: &str,
-    cwd: &Path,
-    path: Option<String>,
+    call: &Call<'_>,
     began: &Instant,
     row: &mut Row,
-    out: &mut (dyn FnMut(&str) + Send),
+    out: Out<'_>,
 ) -> Result<i32, (bool, String)> {
     let woke = Instant::now();
     link.start(fork).await.map_err(|e| (false, format!("waking the fork: {e}")))?;
     row.start_ms = Some(woke.elapsed().as_millis() as u64);
+    let (env, env_held) = super::run_vm_env::forward(call.env.iter().cloned());
     let job = Job {
         checkout: checkout.to_owned(),
         sync_patch: String::new(),
         prompt: String::new(),
         name: String::new(),
         model: None,
-        command: Some(command.to_owned()),
-        cwd: Some(cwd.to_owned()),
-        path,
+        command: Some(call.command.to_owned()),
+        cwd: Some(call.cwd.to_owned()),
+        // A fork whose acpmux predates `env` still finds the caller's tools.
+        path: call.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.to_string_lossy().into()),
+        env: env.into_iter().map(B64).collect(),
+        env_held,
+        merged: call.merged,
     };
     let mut lines =
         link.open(fork, &job).await.map_err(|e| (false, format!("reaching the fork: {e}")))?;
@@ -456,24 +377,33 @@ async fn stream<L: ForkLink>(
                     return Err((false, "the fork's files are not the snapshot's".into()));
                 }
             }
-            Frame::Out(text) => {
-                *row.out_bytes.get_or_insert(0) += text.len() + 1;
+            Frame::Out(_) | Frame::Bytes { .. } => {
+                let (fd, data) = match frame {
+                    Frame::Bytes { fd, data } => (fd, data.0),
+                    Frame::Out(text) => (1, format!("{text}\n").into_bytes()),
+                    _ => continue,
+                };
+                *row.out_bytes.get_or_insert(0) += data.len();
                 if !started {
                     started = true;
                     row.first_output_ms = Some(began.elapsed().as_millis() as u64);
                 }
-                out(&text);
+                out(fd, &data);
             }
             Frame::Error(e) => return Err((started, format!("on the fork: {e}"))),
-            Frame::Done { exit, patch } => {
+            Frame::Done { exit, patch, tree } => {
                 let patch = base64::engine::general_purpose::STANDARD
                     .decode(patch.as_bytes())
                     .map_err(|e| (true, format!("the fork's patch: {e}")))?;
                 row.patch_bytes = Some(patch.len());
-                match sub_fork::apply(checkout, &patch) {
-                    Ok(files) => row.files = Some(files),
+                let applied = sub_fork::apply(checkout, &patch).and_then(|files| {
+                    super::run_vm_tree::apply(checkout, &tree).map(|paths| (files, paths))
+                });
+                match applied {
+                    Ok((files, _)) => row.files = Some(files),
                     Err(e) => {
-                        out(&format!("[run-vm] its file changes did not apply here: {e}"));
+                        let say = format!("[run-vm] its file changes did not apply here: {e}\n");
+                        out(2, say.as_bytes());
                         row.cause = Some(format!("apply: {e}"));
                         return Ok(if exit == 0 { 1 } else { exit });
                     }
@@ -496,92 +426,6 @@ fn toplevel(cwd: &Path) -> Result<PathBuf, String> {
         return Err("not a git checkout".into());
     }
     Ok(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
-}
-
-/// The rows file: `$ACPMUX_HOME/run-vm.jsonl`.
-pub fn rows_path() -> PathBuf {
-    crate::config::home().join("run-vm.jsonl")
-}
-
-fn write_row(row: &Row) {
-    let mut v = serde_json::to_value(row).unwrap_or_default();
-    if let Some(o) = v.as_object_mut() {
-        o.insert("at".into(), serde_json::json!(chrono::Utc::now().to_rfc3339()));
-    }
-    let path = rows_path();
-    if let Some(dir) = path.parent() {
-        let _ = crate::home_fs::create_dirs(dir);
-    }
-    bound_rows(&path, ROWS_MAX_BYTES);
-    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
-    }
-}
-
-/// The rows file's bound: past it the older half is dropped before the next row.
-pub const ROWS_MAX_BYTES: u64 = 4 * 1024 * 1024;
-
-/// Keep `path` under `max` bytes: past it, keep its newer half (whole lines).
-pub fn bound_rows(path: &Path, max: u64) {
-    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) <= max {
-        return;
-    }
-    let Ok(text) = std::fs::read_to_string(path) else { return };
-    // The newer half from the first line start past the middle. Found by bytes, so a middle
-    // that falls inside a multi-byte character cannot panic; just past a '\n' is always a char
-    // boundary, so `get` finds it.
-    let cut = text.len() / 2;
-    let newer = text
-        .as_bytes()
-        .iter()
-        .skip(cut)
-        .position(|&b| b == b'\n')
-        .and_then(|i| cut.checked_add(i)?.checked_add(1))
-        .and_then(|start| text.get(start..))
-        .unwrap_or("");
-    // Made whole: a copy beside it, renamed over it.
-    let _ = crate::home_fs::write(path, newer);
-}
-
-/// The program `command` runs, file name only, never a `VAR=value` or an argument: the first
-/// heavy-table program among its commands, else its first command's.
-pub fn program_of(command: &str) -> Option<String> {
-    let heavy = heavy_programs();
-    let (mut first, mut listed) = (None, None);
-    crate::host_load::for_each_command(command, &mut |argv: &[&str]| {
-        let Some(name) =
-            argv.iter().find(|w| !w.contains('=')).map(|w| w.rsplit('/').next().unwrap_or(w))
-        else {
-            return;
-        };
-        first.get_or_insert_with(|| name.to_owned());
-        if listed.is_none() && heavy.contains(&name) {
-            listed = Some(name.to_owned());
-        }
-    });
-    listed.or(first)
-}
-
-/// A row for a command the conformance switch kept here (`CMUX_EXEC_ROUTE=local`).
-pub fn write_forced_here(command: &str, via: &'static str) {
-    write_row(&Row {
-        class: heavy_class(command).unwrap_or("a command").to_owned(),
-        size: None,
-        ran: "here",
-        via: Some(via),
-        program: program_of(command),
-        patch_bytes: None,
-        out_bytes: None,
-        fork: None,
-        fork_ms: None,
-        start_ms: None,
-        first_output_ms: None,
-        wall_ms: None,
-        files: None,
-        exit: None,
-        fork_deleted: None,
-        cause: Some(format!("{}=local", super::exec_router::FORCE_ENV)),
-    });
 }
 
 /// `acpmux run-vm -- CMD`: run `CMD` on a run VM when it goes there, else here, and exit with
@@ -673,37 +517,32 @@ pub async fn fork_or_here(
         Some(s) => eprintln!("{}", sizing_notice(class, s)),
         None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
     }
-    let mut stdout = tokio::io::stdout();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut push = move |l: &str| {
-        let _ = tx.send(l.to_owned());
+    let (mut stdout, mut stderr) = (tokio::io::stdout(), tokio::io::stderr());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(u8, Vec<u8>)>();
+    let mut push = move |fd: u8, data: &[u8]| {
+        let _ = tx.send((fd, data.to_vec()));
     };
-    let run = on_fork(
-        machines,
-        &link,
-        machine,
+    let call = Call {
         class,
         command,
-        &cwd,
-        std::env::var("PATH").ok(),
-        sized.map(|s| s.size),
-        &mut push,
-    );
+        cwd: &cwd,
+        env: std::env::vars_os().collect(),
+        merged: super::run_vm_shell::stdio_merged(),
+        size: sized.map(|s| s.size),
+    };
+    let run = on_fork(machines, &link, machine, &call, &mut push);
     tokio::pin!(run);
+    // Each chunk on its own fd, written whole and flushed before the next: the order holds.
     let ran = loop {
         tokio::select! {
             biased;
-            Some(l) = rx.recv() => {
-                stdout.write_all(format!("{l}\n").as_bytes()).await?;
-                stdout.flush().await?;
-            }
+            Some((fd, data)) = rx.recv() => replay(&mut stdout, &mut stderr, fd, &data).await?,
             ran = &mut run => break ran,
         }
     };
-    while let Ok(l) = rx.try_recv() {
-        stdout.write_all(format!("{l}\n").as_bytes()).await?;
+    while let Ok((fd, data)) = rx.try_recv() {
+        replay(&mut stdout, &mut stderr, fd, &data).await?;
     }
-    stdout.flush().await?;
     match ran {
         Ran::Done { exit, mut row } => {
             row.via = Some(via);
@@ -721,6 +560,22 @@ pub async fn fork_or_here(
             write_row(&row);
             Ok(None)
         }
+    }
+}
+
+/// Write `data` to this process's `fd` (2 is stderr, anything else stdout), flushed.
+async fn replay(
+    stdout: &mut tokio::io::Stdout,
+    stderr: &mut tokio::io::Stderr,
+    fd: u8,
+    data: &[u8],
+) -> std::io::Result<()> {
+    if fd == 2 {
+        stderr.write_all(data).await?;
+        stderr.flush().await
+    } else {
+        stdout.write_all(data).await?;
+        stdout.flush().await
     }
 }
 

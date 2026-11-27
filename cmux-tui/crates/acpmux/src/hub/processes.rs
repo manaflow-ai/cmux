@@ -15,6 +15,13 @@
 //! `_acpmux/process/background` is Ctrl-B: Claude Code moves the chat's
 //! foreground work to the background, which then arrives here as above.
 //!
+//! The daemon's own background tasks (`bg_tasks.rs`: what acpmux's Bash hook rewrites a
+//! background shell into, and an agent's `bg_start`) are rows here too, marked `daemonTask`
+//! (`bg_registry.rs`): their folder is the truth, and each start and end is logged as a
+//! `process_update`, so every client lists them as it lists a harness's shells. They outlive the
+//! harness and never keep a chat awake, so they stay out of `running`: a harness exit loses none
+//! of them, and the idle checks never count them.
+//!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
 //! on this machine, so the daemon reads the file itself. A running one's
@@ -105,6 +112,10 @@ pub(super) struct Process {
     /// only while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preview: Option<ProcessPreview>,
+    /// A task the daemon runs (`bg_tasks.rs`), not the harness: `task_id` is its `bg` id, and
+    /// its folder, not the harness, says how it ends (`bg_registry.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    daemon_task: bool,
     /// Its latest state is in a logged `process_update`.
     #[serde(skip)]
     logged: bool,
@@ -132,8 +143,12 @@ pub(super) struct ProcessTable {
     /// First process with a tool-call ID (the historical Vec::position behavior).
     by_tool: std::collections::HashMap<String, usize>,
     /// Only live process slots, ascending by append order. Completed history can grow
-    /// without making idle checks or lost-process propagation scan every old task.
+    /// without making idle checks or lost-process propagation scan every old task. The
+    /// harness's own: a daemon task is in `daemon_running`.
     running: std::collections::BTreeSet<usize>,
+    /// The live daemon-task slots (`Process::daemon_task`): a listing checks each against its
+    /// folder (`Hub::bg_reconcile`), so an end no watch saw never stays `running`.
+    daemon_running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
     /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
@@ -257,13 +272,16 @@ impl ProcessTable {
         self.by_id.clear();
         self.by_tool.clear();
         self.running.clear();
+        self.daemon_running.clear();
         for (at, process) in self.processes.iter().enumerate() {
             self.by_id.insert(process.id.clone(), at);
             if !self.dropped.has_tool(&process.tool_call_id) {
                 self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
             }
             if process.state == ProcessState::Running {
-                self.running.insert(at);
+                let set =
+                    if process.daemon_task { &mut self.daemon_running } else { &mut self.running };
+                set.insert(at);
             }
         }
     }
@@ -273,7 +291,8 @@ impl ProcessTable {
     /// ended at or after every dropped one, so a chat's page reads only rows it holds
     /// ([`Self::answers_recent`]). Running rows stay, however old.
     fn shrink(&mut self, at_once: bool) {
-        let ended = self.processes.len().saturating_sub(self.running.len());
+        let live = self.running.len() + self.daemon_running.len();
+        let ended = self.processes.len().saturating_sub(live);
         if self.held_whole || ended <= if at_once { HELD_ENDED } else { SHRINK_AT } {
             return;
         }
@@ -293,7 +312,11 @@ impl ProcessTable {
             std::mem::take(&mut self.processes).into_iter().partition(drop);
         for process in &gone {
             self.dropped.ids.push(key(&process.id));
-            self.dropped.tools.push(key(&process.tool_call_id));
+            // A daemon task with no call has an empty one: kept out, so every later row with no
+            // call is not taken for a dropped one's (a lookup of it would read the whole history).
+            if !process.tool_call_id.is_empty() {
+                self.dropped.tools.push(key(&process.tool_call_id));
+            }
         }
         self.dropped.count += gone.len();
         self.dropped.before = self.dropped.before.max(cut);
@@ -332,12 +355,14 @@ impl ProcessTable {
             return false;
         }
         let tool = &process.tool_call_id;
+        // No call is no dropped row's call (`shrink` keys none for it).
+        let dropped_tool = |t: &str| !t.is_empty() && self.dropped.has_tool(t);
         match self.by_id.get(&process.id).and_then(|&at| self.processes.get(at)) {
             Some(slot) => {
                 slot.tool_call_id != *tool
-                    && (self.dropped.has_tool(&slot.tool_call_id) || self.dropped.has_tool(tool))
+                    && (dropped_tool(&slot.tool_call_id) || dropped_tool(tool))
             }
-            None => self.dropped.has_id(&process.id) || self.dropped.has_tool(tool),
+            None => self.dropped.has_id(&process.id) || dropped_tool(tool),
         }
     }
 
@@ -395,14 +420,132 @@ impl ProcessTable {
             self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
         }
         if process.state == ProcessState::Running {
-            self.running.insert(at);
+            self.live_set(process.daemon_task).insert(at);
         }
         self.processes.push(process);
         at
     }
 
+    /// The set a live row of this kind is in: the harness's `running`, or `daemon_running`.
+    fn live_set(&mut self, daemon_task: bool) -> &mut std::collections::BTreeSet<usize> {
+        if daemon_task { &mut self.daemon_running } else { &mut self.running }
+    }
+
+    /// Daemon task `process` as its folder says now (`bg_registry.rs`): in place of its row, or
+    /// added. Returns it, marked logged, when it changed, for its `process_update`; `None` when
+    /// the row already says the same, or already ended: a process ends once, so a runner that
+    /// died (no end written, `lost` at the time it is read) is logged once, not at every look.
+    /// The one exception: an end the runner wrote replaces a `lost`.
+    #[cfg(test)]
+    pub(super) fn daemon_upsert(&mut self, process: Process) -> Option<Process> {
+        let changed = self.daemon_change(process)?;
+        self.daemon_apply(changed.clone());
+        Some(changed)
+    }
+
+    /// What [`Self::daemon_upsert`] would log for `process`, changing nothing: a publish logs it
+    /// first and applies it only once the log took it ([`Self::daemon_apply`]), so a record the
+    /// log refused never leaves the table saying what no client heard (`bg_registry.rs`).
+    pub(super) fn daemon_change(&self, mut process: Process) -> Option<Process> {
+        process.daemon_task = true;
+        // A row the table dropped had ended (`shrink` keeps every running one): it stays ended.
+        if self.id_needs_history(&process.id) {
+            return None;
+        }
+        if let Some(known) = self.find_id(&process.id) {
+            process.logged = known.logged;
+            // A written end replaces a `lost` read before it (the runner writes its end, then
+            // lets go of its lock); no other end ever changes.
+            let corrects = known.state == ProcessState::Lost
+                && process.state != ProcessState::Lost
+                && process.state != ProcessState::Running;
+            // A daemon that knew no daemon tasks (a rollback) read the row as a harness shell and
+            // lost it with its harness: the task's own folder, which says it runs, wins.
+            let revives = known.state == ProcessState::Lost
+                && known.reason.as_deref() == Some(HARNESS_EXIT)
+                && process.state == ProcessState::Running;
+            if *known == process || (known.state != ProcessState::Running && !corrects && !revives)
+            {
+                return None;
+            }
+        }
+        process.logged = true;
+        Some(process)
+    }
+
+    /// A daemon row change the log took ([`Self::daemon_change`]): in place, and the table shrunk
+    /// as a harness shell's end shrinks it.
+    pub(super) fn daemon_apply(&mut self, process: Process) {
+        self.upsert(process);
+        self.shrink(false);
+    }
+
+    /// Whether daemon task row `id` should be published from its folder: none holds it (a start a
+    /// history reload undid, a launch whose record read failed, a task from before this daemon's
+    /// rows), or a daemon that knew no daemon tasks lost it with its harness. A dropped row ended.
+    pub(super) fn daemon_row_missing(&self, id: &str) -> bool {
+        match self.find_id(id) {
+            None => !self.id_needs_history(id),
+            Some(p) => p.state == ProcessState::Lost && p.reason.as_deref() == Some(HARNESS_EXIT),
+        }
+    }
+
+    /// Daemon task row `id` moved with its chat (`server/bg_rearm.rs`): the wait runs again here
+    /// under a new task, which takes its call; this row ends, naming the move, and gives the call
+    /// up, so the chat lists the call once.
+    pub(super) fn daemon_moved_change(&self, id: &str) -> Option<Process> {
+        let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
+        if process.state != ProcessState::Running {
+            return None;
+        }
+        process.state = ProcessState::Killed;
+        process.ended_at = Some(now_ms());
+        process.reason = Some("moved".to_owned());
+        process.detail = Some("moved with its chat".to_owned());
+        process.tool_call_id = String::new();
+        process.logged = true;
+        Some(process)
+    }
+
+    /// Daemon task row `id`, still `running` though its folder no longer holds the task (a
+    /// purge, another generation): `lost` at `at`, for its `process_update`.
+    pub(super) fn daemon_lost(&self, id: &str, at: u64) -> Option<Process> {
+        let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
+        if process.state != ProcessState::Running {
+            return None;
+        }
+        process.state = ProcessState::Lost;
+        process.ended_at = Some(at);
+        self.daemon_change(process)
+    }
+
+    /// The live daemon-task rows, as `(row id, task id)`.
+    pub(super) fn daemon_live(&self) -> Vec<(String, String)> {
+        self.daemon_running
+            .iter()
+            .filter_map(|&at| self.processes.get(at))
+            .map(|p| (p.id.clone(), p.task_id.clone()))
+            .collect()
+    }
+
+    /// The daemon task of row `id`, as its `bg` id; `None` for a harness's row or none.
+    pub(super) fn daemon_task_of(&self, id: &str) -> Option<String> {
+        self.find_id(id).filter(|p| p.daemon_task).map(|p| p.task_id.clone())
+    }
+
     fn find_tool(&self, tool: &str) -> Option<usize> {
         self.by_tool.get(tool).copied()
+    }
+
+    /// The harness's own row of tool call `tool`: a daemon task listed under the same call is not
+    /// the harness's shell (a rare case, so its scan is too).
+    fn find_harness_tool(&self, tool: &str) -> Option<usize> {
+        match self.find_tool(tool) {
+            Some(i) if self.processes[i].daemon_task => {
+                self.processes.iter().position(|p| p.tool_call_id == tool && !p.daemon_task)
+            }
+            found => found,
+        }
     }
 
     fn find_id(&self, id: &str) -> Option<&Process> {
@@ -413,7 +556,7 @@ impl ProcessTable {
     /// output file the update named (`take_output_file`); returns the
     /// process when it changed. A process ends once: a later end or
     /// `running` is ignored.
-    fn fold(
+    pub(super) fn fold(
         &mut self,
         session: &Session,
         params: &Value,
@@ -433,7 +576,7 @@ impl ProcessTable {
             _ if with_harness => ProcessState::Lost,
             _ => ProcessState::Killed,
         };
-        let found = self.find_tool(tool);
+        let found = self.find_harness_tool(tool);
         let i = match found {
             Some(i) => i,
             None => {
@@ -463,6 +606,7 @@ impl ProcessTable {
                     output_bytes: None,
                     output_file: None,
                     preview: None,
+                    daemon_task: false,
                     logged: false,
                 };
                 self.insert(process)
@@ -566,6 +710,7 @@ impl ProcessTable {
         {
             let new_tool = process.tool_call_id.clone();
             let live = process.state == ProcessState::Running;
+            let daemon_task = process.daemon_task;
             // A preview found here outlives a record that names none, while it runs.
             if !live {
                 process.preview = None;
@@ -573,10 +718,12 @@ impl ProcessTable {
                 process.preview = slot.preview.clone();
             }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
+            // Out of both sets first: a row an older daemon logged as a harness shell may come
+            // back as a daemon task (`daemon_change`), and is in the other set until then.
+            self.running.remove(&at);
+            self.daemon_running.remove(&at);
             if live {
-                self.running.insert(at);
-            } else {
-                self.running.remove(&at);
+                self.live_set(daemon_task).insert(at);
             }
             if old_tool == new_tool {
                 return;
@@ -611,7 +758,7 @@ impl ProcessTable {
 
     /// Snapshot the rows while the process table is locked. Output-file metadata may hit
     /// a slow filesystem, so it is read only after the caller releases that lock.
-    fn snapshot(&self) -> Vec<Process> {
+    pub(super) fn snapshot(&self) -> Vec<Process> {
         self.processes.clone()
     }
 
@@ -718,6 +865,55 @@ impl ProcessTable {
         }
         lost
     }
+}
+
+/// The origin of a daemon task's row (`Process::origin`).
+pub(super) const DAEMON_ORIGIN: &str = "daemon";
+
+/// The registry row of a daemon task of chat `session`, from its list view (`bg_tasks::bg_view`):
+/// `None` for a view with no id. Running, it carries nothing that changes while it runs, so the
+/// same task reads the same row until it ends ([`ProcessTable::daemon_upsert`]).
+pub(super) fn daemon_process(session: &Session, view: &Value) -> Option<Process> {
+    let text = |k: &str| view.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let task = text("id")?;
+    let exit_code = view.get("exitCode").and_then(Value::as_i64);
+    let state = match text("state").unwrap_or("lost") {
+        "running" => ProcessState::Running,
+        "exited" if exit_code.is_some_and(|c| c != 0) => ProcessState::Failed,
+        "exited" => ProcessState::Exited,
+        "stopped" | "killed" => ProcessState::Killed,
+        _ => ProcessState::Lost,
+    };
+    let ended = state != ProcessState::Running;
+    let now = now_ms();
+    let started_at = view.get("startedAt").and_then(Value::as_u64).unwrap_or(now);
+    Some(Process {
+        id: format!("{}/{task}", session.id),
+        session_id: session.id.clone(),
+        subagent_session_id: None,
+        workflow_agent_id: None,
+        tool_call_id: text("toolCallId").unwrap_or("").to_owned(),
+        task_id: task.to_owned(),
+        harness: crate::web_modes::family_of(&session.meta()),
+        command: text("command").unwrap_or("").to_owned(),
+        description: text("description").map(str::to_owned),
+        cwd: text("cwd")
+            .map_or_else(|| session.meta().cwd.to_string_lossy().into_owned(), str::to_owned),
+        started_at,
+        // A runner that died without a word wrote no end: it is lost by the time this is read.
+        ended_at: ended.then(|| view.get("endedAt").and_then(Value::as_u64).unwrap_or(now)),
+        state,
+        exit_code: exit_code.filter(|_| ended),
+        signal: view.get("signal").and_then(Value::as_i64).filter(|_| ended).map(|s| s.to_string()),
+        reason: None,
+        detail: text("summary").filter(|_| ended).map(str::to_owned),
+        origin: DAEMON_ORIGIN.to_owned(),
+        output_bytes: None,
+        output_file: None,
+        preview: None,
+        daemon_task: true,
+        logged: false,
+    })
 }
 
 /// Serialize a process-list snapshot after releasing the session's process-table mutex.
@@ -1094,7 +1290,10 @@ impl Hub {
     /// host timed out (`tools/acpmux_delivery_probe.py`, 10 missed probes). Two first reads may
     /// race: the first table put in wins and the other is dropped, and a record logged after a
     /// read is folded by its `note_process` (its seq is past the table's `through`).
-    fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+    pub(super) fn process_table<'a>(
+        &self,
+        session: &'a Session,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
         let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if table.loaded {
             return table;
@@ -1303,7 +1502,7 @@ impl Hub {
                 if tool.is_some_and(|t| table.find_tool(t).is_none() && table.dropped.has_tool(t)) {
                     self.read_whole(session, &mut table);
                 }
-                let i = tool.and_then(|tool| table.find_tool(tool));
+                let i = tool.and_then(|tool| table.find_harness_tool(tool));
                 let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
@@ -1365,6 +1564,9 @@ impl Hub {
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
     pub fn list_processes(&self, session: Option<&Session>) -> Value {
+        if let Some(session) = session {
+            self.bg_reconcile(session);
+        }
         // Taking the snapshot is the only operation that needs the process-table lock.
         // File metadata reads and JSON conversion must not hold it: process updates
         // from a running harness need to acquire the same mutex.
@@ -1388,6 +1590,18 @@ impl Hub {
     /// (no `session`) the newest are by start. Only the rows it keeps have their output file's
     /// size read and are serialized: its cost is the reply's, however long the history.
     pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
+        match session {
+            Some(session) => self.bg_reconcile(session),
+            // Every chat whose table this daemon read: a chat with no live daemon row reads nothing.
+            None => {
+                for s in self.sessions() {
+                    let loaded = s.processes.lock().unwrap_or_else(|e| e.into_inner()).loaded;
+                    if loaded {
+                        self.bg_reconcile(&s);
+                    }
+                }
+            }
+        }
         let mut processes: Vec<Process> = match session {
             Some(session) => self.whole_process_table(session).snapshot(),
             None => self
@@ -1419,6 +1633,7 @@ impl Hub {
         recent: usize,
         ended_within: Option<u64>,
     ) -> Result<Value, RpcError> {
+        self.bg_reconcile(session);
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
         let (processes, older, cutoff) = {
             let table = self.process_table(session);
@@ -1437,6 +1652,7 @@ impl Hub {
     /// calls its transcript shows, so a shell the transcript names is the registry's record there
     /// and its counts stay the whole history's.
     pub(crate) fn list_call_processes(&self, session: &Session, calls: &[String]) -> Value {
+        self.bg_reconcile(session);
         let found = {
             let table = self.process_table(session);
             if table.answers_calls(calls) {
@@ -1457,6 +1673,7 @@ impl Hub {
         limit: usize,
         after: Option<&str>,
     ) -> Result<Value, RpcError> {
+        self.bg_reconcile(session);
         let (window, has_more) = self.whole_process_table(session).page_snapshot(limit, after)?;
         process_page_values(window, has_more, PROCESS_PAGE_BUDGET)
     }
@@ -1483,6 +1700,10 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         use base64::Engine;
         let session = self.process_session(id)?;
+        let daemon_task = self.process_table_for(&session, id).daemon_task_of(id);
+        if let Some(task) = daemon_task {
+            return self.bg_tail(&session, &task, from, max);
+        }
         let (file, running) = {
             let table = self.process_table_for(&session, id);
             let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
@@ -1512,6 +1733,11 @@ impl Hub {
     pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);
         let session = self.process_session(id)?;
+        // A daemon task stops through its runner, whatever the harness (`bg_registry.rs`).
+        let daemon_task = self.process_table_for(&session, id).daemon_task_of(id);
+        if let Some(task) = daemon_task {
+            return self.bg_kill(&session, &task).await;
+        }
         let harness = session.meta().harness;
         let (claude, codex) = match self.config.read().await.profile(&harness) {
             Some(p) => (
