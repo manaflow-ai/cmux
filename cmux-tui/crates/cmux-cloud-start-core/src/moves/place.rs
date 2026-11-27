@@ -18,6 +18,8 @@
 //! nothing has left the old place yet. From `freeze` on the move runs out (a failure before
 //! `commit` gives the chat back where it was, `cmux link agent move`'s own rule).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// The chat's place mode, the control's three choices.
@@ -240,6 +242,10 @@ pub struct Flow {
     pub step_started_ms: u64,
     /// Each finished step's wall time.
     pub done: Vec<(Step, u64)>,
+    /// Where each step's time went, as the CLI the step ran said it ([`Event::Phases`]); none for a
+    /// step that ran no CLI, or a flow kept before this field.
+    #[serde(default)]
+    pub phases: Vec<(Step, BTreeMap<String, u64>)>,
     /// A cancel the person asked for, honoured at the next step boundary when the step it was
     /// asked at was past cancelling.
     pub cancel_asked: bool,
@@ -271,6 +277,9 @@ pub enum Event {
     Failed { reason: String, at_ms: u64 },
     /// The person pressed Cancel.
     Cancel { at_ms: u64 },
+    /// Where `step`'s time went (its CLI's answer, `cli::Answer::phases`): kept with the step,
+    /// running or done, and shown in the view's `steps`. A second report for the step replaces it.
+    Phases { step: Step, phases: BTreeMap<String, u64> },
 }
 
 /// What the app does after [`reduce`].
@@ -304,6 +313,7 @@ pub fn reduce(flow: Option<Flow>, event: Event) -> (Option<Flow>, Next) {
                 step: Step::Preflight,
                 step_started_ms: at_ms,
                 done: Vec::new(),
+                phases: Vec::new(),
                 cancel_asked: false,
                 outcome: None,
             }),
@@ -313,6 +323,15 @@ pub fn reduce(flow: Option<Flow>, event: Event) -> (Option<Flow>, Next) {
         (None, _) => (None, Next::Ignore),
         // A second begin while one runs: the running move stays.
         (Some(flow), Event::Begin { .. }) => (Some(flow), Next::Ignore),
+        (Some(mut flow), Event::Phases { step, phases }) => {
+            // A step not reached yet has no time to split.
+            if step > flow.step || phases.is_empty() {
+                return (Some(flow), Next::Ignore);
+            }
+            flow.phases.retain(|(kept, _)| *kept != step);
+            flow.phases.push((step, phases));
+            (Some(flow), Next::Go)
+        }
         (Some(mut flow), Event::Target { to }) => {
             flow.to = to;
             (Some(flow), Next::Go)
@@ -418,6 +437,9 @@ pub struct View {
 pub struct StepTime {
     pub step: Step,
     pub ms: u64,
+    /// Where the step's time went, by name in ms (its CLI's phases and spans), when it ran one that said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phases: Option<BTreeMap<String, u64>>,
 }
 
 pub fn view(flow: &Flow, now_ms: u64) -> View {
@@ -455,7 +477,19 @@ pub fn view(flow: &Flow, now_ms: u64) -> View {
         interrupts_turn,
         reason,
         can_retry: state == "failed",
-        steps: flow.done.iter().map(|(step, ms)| StepTime { step: *step, ms: *ms }).collect(),
+        steps: flow
+            .done
+            .iter()
+            .map(|(step, ms)| StepTime {
+                step: *step,
+                ms: *ms,
+                phases: flow
+                    .phases
+                    .iter()
+                    .find(|(kept, _)| kept == step)
+                    .map(|(_, split)| split.clone()),
+            })
+            .collect(),
     }
 }
 
