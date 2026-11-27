@@ -423,6 +423,8 @@ public final class UpdaterService {
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
+        // Unpaused: the pause's `SUEnableAutomaticChecks = false` comes off once, before Sparkle reads it.
+        if !pausesAutomaticUpdates, identity.track != .development { AutomaticUpdatePause.resumeAutomaticChecks(in: defaults) }
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
