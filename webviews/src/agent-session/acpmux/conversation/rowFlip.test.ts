@@ -3,6 +3,9 @@
 // `translate` moves, and the end leaves no animation.
 import { describe, expect, test } from "bun:test";
 import { captureRowFlip, endRowFlip, playRowFlip } from "./rowFlip";
+import { MOTION_MS } from "../../../motion/scale.generated";
+
+const MS = MOTION_MS.micro;
 
 type Move = { frames: Keyframe[]; duration: number; cancelled: boolean };
 const fakeRow = (top: number) => {
@@ -29,7 +32,7 @@ describe("row flip", () => {
   test("rows under an opened toggle start where they were drawn and go home on one clock", () => {
     const anchor = fakeRow(0);
     const below = fakeRow(40);
-    const flip = captureRowFlip(anchor.el, [anchor.el, below.el], { now: 0, ms: 120, easing: "ease-out" })!;
+    const flip = captureRowFlip(anchor.el, [anchor.el, below.el], { now: 0, ms: MS, easing: "ease-out" })!;
     expect(flip.rows.size).toBe(1);
     below.row.offsetTop = 140; // the body took 100px in one frame
     expect(playRowFlip(flip, 10)).toBe(true);
@@ -42,7 +45,7 @@ describe("row flip", () => {
   test("a scroll that holds the anchor is no move", () => {
     const anchor = fakeRow(200);
     const below = fakeRow(240);
-    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: 120, easing: "linear" })!;
+    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: MS, easing: "linear" })!;
     playRowFlip(flip, 5);
     expect(below.moves).toHaveLength(0);
   });
@@ -50,7 +53,7 @@ describe("row flip", () => {
   test("a second placement plays from where the row is drawn, inside what is left of the clock", () => {
     const anchor = fakeRow(0);
     const below = fakeRow(40);
-    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: 120, easing: "linear" })!;
+    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: MS, easing: "linear" })!;
     below.row.offsetTop = 140;
     playRowFlip(flip, 0);
     below.row.translateNow = -50; // half way
@@ -64,10 +67,10 @@ describe("row flip", () => {
   test("the clock's end and the settle leave no animation", () => {
     const anchor = fakeRow(0);
     const below = fakeRow(40);
-    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: 120, easing: "linear" })!;
+    const flip = captureRowFlip(anchor.el, [below.el], { now: 0, ms: MS, easing: "linear" })!;
     below.row.offsetTop = 90;
     playRowFlip(flip, 0);
-    expect(playRowFlip(flip, 120)).toBe(false);
+    expect(playRowFlip(flip, MS)).toBe(false);
     endRowFlip(flip);
     expect(below.moves.every((move) => move.cancelled)).toBe(true);
     expect(flip.rows.size).toBe(0);
