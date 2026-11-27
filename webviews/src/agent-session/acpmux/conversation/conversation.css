@@ -196,6 +196,9 @@
      videos (chips.css .cv-media), as Claude's composer thumbnails (gallery agent-pane.media-radius
      compares 12, 8, and the sent 12 / reply 8 they were). */
   --cv-media-radius: 8px;
+  /* A capsule's corner, half of any height it has: the fork switcher's arrows and count
+     (.cv-user__versions). */
+  --cv-capsule-radius: 999px;
   --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A transcript row's disclosure chevron, ChatGPT's "Worked for 11s ⌄" (Leo, 2026-11-03: "this how
      chatgpt does their chevrons"): its glyph box, and the gap from the last visible word to its ink.
@@ -452,8 +455,11 @@
    bubble's column, its tiles' 4px side margins outside it so their edges are the bubble's, the same
    gap under it (each tile's 2px bottom margin and this). A placed prompt's attachments draw in its
    text, where they were put (.cv-user__inline-image). */
-/* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. */
+/* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. An image sent as
+   its file's link is a thumbnail in this band: each item sits on the band's bottom edge, as in the
+   thumbnail band, so a chip beside a thumbnail is next to the bubble, not at the thumbnail's top. */
 .cv-user__files:not(.cv-user__inline-strip, .cv-message__files) {
+  align-items: flex-end;
   max-width: 70%;
   margin-bottom: var(--cv-user-attachment-gap);
 }
@@ -469,7 +475,8 @@
   display: flex;
 }
 .cv-user__images button,
-.cv-user__inline-image button {
+.cv-user__inline-image button,
+.cv-user__image-open {
   max-width: 100%;
   min-width: 0;
   padding: 0;
@@ -484,9 +491,14 @@
    from a size that turns out wrong letterboxes the image, never crops it. A neutral backing under it,
    so a transparent image still shows its content, and the bubble's corner with a faint hairline,
    not a bright frame. An image sent inline in the text (InlinePromptContent.tsx) is the same
-   thumbnail. Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
+   thumbnail. Its size is a width and an aspect ratio, so a narrow bubble scales it down whole.
+   The thumbnail and its button also match by their own class: an image sent as its file's link
+   draws in the file band (UserBubble.tsx `SentLinkedImage` in `cv-user__files`), where the band
+   selectors miss it, and its `height` attribute then drew it at its full height, stretched, in a
+   native button's grey frame. */
 .cv-user__images img,
-.cv-user__inline-image img {
+.cv-user__inline-image img,
+img.cv-user__image {
   display: block;
   width: 160px;
   max-width: 100%;
@@ -1337,7 +1349,7 @@
 .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   background: var(--ds-surface-inset);
 }
 .cv-user__versions .cv-user__version-count {
@@ -1387,7 +1399,7 @@
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   background: var(--ds-surface-inset);
 }
 /* The switcher's two slots (VersionSwitcher.tsx): the footer's is shown, the head's is not, unless the
@@ -1403,7 +1415,7 @@
 :root[data-fork-switcher-look="pill"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="pill"] .cv-user__versions .cv-user__version-count {
@@ -1414,7 +1426,7 @@
 :root[data-fork-switcher-look="outline"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 16%, transparent);
 }
 :root[data-fork-switcher-look="outline"] .cv-user__versions .cv-user__version-count {
@@ -1426,7 +1438,7 @@
 :root[data-fork-switcher-look="roomy"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-base);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="roomy"] .cv-user__versions .cv-user__version-count {
@@ -1442,7 +1454,7 @@
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--cv-capsule-radius);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions .cv-user__version-count {
@@ -2297,6 +2309,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A file that folds (EditDiff `collapsible`, the edited-files card): its name is the toggle, a chevron
+   before it that points down while open and right while folded, as a disclosure does. The header's bare
+   space folds it too. */
+.cv-edit-diff__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.cv-edit-diff__chevron {
+  flex: none;
+  color: var(--agent-muted);
+}
+.cv-edit-diff[data-collapsed] .cv-edit-diff__chevron {
+  transform: rotate(-90deg);
+}
+.cv-edit-diff[data-collapsed] > .cv-edit-diff__header {
+  border-bottom-color: transparent;
+}
+.cv-edit-diff__body[hidden] {
+  display: none;
+}
 .cv-edit-diff__add {
   flex: none;
   /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
@@ -2506,7 +2547,7 @@ pre.cv-math-source {
   /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
      so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
   --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
-  /* Its width is what a row's 100cqw reads: an opened edited-files card spans it (EditedFilesCard.css). */
+  /* Its width is what a row's 100cqw reads. */
   container-type: inline-size;
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
@@ -7288,7 +7329,11 @@ a.cv-sha:focus-visible {
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter,
-  .acpmux-thinking.acpmux-row--enter[data-send-thinking] {
+  /* As specific as the live-activity fade above (`.acpmux-row.acpmux-row--enter:not(...):not(...)`),
+     and later, so it wins: since #55713 a sent prompt's "Working for" (`.acpmux-worked`) stands between
+     it and its thinking row from the send, so the sibling selectors no longer reach it and this mark
+     alone carries the send clock. */
+  .acpmux-row.acpmux-thinking.acpmux-row--enter[data-send-thinking]:not(.acpmux-user) {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
@@ -9126,6 +9171,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   --cv-selection-reply-veil: 100%;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+/* A modal dialog over the pane (ui/Dialog.tsx: the image viewer, the video player, a confirm) or the
+   full-pane Computer Use preview covers the transcript, so the chip goes while it is open: on the body
+   at the dropdown layer, it drew over the viewer's image. The selection stays, so the chip comes back
+   in its place when the cover closes. Hidden, not removed: the chip keeps the size its place was
+   measured with. */
+:root:has(.ui-backdrop, .acpmux-cu-preview[data-full]) .cv-selection-reply {
+  visibility: hidden;
+  pointer-events: none;
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */

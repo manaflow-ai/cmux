@@ -398,6 +398,7 @@ export function ComposerBox({
             }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            inlineHidden={attachmentView === "strip"}
             onWholeSelection={setWhole}
             onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
@@ -471,14 +472,16 @@ export function ComposerBox({
                 onKeyDown?.(event);
                 return;
               }
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-              const backspaced = composing
-                ? undefined
-                : backspacedAttachment(
-                    event,
-                    prompt.current?.atStart() ?? false,
-                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-                  );
+              // Backspace at the prompt's start takes back the last chip outside the text
+              // (backspacedAttachment), in the inline view only: the strip's attachments go by their ×.
+              const backspaced =
+                composing || attachmentView === "strip"
+                  ? undefined
+                  : backspacedAttachment(
+                      event,
+                      prompt.current?.atStart() ?? false,
+                      attachments.filter((chip) => !placed.has(chip.id)),
+                    );
               if (backspaced) {
                 event.preventDefault();
                 inline.remove(backspaced.id);

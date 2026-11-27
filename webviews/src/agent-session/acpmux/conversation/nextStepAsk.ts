@@ -19,7 +19,7 @@ export type NextStepOption = {
   label: string;
   key?: "recap.yes" | "recap.notNow";
   run?: CustomizeRun;
-  /// A line the button copies instead of answering (Share, after Try it on: customizeRun.ts `shareLine`).
+  /// The target the button shares instead of answering (Share, after Try it on: customizeRun.ts `shareTarget`).
   share?: string;
 };
 

@@ -140,7 +140,7 @@ fn a_held_folder_stays() {
     age(&idle, 10);
     let now = crate::inventory::now_ms();
     let held = idle.clone();
-    let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build") }]);
+    let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build"), session_id: None }]);
     let report = run(&options(&home, Pressure::Normal, now, true, &uses, &not_open));
     assert!(idle.exists());
     assert!(report.items[0].verdict.reason.contains("in use"));

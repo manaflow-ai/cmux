@@ -115,12 +115,20 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-
-    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
+    ///
+    /// Not observed: the terminal page sets it on every SwiftUI pass (`page(for:in:context:)`),
+    /// and a closure is never equal to the last one, so an observed write there invalidated the
+    /// body that wrote it (its `didSet` read it back) and the pass never ended (LaunchTTIUITests
+    /// terminal input, "main thread busy for 30.0s", from #55155). Views read `hasUploader`.
+    @ObservationIgnored public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
         didSet {
+            let has = uploader != nil
+            if hasUploader != has { hasUploader = has }
             syncAttachmentUploads()
         }
     }
+    /// Whether `uploader` is set: the observed half, written only when it changes.
+    public private(set) var hasUploader = false
     /// The Mac folder captured with `uploader`. A terminal upload must not reuse
     /// a pre-transfer after the shell changes directory.
     @ObservationIgnored private var uploaderDirectory: String?
@@ -129,7 +137,7 @@ public final class TerminalModel {
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
-        if uploader != nil { return true }
+        if hasUploader { return true }
         #if DEBUG
         return session is MockTerminalSession
         #else
