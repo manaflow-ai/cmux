@@ -1202,7 +1202,7 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 2 (fast gates, ratchets and test registries)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-test-coverage-tests, those the change reaches"
+about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-cloud-http-tests, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1237,6 +1237,7 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
 
@@ -1902,6 +1903,8 @@ inputs = [
   # web_subareas.py counts the react-apps-check fleet scripts in agent_pane too (REACT_EXACT).
   "scripts/ci/react-apps-check-fleet.sh",
   "scripts/ci/react_apps_fleet.py",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
@@ -2859,6 +2862,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
