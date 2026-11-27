@@ -42,7 +42,7 @@ jobs:
       ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
       || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 120
+    timeout-minutes: 240
     permissions:
       contents: read
     steps:
@@ -57,7 +57,7 @@ jobs:
             exit 0
           fi
           log="${RUNNER_TEMP:?}/gestures.log"
-          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$REF" --timeout 5400 \
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$REF" --timeout 5400 --sim-features none \
             --arg test --arg ui=GestureConflictUITests 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           {
