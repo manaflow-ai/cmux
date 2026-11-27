@@ -60,34 +60,83 @@ public nonisolated struct ChiefMoveTargets: Sendable {
     ///     (`--to cloud` is the account's Cloud Chief, not a VM).
     ///   - cloud: whether the app is signed in to Cloud, and to which one.
     public init(localHome: String, hosts: [Host], cloud: Cloud) {
-        var list = [ChiefMoveTarget(machineID: Self.localID, name: "", kind: .local(home: localHome), to: "local:\(localHome)", disabledReason: nil)]
-        for host in hosts where host.isRemoteGroup {
-            switch host.kind {
-            case .ssh(let destination):
-                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: "ssh:\(destination)",
-                                            disabledReason: host.isOnline ? nil : .offline))
-            case .server(let destination?):
-                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: "ssh:\(destination)",
-                                            disabledReason: host.isOnline ? nil : .offline))
-            case .server(nil):
-                list.append(ChiefMoveTarget(machineID: host.machineID, name: host.name, kind: host.kind, to: nil, disabledReason: .noSSHRoute))
-            case .local, .cloud:
-                continue
-            }
+        let wireCloud: WireCloud = switch cloud {
+        case .signedIn(let api): WireCloud(type: "signedIn", api: api?.absoluteString)
+        case .signedOut: WireCloud(type: "signedOut", api: nil)
         }
-        switch cloud {
-        case .signedIn(let api):
-            // Without a trailing slash, as the engine reads it (`api_base`).
-            let base = api.map { url in
-                var text = url.absoluteString
-                while text.hasSuffix("/") { text.removeLast() }
-                return text
-            }
-            list.append(ChiefMoveTarget(machineID: Self.cloudID, name: "", kind: .cloud(staging: base != nil),
-                                        to: base.map { "cloud:\($0)" } ?? "cloud", disabledReason: nil))
-        case .signedOut:
-            list.append(ChiefMoveTarget(machineID: Self.cloudID, name: "", kind: .cloud(staging: false), to: "cloud", disabledReason: .signInNeeded))
+        let request = TargetsRequest(
+            localHome: localHome,
+            hosts: hosts.map { WireHost(machineID: $0.machineID, name: $0.name, kind: WireKind($0.kind), isOnline: $0.isOnline,
+                                        isRemoteGroup: $0.isRemoteGroup) },
+            cloud: wireCloud)
+        let wire: [WireTarget] = dockRule("dock.move_targets", request, fallback: [])
+        targets = wire.map {
+            ChiefMoveTarget(machineID: $0.machineID, name: $0.name, kind: $0.kind.kind, to: $0.to,
+                            disabledReason: $0.disabledReason.flatMap(ChiefMoveTarget.DisabledReason.init(wire:)))
         }
-        targets = list
+    }
+
+    nonisolated private struct TargetsRequest: Encodable {
+        var localHome: String
+        var hosts: [WireHost]
+        var cloud: WireCloud
+    }
+
+    nonisolated private struct WireHost: Encodable {
+        var machineID: String
+        var name: String
+        var kind: WireKind
+        var isOnline: Bool
+        var isRemoteGroup: Bool
+    }
+
+    nonisolated private struct WireCloud: Encodable {
+        var type: String
+        var api: String?
+    }
+
+    nonisolated private struct WireTarget: Decodable {
+        var machineID: String
+        var name: String
+        var kind: WireKind
+        var to: String?
+        var disabledReason: String?
+    }
+}
+
+/// ``ChiefMoveTargets/Kind`` as the dock ops write it (`{"type": "ssh", "destination": …}`).
+nonisolated struct WireKind: Codable, Sendable {
+    var type: String
+    var home: String?
+    var destination: String?
+    var staging: Bool?
+
+    init(_ kind: ChiefMoveTargets.Kind) {
+        switch kind {
+        case .local(let home): type = "local"; self.home = home
+        case .ssh(let destination): type = "ssh"; self.destination = destination
+        case .server(let destination): type = "server"; self.destination = destination
+        case .cloud(let staging): type = "cloud"; self.staging = staging
+        }
+    }
+
+    var kind: ChiefMoveTargets.Kind {
+        switch type {
+        case "local": .local(home: home ?? "")
+        case "ssh": .ssh(destination: destination ?? "")
+        case "server": .server(destination: destination)
+        default: .cloud(staging: staging ?? false)
+        }
+    }
+}
+
+private extension ChiefMoveTarget.DisabledReason {
+    nonisolated init?(wire: String) {
+        switch wire {
+        case "offline": self = .offline
+        case "noSSHRoute": self = .noSSHRoute
+        case "signInNeeded": self = .signInNeeded
+        default: return nil
+        }
     }
 }
