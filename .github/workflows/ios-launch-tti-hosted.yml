@@ -40,10 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'dec8a3407e923697df15d4a61d668852a747f2ff' }}
-          - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'dec8a3407e923697df15d4a61d668852a747f2ff' }}
+          - leg: profile
+            ref: dec8a3407e923697df15d4a61d668852a747f2ff
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -81,8 +79,17 @@ jobs:
         run: |
           set -uo pipefail
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests
+          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests profile
           echo "status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Export the time-profile table
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          d=$(mktemp -d); ditto -x -k artifacts/ios-sim/ui-profile.trace.zip "$d" || exit 0
+          t=$(find "$d" -maxdepth 2 -name '*.trace' | head -1)
+          xcrun xctrace export --input "$t" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$d/table.xml"
+          gzip -c "$d/table.xml" > artifacts/ios-sim/ui-time-profile.xml.gz; ls -la artifacts/ios-sim/
 
       - name: First connect p50/p90
         if: ${{ !cancelled() }}
@@ -123,5 +130,8 @@ jobs:
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
             artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-profile-summary.md
+            artifacts/ios-sim/ui-profile-summary.json
+            artifacts/ios-sim/ui-time-profile.xml.gz
           retention-days: 3
           if-no-files-found: warn
