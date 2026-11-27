@@ -90,7 +90,7 @@ jobs:
           repo="$RUNNER_TEMP/cmux.git"
           git init --quiet --bare "$repo"
           started=$SECONDS
-          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
             fetch --quiet --no-tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" \
             +refs/heads/main:refs/heads/main \
             +refs/heads/feat-cmux-next:refs/heads/feat-cmux-next \

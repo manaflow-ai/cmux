@@ -117,9 +117,11 @@ public struct AgentChatPerfControl: Sendable {
                 bundle: .localizedModule)
         }
         static var noCapture: String {
+            // retry-prompt-ok: a developer's perf capture command; they re-run it
             String(localized: "agentPane.chatPerf.noCapture", defaultValue: "That chat's page can't measure itself. Update cmux, then try again.", bundle: .localizedModule)
         }
         static var running: String {
+            // retry-prompt-ok: a developer's perf capture command; they re-run it
             String(localized: "agentPane.chatPerf.running", defaultValue: "That chat is already being measured. Try again when that capture ends.", bundle: .localizedModule)
         }
     }
