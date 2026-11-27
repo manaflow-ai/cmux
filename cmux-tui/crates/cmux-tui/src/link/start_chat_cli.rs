@@ -409,9 +409,12 @@ fn plan_with_calls(
     if !valid_account(&request.account) {
         return refused("bad_request", "the account is too long or has control characters");
     }
-    if request.provider.as_deref().is_some_and(|provider| !matches!(provider, "gcp" | "freestyle"))
+    if request
+        .provider
+        .as_deref()
+        .is_some_and(|provider| !matches!(provider, "gcp" | "own-host" | "freestyle"))
     {
-        return refused("bad_request", "the provider must be gcp or freestyle");
+        return refused("bad_request", "the provider must be gcp, own-host or freestyle");
     }
     if request
         .size
@@ -503,8 +506,9 @@ fn plan_with_calls(
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
-        destination
-    });
+        Ok(destination)
+    })
+    .and_then(|destination| destination);
     let repo = request.local.as_deref().and_then(folder_repo);
     let project_key = if matches!(&planned, Ok(Destination::New)) {
         match request.local.as_deref().map(|local| project::folder_key(ledger, local)).transpose() {

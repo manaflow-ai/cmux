@@ -63,6 +63,64 @@ fn the_model_is_taken_from_model_or_agent_and_checked() {
 }
 
 #[test]
+fn explicit_provider_creates_before_starting_on_the_returned_machine() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let asked = request(&["--provider", provider, "--name", "insurance", "--no-focus"]);
+        let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+        let outcome = run(&mut fake, &asked);
+        assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}");
+        assert_eq!(
+            fake.ran[1],
+            strings(&[
+                "cloud",
+                "new-machine",
+                "--name",
+                "insurance",
+                "--provider",
+                provider,
+                "--no-focus",
+                "--json"
+            ])
+        );
+        assert_eq!(
+            fake.ran[2],
+            strings(&[
+                "cloud",
+                "start-session",
+                "--target",
+                "machine:vm-1",
+                "--agent",
+                "claude",
+                "--no-focus",
+                "--json"
+            ])
+        );
+        let mut progress = Progress::default();
+        assert_eq!(progress.rerun(&asked).provider.as_deref(), Some(provider));
+        progress.created = Some("insurance".into());
+        assert_eq!(progress.rerun(&asked).provider, None);
+        assert!(
+            !again_command(&progress.rerun(&asked), &Machine::Target("vm-1".into()))
+                .contains("--provider")
+        );
+    }
+}
+
+#[test]
+fn explicit_provider_does_not_reuse_an_unverified_machine() {
+    assert!(
+        parse(&strings(&["--provider", "gcp", "--target", "vm:vm-1"]), || Ok(String::new()))
+            .is_err()
+    );
+    let asked = request(&["--provider", "own-host", "--name", "dev"]);
+    let mut fake = Fake::new(vec![signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 2);
+    assert!(error["message"].as_str().unwrap().contains("--provider"));
+    assert_eq!(fake.ran.len(), 1);
+}
+
+#[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
     assert_eq!(
