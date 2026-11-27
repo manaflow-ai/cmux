@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.awake.noChief" : {
+      "comment" : "Settings > Accounts > Slack awake time (RFD 0123): the non-owner daily allowance and who spent it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Chief’s Slack awake time shows here once your Chief is set up."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يظهر وقت تنشيط Chief عبر Slack هنا بعد إعداد Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vrijeme budnosti vašeg Chiefa preko Slacka prikazuje se ovdje kad postavite Chiefa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din Chiefs vågne tid via Slack vises her, når din Chief er sat op."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Wachzeit deines Chief über Slack erscheint hier, sobald dein Chief eingerichtet ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El tiempo activo de tu Chief por Slack aparece aquí cuando tu Chief esté configurado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le temps d’éveil de votre Chief via Slack s’affiche ici une fois votre Chief configuré."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il tempo di attività del tuo Chief da Slack appare qui quando il Chief è configurato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief の設定が終わると、Slack による稼働時間がここに表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពេលភ្ញាក់តាម Slack របស់ Chief នឹងបង្ហាញនៅទីនេះ នៅពេល Chief ត្រូវបានរៀបចំរួច។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief를 설정하면 Slack 활성 시간이 여기에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din Chiefs våkne tid via Slack vises her når din Chief er satt opp."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Czas aktywności Twojego Chiefa ze Slacka pojawi się tu po skonfigurowaniu Chiefa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O tempo ativo do seu Chief pelo Slack aparece aqui quando o Chief estiver configurado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Время активности вашего Chief из Slack появится здесь после настройки Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เวลาทำงานจาก Slack ของ Chief จะแสดงที่นี่เมื่อตั้งค่า Chief แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief’iniz kurulduğunda Slack ile uyanık kalma süresi burada görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Час активності вашого Chief зі Slack з’явиться тут після налаштування Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thời gian hoạt động qua Slack của Chief sẽ hiện ở đây khi Chief được thiết lập."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置好 Chief 后，它的 Slack 唤醒时长会显示在这里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定好 Chief 後，它的 Slack 喚醒時長會顯示在這裡。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

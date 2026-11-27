@@ -168,9 +168,12 @@ class DispatchTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_workflow_is_dispatch_only_switchable_and_reverts_nothing(self) -> None:
+    def test_the_workflow_is_dispatched_registered_by_its_own_push_switchable_and_reverts_nothing(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text())
-        self.assertEqual(list(workflow.get("on", workflow.get(True))), ["workflow_dispatch"])
+        on = workflow.get("on", workflow.get(True))
+        self.assertEqual(sorted(on), ["push", "workflow_dispatch"])
+        self.assertEqual(on["push"], {"branches": ["feat-cmux-next"],
+                                      "paths": [".github/workflows/cmux-next-hourly-full-tier.yml"]})
         job = workflow["jobs"]["run"]
         self.assertIn("vars.CI_LAND_FULL_PER_PR != '1'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read", "issues": "write"})
