@@ -24,6 +24,7 @@ set -uo pipefail
 # One function, called on the last line: bash has read all of it before a checkout changes this file.
 main() {
   cd "$(dirname "$0")/../.." || exit 3
+  source scripts/measure/build-progress.sh
   local out="$PWD/.build/update-click-ab" tools
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
@@ -169,8 +170,8 @@ build_app() {
     fi
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA GhosttyKit download failed" >&2; return 3; }
   fi
-  CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
+  measure_quiet "UCA acpmux build $side" "$out/build-$side.log" env CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
+  measure_quiet "UCA build $side" "$out/build-$side.log" env CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "UCA build $side failed: no app path" >&2
