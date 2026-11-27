@@ -457,7 +457,7 @@ your other machines). Tool names here are short: call the listed tool ending in 
 is a model turn: use the fewest. A window_id can be the window's title or app name; each action \
 returns what changed and a screenshot, so never look to check one. When the task names the window \
 and its controls, your first call is one batch whose steps name elements by target {role, label}, \
-not get_ui_tree; look first only when you cannot name a control. \"No change\" means it did nothing: \
+not get_ui_tree; look first only when you cannot name a control. Menu commands are in the tree's menu bar. \"No change\" means it did nothing: \
 try another way. Act in the background; use delivery foreground only when status says the person \
 allowed it, for a system-wide shortcut or to bring a window to them. If refused, take the setup step \
 it names, else call status and tell the person which Settings > Computer Use setting would allow it; \
