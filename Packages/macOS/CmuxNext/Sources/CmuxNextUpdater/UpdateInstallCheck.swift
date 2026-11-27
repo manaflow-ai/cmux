@@ -15,11 +15,27 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
     /// The build Sparkle installs.
     public var targetBuild: String
     public var recordedAt: Date
+    /// The person's update clicks (Update, Restart to Update) from the found update to this
+    /// relaunch (``UpdaterService/updateClicks``); nil in a record an older build wrote.
+    public var clicks: Int?
 
-    public init(fromBuild: String, targetBuild: String, recordedAt: Date) {
+    public init(fromBuild: String, targetBuild: String, recordedAt: Date, clicks: Int? = nil) {
         self.fromBuild = fromBuild
         self.targetBuild = targetBuild
         self.recordedAt = recordedAt
+        self.clicks = clicks
+    }
+
+    /// The update's contract: an available update installs with one click, Restart to Update
+    /// (Leo 2026-11-09: "that update, it wasn't just the one-click automatic thing"). An install
+    /// that took more clicks is flagged at the next launch (``launchFailure(defaults:build:now:bundle:log:)``).
+    public static let clicksPerUpdate = 1
+
+    /// The launch's log line for an install that needed more than ``clicksPerUpdate`` clicks, else nil.
+    /// The detector: `update needed N clicks` in the updater log (`updates.status`, the unified log).
+    public static func extraClicksLine(_ record: UpdateInstallCheck) -> String? {
+        guard let clicks = record.clicks, clicks > clicksPerUpdate else { return nil }
+        return "update needed \(clicks) clicks: \(record.targetBuild) over \(record.fromBuild) (one, Restart to Update, is the contract)"
     }
 
     /// The defaults key of the record (the app's own domain, so each build channel keeps its own).
@@ -60,7 +76,9 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
                                      log: UpdateLogBuffer) -> (build: String, failure: UpdateInstallFailure)? {
         guard let last = consume(defaults: defaults, build: build, now: now) else { return nil }
         guard last.outcome == .failed else {
-            log.append("installed \(last.record.targetBuild) over \(last.record.fromBuild)")
+            let clicks = last.record.clicks.map { " after \($0) click\($0 == 1 ? "" : "s")" } ?? ""
+            log.append("installed \(last.record.targetBuild) over \(last.record.fromBuild)\(clicks)")
+            if let line = extraClicksLine(last.record) { log.append(line) }
             return nil
         }
         // concurrency-allow: once per launch after a failed install: a path test, two access checks and one volume read.

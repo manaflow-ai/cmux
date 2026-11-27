@@ -41,9 +41,10 @@ pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_AVATAR_BYTES: usize = 1024;
 /// The one `approval` value: the owner approves each of the person's prompts.
 pub const APPROVAL_OWNER: &str = "owner";
-/// A link guest's id: on no tailnet and with no account (`cmux-tui-core`
-/// `agent_session_shares.rs` binds `guest:<share_id>.<guest_id>`). Every prompt of theirs waits
-/// for the owner, `approval` or not: a guest's prompt never runs unapproved.
+/// The one guest role that runs without owner approval. This marker is stamped by the trusted
+/// sharing daemon for a named invite and is never accepted from a link URL or Web client.
+pub const DRIVE_ROLE: &str = "drive";
+/// The per-connection identity of a shared chat guest, including a named invitee.
 pub const GUEST_PREFIX: &str = "guest:";
 
 /// Whether `id` is a link guest's (`GUEST_PREFIX`).
@@ -83,18 +84,20 @@ impl Author {
         }
         if self.awaits_owner {
             p.set("approval", json!(APPROVAL_OWNER));
+        } else if is_guest(&self.id) {
+            p.set("role", json!(DRIVE_ROLE));
         }
         p
     }
 }
 
-/// Whether a prompt's provenance says each version of it waits for the owner (`approval`, or a
-/// link guest's `from`): an edit by its author waits again (`hub/queue_approve.rs`).
+/// Whether this version of the prompt needs approval, including after restore or a queue edit.
+/// Guest records without a Drive grant (including records from older builds) stay held.
 pub fn awaits_owner(provenance: Option<&Value>) -> bool {
     of_provenance(provenance).is_some_and(|from| {
-        is_guest(from)
-            || provenance.and_then(|p| p.get("approval")).and_then(Value::as_str)
-                == Some(APPROVAL_OWNER)
+        let field = |key: &str| provenance.and_then(|p| p.get(key)).and_then(Value::as_str);
+        field("approval") == Some(APPROVAL_OWNER)
+            || (is_guest(from) && field("role") != Some(DRIVE_ROLE))
     })
 }
 
@@ -163,14 +166,15 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         }
     };
     let required = |key: &str| field(key)?.ok_or_else(|| value_refused(key));
+    let id = required("id")?;
+    let drive = raw.get("role").and_then(Value::as_str) == Some(DRIVE_ROLE);
     let awaits_owner = match raw.get("approval") {
         None | Some(Value::Null) => false,
         Some(Value::String(value)) if value == APPROVAL_OWNER => true,
         _ => return Err(value_refused("approval")),
     };
-    let id = required("id")?;
-    // A link guest's prompt waits for the owner even when its sender left `approval` off.
-    let awaits_owner = awaits_owner || is_guest(&id);
+    // Only the daemon's explicit Drive grant exempts a guest from the default hold.
+    let awaits_owner = awaits_owner || (is_guest(&id) && !drive);
     Ok(Some(Author {
         id,
         name: required("name")?,
