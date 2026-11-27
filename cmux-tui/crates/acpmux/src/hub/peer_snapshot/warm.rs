@@ -19,7 +19,8 @@
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
 //! covers once it covers some, one page a chat a round; a chat is read (or tried) at most once each
-//! [`WARM_EVERY`] ([`WARM_AGAIN`] once the store holds its copy), and its last change, a refusal
+//! [`WARM_EVERY`] ([`WARM_AGAIN`] once the store holds its copy, unless a kept peer's turn ended
+//! since), and its last change, a refusal
 //! and a page cut short are read again after it; a chat whose copy a bound evicted is not read
 //! ahead again (an open here keeps it again); one round at a time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
 //! chat the peer refuses is passed over). What is kept stays within the copies' own bounds. Rounds
@@ -237,8 +238,14 @@ pub(super) fn plan(
             continue;
         }
         // A copy it holds is brought up to date at most each [`WARM_AGAIN`]: each read rewrites
-        // the copy's file whole.
-        let every = if through.is_some() { WARM_AGAIN } else { WARM_EVERY };
+        // the copy's file whole. A kept peer's chat between turns is read after [`WARM_EVERY`]:
+        // its copy is what a move from a dead machine starts from, and one up to 5 minutes behind
+        // moved without its last turns (`fleet-recovery-bench.py --n 100`, 11-27: 8 of 100, 92%).
+        // That is one rewrite a turn, not one each interval: a turn still running waits
+        // [`WARM_AGAIN`], and a copy as far as the row is not read at all.
+        let between_turns = row.get("turn").is_none_or(Value::is_null);
+        let every =
+            if through.is_some() && !(keeps && between_turns) { WARM_AGAIN } else { WARM_EVERY };
         if let Some((read, at)) = read_at.get(&(peer.to_owned(), mux.to_owned()))
             && *read == generation
             && after(*at, every) > now
