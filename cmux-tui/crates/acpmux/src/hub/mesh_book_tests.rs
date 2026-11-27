@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::{Config, StoreMode};
-use crate::mesh::BookDaemon;
+use crate::mesh::{BookDaemon, Heartbeat, SessionRow};
 
 fn hub() -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({})).expect("config");
@@ -28,6 +28,7 @@ fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookS
         daemon_id: daemon.into(),
         harness: "claude".into(),
         state: state.into(),
+        stuck_reason: None,
         last_seen_at: 5,
         ..Default::default()
     }
@@ -136,12 +137,33 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
 
     let mut waiting = book();
     waiting.sessions[1].state = "waiting".into();
-    hub.apply_mesh_book(waiting, "person-1", Some("d-a"));
+    hub.apply_mesh_book(waiting.clone(), "person-1", Some("d-a"));
     let changed = notices(&mut events);
     assert_eq!(changed.len(), 1, "{changed:?}");
     assert_eq!(changed[0].1["status"], "waiting");
     let pending = hub.pending_session_summaries();
     assert_eq!(pending.len(), 1, "a waiting hub chat is listed with the asks: {pending:?}");
+
+    // A sandbox refusal is part of the row's identity: it emits once, then an unchanged
+    // heartbeat stays quiet, and recovery emits a row that has cleared the reason.
+    waiting.sessions[1].state = "failed".into();
+    waiting.sessions[1].stuck_reason = Some("cannot create .git/index.lock".into());
+    hub.apply_mesh_book(waiting.clone(), "person-1", Some("d-a"));
+    let failed = notices(&mut events);
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0].1["status"], "idle");
+    assert_eq!(failed[0].1["lastTurn"]["status"], "failed");
+    assert_eq!(failed[0].1["stuckReason"], "cannot create .git/index.lock");
+    hub.apply_mesh_book(waiting.clone(), "person-1", Some("d-a"));
+    assert_eq!(notices(&mut events), [], "an unchanged failure heartbeat announces nothing");
+
+    waiting.sessions[1].state = "waiting".into();
+    waiting.sessions[1].stuck_reason = None;
+    hub.apply_mesh_book(waiting, "person-1", Some("d-a"));
+    let recovered = notices(&mut events);
+    assert_eq!(recovered.len(), 1, "{recovered:?}");
+    assert_eq!(recovered[0].1["status"], "waiting");
+    assert!(recovered[0].1.get("stuckReason").is_none(), "{recovered:?}");
 
     hub.set_mesh_book(Default::default(), Vec::new());
     let gone = notices(&mut events);
@@ -151,6 +173,68 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     );
     assert!(hub.all_session_summaries().is_empty());
     assert!(hub.peers().is_empty());
+}
+
+#[test]
+fn a_failed_heartbeat_without_a_reason_still_projects_failure() {
+    let row = row_of(
+        "s-1",
+        &Fields {
+            name: "child",
+            harness: "claude",
+            state: "failed",
+            stuck_reason: None,
+            cwd: None,
+            title: None,
+            title_source: None,
+            name_given: None,
+            model: None,
+            agent_session_id: None,
+            host_build: None,
+            handle: None,
+            updated_at: None,
+        },
+    );
+    assert_eq!(row["status"], "idle");
+    assert_eq!(row["lastTurn"]["status"], "failed");
+}
+
+#[test]
+fn heartbeat_roundtrip_preserves_an_optional_stuck_reason() {
+    let heartbeat = Heartbeat {
+        host: "machine-b".into(),
+        sessions: vec![SessionRow {
+            name: "blocked".into(),
+            session_id: "s-1".into(),
+            harness: "claude".into(),
+            state: "failed".into(),
+            stuck_reason: Some("cannot write .git".into()),
+            team_address: None,
+            cwd: None,
+            title: None,
+            title_source: None,
+            name_given: None,
+            model: None,
+            agent_session_id: None,
+            host_build: None,
+            handle: None,
+            former_names: Vec::new(),
+            roles: Vec::new(),
+            updated_at: None,
+        }],
+        leaving: false,
+        health: None,
+    };
+    let wire = serde_json::to_value(&heartbeat).expect("heartbeat JSON");
+    assert_eq!(wire["sessions"][0]["stuckReason"], "cannot write .git");
+    let decoded: Heartbeat = serde_json::from_value(wire).expect("heartbeat decode");
+    assert_eq!(decoded, heartbeat);
+
+    let mut without_reason_heartbeat = heartbeat.clone();
+    without_reason_heartbeat.sessions[0].stuck_reason = None;
+    let without_reason =
+        serde_json::to_value(without_reason_heartbeat).expect("heartbeat without reason JSON");
+    assert!(without_reason["sessions"][0].get("stuckReason").is_none());
 }
 
 /// Every session row lists the same keys whichever machine it came from: a hub row lists each of
