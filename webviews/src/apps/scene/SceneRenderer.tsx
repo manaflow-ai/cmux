@@ -13,9 +13,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
-import { Card as KitCard, Pill as KitPill, Tooltip as KitTooltip, type PillTone } from "../../kit";
+import { Card as KitCard, Pill as KitPill, Tooltip as KitTooltip, type PillTone, Spinner } from "../../kit";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";

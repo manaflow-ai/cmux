@@ -3,7 +3,7 @@ import XCTest
 /// CMUX-49: the Workspaces page's launch states on mock data, one indicator at
 /// a time. A first launch says what it loads (and never "Updating…" over the
 /// placeholders), an offline one says it waits for a connection, a failed one
-/// says why with Retry, and a cached list whose refresh failed keeps its rows.
+/// retries on its own and, past the quiet bound, says why (no Retry), and a cached list whose refresh failed keeps its rows.
 final class WorkspacesLaunchStatesUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -38,6 +38,37 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         attach(app, "first-launch")
     }
 
+    /// cmux#57410: a Mac that answered with no workspaces shows "No workspaces" and keeps it
+    /// while its link drops and redials (every 0.7 s here); the placeholders never come back.
+    @MainActor
+    func testAnEmptyMacStaysNoWorkspacesThroughRedials() {
+        let app = launch("retry-empty-mac-redial")
+        defer { app.terminate() }
+        let empty = app.descendants(matching: .any)["workspaces.empty.all"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 30), "an empty Mac's empty state\n\(app.debugDescription)")
+        XCTAssertTrue(text(app, containing: "No workspaces").exists, "says so\n\(app.debugDescription)")
+        let loading = app.descendants(matching: .any)["workspaces.loading"]
+        // About a dozen redials: never the placeholders, always the empty state.
+        let until = Date().addingTimeInterval(8)
+        while Date() < until {
+            XCTAssertFalse(loading.exists, "placeholders over an empty Mac\n\(app.debugDescription)")
+            XCTAssertTrue(empty.exists, "the empty state stays\n\(app.debugDescription)")
+            usleep(250_000)
+        }
+        attach(app, "empty-mac-redial")
+    }
+
+    /// Before its first answer the same Mac draws the labelled placeholder rows, not an empty claim.
+    @MainActor
+    func testAnEmptyMacLoadsUntilItAnswers() {
+        let app = launch("retry-empty-mac-first-load")
+        defer { app.terminate() }
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loading"].waitForExistence(timeout: 30),
+                      "placeholders before the Mac answers\n\(app.debugDescription)")
+        XCTAssertFalse(app.descendants(matching: .any)["workspaces.empty.all"].exists, "no empty claim before the answer")
+        attach(app, "empty-mac-first-load")
+    }
+
     @MainActor
     func testFirstLaunchOfflineSaysItWaits() {
         let app = launch("retry-first-launch-offline")
@@ -48,15 +79,18 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
     }
 
     @MainActor
-    func testFailedFirstLaunchSaysWhyAndOffersRetry() {
+    func testFailedFirstLaunchRetriesOnItsOwnThenSaysWhy() {
         let app = launch("retry-first-launch-failed")
         defer { app.terminate() }
-        XCTAssertTrue(app.descendants(matching: .any)["workspaces.retry"].waitForExistence(timeout: 30),
+        // Retried on its own: the placeholders first, the failure page only past the quiet bound (10 s).
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loading"].waitForExistence(timeout: 8),
+                      "placeholders while it retries\n\(app.debugDescription)")
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loadFailed"].waitForExistence(timeout: 30),
                       "failed first launch\n\(app.debugDescription)")
         XCTAssertTrue(text(app, containing: "This iPhone is offline").exists, "the reason\n\(app.debugDescription)")
-        // Exactly one Retry: the offline pill is status only, the page offers the retry.
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Retry")).count, 1,
-                       "one Retry on screen\n\(app.debugDescription)")
+        // Nothing to decide: no Retry or Try Again anywhere on the page.
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label IN %@", ["Retry", "Try Again", "Try again"])).count, 0,
+                       "no retry button on screen\n\(app.debugDescription)")
         attach(app, "first-launch-failed")
     }
 
@@ -66,7 +100,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row.")).firstMatch.waitForExistence(timeout: 30),
                       "cached rows stay\n\(app.debugDescription)")
-        XCTAssertFalse(app.descendants(matching: .any)["workspaces.retry"].exists, "no error page over the rows")
+        XCTAssertFalse(app.descendants(matching: .any)["workspaces.loadFailed"].exists, "no error page over the rows")
         // No connection words over kept rows (iOS release bar read-back: "Couldn't refresh · last known").
         XCTAssertFalse(text(app, containing: "last known").waitForExistence(timeout: 3), "no stale-rows text\n\(app.debugDescription)")
         XCTAssertFalse(text(app, containing: "Couldn't refresh").exists, "no refresh-failed text\n\(app.debugDescription)")

@@ -25,11 +25,45 @@ export function startDevMotionAudit(scheme: unknown, win: Window = window): void
   }
 }
 
-/** While a reply streams, the transcript grows at its end: a declared move of its rows
- *  (schemas/layout-motion/contract.json `stream-append`), judged by the layout-motion audit. */
+// The `stream-append` declaration, open only while a reply is growing the transcript's end *and* the
+// view follows that end. The contract says so in as many words ("rows above it rise with it only
+// while the view follows the end"), and the narrowing is the point: a reader parked up in the
+// finished turns sees the growth land below the view, so on screen nothing may move, and a row that
+// moves anyway is a shift with nothing to excuse it (Leo, 2026-11-22: "IT FUCKING JUMPS ... AND I
+// SHOULDN'T HAVE TO KEEP FUCKING IDENTIFYING THIS SHIT"). Held outside React so a follow change
+// opens or closes the declaration without re-rendering the pane.
+let streamAppendEnd: (() => void) | undefined;
+let appendWorking = false;
+let appendFollowing = true;
+
+function syncStreamAppend(): void {
+  const want = appendWorking && appendFollowing;
+  if (want === (streamAppendEnd !== undefined)) return;
+  if (want)
+    streamAppendEnd = declareMove({ event: "stream-append", scope: "all", by: "turn working, view at the end" });
+  else {
+    streamAppendEnd?.();
+    streamAppendEnd = undefined;
+  }
+}
+
+/** While a reply streams and the view follows the end, the transcript grows there: a declared move of
+ *  its rows (schemas/layout-motion/contract.json `stream-append`), judged by the layout-motion audit. */
 export function useStreamAppendDeclaration(working: boolean): void {
-  useEffect(
-    () => (working ? declareMove({ event: "stream-append", scope: "all", by: "turn working" }) : undefined),
-    [working],
-  );
+  useEffect(() => {
+    appendWorking = working;
+    syncStreamAppend();
+    return () => {
+      appendWorking = false;
+      syncStreamAppend();
+    };
+  }, [working]);
+}
+
+/** The transcript's follow state, as the pane learns it (VirtualTranscript `onFollowingChange`).
+ *  Away from the end nothing on screen may move, so `stream-append` excuses nothing. */
+export function noteTranscriptFollowing(following: boolean): void {
+  if (appendFollowing === following) return;
+  appendFollowing = following;
+  syncStreamAppend();
 }
