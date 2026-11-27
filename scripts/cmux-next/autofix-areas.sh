@@ -28,8 +28,9 @@ area graph 'Packages/|scripts/cmux-next/ci-target-graph\.py'
 area capabilities 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift|plans/cmux-next/daemon-capabilities\.json|scripts/cmux-next/check-daemon-capabilities-fresh\.py|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh'
 # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
 area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
-# The SDK generator reads the SDK schema and its own emitters.
-area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
+# SDK bindings and the daemon ABI surface share spec inputs. The ABI checker also follows its
+# implementation and build inputs; rules, fixtures and the baseline all live under spec/.
+area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/crates/cmux-api-compat/|cmux-tui/(Cargo\.(toml|lock)|rust-toolchain\.toml)$'
 # The action exports (regenerated on a Mac: regenerate-action-exports.sh) read
 # CmuxNextActions, the tests that write them, and for links.json the URL schemes
 # of CmuxNextCloud's CloudConfiguration. CmuxNextActions reads the Rust catalog
