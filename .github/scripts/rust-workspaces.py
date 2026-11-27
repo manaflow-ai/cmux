@@ -38,14 +38,17 @@ with --locked when it tracks a Cargo.lock; both run, and either failing fails it
 from __future__ import annotations
 
 import argparse
+import contextlib
 from fnmatch import fnmatch
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 
@@ -381,6 +384,29 @@ def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
     return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
 
 
+@contextlib.contextmanager
+def short_tmpdir():
+    """A scratch directory with a path short enough for a Unix socket (SUN_LEN). /tmp on a shared pool VM can vanish
+    for a moment under a neighbour runner's cleanup (FileNotFoundError from mkdtemp, the false reds of 11-26/27):
+    recreate it, retry, and fall back to /dev/shm; never fail the job on its own scratch space."""
+    last: OSError | None = None
+    for attempt in range(6):
+        for parent in ("/tmp", "/dev/shm"):
+            try:
+                os.makedirs(parent, mode=0o1777, exist_ok=True)
+                path = tempfile.mkdtemp(prefix="rw.", dir=parent)
+            except OSError as error:
+                last = error
+                continue
+            try:
+                yield path
+            finally:
+                shutil.rmtree(path, ignore_errors=True)
+            return
+        time.sleep(0.5 * (attempt + 1))
+    raise last if last else RuntimeError("no scratch directory")
+
+
 def run(repo: Path, root: str) -> int:
     entry = next((entry for entry in load_list(repo) if entry.get("root") == root and entry.get("run") is True), None)
     if entry is None:
@@ -394,7 +420,7 @@ def run(repo: Path, root: str) -> int:
     ]
     red = []
     # Tests that bind Unix sockets under TMPDIR need a path shorter than SUN_LEN.
-    with tempfile.TemporaryDirectory(prefix="rw.", dir="/tmp") as short_tmp:
+    with short_tmpdir() as short_tmp:
         env = {**os.environ, "TMPDIR": short_tmp}
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)

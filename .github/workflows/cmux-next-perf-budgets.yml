@@ -332,7 +332,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # A plan takes about a minute; a result run may wait up to an hour for the rate limit's reset first.
+    # A plan takes about a minute; any tick may wait up to an hour for a spent rate limit's reset first.
     timeout-minutes: 75
     outputs:
       action: ${{ steps.plan.outputs.action }}
@@ -371,10 +371,26 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # The run's own token shares the repository's hourly limit with every other workflow, which they spend:
+      # 2026-11-27 12:20Z-13:27Z five ticks in a row read no state ("GitHub rate limit (the state was not read)")
+      # while the cron needs about 16 calls a tick. The cmux-bot App (which the dispatcher already mints) has its own
+      # limit; the run's token stays the fallback when it is not configured or does not mint.
+      - name: Mint the cmux-bot read token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Read the state and pick this tick's work
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}
@@ -390,10 +406,11 @@ jobs:
           [ -n "$MAC_GATEWAY" ] || [ "$MAC_CONTROLLER" != 1 ] || route=(--controller)
           # The Linux parts on the build controller first, the linux job only after unanswered requests.
           [ "$LINUX_CONTROLLER" != 1 ] || route+=(--linux-controller)
-          # A result run carries the result of a part that ran on the bench: it waits out a spent rate limit (it
-          # resets within the hour) instead of dropping the result. A plain tick does nothing and the next one tries.
-          wait=()
-          [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
+          # Every tick waits out a spent rate limit (it resets within the hour) and then reads the state: a tick that
+          # gave up met the same spent limit at the next tick, all hour (2026-11-27: five ticks in a row). The
+          # dispatcher starts no tick while one is in progress, so a waiting tick holds no other back. A result run
+          # waits the same way instead of dropping its result.
+          wait=(--wait-limit 3600)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
           # The plan itself takes about a minute. Run 44731310755 (2026-11-20) printed nothing for 74 minutes after
           # fetch-state, held by the job's cap: its prints sat in a pipe buffer, so the log named no line. Unbuffered,
@@ -417,7 +434,7 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (#54437)
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the

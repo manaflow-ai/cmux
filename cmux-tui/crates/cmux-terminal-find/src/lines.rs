@@ -29,15 +29,24 @@ pub fn find_in_lines<S: AsRef<str>>(
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate().rev() {
         let line = line.as_ref();
-        let found: Vec<(usize, usize)> = matcher.ranges(line).collect();
-        for &(start, end) in found.iter().rev() {
+        // Each match's UTF-16 offset, counted on from the previous match's end: one pass over
+        // the line, not a count from the line's start per match (quadratic on a long line).
+        let mut found: Vec<(usize, usize, u32)> = Vec::new();
+        let (mut counted_to, mut offset) = (0usize, 0u32);
+        for (start, end) in matcher.ranges(line) {
+            offset =
+                offset.saturating_add(utf16_len(line.get(counted_to..start).unwrap_or_default()));
+            counted_to = start;
+            found.push((start, end, offset));
+        }
+        for &(start, end, start16) in found.iter().rev() {
             if out.len() == max_matches {
                 return (out, true);
             }
             let (snippet, snippet_start, snippet_len) = snippet(line, start, end);
             out.push(LineMatch {
                 line: index,
-                start: utf16_len(line.get(..start).unwrap_or_default()),
+                start: start16,
                 len: utf16_len(line.get(start..end).unwrap_or_default()),
                 snippet,
                 snippet_start,
@@ -56,15 +65,20 @@ fn utf16_len(text: &str) -> u32 {
 /// only when the match itself is longer), trimmed of leading blanks, with the match's offset
 /// and length in the snippet in UTF-16 units.
 pub(crate) fn snippet(line: &str, start: usize, end: usize) -> (String, u32, u32) {
+    // `start..end` come from the matcher's ranges, on char boundaries; an empty snippet is the
+    // fallback, never a panic.
     let matched = line.get(start..end).unwrap_or_default();
     let room = SNIPPET_CHARS.saturating_sub(matched.chars().count());
     // A third of the room before the match, the rest after it: what follows a hit reads on.
     let before_room = room / 3;
-    let before: Vec<char> = line.get(..start).unwrap_or_default().chars().collect();
-    let take_before = before.len().min(before_room);
-    let after_room = room - take_before;
-    let lead: String =
-        before.get(before.len() - take_before..).unwrap_or_default().iter().collect();
+    // Walk back from the match at most `before_room` characters: the snippet costs its own
+    // length, never the line's (a find over a long soft-wrapped line reports many matches).
+    let before = line.get(..start).unwrap_or_default();
+    let lead_start =
+        before.char_indices().rev().take(before_room).last().map_or(start, |(at, _)| at);
+    let lead = before.get(lead_start..).unwrap_or_default();
+    let take_before = lead.chars().count();
+    let after_room = room.saturating_sub(take_before);
     let lead = lead.trim_start();
     let tail: String = line.get(end..).unwrap_or_default().chars().take(after_room).collect();
     let tail = tail.trim_end();
