@@ -57,7 +57,7 @@ usage: cmux token create NAME|--name=NAME [--scope=machines --scope=chats ...]
        cmux token github remove ID
 
 cmux API tokens (cmux_pat_...) let a script, a CI job or another computer use cmux with no app
-and no sign-in. The CLI and the API are one surface: anything `cmux` does in Cloud with your
+and no sign-in. The CLI and the API offer the same operations: anything `cmux` does in Cloud with your
 sign-in, it does with a token in CMUX_TOKEN.
 
   create NAME     Make a token and print it once (stdout: the token alone; the note on stderr).
