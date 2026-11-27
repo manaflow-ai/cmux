@@ -571,3 +571,7 @@ pub(super) fn advertised_capabilities(
 #[cfg(test)]
 #[path = "capabilities_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "gui_capabilities_tests.rs"]
+mod gui_capabilities_tests;
