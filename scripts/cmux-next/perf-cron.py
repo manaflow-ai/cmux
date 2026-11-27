@@ -337,8 +337,12 @@ PARTS = [
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
+    # goal: NOW's chat_snappy_send_paint_p95_ms (goal snappy-enter-paint), so once due it goes right after the build
+    # (part_order). Without it the part kept its PARTS place behind every stale Mac part and the row read one run, at
+    # e7e5eceb on 2026-11-25 08:50Z, for 2 days. goal_rows: a store without the plain send_paint row stays due.
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy",
+     "goal": "snappy-enter-paint", "goal_rows": r"chat_snappy\.none\.send_paint@", "run_seconds": 1800},
     # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
     # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
     # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus

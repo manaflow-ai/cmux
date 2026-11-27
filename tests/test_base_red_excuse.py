@@ -1897,6 +1897,41 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
 
+    def machine_fault_setup(self, line):
+        # cmux#62929 run 46070277122: the job pins Xcode 27.2 and aws-m4pro-7-glaeda-6 has only 26.3 and 26.6.
+        self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
+                                    {"name": "Select Xcode", "status": "completed", "conclusion": "failure"},
+                                    {"name": "Complete job", "status": "completed", "conclusion": "success"}]
+        self.gh.logs[1] = log(SWIFT, "Select Xcode", "Run ./scripts/select-ci-xcode.sh", line,
+                              "##[error]Process completed with exit code 1.")
+
+    PIN_MISSING = ("##[error]Pinned Xcode developer dir does not exist: /Applications/Xcode_27.2.app/Contents/Developer "
+                   "on runner aws-m4pro-7-glaeda-6. [cmux-ci machine: xcode-pin-missing] Installed: Xcode_26.3, 26.6")
+
+    def test_a_machine_tagged_red_is_rerun_never_the_prs_own_red(self):
+        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        self.machine_fault_setup(self.PIN_MISSING)
+        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner \(job 1: a machine "
+                                                    r"fault, \[cmux-ci machine: xcode-pin-missing\]: Pinned Xcode "
+                                                    r".*aws-m4pro-7-glaeda-6.*\); it gets re-run, never excused$"):
+            self.judge()
+
+    def test_a_machine_tag_outside_an_error_line_is_judged(self):
+        # The runner's echo of a script shows `::error::`, and a test may print the tag: neither is the machine's word.
+        for line in ('echo "::error::no Xcode here [cmux-ci machine: xcode-pin-missing]"',
+                     "FAIL: expected [cmux-ci machine: xcode-pin-missing] in the log"):
+            self.machine_fault_setup(line)
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+            self.assertNotIn("machine fault", str(said.exception))
+
+    def test_the_machine_tag_reading_turns_off(self):
+        self.machine_fault_setup(self.PIN_MISSING)
+        with unittest.mock.patch.dict(os.environ, {excuse.MACHINE_TAG_ENV: "0"}):
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+        self.assertNotIn("machine fault", str(said.exception))
+
     def checkout_death_setup(self):
         # cmux#51655 at fd3c0b17: 'changes' died fetching in actions/checkout (git exit 128), before any PR step ran.
         checkout = "Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
@@ -14143,6 +14178,7 @@ RAW_LOG_READERS = {
                        "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
+    "machine_fault": "a gate: a `##[error]` line tagged `[cmux-ci machine: KIND]`; only refuses, for a rerun",
     "checkout_death": "a gate: a checkout that died before any step of the change ran (test_reds.died_in_checkout); "
                       "only refuses, for a rerun",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
@@ -17904,6 +17940,7 @@ SCANNERS = {
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
+    "base_red_excuse.machine_fault": lambda f: excuse.machine_fault(f.log),
     "base_red_excuse.swift_without_comments": lambda f: excuse.swift_without_comments(f.log),
     "base_red_excuse.package_tests": lambda f: excuse.package_tests(_package(), f.view),
     "base_red_excuse.guard_tests": lambda f: excuse.guard_tests(f.view),
