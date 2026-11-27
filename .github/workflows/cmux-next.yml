@@ -474,7 +474,6 @@ on:
       - webviews/src/**
       # Why: note-467
       - webviews/**
-      - scripts/cmux-next/private-bun.sh
       - webviews/scripts/**
       - webviews/package.json
       - webviews/bun.lock
