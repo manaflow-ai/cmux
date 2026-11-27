@@ -8456,17 +8456,19 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
     JOB = "risk evidence"
     STEP = "Grade the pull request"
 
-    def case(self, *lines, workflow_path=".github/workflows/risk-tier.yml@refs/heads/main", event="pull_request_target"):
+    def case(self, *lines, workflow_path=".github/workflows/risk-tier.yml@refs/heads/main", event="pull_request_target",
+             steps=None, step_name=None):
+        step_name = step_name or self.STEP
         job = {"id": 123, "run_id": 10, "name": self.JOB, "status": "completed", "conclusion": "failure",
-               "steps": framed_steps([(self.STEP, "failure", 3, 6)])}
-        text = framed_log([(self.STEP, 3, "##[group]Run python3 scripts/ci/risk_tier.py pr"),
-                           *[(self.STEP, 4, line) for line in lines]], job_name=self.JOB)
+               "steps": framed_steps(steps or [(step_name, "failure", 3, 6)])}
+        text = framed_log([(step_name, 3, "##[group]Run python3 scripts/ci/risk_tier.py pr"),
+                           *[(step_name, 4, line) for line in lines]], job_name=self.JOB)
         run_reads = {("run-record", 10): {"path": workflow_path, "event": event}}
         return excuse.risk_evidence_quota_only(
             REPO, job, text, object(), run_reads, step_names=excuse.STEP_NAMES_UNKNOWN)
 
     def test_marker_is_a_retryable_quota_refusal(self):
-        said = self.case(self.MARKER, "::warning::risk evidence: ungraded, GitHub rate limit (not a verdict)")
+        said = self.case(self.MARKER, "::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
         self.assertIn("HTTP 403", said)
         self.assertIn("rerun after", said)
 
@@ -8477,8 +8479,23 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
         self.assertIsNone(self.case(self.MARKER, "::warning::Takes back #57000: stale base"))
 
     def test_marker_from_another_workflow_or_step_is_not_trusted(self):
+        self.assertIsNone(self.case(self.MARKER, workflow_path=".github/workflows/risk-tier.yml@refs/heads/feat-cmux-next"))
         self.assertIsNone(self.case(self.MARKER, workflow_path=".github/workflows/other.yml@refs/heads/main"))
         self.assertIsNone(self.case(self.MARKER, event="push"))
+
+    def test_bare_main_workflow_path_is_trusted_but_wrong_step_is_not(self):
+        self.assertIsNotNone(self.case(self.MARKER, workflow_path=".github/workflows/risk-tier.yml"))
+        self.assertIsNone(self.case(self.MARKER, step_name="A different step"))
+
+    def test_duplicate_grade_steps_and_unstructured_error_are_not_trusted(self):
+        self.assertIsNone(self.case(self.MARKER, steps=[(self.STEP, "failure", 3, 5),
+                                                        (self.STEP, "failure", 5, 7)]))
+        self.assertIsNone(self.case(self.MARKER, "provider said no"))
+
+    def test_runner_warning_form_is_trusted_and_takeback_is_not(self):
+        self.assertIsNotNone(self.case(self.MARKER,
+                                       "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
+        self.assertIsNone(self.case(self.MARKER, "Takes back #57000: stale base"))
 
 
 class RetargetedGitHub(FakeGitHub):

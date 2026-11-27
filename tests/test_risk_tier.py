@@ -1479,14 +1479,25 @@ class RateLimitedPrModeTests(unittest.TestCase):
     def test_a_rate_limit_ends_red_with_the_fixed_marker(self):
         code, out, summary, log = self.run_pr()
         self.assertEqual(code, 1)
-        for line in ("tier=ungraded", "label=", "ready=false", "takes_back=false"):
+        for line in ("tier=ungraded", "label=", "ready=false"):
             self.assertIn(line + "\n", out)
+        self.assertNotIn("takes_back=", out)
         marker = next(line for line in log.splitlines() if line.startswith("risk-evidence.rate-limited "))
         self.assertEqual(json.loads(marker.split(" ", 1)[1]),
                          {"endpoint": "repos/o/r/pulls/7/files?per_page=100", "graded": False,
                           "reset": 1_800_000_000, "status": 403})
         self.assertIn("HTTP 403", summary)
         self.assertIn("not a verdict", summary)
+
+    def test_ungraded_preserves_a_takeback_found_before_a_later_api_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            error = risk.RateLimited(1, ["gh", "api", "x"], endpoint="repos/o/r/pulls/7/reviews",
+                                     status=429, reset=1_800_000_000)
+            error.takeback_numbers = [57000]
+            args = risk.argparse.Namespace(summary=str(summary), github_output=str(out))
+            self.assertEqual(risk.ungraded(args, error), 1)
+            self.assertIn("Takes back #57000:", summary.read_text())
 
 
 class GhFailureTests(unittest.TestCase):

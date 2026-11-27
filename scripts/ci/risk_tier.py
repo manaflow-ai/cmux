@@ -776,6 +776,9 @@ class RateLimited(subprocess.CalledProcessError):
         self.endpoint = endpoint
         self.status = status
         self.reset = reset
+        # Set by pr_mode when the local takeback pass completed before a later API refusal.  A quota seen before
+        # that pass leaves this unset, so the marker never claims a clean takeback result it did not obtain.
+        self.takeback_numbers: list[int] | None = None
 
 
 def _gh_api_endpoint(args: list[str]) -> str:
@@ -797,55 +800,63 @@ def _gh_api_endpoint(args: list[str]) -> str:
 
 
 def _http_response(stdout: str) -> tuple[str, int | None, dict[str, str]]:
-    """Split only leading HTTP response blocks; an HTTP-looking body line is never response metadata."""
-    cursor, status, headers = 0, None, {}
-    while True:
-        match = re.match(r"HTTP/\S+\s+(\d{3})\b[^\r\n]*(?:\r\n|\n)", stdout[cursor:])
-        if match is None:
-            break
-        boundary = re.search(r"\r?\n\r?\n", stdout[cursor + match.end():])
-        if boundary is None:
-            return stdout, int(match.group(1)), {}
-        status = int(match.group(1))
-        header_text = stdout[cursor + match.end():cursor + match.end() + boundary.start()]
-        headers = {}
-        for line in header_text.splitlines():
-            key, sep, value = line.partition(":")
-            if sep:
-                headers[key.strip().lower()] = value.strip()
-        cursor += match.end() + boundary.end()
-        # gh may print a second block for a redirect; only a 3xx response can start one. A body beginning with
-        # "HTTP/..." is data and must not replace the real status or headers.
-        if status is None or not 300 <= status < 400 or not re.match(r"HTTP/\S+\s+\d{3}\b", stdout[cursor:]):
-            break
-    if status is None:
+    """Split one leading ``gh api --include`` response block; an HTTP-looking body line is data."""
+    match = re.match(r"HTTP/\S+\s+(\d{3})\b[^\r\n]*(?:\r\n|\n)", stdout)
+    if match is None:
         return stdout, None, {}
-    return stdout[cursor:], status, headers
+    status = int(match.group(1))
+    rest = stdout[match.end():]
+    # The status line consumed its line ending.  An empty header block therefore starts with one more line ending;
+    # non-empty headers have the normal blank-line separator after the final header.
+    if rest.startswith("\r\n"):
+        return rest[2:], status, {}
+    if rest.startswith("\n"):
+        return rest[1:], status, {}
+    boundary = re.search(r"\r?\n\r?\n", rest)
+    if boundary is None:
+        return stdout, status, {}
+    header_text = rest[:boundary.start()]
+    headers = {}
+    for line in header_text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            headers[key.strip().lower()] = value.strip()
+    return rest[boundary.end():], status, headers
 
 
 def _quota_reset(headers: dict[str, str]) -> tuple[float | None, float | None]:
     """Return (absolute reset epoch for the marker, wait seconds for this process)."""
+    now = time.time()
+    absolute: float | None = None
     if (raw := headers.get("x-ratelimit-reset")) is not None:
         try:
             reset = float(raw)
             if math.isfinite(reset) and reset >= 0:
-                return reset, max(0.0, reset - time.time())
+                absolute = reset
         except (TypeError, ValueError):
             pass
     if (raw := headers.get("retry-after")) is not None:
         try:
             wait = float(raw)
             if math.isfinite(wait) and wait >= 0:
-                return time.time() + wait, wait
+                retry_reset = now + wait
+                if absolute is None or retry_reset > absolute:
+                    absolute = retry_reset
+                return absolute, max(0.0, absolute - now)
         except (TypeError, ValueError):
             try:
                 date = email.utils.parsedate_to_datetime(raw)
                 if date is not None:
-                    wait = max(0.0, date.timestamp() - time.time())
-                    return time.time() + wait, wait
+                    wait = max(0.0, date.timestamp() - now)
+                    retry_reset = now + wait
+                    if absolute is None or retry_reset > absolute:
+                        absolute = retry_reset
+                    return absolute, max(0.0, absolute - now)
             except (TypeError, ValueError, OverflowError):
                 pass
-    return None, None
+    # A structured quota response without a usable reset is still a quota refusal.  The marker remains numeric and
+    # tells the consumer it may be retried immediately; no sleep is performed without a trustworthy duration.
+    return (absolute if absolute is not None else now), (None if absolute is None else max(0.0, absolute - now))
 
 
 def gh_run(args: list[str], attempts: int = 3) -> str:
@@ -896,6 +907,10 @@ def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
         "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
         "", "Policy: docs/ci/risk-tiers.md"])
     marker = {"endpoint": error.endpoint, "graded": False, "reset": error.reset, "status": error.status}
+    takebacks = error.takeback_numbers or []
+    if takebacks:
+        report += "\n\n" + "\n".join(f"Takes back #{number}: unowned takeback found before the API refusal"
+                                             for number in takebacks)
     print("risk-evidence.rate-limited " + json.dumps(marker, sort_keys=True, separators=(",", ":")))
     print(report)
     print("::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
@@ -904,7 +919,7 @@ def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
             summary.write(report + "\n")
     if args.github_output:
         with Path(args.github_output).open("a") as out:
-            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=false\ntakes_back=false\ntakes_back_fix=\n")
+            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=false\n")
     return 1
 
 
@@ -1300,7 +1315,8 @@ def pr_mode(args: argparse.Namespace) -> int:
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
-        except RateLimited:
+        except RateLimited as error:
+            error.takeback_numbers = unowned_takebacks(pr.get("body") or "", list(undone))
             raise
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
