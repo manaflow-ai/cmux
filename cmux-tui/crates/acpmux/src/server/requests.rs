@@ -2953,6 +2953,17 @@ async fn dispatch_request_with_identity(
         }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
+        // The pause's hold of systemd's watchdog (`daemon/watchdog.rs`): this machine's own unix
+        // socket only, as the daemon's user runs it on the guest just before the pause.
+        method::MUX_WATCHDOG_HOLD => {
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "only this machine's unix socket may hold the daemon's watchdog",
+                ));
+            }
+            let held = crate::daemon::watchdog_hold();
+            Ok(json!({"held": held, "until_resume": held}))
+        }
         method::MUX_FELT_SNAPSHOT => {
             if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
                 return Err(RpcError::invalid_params(
