@@ -982,18 +982,6 @@
       "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
     },
-    "agents.modelRouter.model" : {
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "description" : "The model new cmux model router chats start on.",
-      "enum" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "title" : "cmux Model Router Model",
-      "type" : "string"
-    },
     "agents.promptCache" : {
       "default" : "1h",
       "description" : "One hour keeps replies after a pause cheap; its cache writes cost a little more.",
@@ -1097,6 +1085,12 @@
       "default" : true,
       "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
       "title" : "Download Announcements",
+      "type" : "boolean"
+    },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
       "type" : "boolean"
     },
     "app.confirmQuit" : {
@@ -7529,7 +7523,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
@@ -8316,7 +8310,7 @@
       "type" : "string"
     },
     "worktrees.cleanBuildCaches" : {
-      "default" : false,
+      "default" : true,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"

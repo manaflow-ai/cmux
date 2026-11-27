@@ -2190,16 +2190,17 @@ async fn dispatch_request_with_identity(
             // alone): a refusal before the session sees it deletes them, so none is left behind.
             // Take ownership only after the lookup finishes in time. A retry after a timeout
             // can still name these uploads even if the background lookup finishes later.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 prompt_preparation(
                     answer_due,
                     "prompt_uploads::owned",
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_paths(&s.id, &blocks),
                 )
-                .await?
-            });
+                .await
+                .map(crate::attach::OwnedUploads)?
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
@@ -4118,6 +4119,10 @@ async fn dispatch_request_with_identity(
             let s = hub.resolve(session_key(&params)?)?;
             if params.get("look").and_then(Value::as_bool) == Some(true) {
                 return Ok(crate::hub::turn_frames::look(&s.id).await);
+            }
+            // A `cmux live` loop's build is in place (`acpmux frame @ --built SOURCE`): a frame.
+            if let Some(source) = str_param(&params, "built") {
+                return Ok(crate::hub::turn_frames::built(&s.id, source));
             }
             Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }

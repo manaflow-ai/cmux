@@ -97,6 +97,9 @@ mod handshake_tests;
 #[cfg(test)]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
+#[cfg(test)]
+#[path = "peer_link_quality_tests.rs"]
+mod link_quality_tests;
 #[path = "peer_liveness.rs"]
 pub mod liveness;
 #[cfg(test)]
@@ -564,6 +567,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// How good the link is, from its pings' round trips and late ticks (`peer_link_quality.rs`):
+    /// `quality` in `_acpmux/peers`. Kept across links, like `silence`.
+    quality: StdMutex<crate::peer_link_quality::LinkQuality>,
     /// A link dialed while the last one sat silent past its budget, and opened first
     /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
     replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,

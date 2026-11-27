@@ -118,6 +118,17 @@ fi
 
 # The provider's plain resolv.conf names only the edge resolver and bypasses resolved; the stub
 # goes back only when resolved has a nameserver in it, so the machine is never left without one.
+# resolved rewrites the stub after the restart above (and after the provider's own restart on
+# resume), so it can be missing or empty for a moment. Its change event lands while this oneshot
+# still runs and does not start it again, so a pass that read it then left the plain file for good:
+# image roll 45939027983 (2026-11-27), every name failed with the edge resolver silent. Wait for
+# it, bounded (CMUX_DNS_STUB_WAIT_S, default 10 s).
+if [ ! -L "$resolv_conf" ]; then
+  waited=0
+  while ! grep -q '^nameserver ' "$stub" 2>/dev/null && [ "$waited" -lt "${CMUX_DNS_STUB_WAIT_S:-10}" ]; do
+    sleep 1; waited=$((waited + 1))
+  done
+fi
 if [ ! -L "$resolv_conf" ] && grep -q '^nameserver ' "$stub" 2>/dev/null; then
   plain_servers="$(awk '$1 == "nameserver" { print $2 }' "$resolv_conf" 2>/dev/null | tr '\n' ' ')"
   only_edge=1

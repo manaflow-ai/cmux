@@ -169,7 +169,8 @@ jobs:
               "$flavor" "$flavor" > "$guest/cmux-$flavor.list"
           done
           put() { # <file> <content type> <cache control>
-            local url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
+            local url
+            url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
             local status
             status="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
               | curl --config - --silent --show-error --retry 3 --retry-delay 2 \
