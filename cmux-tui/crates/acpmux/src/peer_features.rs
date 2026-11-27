@@ -28,6 +28,7 @@ use crate::rpc::method as m;
 /// listed only on some connections (`listStream`, `listPages`, `linkControls`, `listHubRows`) or
 /// added after (`queueGet`, `server/requests/queued.rs`).
 pub const PEER_FEATURES: &[PeerFeature] = &[
+    PeerFeature { id: crate::hub::presence::PEER_FEATURE, gates: &[] },
     PeerFeature { id: "promptAccepted", gates: &[m::MUX_PROMPT_ACCEPTED] },
     PeerFeature { id: "turnIds", gates: &[] },
     PeerFeature { id: "eventPaging", gates: &[] },
