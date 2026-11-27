@@ -1,14 +1,5 @@
 import Foundation
 
-/// `remote-host-status` (`remote-host-v1`, docs/cmux-remote.md): cmux Remote's state as the
-/// daemon sees it (never starts the host).
-public struct RemoteHostStatusRequest: DaemonRequest {
-    public typealias Response = JSONValue
-    public static let command = "remote-host-status"
-    public static var requiredCapability: String? { DaemonCapability.remoteHost.rawValue }
-    public init() {}
-}
-
 /// `remote-host-call {method, params}`: one cmux Remote request (status, refresh, request,
 /// open_settings, restart, screen.share, screen.access, screen.stop_session).
 public struct RemoteHostCallRequest: DaemonRequest {
