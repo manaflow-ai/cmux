@@ -15,9 +15,11 @@ script reads them):
      and after (prompts, continuation prompts, interruption markers, repeated tool calls).
   3. one follow-up `cmux chat send SESSION TEXT --wait` into the first moved chat.
   4. one `CMUX_HYBRID_START=0` control start with the same prompt (`--wait`, today's Cloud start).
-  5. every machine this run made is killed (the list before vs after, and every id a log names).
+  5. cleanup uses machine IDs returned by this run’s vm:new commands.
 Evidence: DIR/evidence.json, DIR/summary.md and each driver log. No token is written anywhere.
 """
+from __future__ import annotations
+
 import argparse, json, os, re, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
@@ -71,7 +73,7 @@ def save() -> None:
     (OUT / "evidence.json").write_text(redact(json.dumps(evidence, indent=2, default=str)))
 
 
-def run(words, *, cli=CLI, env=None, timeout=120) -> dict:
+def run(words, *, cli=CLI, env=None, timeout=120, full_output=False) -> dict:
     started = time.monotonic()
     try:
         done = subprocess.run([cli, *words], env=env or ENV, capture_output=True, text=True, timeout=timeout)
@@ -79,7 +81,9 @@ def run(words, *, cli=CLI, env=None, timeout=120) -> dict:
     except subprocess.TimeoutExpired as e:
         code, out, err = 124, (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or ""), \
             f"timed out after {timeout}s"
-    return {"words": words, "code": code, "ms": ms(started), "out": redact(out)[-6000:], "err": redact(err)[-4000:]}
+    out = redact(out)
+    return {"words": words, "code": code, "ms": ms(started), "out": out if full_output else out[-6000:],
+            "err": redact(err)[-4000:]}
 
 
 def parsed(text: str):
@@ -111,24 +115,20 @@ def machines() -> dict:
 
 
 def transcript(session: str) -> dict:
-    """Counts from `agents chat read`: the person's prompts, continuation prompts, interruption markers, tool calls
-    (and repeats of the same command)."""
-    got = run(["agents", "chat", "read", session, "--limit", "200", "--json"], timeout=60)
+    """Count transcript items. The CLI exposes tool IDs but omits command arguments."""
+    got = run(["agents", "chat", "read", session, "--limit", "200", "--json"], timeout=60, full_output=True)
     text = got["out"]
-    value = parsed(text)
-    items = (value.get("result") or value).get("items") if isinstance(value, dict) else None
-    items = items if isinstance(items, list) else []
-    prompts = [i for i in items if isinstance(i, dict) and i.get("role") in ("user", "person", "prompt")
-               or (isinstance(i, dict) and i.get("kind") in ("prompt", "user_message"))]
-    tools = [json.dumps(i.get("input") or i.get("title") or i.get("command") or "")
-             for i in items if isinstance(i, dict) and (i.get("kind") in ("tool_call", "tool") or i.get("toolCallId"))]
+    items = chat_items(text)
+    prompts = [item for item in items if item.get("role") == "user"]
+    tools = [item for item in items if item.get("role") == "tool"]
+    assistant = agent_text(text)
     return {
         "code": got["code"], "items": len(items), "prompts": len(prompts),
         "continuations": len(re.findall(r"(?i)continu(?:e|ation)[^\"]{0,80}(?:move|machine|where you)", text)),
         "interrupted_markers": text.count("[Request interrupted"),
-        "tool_calls": len(tools), "repeated_tool_calls": len(tools) - len(set(tools)),
-        "sleep_calls": agent_text(text).count("sleep 20"), "done_1": agent_text(text).count("done-1"),
-        "finished": agent_text(text).lower().count("finished"),
+        "tool_calls": len(tools), "repeated_tool_calls": None,
+        "done_1": assistant.count("done-1"),
+        "finished": assistant.lower().count("finished"),
         "raw_tail": text[-3000:] if got["code"] == 0 else got["err"][-1500:],
     }
 
@@ -151,19 +151,25 @@ def follow_log(path: Path, lines: list, stop: threading.Event) -> None:
 
 
 OK_WORD = re.compile(r"(?i)\bok\b")
-PERSON_ROLES = ("user", "person", "prompt", "turn_end")
+
+
+def chat_items(text: str) -> list:
+    value = parsed(text)
+    payload = value.get("result", value) if isinstance(value, dict) else None
+    items = payload.get("items") if isinstance(payload, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
 def agent_text(text: str) -> str:
-    """What the agent and its tools wrote, as one string: every item of an `agents chat read` except the person's
-    prompts and turn ends. The prompt itself holds "ok", "done-1" and "finished", so a count over the whole read
-    is true before the agent says a word (the first staging run's numbers were that)."""
+    return "\n".join(item["text"] for item in chat_items(text)
+                     if item.get("role") == "assistant" and isinstance(item.get("text"), str))
+
+
+def reply_text(text: str) -> str:
     value = parsed(text)
-    items = (value.get("result") or value).get("items") if isinstance(value, dict) else None
-    return "\n".join(
-        json.dumps(i) for i in items or []
-        if isinstance(i, dict) and i.get("role") not in PERSON_ROLES and i.get("kind") not in ("prompt", "user_message")
-    )
+    payload = value.get("result", value) if isinstance(value, dict) else None
+    reply = payload.get("reply") if isinstance(payload, dict) else None
+    return reply if isinstance(reply, str) else ""
 
 
 def first_token(session: str, started: float, out: dict, stop: threading.Event) -> None:
@@ -171,7 +177,7 @@ def first_token(session: str, started: float, out: dict, stop: threading.Event) 
     reply's "ok" is in it (ok_ms), noting when the transcript first grew past its first read (grew_ms)."""
     first = None
     while not stop.is_set() and "ok_ms" not in out:
-        got = run(["agents", "chat", "read", session, "--limit", "50", "--json"], timeout=20)
+        got = run(["agents", "chat", "read", session, "--limit", "50", "--json"], timeout=20, full_output=True)
         at = round((time.monotonic() - started) * 1000)
         text = got["out"] if got["code"] == 0 else ""
         if text and first is None:
@@ -260,8 +266,8 @@ def hybrid_run(index: int) -> dict:
     moving = next((shows[k] for k in shows if "mov" in k.lower()), None)
     live = next((shows[k] for k in shows if "live" in k.lower()), None)
     ready = next((shows[k] for k in shows if "ready" in k.lower()), None)
-    r["machine_ready_ms"] = ready if ready is not None else moving
-    r["machine_ready_from"] = "ready line" if ready is not None else ("move start (no ready line)" if moving is not None else None)
+    r["machine_ready_ms"] = ready
+    r["machine_ready_from"] = "ready line" if ready is not None else None
     r["machine_ready_s"] = round(r["machine_ready_ms"] / 1000, 2) if r["machine_ready_ms"] is not None else None
     r["move_ms"] = (live - moving) if live is not None and moving is not None else None
     r["live_ms"] = live
@@ -269,13 +275,7 @@ def hybrid_run(index: int) -> dict:
     waited = run(["chat", "wait", r["session"], "--timeout", "300", "--json"], timeout=330)
     r["turn_wait"] = {k: waited[k] for k in ("code", "ms", "out", "err")}
     r["turn_end_ms"] = ms(started)
-    reply = parsed(waited["out"])
-    reply = (reply.get("result") or reply).get("reply") if isinstance(reply, dict) else None
-    r["reply"] = reply
-    r["agents_ls"] = next((row for row in (parsed(run(["agent", "ls", "--json"])["out"]) or {}).get("result", {}).get("sessions", [])
-                          if isinstance(row, dict) and r["session"] in json.dumps(row)), None) \
-        if isinstance(parsed(run(["agent", "ls", "--json"])["out"]), dict) else None
-    r["agent_ls_raw"] = run(["agent", "ls", "--json"])["out"][-4000:]
+    r["reply"] = reply_text(waited["out"])
     r["transcript_end"] = transcript(r["session"])
     return r
 
@@ -291,16 +291,21 @@ def harness_names(config: Path) -> list | None:
         return None
 
 
-def kill_all(before: set) -> None:
-    named = {r.get("machine") for r in evidence["runs"] if r.get("machine")} | {evidence.get("control_machine")}
-    after = machines()
-    mine = (set(after) - before) | {m for m in named if m}
-    for machine in sorted(mine):
-        got = run(["cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json"], cli=APP_CLI, timeout=120)
+def cleanup_created_machines() -> None:
+    # Both the hybrid and control commands request vm:new. Account-wide listings
+    # can also contain machines that another journey started while ours ran.
+    created = {row["machine"] for row in evidence["runs"] if row.get("machine")}
+    if evidence.get("control_machine"):
+        created.add(evidence["control_machine"])
+    for machine in sorted(created):
+        got = run(["cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json"],
+                  cli=APP_CLI, timeout=120)
         evidence["machines_killed"].append({"machine": machine, "code": got["code"], "err": got["err"][-500:]})
+        if got["code"]:
+            FAILED.append(f"cleanup failed for {machine} (exit {got['code']})")
         print(f"kill {machine}: exit {got['code']}", flush=True)
-    left = set(machines()) - before
-    evidence["machines_left"] = sorted(left)
+    if created:
+        evidence["machines_left"] = sorted(created.intersection(machines()))
     save()
 
 
@@ -319,12 +324,7 @@ if TOKEN:
     launch += ["--env", f"{claude_login_cache.TOKEN_ENV}={TOKEN}"]
 launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", "staging"]
 launch_log = OUT / "open.log"
-launched_at = time.strftime("%Y-%m-%d %H:%M:%S")
-app = subprocess.Popen(launch, env=ENV, stdout=launch_log.open("w"), stderr=subprocess.STDOUT)
 APP_PATH = str(Path(args.app).resolve())
-evidence["launch"] = {"argv": [a if "=" not in a or not a.startswith("CLAUDE") else "CLAUDE_CODE_OAUTH_TOKEN=[redacted]"
-                               for a in launch], "socket": SOCKET}
-FAILED: list = []
 
 
 def sh(cmd: list, timeout: int = 60) -> str:
@@ -335,25 +335,39 @@ def sh(cmd: list, timeout: int = 60) -> str:
         return f"{cmd[0]}: {error}"
 
 
-def app_pids() -> list:
-    return [int(x) for x in sh(["/usr/bin/pgrep", "-f", APP_PATH + "/Contents/MacOS/"]).split() if x.isdigit()]
+def matching_pids() -> set[int]:
+    executable = re.escape(APP_PATH + "/Contents/MacOS/")
+    return {int(pid) for pid in sh(["/usr/bin/pgrep", "-f", "^" + executable]).split() if pid.isdigit()}
+
+
+existing_pids = matching_pids()
+
+
+def app_pids() -> list[int]:
+    return sorted(matching_pids() - existing_pids)
+
+
+def identified_pid(result: dict):
+    value = parsed(result.get("out", ""))
+    value = value.get("result", value) if isinstance(value, dict) else None
+    return value.get("pid") if result.get("code") == 0 and isinstance(value, dict) else None
+
+
+app_identified = False
+app = subprocess.Popen(launch, env=ENV, stdout=launch_log.open("w"), stderr=subprocess.STDOUT)
+evidence["launch"] = {"argv": [a if "=" not in a or not a.startswith("CLAUDE") else "CLAUDE_CODE_OAUTH_TOKEN=[redacted]"
+                               for a in launch], "socket": SOCKET}
+FAILED: list = []
 
 
 def diagnose(why: str) -> None:
-    """What the launch left behind, so a failure names its cause: open's exit, the app's processes, the sockets
-    they hold, /tmp's cmux sockets and the app's unified log since the launch."""
+    """Keep the launched app's output and socket diagnostics."""
     pids = app_pids()
-    (OUT / "launch-diagnostics.txt").write_text("\n".join([
-        f"why: {why}", f"open exit: {app.poll()}", f"open output: {launch_log.read_text()[-4000:] if launch_log.exists() else ''}",
-        f"app pids: {pids}", "ps:", sh(["/bin/ps", "-axo", "pid,ppid,etime,command"]),
-        "app sockets:", *[sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"]) for pid in pids],
-        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp/"]),
-        "state sockets:", sh(["/bin/ls", "-la", str(Path.home() / ".local/state/cmux") + "/"]),
-        "unified log:", sh(["/usr/bin/log", "show", "--style", "compact", "--info", "--start", launched_at,
-                             "--predicate", 'process CONTAINS[c] "cmux" OR subsystem CONTAINS[c] "cmux"'], timeout=120),
-    ]))
-    for crash in sorted(Path.home().glob("Library/Logs/DiagnosticReports/*cmux*"))[-3:]:
-        (OUT / f"crash-{crash.name}").write_text(crash.read_text(errors="replace")[-40000:])
+    output = launch_log.read_text(errors="replace")[-4000:] if launch_log.exists() else ""
+    (OUT / "launch-diagnostics.txt").write_text(redact("\n".join([
+        f"why: {why}", f"open exit: {app.poll()}", f"open output: {output}",
+        f"app pids: {pids}", *[sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"]) for pid in pids],
+    ])))
 
 
 def find_socket() -> str | None:
@@ -372,18 +386,18 @@ def find_socket() -> str | None:
         for path in sorted(str(p) for p in folder.glob("cmux*.sock")):
             probe = subprocess.run([APP_CLI, "app", "identify", "--json"], env={**ENV, "CMUX_SOCKET_PATH": path,
                                    "CMUX_NEXT_SOCKET_PATH": path}, capture_output=True, text=True, timeout=30)
-            if probe.returncode == 0 and parsed(probe.stdout).get("pid") in app_pids():
+            if identified_pid({"code": probe.returncode, "out": probe.stdout}) in app_pids():
                 return path
     return None
 
 
-before: set = set()
 try:
     deadline = time.monotonic() + 240
     switched = False
     while time.monotonic() < deadline:
         got = run(["app", "identify", "--json"], cli=APP_CLI, timeout=30)
-        if got["code"] == 0 and parsed(got["out"]).get("pid"):
+        if identified_pid(got) in app_pids():
+            app_identified = True
             break
         if not switched and time.monotonic() > deadline - 220:
             other = find_socket()
@@ -399,8 +413,8 @@ try:
     step("app identify", got)
     IDENT = parsed(got["out"]) if got["code"] == 0 else {}
     IDENT = (IDENT.get("result") or IDENT) if isinstance(IDENT, dict) else {}
-    if got["code"] != 0:
-        diagnose("app identify never answered")
+    if not app_identified:
+        diagnose("could not identify the app launched by this run")
         FAILED.append("app identify: " + (got["err"] or got["out"])[-300:])
         raise SystemExit(1)
     deadline = time.monotonic() + 300
@@ -466,11 +480,16 @@ try:
     bs = step("billing.status (the app's plan read)", run(["app", "call", "billing.status", "--json"], cli=APP_CLI, timeout=60))
     bv = parsed(bs["out"])
     evidence["billing_status"] = (bv.get("result") or bv) if isinstance(bv, dict) else bs["err"][-600:]
-    before = set(machines())
-    evidence["machines_before"] = sorted(before)
     for i in range(1, args.runs + 1):
         r = hybrid_run(i)
         evidence["runs"].append(r)
+        local_reply = (r.get("first_token") or {}).get("ok_ms")
+        ready = r.get("machine_ready_ms")
+        if local_reply is None or ready is None or local_reply >= ready:
+            FAILED.append(f"run {i}: no local model reply observed before machine readiness")
+        if (r.get("live_ms") is None or (r.get("turn_wait") or {}).get("code") != 0
+                or not re.search(r"\bfinished\b", r.get("reply", ""), re.I)):
+            FAILED.append(f"run {i}: no completed turn observed after handoff")
         save()
     if not any(r.get("log_path") for r in evidence["runs"]):
         FAILED.append("no run took the hybrid path: " + json.dumps(evidence["runs"][0].get("output") if evidence["runs"] else None)[-500:])
@@ -481,6 +500,8 @@ try:
         evidence["follow_up"] = {"run": moved["index"], "session": moved["session"], **follow,
                                  "transcript_before": before_follow, "transcript_after": transcript(moved["session"])}
         step("follow-up on the machine", follow)
+        if follow["code"] != 0 or "done-1" not in reply_text(follow["out"]):
+            FAILED.append("follow-up failed on the destination")
     else:
         evidence["follow_up"] = {"skipped": "no run moved to its machine"}
     control_env = {**ENV, "CMUX_HYBRID_START": "0"}
@@ -493,15 +514,18 @@ try:
     evidence["control_machine"] = value.get("machine_id") if isinstance(value, dict) else None
     evidence["control"] = control
     step("control start (CMUX_HYBRID_START=0)", control)
+    if control["code"] != 0 or not re.search(r"\bfinished\b", reply_text(control["out"]), re.I):
+        FAILED.append("control did not complete the prompted turn")
 except SystemExit:
     pass
 finally:
-    kill_all(before)
+    cleanup_created_machines()
     for item in sorted(KEYCHAIN_ITEMS):  # the Claude connection's Keychain item this run added
         sh(["/usr/bin/security", "delete-generic-password", "-s", "cmux-model-key", "-a", item])
     if FAILED:
         diagnose("; ".join(FAILED)) if not (OUT / "launch-diagnostics.txt").exists() else None
-    run(["app", "quit"], cli=APP_CLI, timeout=30)
+    if app_identified and identified_pid(run(["app", "identify", "--json"], cli=APP_CLI)) in app_pids():
+        run(["app", "quit"], cli=APP_CLI, timeout=30)
     try:
         app.wait(timeout=30)
     except subprocess.TimeoutExpired:
@@ -536,9 +560,9 @@ result_line = (
     f"result: machine started {'yes' if first.get('machine') else 'no'}"
     f" (ready {seconds(first.get('machine_ready_ms'))}); first reply here {seconds((first.get('first_token') or {}).get('ok_ms'))};"
     f" on the machine at {seconds(first.get('live_ms'))}; move {first.get('move_ms')} ms;"
-    f" turn {'answered' if first.get('reply') else 'failed: ' + str(message(first.get('turn_wait')))};"
-    f" follow-up {'skipped: ' + follow['skipped'] if follow.get('skipped') else ('answered' if follow.get('code') == 0 else 'failed: ' + str(message(follow)))};"
-    f" control {'answered' if control.get('code') == 0 else 'failed: ' + str(message(control))}")
+    f" turn {'answered' if 'finished' in (first.get('reply') or '').lower() else 'failed'};"
+    f" follow-up {'skipped: ' + follow['skipped'] if follow.get('skipped') else ('answered' if follow.get('code') == 0 and 'done-1' in reply_text(follow.get('out', '')) else 'failed')};"
+    f" control {'answered' if control.get('code') == 0 and 'finished' in reply_text(control.get('out', '')).lower() else 'failed'}")
 summary = "\n".join(["## Hybrid start first run", "", result_line, "",
                      f"plan: {evidence.get('plan')} (hybrid-status {json.dumps({k: (evidence.get('hybrid_status') or {}).get(k) for k in ('plan', 'off', 'flag')})});"
                      f" billing.status plan: {json.dumps((evidence.get('billing_status') or {}).get('plan') if isinstance(evidence.get('billing_status'), dict) else evidence.get('billing_status'))}",

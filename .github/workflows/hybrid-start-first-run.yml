@@ -152,10 +152,9 @@ jobs:
             echo "::error::the staging agent Stack pair is missing from this job's environment"; exit 1
           fi
           out="$RUNNER_TEMP/hfr"
-          mkdir -p "$out" "$HOME/.secrets"
+          mkdir -p "$out"
           ( umask 077; printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD" ) > "$out/active.env"
           chmod 600 "$out/active.env"
-          cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
           echo "HFR_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
       - name: Hybrid start, three runs, follow-up, control
@@ -172,24 +171,14 @@ jobs:
           cat "$RUNNER_TEMP/hfr/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
           # A run that measured nothing (no app on the socket, not signed in, no hybrid start) is red.
           exit "${status:-0}"
-      - name: Keep the evidence and the driver logs
-        if: always()
-        run: |
-          mkdir -p "$RUNNER_TEMP/hfr/out/driver-logs"
-          find "$HOME/Library" "$HOME/.local" "$HOME/.cmux" "$TMPDIR" -path '*hybrid-start/*.log' -type f 2>/dev/null \
-            -exec cp {} "$RUNNER_TEMP/hfr/out/driver-logs/" \; || true
-          # The app's own move lines (Move to Cloud logs to the unified log, not a file): only the
-          # lines that name a move, a transfer or a seed, so a move that never reports can be read.
-          # Bounded: the three runs and a move's 20 min wait fit in 90 min.
-          log show --last 90m --predicate 'subsystem == "com.cmuxterm.app.next"' --info --debug \
-            --style compact 2>/dev/null \
-            | grep -iE 'move|transfer|seed|cloud\.start' \
-            | tail -n 20000 > "$RUNNER_TEMP/hfr/out/app-move.log" || true
-          wc -l "$RUNNER_TEMP/hfr/out/app-move.log" || true
+      # The driver stores its own timestamped, redacted log lines in evidence.json.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: hybrid-start-first-run-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/hfr/out
+          path: |
+            ${{ runner.temp }}/hfr/out/evidence.json
+            ${{ runner.temp }}/hfr/out/summary.md
+            ${{ runner.temp }}/hfr/out/launch-diagnostics.txt
           if-no-files-found: warn
           retention-days: 7
