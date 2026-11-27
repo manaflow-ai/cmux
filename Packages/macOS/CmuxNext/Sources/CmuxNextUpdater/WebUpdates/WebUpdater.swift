@@ -518,16 +518,13 @@ public final class WebUpdater {
         let request = CasRequest(manifest: cas.manifest, pack: cas.pack, base: casBase, have: have, chunks: chunks, out: out,
                                  allowsConstrained: allowsConstrained, allowsExpensive: allowsExpensive)
         let store = store
-        let miss = { [self] (reason: String) -> URL? in
-            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: reason, archiveBytes: pointer.size)
-            return nil
-        }
         let report: CasReport
         switch await casFetch(request) {
         case .success(let got): report = got
         case .failure(let failure):
             await Self.removeStaging([out, chunks])
-            return miss(failure.reason)
+            noteCasMiss(pointer, failure.reason)
+            return nil
         }
         await Self.removeStaging([chunks])
         do {
@@ -535,8 +532,15 @@ public final class WebUpdater {
             lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
             return tree
         } catch {
-            return miss("tree: \(error)")
+            noteCasMiss(pointer, "tree: \(error)")
+            return nil
         }
+    }
+
+    /// `cas/1` did not give `pointer`'s tree, for `reason`: the archive is fetched. A method, not a
+    /// local closure: swift 6.3.3's ClosureLifetimeFixup crashed (signal 11) on one capturing self here.
+    private func noteCasMiss(_ pointer: WebUpdatePointer, _ reason: String) {
+        lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: reason, archiveBytes: pointer.size)
     }
 
     @concurrent nonisolated static func removeStaging(_ folders: [URL]) async {
