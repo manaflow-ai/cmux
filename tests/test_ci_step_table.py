@@ -349,7 +349,7 @@ class StepResultsTest(unittest.TestCase):
     def run_job(self, store, paths=None, env_extra=None) -> tuple[int, str, list[str]]:
         self.marker.unlink(missing_ok=True)
         out = io.StringIO()
-        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        env = self.job_env()
         env.update(env_extra or {})
         old = os.environ
         os.environ = env
@@ -360,9 +360,15 @@ class StepResultsTest(unittest.TestCase):
         ran = self.marker.read_text().split() if self.marker.exists() else []
         return code, out.getvalue(), ran
 
+    @staticmethod
+    def job_env() -> dict[str, str]:
+        return {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+
     def key(self, name: str, paths=None) -> str:
+        # The env run_job keys with: on a runner MACHINE_VARS (RUNNER_OS, ...) are set, and an empty env made another key.
         files = ci_steps.tracked_files(self.root)
-        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths, {})
+        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths,
+                                 self.job_env())
 
     def test_reusable_excludes_event_readers_advisory_labels_and_opt_out(self) -> None:
         t = table('''
