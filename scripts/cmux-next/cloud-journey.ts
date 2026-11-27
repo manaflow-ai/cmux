@@ -2133,6 +2133,16 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A create the platform refused because the team holds its active-machine cap or its machine count (a refusal makes no machine). */
 export const ROOM_REFUSAL = /cloud\.quota\.(exceeded|vm_limit)\b/;
 /** How long a journey create that hits ROOM_REFUSAL waits for room before it fails: CLOUD_JOURNEY_ROOM_WAIT_MS, default 4 min. */
+/**
+ * A team stranded in gateway mode: mode "gateway" and no gateway online. The edge then gives every machine the gateway
+ * rule and every model call answers `inference.gateway_offline` (cmux-platform CoderouterEdge.ts gatewayRule). An
+ * online gateway, "off", "joined" or an answer that cannot be read is left alone.
+ */
+export function strandedGatewayMode(body: { gateway?: { mode?: unknown; online?: unknown } } | null | undefined): boolean {
+  const g = body?.gateway;
+  return !!g && g.mode === "gateway" && g.online !== true;
+}
+
 export const ROOM_WAIT_MS = 240_000;
 const ROOM_POLL_MS = 15_000;
 
@@ -5828,6 +5838,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
+    }
+    if (!gatewayAny) {
+      // A team left in gateway mode with no gateway online (a `--gateway` run killed before its cleanup) gets the edge's
+      // gateway rule on every machine, so every chat answers "400 No cmux inference gateway is online for this team"
+      // (cloud-claude-matrix run 46023099842, cloud-journey-prod run 46019366563). The edge picks the route when the
+      // chat machine is made, so put the mode back to off, the product default, before it. Never while a gateway is online.
+      const name = "team gateway mode (not stranded)";
+      const t0 = Date.now();
+      try {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
+        const mode = String(g.body?.gateway?.mode ?? "off");
+        const online = g.body?.gateway?.online === true;
+        if (strandedGatewayMode(g.body)) {
+          const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
+          if (r.status !== 200) throw new Error(`mode ${mode}, no gateway online; PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `was gateway with no gateway online: set off before the chat machine is made` });
+        } else {
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode ${mode}, gateway ${online ? "online" : "not online"}: left alone` });
+        }
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `not read: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+      }
     }
     if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
