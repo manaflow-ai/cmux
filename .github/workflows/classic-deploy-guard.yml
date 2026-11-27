@@ -33,6 +33,12 @@ on:
       CMUX_BOT_APP_KEY:
         description: "the cmux bot App key: the guard's reads go out on the App's own hour, not the job token's shared pool"
         required: false
+      VERCEL_TOKEN:
+        description: "only the push run's cancel step uses it; the docs caller checks and never cancels"
+        required: false
+      VERCEL_ORG_ID:
+        description: "as VERCEL_TOKEN"
+        required: false
   workflow_dispatch:
     inputs:
       sha:
