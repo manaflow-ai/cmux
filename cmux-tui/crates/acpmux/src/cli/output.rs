@@ -73,14 +73,29 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<Arc<Client>>>,
 {
+    dial_until_ready(Some(deadline), dial).await
+}
+
+/// Waiting sends without --timeout keep following their prompt through arbitrarily slow
+/// daemon startup. The backoff bounds the dial rate; dropping the future cancels the wait.
+async fn dial_until_ready<T, F, Fut>(deadline: Option<tokio::time::Instant>, dial: F) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
     let mut pause = Duration::from_millis(50);
     loop {
-        let error = match tokio::time::timeout_at(deadline, dial()).await {
-            Ok(Ok(client)) => return Ok(client),
-            Ok(Err(e)) => e,
-            Err(_) => anyhow!("no daemon answered by the deadline"),
+        let answer = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, dial())
+                .await
+                .unwrap_or_else(|_| Err(anyhow!("no daemon answered by the deadline"))),
+            None => dial().await,
         };
-        if tokio::time::Instant::now() + pause >= deadline {
+        let error = match answer {
+            Ok(client) => return Ok(client),
+            Err(error) => error,
+        };
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() + pause >= deadline) {
             return Err(error);
         }
         tokio::time::sleep(pause).await;
@@ -132,8 +147,8 @@ async fn reconnect_prompt(
     before_deadline(deadline, id, async {
         tokio::time::sleep(delay).await;
         // An explicit timeout is the caller's whole budget, including a slow daemon boot.
-        // Calls without one retain the bounded reconnect policy instead of hanging forever.
-        redial(client.socket(), deadline.unwrap_or_else(update_reconnect_deadline)).await
+        // No timeout means keep waiting; an update on a busy host can take several minutes.
+        dial_until_ready(deadline, || Client::connect(client.socket())).await
     })
     .await
     .map_err(|reconnect| {
@@ -439,7 +454,15 @@ pub(crate) async fn queue_prompt(
         match queue_prompt_once(client.clone(), id, text, steer, provenance, &prompt).await {
             Ok(value) => return Ok(value),
             Err(error) if daemon_closed_error(&error) => {
-                client = reconnect_prompt(&client, None, id, error, &mut reconnect_pause).await?;
+                // Queue-only callers retain their bounded handoff reconnect budget.
+                client = reconnect_prompt(
+                    &client,
+                    Some(update_reconnect_deadline()),
+                    id,
+                    error,
+                    &mut reconnect_pause,
+                )
+                .await?;
                 prompt.resend = true;
             }
             Err(error) => return Err(error),
@@ -1525,6 +1548,40 @@ mod prompt_tests {
     use super::*;
     use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
     use std::collections::BTreeMap;
+
+    /// Startup can take three minutes under load. No --timeout must not inherit the old
+    /// 20-second queue budget, and repeated connection refusals must not become a tight loop.
+    #[tokio::test(start_paused = true)]
+    async fn a_waiting_send_reconnects_after_three_minutes_without_spinning() {
+        let started = tokio::time::Instant::now();
+        let attempts = std::cell::Cell::new(0usize);
+        let recovered = dial_until_ready(None, || {
+            attempts.set(attempts.get() + 1);
+            std::future::ready(if started.elapsed() < Duration::from_secs(180) {
+                Err(anyhow!("daemon is still starting"))
+            } else {
+                Ok("original prompt outcome")
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(recovered, "original prompt outcome");
+        assert!(started.elapsed() >= Duration::from_secs(180));
+        assert!(started.elapsed() < Duration::from_secs(181));
+        assert!((180..=190).contains(&attempts.get()), "{} dials", attempts.get());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn waiting_send_reconnect_still_honors_an_explicit_timeout() {
+        let started = tokio::time::Instant::now();
+        let deadline = started + Duration::from_secs(10);
+        let result = dial_until_ready(Some(deadline), || {
+            std::future::ready(Err::<(), _>(anyhow!("daemon is still starting")))
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(started.elapsed() <= Duration::from_secs(10));
+    }
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
     async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
