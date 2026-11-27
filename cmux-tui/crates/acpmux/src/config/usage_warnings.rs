@@ -30,7 +30,7 @@ pub struct UsageWarningsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagents_per_hour: Option<u64>,
     /// `autocompactCap`: warn on a Claude session that runs with no autocompact cap.
-    /// Default true.
+    /// Defaults to the fleet compaction policy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autocompact_cap: Option<bool>,
 }
@@ -45,7 +45,7 @@ pub enum ContextLimit {
     /// No `contextTokens`: each session's own window, the autocompact cap it runs with, else its
     /// model's window (`usageStats.autocompactCap`, `contextWindow`), else
     /// [`FALLBACK_CONTEXT_TOKENS`]. A call past it means the session did not compact.
-    SessionWindow,
+    SessionWindow { fallback: Option<u64> },
 }
 
 /// The thresholds in force: None (or false) is a rule turned off.
@@ -69,15 +69,21 @@ impl UsageWarningsConfig {
 
     /// The configured thresholds over their defaults.
     pub fn limits(&self) -> UsageLimits {
+        self.limits_with_fleet(crate::compaction_policy::fleet())
+    }
+
+    pub(crate) fn limits_with_fleet(&self, fleet: bool) -> UsageLimits {
         let on = |n: u64| (n > 0).then_some(n);
         UsageLimits {
             context_tokens: match self.context_tokens {
-                None => ContextLimit::SessionWindow,
+                None => ContextLimit::SessionWindow {
+                    fallback: fleet.then_some(FALLBACK_CONTEXT_TOKENS),
+                },
                 Some(0) => ContextLimit::Off,
                 Some(n) => ContextLimit::Fixed(n),
             },
             subagents_per_hour: on(self.subagents_per_hour.unwrap_or(DEFAULT_SUBAGENTS_PER_HOUR)),
-            autocompact_cap: self.autocompact_cap.unwrap_or(true),
+            autocompact_cap: self.autocompact_cap.unwrap_or(fleet),
         }
     }
 }

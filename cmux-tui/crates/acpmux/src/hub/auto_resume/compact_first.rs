@@ -98,10 +98,11 @@ impl Hub {
     ) {
         let cause = super::super::turn_errors::resume_cause(cut.error, cut.error);
         let rate = (cause == Some("rate_limit")).then(|| cut.turn_id.to_owned());
-        // The first turn after a rate limit's reset does not send a context past the line again
-        // (`rate_hold.rs`): it compacts first, where the harness can.
+        // The fleet compacts long chats before a rate-limit retry. Actual context overflow
+        // still needs recovery on any installation.
         if cause == Some("context")
             || (rate.is_some()
+                && crate::compaction_policy::fleet()
                 && self.context_past_compact_line(session)
                 && self.can_compact(session).await)
         {

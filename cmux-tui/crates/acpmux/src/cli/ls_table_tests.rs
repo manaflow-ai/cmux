@@ -235,7 +235,7 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
     let warnings = crate::hub::usage_warnings::usage_warnings(
         &summary,
-        &crate::config::UsageLimits::default(),
+        &crate::config::UsageWarningsConfig::default().limits_with_fleet(true),
     );
     let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);

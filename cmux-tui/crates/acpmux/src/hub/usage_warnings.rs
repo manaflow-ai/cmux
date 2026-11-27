@@ -17,7 +17,7 @@
 //! unknown; one turns unknown only where acpmux can no longer vouch for it (a backlog it has not
 //! read), and then no warning stands on it.
 
-use crate::config::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits};
+use crate::config::{ContextLimit, UsageLimits};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -128,9 +128,9 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     let (limit, own) = match limits.context_tokens {
         ContextLimit::Off => (None, false),
         ContextLimit::Fixed(n) => (Some(n), false),
-        ContextLimit::SessionWindow => match session_window(stats) {
+        ContextLimit::SessionWindow { fallback } => match session_window(stats) {
             Some(window) => (Some(window), true),
-            None => (Some(FALLBACK_CONTEXT_TOKENS), false),
+            None => (fallback, false),
         },
     };
     if let (Some(limit), Some(n)) = (limit, context)

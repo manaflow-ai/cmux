@@ -392,6 +392,19 @@ async fn held_claude_chat(context: u64) -> (Arc<Hub>, TestClient, String, u64, t
 /// words and what the hold queued.
 #[tokio::test]
 async fn a_held_chat_past_200k_compacts_before_it_resumes() {
+    // Give only this test's daemon the fleet policy. The other tests in this binary
+    // share process environment when Cargo runs them together.
+    if std::env::var(acpmux::compaction_policy::ENV_FLEET).as_deref() != Ok("1") {
+        let name = std::thread::current().name().unwrap().to_owned();
+        let report = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env(acpmux::compaction_policy::ENV_FLEET, "1")
+            .output()
+            .unwrap();
+        assert!(report.status.success(), "{}", String::from_utf8_lossy(&report.stderr));
+        assert!(String::from_utf8_lossy(&report.stdout).contains("1 passed"));
+        return;
+    }
     let (hub, _c, id, reset, _home) = held_claude_chat(201_003).await;
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 3).await;
     // Give a fourth turn the time to start if one were coming.
@@ -417,7 +430,16 @@ async fn a_held_chat_past_200k_compacts_before_it_resumes() {
 /// Under the line the reset sends the context as it is: no `/compact`, one turn.
 #[tokio::test]
 async fn a_held_chat_under_200k_resumes_without_a_compaction() {
-    let (hub, _c, id, reset, _home) = held_claude_chat(151_003).await;
+    assert_plain_resume(151_003).await;
+}
+
+#[tokio::test]
+async fn a_held_chat_past_200k_resumes_without_compaction_off_fleet() {
+    assert_plain_resume(201_003).await;
+}
+
+async fn assert_plain_resume(context: u64) {
+    let (hub, _c, id, reset, _home) = held_claude_chat(context).await;
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
     tokio::time::sleep(Duration::from_millis(800)).await;
     let started = of_kind(&hub, &id, "turn_started");
