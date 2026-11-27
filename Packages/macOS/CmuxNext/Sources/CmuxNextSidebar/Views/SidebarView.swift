@@ -258,6 +258,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
+            listReplacement = appSections?.workspaceList
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
@@ -265,6 +266,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+
+    /// The person's own workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`); the App
+    /// injects it. The built-in list draws while it is nil or its content is not drawn (SidebarListSwap).
+    public var listReplacement: (any SidebarListReplacement)? {
+        didSet {
+            listReplacement?.onContentChange = { [weak self] in self?.needsLayout = true }
+            needsLayout = true
+        }
+    }
+    let listSwap = SidebarListSwap()
 
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
@@ -541,6 +552,7 @@ public final class SidebarView: NSView {
         // from nothing in it.
         footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
+        listSwap.apply(listReplacement?.content, in: self, frame: listFrame, native: edgeFade)
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)

@@ -68,7 +68,9 @@ def _settings_exports() -> tuple[str, ...]:
 
 
 SETTINGS_EXPORTS = _settings_exports()
-SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/bindings/rust/scripts/sync-resource-api\.py"
+SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/"
+DAEMON_ABI_INPUTS = (r"cmux-tui/spec/|cmux-tui/crates/cmux-api-compat/"
+                     r"|cmux-tui/(Cargo\.(toml|lock)|rust-toolchain\.toml)$")
 CAPABILITY_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
@@ -113,13 +115,14 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
      r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,
      "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"),
-    (("cmux-tui/bindings/*/.cmux-resource-api.json", "cmux-tui/bindings/*.cmux-sdk-manifest.json",
+    (("cmux-tui/spec/api-compat.surface.json",), DAEMON_ABI_INPUTS,
+     "cd cmux-tui && cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write (the autofix)"),
+    (("cmux-tui/bindings/*.cmux-sdk-manifest.json",
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",
       "cmux-tui/bindings/cpp/src/raw/generated/*", "cmux-tui/bindings/go/raw/generated_*.go",
       "cmux-tui/bindings/typescript/src/raw/generated/*", "cmux-tui/bindings/rust/src/generated/*",
       "cmux-tui/bindings/zig/src/raw/generated/*", "cmux-tui/bindings/java/src/com/cmux/raw/*"),
-     SDK_INPUTS, "python3 cmux-tui/bindings/codegen/generate.py --write and "
-     "python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py (the autofix)"),
+     SDK_INPUTS, "python3 cmux-tui/bindings/codegen/generate.py --write (the autofix)"),
     (("clients/ts/cloud/src/generated.ts", "cmux-tui/crates/cmux-cloud-wire/src/generated/*"),
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),
