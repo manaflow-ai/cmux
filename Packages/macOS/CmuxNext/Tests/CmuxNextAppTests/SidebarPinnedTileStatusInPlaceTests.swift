@@ -115,32 +115,39 @@ struct SidebarPinnedTileStatusInPlaceTests {
         #expect(Self.pinView(sidebar) == nil, "the hidden pinned item still draws")
     }
 
-    /// In an inline section a longer title widens its chip: a change that keeps the block's height draws in place,
-    /// and one that wraps the chip to a new line lays the list out, so the rows under the block make room.
-    @Test func aChipThatWrapsLaysTheListOutAndOneThatFitsDoesNot() throws {
+    /// The kind the pinned block's own layout gave the pinned item (a labeled chip or an icon tile), if it placed it.
+    static func pinKind(_ sidebar: SidebarView) -> SidebarRegionRow.Kind? {
+        blockRow(sidebar)?.region.layoutResult.rows.first { row in
+            switch row.kind {
+            case let .chip(id, _), let .tile(id, _): id == pin.id
+            default: false
+            }
+        }?.kind
+    }
+
+    /// In an inline section a title too long for one line turns every chip into an icon tile, at the same height
+    /// (`SectionFlow`'s inline placement never wraps a label): that draws in place, the block placing its own items
+    /// again, and a title that fits brings the chips back. The list's rows keep their frames throughout.
+    @Test func aTitleTooLongForTheLineTurnsTheChipsIntoTilesInPlace() throws {
         let (model, sidebar) = Self.sidebar(pinned: Self.pinned([Self.other, Self.pin], .inline))
-        try #require(Self.pinView(sidebar) != nil, "the fixture's list draws no pinned block")
-        var wrapped = false, patched = false
-        for length in [2, 4, 8, 16, 32, 64] {
-            let before = try #require(sidebar.list.blockHeights(includeGap: true)[Self.pinnedID])
+        let section = LayoutSectionID(Self.pinnedID)
+        try #require(Self.pinKind(sidebar) == .chip(Self.pin.id, section: section), "fixture: the short title draws no chip")
+        let blockFrame = Self.blockRow(sidebar)?.frame
+        let rowFrame = sidebar.list.rowViews[.workspace(WorkspaceID("ws-0"))]?.frame
+        for (title, kind) in [(String(repeating: "W", count: 64), SidebarRegionRow.Kind.tile(Self.pin.id, section: section)),
+                              ("Ticker", .chip(Self.pin.id, section: section))] {
             _ = SidebarPerfCounters.report(reset: true)
-            model.itemInfo[Self.pin.id] = Self.pinInfo(.idle, title: String(repeating: "W", count: length))
+            model.itemInfo[Self.pin.id] = Self.pinInfo(.idle, title: title)
             Self.show(sidebar)
             let counts = SidebarPerfCounters.report(reset: true)
-            let after = sidebar.list.blockHeights(includeGap: true)[Self.pinnedID]
-            if after != before {
-                wrapped = true
-                #expect(counts["list_reloads"] == 1, "a \(length)-letter title moved the block's height and laid the list out \(counts["list_reloads"] ?? 0) times")
-                #expect((counts["block_patches"] ?? 0) == 0)
-            } else {
-                patched = true
-                #expect(counts["list_reloads"] == 0, "a \(length)-letter title kept the block's height and laid the list out \(counts["list_reloads"] ?? 0) times")
-                #expect(counts["block_patches"] == 1)
-            }
+            #expect(counts["list_reloads"] == 0, "a \(title.count)-letter title laid the list out \(counts["list_reloads"] ?? 0) times")
+            #expect(counts["block_patches"] == 1, "a \(title.count)-letter title drew the blocks in place \(counts["block_patches"] ?? 0) times")
+            #expect(Self.pinKind(sidebar) == kind, "a \(title.count)-letter title placed the pinned item as \(String(describing: Self.pinKind(sidebar)))")
+            #expect(Self.pinView(sidebar)?.info.title == title, "the pinned item does not show its new title")
+            #expect(Self.blockRow(sidebar)?.frame == blockFrame)
+            #expect(sidebar.list.rowViews[.workspace(WorkspaceID("ws-0"))]?.frame == rowFrame)
             if let row = Self.blockRow(sidebar) { #expect(row.region.frame.height == row.frame.height, "the block spills out of its row") }
         }
-        #expect(wrapped, "fixture: no title wrapped the chip to a new line")
-        #expect(patched, "fixture: every title changed the block's height")
     }
 
     /// A change held while the pointer is over the rows (an item added to Pinned) leaves the shown layout older than
