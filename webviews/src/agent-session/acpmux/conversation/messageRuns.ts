@@ -297,7 +297,6 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false
       continue;
     }
     out ??= rows.slice(0, index);
-    const first = members[0]!;
     // The line's id is its first row's key, or the key of the row Find or a link opened it for
     // (`revealFolds`): while that key is in the fold set the line is open, and a click on it
     // closes it by that same key.
