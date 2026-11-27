@@ -17,9 +17,9 @@ Wire rules (the same JSON the hand-written types sent):
 - an optional field is a Swift Optional, nil by default, and encoded only when set, so an unset field
   leaves the daemon's default in force;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
-- a request field's `clamp` ({minimum, maximum, constant}) clamps an integer in the init only, against a
-  `public static let` constant of the maximum; the property stays a plain `var`, so a value assigned after
-  init is sent as assigned. A nil Optional stays nil.
+- a request field's `clamp` ({minimum, maximum, constant?}) clamps an integer in the init only, against a
+  `public static let` constant of the maximum when `constant` names one, else the literal maximum; the
+  property stays a plain `var`, so a value assigned after init is sent as assigned. A nil Optional stays nil.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
 (`type`) or a command's result (`result`). A reference to a generated schema object resolves to its Swift
@@ -218,8 +218,8 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
-    # Clamped in the init only (`clamp`): (minimum, maximum, the static constant naming the maximum).
-    clamp: tuple[int, int, str] | None = None
+    # Clamped in the init only (`clamp`): (minimum, maximum, the static constant naming the maximum or None).
+    clamp: tuple[int, int, str | None] | None = None
 
     @property
     def custom_read(self) -> bool:
@@ -240,10 +240,11 @@ class _Field:
     def init_line(self) -> str:
         if self.clamp is None:
             return f"        self.{self.name} = {self.name}"
-        minimum, _, constant = self.clamp
+        minimum, maximum, constant = self.clamp
+        bound = maximum if constant is None else f"Self.{constant}"
         if self.optional:
-            return f"        self.{self.name} = {self.name}.map {{ min(max($0, {minimum}), Self.{constant}) }}"
-        return f"        self.{self.name} = min(max({self.name}, {minimum}), Self.{constant})"
+            return f"        self.{self.name} = {self.name}.map {{ min(max($0, {minimum}), {bound}) }}"
+        return f"        self.{self.name} = min(max({self.name}, {minimum}), {bound})"
 
     def encode_line(self) -> str:
         if self.mutation:
@@ -255,9 +256,10 @@ class _Field:
         return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
 
 
-def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, int, str] | None:
+def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, int, str | None] | None:
     """A request field's `clamp`: the init stores min(max(value, minimum), Self.constant), the constant a
-    `public static let` of the maximum. Only the init clamps: the property stays a plain `var`, so a value
+    `public static let` of the maximum; without `constant` the init uses the literal maximum and the type
+    gains no static property (what a request with a literal bound and no public constant had). Only the init clamps: the property stays a plain `var`, so a value
     assigned after init is sent as assigned (what the hand-written requests did)."""
     if spec is None:
         return None
@@ -267,7 +269,9 @@ def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, i
         raise BindingError(f"{where}.clamp: minimum and maximum are integers")
     if minimum > maximum:
         raise BindingError(f"{where}.clamp: minimum is above maximum")
-    if not isinstance(constant, str) or not _IDENTIFIER.fullmatch(constant) or constant in _KEYWORDS:
+    if constant is not None and (
+        not isinstance(constant, str) or not _IDENTIFIER.fullmatch(constant) or constant in _KEYWORDS
+    ):
         raise BindingError(f"{where}.clamp: constant is the Swift name of the maximum, like maxLimit")
     if update or swift_type not in _INTEGERS:
         raise BindingError(f"{where}.clamp: only an integer field (not an update) is clamped")
@@ -520,7 +524,7 @@ class _Renderer:
         out.append(f"    public static let command = {json.dumps(command)}")
         if schema.get("capability"):
             out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
-        constants = [item for item in fields if item.clamp is not None]
+        constants = [item for item in fields if item.clamp is not None and item.clamp[2] is not None]
         if len({item.clamp[2] for item in constants}) != len(constants):
             raise BindingError(f"{command}: two clamped fields name the same constant")
         for item in constants:
