@@ -194,7 +194,11 @@ async fn no_wait_sends_into_a_held_inbox_leave_no_request_open() {
         let mut ids = vec![];
         for i in from..to {
             let words = ["tests pass", "CI is red on lint", "review asked for a rename", "merged"];
-            let text = format!("report {i}: {}, PR #{}", words[i % words.len()], 1000 + i % 97);
+            let text = format!(
+                "report {i}: {}, PR #{}",
+                words.get(i % words.len()).copied().unwrap_or("done"),
+                1000 + i % 97
+            );
             let mut request = prompt(&receiver, &text, &format!("p-{i}"));
             request["_meta"]["acpmux"]["fromAgent"] = json!(format!("lane-{:03}", i % 64));
             let queued = lane.call(SEND_QUEUE, json!({"request": request})).await.unwrap();
