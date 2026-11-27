@@ -67,7 +67,7 @@ import CmuxMobileAgentChat
         Self.publish(rig.store, without: nil)
         rig.source.refreshTabs()
         #expect(rig.source.activeTabID == "t-zsh")
-        #expect(rig.source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
+        #expect(rig.source.allTabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
         // The tab comes back: no stale hold clock fires later.
         rig.clock.advance(by: .seconds(60))
         await Self.settle()

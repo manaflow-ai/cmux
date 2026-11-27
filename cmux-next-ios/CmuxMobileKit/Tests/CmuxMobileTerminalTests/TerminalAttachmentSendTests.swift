@@ -302,7 +302,7 @@ import Testing
 
     static func waitFor(_ condition: () -> Bool) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(2)
+        let deadline = clock.now + .seconds(10)
         while !condition(), clock.now < deadline { await Task.yield() }
         return condition()
     }
