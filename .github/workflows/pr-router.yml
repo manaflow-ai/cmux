@@ -64,6 +64,9 @@ jobs:
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
+      # the steps the nightly also runs that its change routes. Empty: every routed step.
+      only: ${{ steps.route.outputs.only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
@@ -126,6 +129,9 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
+          # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
+          CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}
           # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
           # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
           CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
@@ -510,6 +516,7 @@ jobs:
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
+      only: ${{ needs.route.outputs.only || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
