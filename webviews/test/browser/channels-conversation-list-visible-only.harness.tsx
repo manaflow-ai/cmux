@@ -27,7 +27,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** A new message's preview in the `index`th conversation, at the same time (it keeps its place). */
-    benchChangeOne(index: number): void;
+    benchChangeOne(index?: number): void | Promise<void>;
     /** Renders the list's parent again with nothing changed, as a page clock's tick does. */
     benchTick(): void;
   }
