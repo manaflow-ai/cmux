@@ -1820,8 +1820,13 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
     if (isLateSteer(row)) {
       if (lastCall >= row.at) break;
       late = at;
-    } else if (row.kind === "activity" && row.inBackground === undefined)
+    } else if (row.kind === "activity" && row.inBackground === undefined) {
       for (const item of row.items ?? []) if (item.tool) lastCall = Math.max(lastCall, item.tool.startedAt ?? row.at);
+    }
+    // A subagent the turn started is a call too, at its start line's time (the earliest of its group,
+    // runningTray.ts): its own Agent call may draw no row, and the steer before it read as late, so
+    // the start line drew over the steer once the turn ended (leo-0522-midturn-inbox, d-steer-order).
+    else if (row.kind === "subagentStarted" && row.inBackground === undefined) lastCall = Math.max(lastCall, row.at);
   }
   if (late < 0) return rows;
   // The agent's text just over the first late steer moves with the answer: the reply it was writing

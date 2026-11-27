@@ -969,6 +969,7 @@ pub mod chief_panel;
 pub mod closing_panes;
 pub mod divider_insert;
 pub mod dock_model;
+pub mod drop_rules;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
