@@ -4375,14 +4375,18 @@ class IrohReleaseGateWiring(unittest.TestCase):
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
-    SCREENSHOTS_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
-                           "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    PLAIN_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
+                     "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    BOT = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+    # Only the rescue bot's re-run takes the picker's Blacksmith retry; a person's re-run keeps the
+    # run's pick (RFD 0165).
+    SCREENSHOTS_RUNS_ON = PLAIN_RUNS_ON.replace("fromJSON(github.run_attempt > 1 ",
+                                                f"fromJSON(github.run_attempt > 1 && {BOT} ")
     # test-ios: a bot's re-run takes the picker's Blacksmith route, a person's the lane's
     # (tests/test_ci_ios_bot_rerun_route.py).
-    TEST_IOS_RUNS_ON = SCREENSHOTS_RUNS_ON.replace(
+    TEST_IOS_RUNS_ON = PLAIN_RUNS_ON.replace(
         "fromJSON(github.run_attempt > 1 ",
-        "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
-        "github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
+        f"fromJSON(github.run_attempt > 1 && {BOT} && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
 
     def workflow(self, name):
         return yaml.safe_load((WORKFLOWS / name).read_text())

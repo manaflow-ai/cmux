@@ -2030,8 +2030,11 @@ class IosJobTest(unittest.TestCase):
             jobs["ios"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || "
+            "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
+            "github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || "
             "needs.ios-runner.outputs.runs_on) }}")
+        # Only the rescue bot's re-run takes Blacksmith; a person's re-run keeps the pick (RFD 0165).
+        self.assertEqual(jobs["ios-fast"]["runs-on"], jobs["ios"]["runs-on"].replace("ios-runner", "ios-fast-runner"))
         for picker in ("ios-runner", "ios-fast-runner"):
             steps = jobs[picker]["steps"]
             pick = next(s for s in steps if s.get("id") == "pool")
