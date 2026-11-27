@@ -128,6 +128,11 @@ class RetryPolicyTests(unittest.TestCase):
         self.assertEqual(retry.decide(run(conclusion="cancelled"), jobs, {}).action, "skip")
         self.assertEqual(retry.decide(run(), jobs, {9: [{"title": "immutable-r2-conflict"}]}).action, "refuse")
 
+    def test_disconnected_runner_reported_only_in_annotations(self):
+        notes = {9: [{"message": "The self-hosted runner: worker-7 lost communication with the server."}]}
+        decision = retry.decide(run(), self.published_with_daemon(), notes)
+        self.assertEqual((decision.action, decision.job_id), ("rerun-job", 9))
+
     def test_daemon_failure_needs_runner_loss_evidence(self):
         for jobs in (
             self.published_with_daemon(("cargo test cmux_next_", "failure")),
