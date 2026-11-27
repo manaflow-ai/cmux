@@ -145,10 +145,10 @@ nonisolated final class DropScreen {
     }
 }
 
-private extension DropScreen {
+nonisolated private extension DropScreen {
     /// The screen JSON (`pane_drop_zones::Screen`).
-    struct Request: Encodable {
-        struct Rect: Encodable {
+    nonisolated struct Request: Encodable {
+        nonisolated struct Rect: Encodable {
             var x: Double
             var y: Double
             var width: Double
@@ -156,18 +156,18 @@ private extension DropScreen {
             init(x: Double, y: Double, width: Double, height: Double) { (self.x, self.y, self.width, self.height) = (x, y, width, height) }
             init(_ rect: CGRect) { self.init(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height)) }
         }
-        struct Pane: Encodable {
+        nonisolated struct Pane: Encodable {
             var rect: Rect
             var fixed: Bool
             var header: Double
             var footer: Double
         }
-        struct Dock: Encodable {
+        nonisolated struct Dock: Encodable {
             var edge: String
             var frame: Rect
             var cover: Rect
         }
-        struct Style: Encodable {
+        nonisolated struct Style: Encodable {
             var edgeFraction: Double
             var edgeMinimum: Double
             var edgeMaximum: Double
