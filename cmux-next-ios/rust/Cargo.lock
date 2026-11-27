@@ -690,6 +690,9 @@ dependencies = [
 [[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-mobile-auto"
@@ -969,6 +972,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-region-pick"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-relay-snapshot"

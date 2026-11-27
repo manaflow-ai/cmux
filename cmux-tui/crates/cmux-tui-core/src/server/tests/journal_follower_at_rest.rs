@@ -98,8 +98,13 @@ fn session_with_an_agent_at_rest() -> (Arc<Mux>, String) {
 fn follower_stats(mux: &Arc<Mux>) -> Value {
     let client = mux.control_clients.register(ClientTransport::Unix, test_writer());
     let include = Some(vec!["journal_followers".to_string()]);
-    let stats =
-        handle_command(mux, client, Command::ServerStats { include }, &test_writer()).unwrap();
+    let stats = handle_command(
+        mux,
+        client,
+        Command::ServerStats { include, restore_progress: false },
+        &test_writer(),
+    )
+    .unwrap();
     stats["journal_followers"].clone()
 }
 
@@ -246,9 +251,13 @@ fn the_follower_grace_runs_from_the_daemon_start() {
 fn server_stats_lists_the_journal_followers_and_what_keeps_the_rows() {
     let (mux, _terminal) = session_with_an_agent_at_rest();
     let client = mux.control_clients.register(ClientTransport::Unix, test_writer());
-    let plain =
-        handle_command(&mux, client, Command::ServerStats { include: None }, &test_writer())
-            .unwrap();
+    let plain = handle_command(
+        &mux,
+        client,
+        Command::ServerStats { include: None, restore_progress: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert!(plain.get("journal_followers").is_none(), "{plain}");
 
     let none = follower_stats(&mux);

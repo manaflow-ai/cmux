@@ -56,9 +56,9 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min,
     # the App Store shelf 45 min, the acpmux instruction counts 40 min, the compile canary 30 min, the cmux VM Rust
-    # clients 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 471 min with
-    # 41 shared steps (21 waves), plus room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 477
+    # clients 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 488 min with
+    # 46 shared steps (23 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 488
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Checkout the merge commit and the base tip
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -212,12 +212,14 @@ jobs:
     timeout-minutes: 88
     permissions:
       contents: read
+      # pr_receipt.py's lookup: an earlier run's green receipt artifact for these inputs.
+      actions: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
     steps:
       - name: Checkout the merge commit and the base tip
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -253,6 +255,26 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
+      # A green receipt (scripts/ci/pr_receipt.py): an earlier run of this pull request's branch or of its base passed
+      # these same inputs (the web-browser steps' inputs, the change's diff in them and the table, runner and workflow),
+      # so the steps report that pass, its run linked here, and do not run again. 825 job-minutes in two days
+      # (11-23..24) were this job on inputs it had already passed. A fork, the full-ci label or no merge commit asks
+      # for nothing; full-ci still records. Any error is a miss, and the steps run.
+      - name: Look up a green receipt for these inputs (pr_receipt.py)
+        id: receipt
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && env.PATHS_FILE != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_RECEIPTS: ${{ vars.CI_PR_RECEIPTS }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          find=(); [ "$FULL_CI" = true ] && find=(--no-find)
+          python3 -I scripts/ci/pr_receipt.py lookup --check web-browser --branch "$HEAD_REF" --branch "$BASE_REF" \
+            "${find[@]}" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       # The agent-pane-real-acpmux step builds acpmux on an ephemeral runner: with no cargo cache it compiled ~470
       # crates from scratch and could pass its 1800 s budget (job 138744570179, 2026-11-24). Restore the dependency
       # build agent-pane-acpmux-cache.yml saves from feat-cmux-next, only when that step is routed. Never saves here
@@ -280,6 +302,7 @@ jobs:
           save-if: false
           workspaces: cmux-tui -> target
       - name: Run the routed web-browser steps (ci/steps.toml)
+        if: ${{ steps.receipt.outputs.run == '' }}
         # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
         env:
           CI_PR_BASE_REF: ${{ github.base_ref }}
@@ -292,6 +315,20 @@ jobs:
           CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
           CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
         run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      - name: Write the green receipt for later heads (pr_receipt.py)
+        id: record
+        if: ${{ success() && steps.receipt.outputs.key != '' && steps.receipt.outputs.run == '' }}
+        env:
+          KEY: ${{ steps.receipt.outputs.key }}
+        run: python3 -I scripts/ci/pr_receipt.py record --check web-browser --key "$KEY" --out "$RUNNER_TEMP/pr-receipt/receipt.json"
+      - name: Upload the green receipt
+        if: ${{ success() && steps.record.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-receipt-web-browser-${{ steps.receipt.outputs.key }}
+          path: ${{ runner.temp }}/pr-receipt/receipt.json
+          if-no-files-found: ignore
+          retention-days: 7
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
         if: ${{ !cancelled() }}
@@ -330,7 +367,7 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
@@ -483,7 +520,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Checkout the merge commit and the base tip
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -576,7 +613,7 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Checkout the merge commit and the base tip
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -624,7 +661,7 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           sparse-checkout: |
@@ -768,7 +805,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-fast-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Checkout the merge commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -823,7 +860,7 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Checkout the merge commit and the base tip
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -986,7 +1023,7 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Checkout the merge commit and the base tip
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
