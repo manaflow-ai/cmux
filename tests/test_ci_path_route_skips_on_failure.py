@@ -35,7 +35,21 @@ NOT_ROUTERS = {"coalesce", "pure-checks-coalesce"}
 # Match the reusable workflow, not the caller's job name: a router named self-edit is still checked.
 ADVISORY_GATE = "./.github/workflows/self-edit-sweep.yml"
 sys.path.insert(0, os.path.join(ROOT, "scripts", "ci"))
-from pr_test_lanes import Expression, UNKNOWN  # noqa: E402
+from pr_test_lanes import Expression, UNKNOWN, truthy  # noqa: E402
+
+
+# This crate-graph WASM check deliberately runs when routing fails. Pin both the
+# site and complete condition so another job or a widened condition is still checked.
+INTENTIONAL_FAIL_OPEN = {
+    ("cmux-tui-spec.yml", "remote-web-wasm", "changes"):
+        "${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && "
+        "(!cancelled() && (needs.changes.result != 'success' || "
+        "needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}",
+}
+
+
+def intentional_fail_open(workflow, job, router, condition):
+    return INTENTIONAL_FAIL_OPEN.get((workflow, job, router)) == condition
 
 
 def non_routers(text: str) -> set[str]:
@@ -48,7 +62,7 @@ class FailedRouterExpression(Expression):
     @staticmethod
     def call(name, args):
         # Do not borrow pr_test_lanes' assumption that earlier jobs passed.
-        if name.lower() in ("success", "failure"):
+        if name.lower() in ("success", "failure", "cancelled"):
             return UNKNOWN
         return Expression.call(name, args)
 
@@ -63,7 +77,7 @@ def blocked_without_router_outputs(cond: str, router: str) -> bool:
     if expr.startswith("${{") and expr.endswith("}}"):
         expr = expr[3:-2]
     try:
-        return FailedRouterExpression(expr, context).evaluate() is False
+        return truthy(FailedRouterExpression(expr, context).evaluate()) is False
     except (ValueError, IndexError):
         return False
 
@@ -131,7 +145,8 @@ class RouterFailureSkipsOnPullRequests(unittest.TestCase):
     def test_every_fail_open_router_read_needs_the_routers_success_on_a_pull_request(self):
         readers = fail_open_readers()
         bad = [f"{wf} :: {job} reads needs.{router}.outputs.X != 'false' but runs on a PR whose {router} failed"
-               for wf, job, router, cond in readers if not guarded(cond, router)]
+               for wf, job, router, cond in readers
+               if not guarded(cond, router) and not intentional_fail_open(wf, job, router, cond)]
         self.assertEqual(bad, [], "\nadd (github.event_name != 'pull_request' || needs.R.result == 'success' || "
                                   "needs.R.result == 'skipped') to:\n" + "\n".join(bad))
         named = {(wf, job) for wf, job, _, _ in readers}
@@ -140,6 +155,39 @@ class RouterFailureSkipsOnPullRequests(unittest.TestCase):
                      ("cmux-next-guards.yml", "ci-guard-group"), ("cmux-next-guards.yml", "own-change-checks"),
                      ("cmux-tui-spec.yml", "acpmux-tests"), ("cmux-tui-sdks.yml", "conformance")]:
             self.assertIn(site, named)
+
+    def test_intentional_exception_is_exact_and_still_present(self):
+        readers = set(fail_open_readers())
+        for site, condition in INTENTIONAL_FAIL_OPEN.items():
+            self.assertIn((*site, condition), readers)
+            self.assertTrue(intentional_fail_open(*site, condition))
+            self.assertFalse(intentional_fail_open(site[0], "other-job", site[2], condition))
+            self.assertFalse(intentional_fail_open("other.yml", site[1], site[2], condition))
+            self.assertFalse(intentional_fail_open(site[0], site[1], "other-router", condition))
+            self.assertFalse(intentional_fail_open(*site, condition + " || true"))
+
+    def test_logical_operators_preserve_operands_and_unknown_values(self):
+        cases = {
+            "'' || 'fast'": "fast",
+            "'slow' || 'fast'": "slow",
+            "true && 'fast'": "fast",
+            "'' && 'fast'": "",
+            "false || 0": 0.0,
+            "true && 'fast' || 'slow'": "fast",
+            "('' || 'fast') == 'fast'": True,
+            "('slow' && 'fast') == 'fast'": True,
+        }
+        for expression, expected in cases.items():
+            with self.subTest(expression=expression):
+                actual = Expression(expression, {}).evaluate()
+                self.assertEqual(actual, expected)
+                self.assertIs(type(actual), type(expected))
+        for expression in ("(vars.x || 'fast') == 'fast'", "(vars.x && false) == ''"):
+            self.assertIs(Expression(expression, {}).evaluate(), UNKNOWN)
+        self.assertIs(truthy(Expression("vars.x && false", {}).evaluate()), False)
+        self.assertIs(truthy(Expression("vars.x || 'fast'", {}).evaluate()), True)
+        self.assertFalse(guarded("(needs.changes.outputs.tier || 'fast') == 'fast' && "
+                                 "needs.changes.outputs.run != 'false'", "changes"))
 
     def test_the_detector_tells_a_guarded_read_from_a_fail_open_one(self):
         read = "needs.changes.outputs.macos != 'false'"
@@ -161,6 +209,7 @@ class RouterFailureSkipsOnPullRequests(unittest.TestCase):
         self.assertFalse(guarded(f"contains(github.event.pull_request.labels.*.name, 'full-ci') && {read}",
                                  "path_route"))
         self.assertFalse(guarded(f"failure() || ({native} && {read})", "path_route"))
+        self.assertFalse(guarded(f"cancelled() || ({native} && {read})", "path_route"))
 
     def test_only_the_advisory_sweep_workflow_is_exempt(self):
         text = "jobs:\n  renamed-gate:\n    uses: " + ADVISORY_GATE + "\n  self-edit:\n    runs-on: ubuntu-latest\n"

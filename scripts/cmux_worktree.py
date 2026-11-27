@@ -39,6 +39,15 @@ seed's commit to the one asked for, writing only the files that differ.
         runs a plain `git worktree remove` (git refuses anything not clean)
         on the removable ones and `git worktree prune` for missing folders.
 
+Installed as `git-cow` on PATH (any name ending in git-cow), this file is `git cow`:
+    git cow add [-b|-B BRANCH | --detach] [--no-track|--track] [-q] PATH [COMMIT]
+takes `git worktree add`'s arguments and defaults (COMMIT is HEAD; a bare PATH
+makes or checks out the branch PATH's last part names) and clones the files as
+`add` does. Anything else it does not clone (--no-checkout, --orphan, -f, a
+remote branch name git would make a local branch of, GIT_COW=0) runs plain
+`git worktree add`; `git cow list|remove|move|prune|lock|unlock|repair` are
+`git worktree`'s; `git cow seed|dedupe|gc` are this tool's.
+
 Why not symlinks: a symlinked node_modules resolves to the other worktree's
 real path, so Vite, Metro and Node's resolver see packages outside the project
 and load a second copy of React; a shared Cargo target dir makes concurrent
@@ -69,6 +78,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+GIT_COW_VERSION = "2026.11.26"
 LANDING_REFS = ("origin/feat-cmux-next", "origin/main")
 DEFAULT_BASES = ("origin/feat-cmux-next", "HEAD")
 # The seed moves to the commit asked for once this many files differ.
@@ -135,13 +145,32 @@ def clone_path(src: Path, dst: Path) -> None:
             code = ctypes.get_errno()
             raise OSError(code, f"clonefile {src} -> {dst}: {os.strerror(code)}")
         return
-    result = subprocess.run(["cp", "-a", "--reflink=auto", str(src), str(dst)], capture_output=True, text=True)
+    # always, never auto: where the volume has no reflinks a copy would write every byte twice
+    # (the seed and the worktree) instead of once; clone_supported() sends that case to a checkout.
+    result = subprocess.run(["cp", "-a", "--reflink=always", str(src), str(dst)], capture_output=True, text=True)
     if result.returncode != 0:
         raise OSError(errno.EIO, f"cp {src} -> {dst}: {result.stderr.strip()}")
 
 
 def can_clone_cheaply() -> bool:
     return libc() is not None
+
+
+def clone_supported(src_dir: Path, dst_dir: Path) -> bool:
+    """Whether a file in src_dir can be cloned into dst_dir: one volume that has clones
+    (APFS; btrfs or XFS with reflink=1). A probe file is cloned and both are removed."""
+    src_dir.mkdir(parents=True, exist_ok=True)
+    probe = src_dir / f".cmux-worktree-probe-{os.getpid()}"
+    copy = dst_dir / f".cmux-worktree-probe-{os.getpid()}"
+    try:
+        probe.write_bytes(b"probe")
+        clone_path(probe, copy)
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.unlink(missing_ok=True)
+        copy.unlink(missing_ok=True)
 
 
 def physical_offset(path: Path) -> Optional[int]:
@@ -559,10 +588,11 @@ def _toolchain_text(root: Path, start: Path) -> str:
 
 
 def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str], branch: Optional[str],
-        seed_dir: Path, cargo_dirs: List[str]) -> AddResult:
+        seed_dir: Path, cargo_dirs: List[str], git_args: Optional[List[str]] = None) -> AddResult:
+    """git_args: more `git worktree add` options (--no-track, --track, -q, --lock)."""
     started = time.monotonic()
     base = resolve_commit(repo, commit)
-    args = ["worktree", "add", "--no-checkout"]
+    args = ["worktree", "add", "--no-checkout", *(git_args or [])]
     if branch_flag:
         args += [branch_flag] + ([branch] if branch else [])
     args += [str(path), base]
@@ -573,6 +603,8 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     try:
         if os.environ.get("CMUX_WORKTREE_NO_CLONE") == "1":
             raise OSError(errno.ENOTSUP, "CMUX_WORKTREE_NO_CLONE=1")
+        if not (Seed(seed_dir).exists() and can_clone_cheaply()) and not clone_supported(seed_dir.parent, path):
+            raise OSError(errno.ENOTSUP, f"{path} and {seed_dir.parent} share no volume with clones")
         seed = ensure_seed(repo, seed_dir, target_commit)
         seed_commit, _ = clone_from_seed(seed, path, oid_size)
         result.method = "clone"
@@ -859,6 +891,99 @@ def gc(repo: Path, seed_dir: Path, idle_days: float, apply: bool, landing: List[
     return entries
 
 
+# ---------------------------------------------------------------- git cow
+
+GIT_WORKTREE_COMMANDS = ("list", "remove", "move", "prune", "lock", "unlock", "repair")
+
+
+def plain_worktree_add(argv: List[str]) -> int:
+    return subprocess.run(["git", "worktree", "add", *argv]).returncode
+
+
+def git_cow_add(argv: List[str]) -> int:
+    """`git worktree add ARGV`, with the files cloned where this tool can; else plain git."""
+    if os.environ.get("GIT_COW") == "0":
+        return plain_worktree_add(argv)
+    flag: Optional[str] = None
+    branch: Optional[str] = None
+    passed: List[str] = []
+    cargo: List[str] = []
+    want_json = False
+    positional: List[str] = []
+    items = list(argv)
+    while items:
+        item = items.pop(0)
+        if item in ("-b", "-B"):
+            if flag or not items:
+                return plain_worktree_add(argv)
+            flag, branch = item, items.pop(0)
+        elif item == "--detach":
+            if flag:
+                return plain_worktree_add(argv)
+            flag = "--detach"
+        elif item in ("--no-track", "--track", "-q", "--quiet", "--lock", "--no-guess-remote", "--guess-remote"):
+            passed.append(item)
+        elif item == "--cargo" and items:
+            cargo.append(items.pop(0))
+        elif item == "--json":
+            want_json = True
+        elif item == "--":
+            positional += items
+            items = []
+        elif item.startswith("-"):
+            return plain_worktree_add(argv)  # --no-checkout, --orphan, -f, --reason ...: git's own
+        else:
+            positional.append(item)
+    if not 1 <= len(positional) <= 2:
+        return plain_worktree_add(argv)
+    repo = Path.cwd()
+    path = Path(positional[0]).absolute()
+    commit = positional[1] if len(positional) == 2 else None
+    if commit is None and flag is None:
+        # git's default: the branch PATH's last part names, checked out when it exists, else made at HEAD.
+        name = path.name
+        if git_ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{name}"):
+            commit = name
+        else:
+            flag, branch = "-b", name
+    if commit is None:
+        commit = "HEAD"
+    if not git_ok(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"):
+        return plain_worktree_add(argv)  # a remote branch name git makes a local branch of, or git's error
+    if flag == "--detach":
+        branch = None
+    # A worktree's -C is the repository the user stands in: its common dir picks the seed.
+    seed_dir = default_seed_dir(repo)
+    result = add(repo, path, commit, flag, branch, seed_dir, cargo, passed)
+    if want_json:
+        print(json.dumps(result.__dict__, indent=2))
+    elif "-q" not in passed and "--quiet" not in passed:
+        how = "cloned" if result.method == "clone" else "checked out"
+        print(f"git cow: {result.path} {how} at {result.commit[:12]} in {result.seconds}s", file=sys.stderr)
+    return 0
+
+
+def git_cow_main(argv: List[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print("usage: git cow add [-b|-B BRANCH | --detach] [--no-track] PATH [COMMIT]\n"
+              "       git cow list|remove|move|prune|lock|unlock|repair ...   (git worktree)\n"
+              "       git cow seed|dedupe|gc ...                              (cmux_worktree.py)\n"
+              "`git worktree add` whose files are copy-on-write clones of a clean seed checkout.")
+        return 0
+    if argv[0] in ("--version", "version"):
+        print(f"git-cow {GIT_COW_VERSION}")
+        return 0
+    if argv[0] == "add":
+        try:
+            return git_cow_add(argv[1:])
+        except GitError as error:
+            print(f"git cow: {error}", file=sys.stderr)
+            return 128
+    if argv[0] in GIT_WORKTREE_COMMANDS:
+        return subprocess.run(["git", "worktree", *argv]).returncode
+    return main(argv)
+
+
 # ---------------------------------------------------------------- CLI
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -957,4 +1082,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    if Path(sys.argv[0]).name.endswith("git-cow"):
+        signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
+        sys.exit(git_cow_main(sys.argv[1:]))
     sys.exit(main())

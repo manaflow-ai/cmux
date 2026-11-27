@@ -614,7 +614,6 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "test-ios.yml#ios-simulator-build": "apple-ios",
-    "test-ios.yml#mobile-core-package": "apple-ios",
     "auto-journey.yml#journey": {"class": "apple-gui", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
     "chief-evals.yml#fleet-ab": {"class": "apple-gui", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "cmux-next-fast-tier-batch.yml#swift": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
