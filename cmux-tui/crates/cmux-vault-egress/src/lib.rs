@@ -27,10 +27,15 @@
 //! name and the host, never a value.
 
 mod ca;
+mod drain;
 pub mod happy;
 mod proxy;
 mod substitute;
 
 pub use ca::Authority;
-pub use proxy::{Config, Resolver, bind, serve, upstream_tls_from_os, upstream_tls_with_roots};
+pub use drain::{Admission, Drain};
+pub use proxy::{
+    Config, Resolver, bind, serve, serve_with_admission, upstream_tls_from_os,
+    upstream_tls_with_roots,
+};
 pub use substitute::{HostPattern, PLACEHOLDER_PREFIX, Policy, Secret, placeholder};

@@ -77,9 +77,19 @@ pub async fn bind() -> io::Result<TcpListener> {
     TcpListener::bind((IpAddr::from([127, 0, 0, 1]), 0)).await
 }
 
-/// Serve until the listener fails or the future is dropped (which drops
-/// every connection task's handle; tasks end with their sockets).
+/// Serve until the listener fails or the future is dropped. Accepted and
+/// upgraded tasks keep running; use [`serve_with_admission`] to drain them.
 pub async fn serve(listener: TcpListener, config: Arc<Config>) -> io::Result<()> {
+    serve_with_admission(listener, config, Arc::new(crate::Admission::default())).await
+}
+
+/// Serve with an update fence shared with the daemon's drain. Dropping this
+/// accept loop does not cancel upgraded tunnels; drain before process replacement.
+pub async fn serve_with_admission(
+    listener: TcpListener,
+    config: Arc<Config>,
+    admission: Arc<crate::Admission>,
+) -> io::Result<()> {
     let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     loop {
         let permit = slots.clone().acquire_owned().await.map_err(io::Error::other)?;
@@ -103,10 +113,11 @@ pub async fn serve(listener: TcpListener, config: Arc<Config>) -> io::Result<()>
             Err(e) => return Err(e),
         };
         let config = config.clone();
+        let admission = admission.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
-            let service = service_fn(move |req| connect(req, config.clone()));
+            let service = service_fn(move |req| connect(req, config.clone(), admission.clone()));
             let _ = hyper::server::conn::http1::Builder::new()
                 .timer(TokioTimer::new())
                 .header_read_timeout(HEADER_TIMEOUT)
@@ -142,6 +153,7 @@ fn target(req: &Request<Incoming>) -> Option<(String, u16)> {
 async fn connect(
     req: Request<Incoming>,
     config: Arc<Config>,
+    admission: Arc<crate::Admission>,
 ) -> Result<Response<Body>, Infallible> {
     if req.method() != Method::CONNECT {
         return Ok(status(
@@ -151,6 +163,10 @@ async fn connect(
     }
     let Some((host, port)) = target(&req) else {
         return Ok(status(StatusCode::BAD_REQUEST, "invalid CONNECT target\n"));
+    };
+    // Acquire before dialing: the drain and a newly accepted tunnel cannot race.
+    let Some(permit) = admission.admit() else {
+        return Ok(status(StatusCode::SERVICE_UNAVAILABLE, "proxy update in progress\n"));
     };
     let intercept = dns_name(&host) && (config.policy)().intercepts(&host, port);
     let upstream = match open(&config.resolver, &host, port, intercept).await {
@@ -163,6 +179,7 @@ async fn connect(
         }
     };
     tokio::spawn(async move {
+        let _permit = permit;
         let Ok(upgraded) = hyper::upgrade::on(req).await else { return };
         let client = TokioIo::new(upgraded);
         if intercept {

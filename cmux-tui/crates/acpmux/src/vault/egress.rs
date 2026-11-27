@@ -86,6 +86,21 @@ const RETRY_START: Duration = Duration::from_secs(60);
 static HANDED: Mutex<Option<std::net::TcpListener>> = Mutex::new(None);
 /// The proxy's accept loop, stopped when another process holds its queue for the next daemon.
 static ACCEPTING: Mutex<Option<tokio::task::AbortHandle>> = Mutex::new(None);
+static ADMISSION: std::sync::OnceLock<Arc<cmux_vault_egress::Admission>> =
+    std::sync::OnceLock::new();
+
+fn admission() -> &'static Arc<cmux_vault_egress::Admission> {
+    ADMISSION.get_or_init(|| Arc::new(cmux_vault_egress::Admission::default()))
+}
+
+/// Fence only after active turns have finished: they may need another CONNECT.
+/// A tunnel that remains open defers the update without interrupting its stream.
+pub(crate) async fn drain_until(
+    deadline: tokio::time::Instant,
+) -> Option<cmux_vault_egress::Drain> {
+    let drain = admission().begin_drain();
+    if drain.wait_until(deadline).await { Some(drain) } else { None }
+}
 /// How stale the entries the proxy serves may be.
 const POLICY_TTL: Duration = Duration::from_secs(2);
 static POLICY: Mutex<Option<(Instant, Arc<Policy>)>> = Mutex::new(None);
@@ -347,7 +362,9 @@ fn start(home: &Path) -> Result<Running, &'static str> {
     });
     let accepting = runtime.spawn(async move {
         let result = match tokio::net::TcpListener::from_std(listener) {
-            Ok(listener) => cmux_vault_egress::serve(listener, config).await,
+            Ok(listener) => {
+                cmux_vault_egress::serve_with_admission(listener, config, admission().clone()).await
+            }
             Err(e) => Err(e),
         };
         if let Err(e) = result {

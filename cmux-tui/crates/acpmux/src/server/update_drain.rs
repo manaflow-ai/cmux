@@ -40,7 +40,7 @@ impl Drop for ActiveSend {
     }
 }
 
-pub(crate) struct Drain(Arc<Admission>, String);
+pub(crate) struct Drain(Arc<Admission>, String, Option<cmux_vault_egress::Drain>);
 
 impl Drain {
     /// Only this owner's detached successor may join its already-fenced handoff.
@@ -48,13 +48,18 @@ impl Drain {
         self.1.clone()
     }
 
-    pub(crate) fn commit(self) {
+    pub(crate) fn commit(mut self) {
+        if let Some(egress) = self.2.take() {
+            egress.commit();
+        }
         self.0.state.lock_or_recover().committed = true;
     }
 }
 
 impl Drop for Drain {
     fn drop(&mut self) {
+        // Reopen egress before waking a turn that may immediately need CONNECT.
+        drop(self.2.take());
         let mut state = self.0.state.lock_or_recover();
         state.drainers -= 1;
         if state.drainers == 0 {
@@ -114,7 +119,7 @@ impl Admission {
             state.drainers += 1;
             token
         };
-        let guard = Drain(self.clone(), token);
+        let guard = Drain(self.clone(), token, None);
         let ready = async {
             loop {
                 let changed = self.changed.notified();
@@ -152,7 +157,8 @@ pub(crate) async fn prepare_owned(
     owner: Option<&str>,
 ) -> Result<Drain, RpcError> {
     let until = tokio::time::Instant::now() + WITHIN;
-    let guard = hub.update_admission.drain_owned(WITHIN, owner).await?;
+    let mut guard = hub.update_admission.drain_owned(WITHIN, owner).await?;
+    guard.2 = Some(crate::vault::egress::drain_until(until).await.ok_or_else(deferred)?);
     if !super::shutdown_drain::flush_before_update(hub, until).await {
         return Err(deferred());
     }
