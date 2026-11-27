@@ -146,7 +146,9 @@ final class NotificationCenterService {
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         let feed = services.feed
-        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
+        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL,
+                                             configuration: services.cloud.auth.configuration,
+                                             machineIO: { [weak services] in services?.cloud.auth.machineIO })
         let driver = makeFeedDriver(services, principal: principal)
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.
@@ -700,8 +702,7 @@ final class NotificationCenterService {
     }
 
     func note(_ line: String) {
-        log.append(line)
-        if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
+        FileHandle.standardError.write(Data("notification note: \(line)\n".utf8)); log.append(line); if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) } // stderr: the probes read the app's output log
     }
 }
 

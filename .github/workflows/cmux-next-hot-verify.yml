@@ -183,7 +183,7 @@ jobs:
       - name: Checkout the base branch's scripts
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -200,7 +200,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -426,7 +426,7 @@ jobs:
       - name: Checkout the pull request check
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -443,7 +443,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request check (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -521,7 +521,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the rate limit helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -617,7 +617,7 @@ jobs:
       - name: Checkout the pull request head (trees only)
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -634,7 +634,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only) (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -790,9 +790,10 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the publisher
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -815,11 +816,11 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: |
+          sparse-checkout: &publisher-sparse |
             .github/actions/pr-media-publish
             scripts/pr-media.py
             scripts/ci/pr_media_privacy.py
@@ -832,6 +833,32 @@ jobs:
             scripts/ci/ci_pool_tokens.py
             .gitmodules
           sparse-checkout-cone-mode: false
+      - name: "Pool mirror: checkout the publisher"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *publisher-sparse
+        # Pool runners use their local mirror directly. actions/checkout adds a blobless promisor fetch, which
+        # can stall while the mirror backfills blobs. The unfiltered fetch only transfers objects the mirror lacks.
+        run: |
+          set -euo pipefail
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
       # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
       # spent hour: 2026-11-23 17:43-23:43Z, post the look's read took 569 s at the median and 1,579 s at p90 (242
@@ -843,10 +870,14 @@ jobs:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
           CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CI_POOL_PERMISSIONS: '{"contents":"read","actions":"write"}'
         run: python3 scripts/ci/ci_pool_tokens.py
       # The cmux-bot App's installation has an hour of its own (the plan job's dispatch uses it the same way): a
       # read refused on github.token moves to it at once instead of sleeping (gh_budget_wait.sh GH_TOKEN_SPARE).
-      # Read-only, and only the pull request read below takes it.
+      # The pull request read, the gallery read and the one-more-look dispatch take it (after the pools). On
+      # github.token alone, 2026-11-26 15:00-19:00Z, the dispatch and the gallery read waited out the spent hour:
+      # post the look took 584 s at the median and 2,290 s at p90 (215 jobs, 2,964 runner-minutes in 4 h), nearly
+      # all of it asleep in those two steps. The job's github.token already holds actions: write.
       - name: Mint the pull request read's spare token
         id: cmux-bot-token
         if: ${{ vars.CMUX_BOT_APP_ID != '' }}
@@ -857,6 +888,7 @@ jobs:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-pull-requests: read
+          permission-actions: write
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
@@ -926,10 +958,19 @@ jobs:
             echo "needs_build=false" >> "$GITHUB_OUTPUT"
             ls "$RUNNER_TEMP/hv/media" 2>/dev/null | sed 's/^/staged: /' || true
           fi
+      # The dispatch below ran on github.token alone, and gh_budget_wait.sh slept out its spent hour (default 3600 s):
+      # 2026-11-26 13-19Z, 212 of 373 post the look runs spent over 400 s (job 139931240089: 2,654 s), a Linux runner
+      # held for one API call. It goes out on the pools first, then the job's cmux-bot spare (actions: write, minted
+      # above), then github.token, and waits at most 2 minutes once all are spent (#59431, goal ci-min-per-pr-30).
       - name: Dispatch one more look
         if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # Only a short backoff once the pools, the spare and github.token are all out of their hour: the look is
+          # advisory.
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           LAYERS: ${{ inputs.layers }}
@@ -949,7 +990,11 @@ jobs:
               exit 0
             fi
             cat "$err" >&2
-            grep -v '^::' "$err" | grep -qiE "rate limit|HTTP 429" && break
+            if grep -v '^::' "$err" | grep -qiE "rate limit|HTTP 429"; then
+              echo "::warning title=hot verify::no more look for ${HEAD_SHA:0:12}: every token is out of its GitHub API hour"
+              echo "hot verify: one more look for ${HEAD_SHA:0:12} was not started (GitHub API rate limit on every token)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             [[ $attempt == 3 ]] || sleep "$pause"
             pause=$(( pause * 2 ))
           done
@@ -959,7 +1004,9 @@ jobs:
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           HEAD_SHA: ${{ inputs.head }}
         run: |
           set -uo pipefail

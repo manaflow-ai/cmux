@@ -410,7 +410,10 @@ private struct ProviderButton<Icon: View>: View {
         // in the iPhone app's scaled window on iPad (VoiceOver's focus ring and
         // XCUITest read (20, -29.5, 350, 217.5) for a row drawn at about
         // (232, 528, 568, 354), App Review gate run 45632944865).
-        .accessibilityRepresentation { Button(title, action: action) }
+        // The represented button carries the busy state itself: hit testing
+        // does not reach VoiceOver or XCUITest, so a busy row read as an
+        // enabled button (App Review gate run 45090966438, finding F1).
+        .accessibilityRepresentation { Button(title, action: action).disabled(signInBusy || isBusy) }
         // The busy row keeps its look (spinner, full colour) but takes no
         // second tap; the others are disabled until the sign-in ends.
         .disabled(signInBusy && !isBusy)

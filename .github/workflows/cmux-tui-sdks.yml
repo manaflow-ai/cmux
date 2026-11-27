@@ -105,10 +105,13 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -184,6 +187,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -290,10 +295,13 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -369,6 +377,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -420,7 +430,7 @@ jobs:
       conformance: ${{ steps.graph.outputs.conformance }}
       conformance_tree: ${{ steps.graph.outputs.conformance_tree }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -523,8 +533,8 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
-      - name: Test and check the seven SDK capability descriptors
-        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+      - name: Check SDK descriptors and schema hashes have one source
+        run: python3 cmux-tui/scripts/test_check_sdk_single_source.py
 
       - name: Test deterministic SDK generator
         env:
@@ -593,7 +603,7 @@ jobs:
           - cpp
           - zig
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -846,7 +856,7 @@ jobs:
           - cpp
           - zig
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1067,7 +1077,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1145,7 +1155,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1397,7 +1407,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
