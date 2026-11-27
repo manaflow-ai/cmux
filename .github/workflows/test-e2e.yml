@@ -474,7 +474,9 @@ jobs:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       # The cap follows the pin below: CMUX_CI_XCODE_APP_PR names Xcode 27.2
       # (SDK 27) since 2026-11-27, and a fixed "26" refused that pin.
-      CMUX_CI_MAX_MACOS_SDK_MAJOR: ${{ contains((contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '', 'Xcode_27') && '27' || '26' }}
+      # Where the job is unpinned (the macOS 15 image) no Xcode 27 can run, so
+      # 27 caps nothing there.
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_PR, 'Xcode_27') && '27' || '26' }}
       # The DerivedData seed key hashes `xcodebuild -version`, and
       # seed-derived-data.yml builds seeds on the macOS 26 pull-request pool
       # with CMUX_CI_XCODE_APP_PR. On a macOS 26 runner take that pin so a seed
