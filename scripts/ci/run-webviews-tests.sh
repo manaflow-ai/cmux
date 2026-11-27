@@ -311,7 +311,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
 fi
 git ls-files -z --cached ${others[@]+"${others[@]}"} -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
-if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ -n "${CMUX_WEB_TEST_FILES_FROM:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
   python3 - "$results/files" ${selection[@]+"${selection[@]}"} <<'PY'
 import os
 import pathlib
@@ -319,7 +319,13 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
-wanted = [line.strip() for line in os.environ.get("CMUX_WEB_TEST_FILES", "").splitlines() if line.strip()]
+text = os.environ.get("CMUX_WEB_TEST_FILES", "")
+# CMUX_WEB_TEST_FILES_FROM: a file with the same list, for lists past the 128 KiB a single environment
+# variable may hold (MAX_ARG_STRLEN): webviews_pr_shards.py passed a full-ci closure inline, the exec
+# failed with E2BIG and the shard pick fell back to every shard.
+if os.environ.get("CMUX_WEB_TEST_FILES_FROM"):
+    text += "\n" + pathlib.Path(os.environ["CMUX_WEB_TEST_FILES_FROM"]).read_text()
+wanted = [line.strip() for line in text.splitlines() if line.strip()]
 missing = [name for name in wanted if name not in listed]
 if missing:
     sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))

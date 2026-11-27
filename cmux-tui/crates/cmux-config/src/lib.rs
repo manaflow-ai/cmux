@@ -39,6 +39,7 @@ pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
 pub mod language;
+pub mod link_rules;
 pub mod location;
 pub mod managed;
 pub mod migrations;
