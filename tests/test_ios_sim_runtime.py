@@ -18,7 +18,8 @@ SCRIPT = ROOT / "scripts/ci/cmux-next-ios-sim.sh"
 
 
 # Identifiers that are not the name with dashes for spaces (Xcode 26 simctl list devicetypes).
-REAL_IDS = {"iPhone SE (3rd generation)": "iPhone-SE-3rd-generation", "iPad mini (A17 Pro)": "iPad-mini-A17-Pro"}
+REAL_IDS = {"iPhone SE (3rd generation)": "iPhone-SE-3rd-generation", "iPad mini (A17 Pro)": "iPad-mini-A17-Pro",
+            "iPad Pro 13-inch (M4)": "iPad-Pro-13-inch-M4-8GB", "iPad Air 13-inch (M3)": "iPad-Air-13-inch-M3"}
 
 
 def runtime(version, build, phones=("iPhone 17 Pro", "iPhone 17"), available=True):
@@ -152,7 +153,42 @@ class IOSSimRuntimeTest(unittest.TestCase):
         p = run(FLEET, "23F77", ["--device", "iPad Pro 11-inch (M5)"])
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual(p.stdout, "")
-        self.assertIn("no such iPhone or iPad mini device type", p.stderr)
+        self.assertIn("no such iPhone, iPad mini or 13-inch iPad device type", p.stderr)
+
+    # 2026-11-27: a swipe-back proof on App Review's 13-inch iPad (cmux#56847) exited 3 here, while
+    # ios-review-gate.yml's iPad leg runs on exactly that device (app_review_pick_simulator.py).
+    def test_ipad_13_takes_app_reviews_13_inch_ipad_in_its_order(self):
+        ipads = {"runtimes": [runtime("26.5", "23F77", phones=SIZES + ("iPad Air 13-inch (M3)", "iPad Pro 13-inch (M4)"))]}
+        p = run(ipads, "23F77", ["--device", "ipad-13", "--with-name"])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.rstrip("\n").split(" ", 2)[1:],
+                         ["com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M4-8GB", "iPad Pro 13-inch (M4)"])
+        for want in ("iPad Air 13-inch (M3)", "iPad-Air-13-inch-M3"):
+            p = run(ipads, "23F77", ["--device", want, "--with-name"])
+            self.assertEqual(p.returncode, 0, (want, p.stderr))
+            self.assertEqual(p.stdout.rstrip("\n").split(" ", 2)[2], "iPad Air 13-inch (M3)", want)
+
+    def test_ipad_13_without_one_fails_with_the_ipads_it_has(self):
+        p = run(FLEET, "23F77", ["--device", "ipad-13"])
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+        self.assertIn("none of iPad Pro 13-inch (M5), iPad Pro 13-inch (M4), iPad Air 13-inch (M3)", p.stderr)
+        self.assertIn("available iPad types: iPad Pro 11-inch (M5), iPad mini (A17 Pro)", p.stderr)
+
+    def test_ipad_13_matches_the_app_review_gates_ipad_list(self):
+        sys.path.insert(0, str(HELPER.parent))
+        try:
+            import ios_sim_runtime
+        finally:
+            sys.path.pop(0)
+        gate = (ROOT / "cmux-next-ios/scripts/app_review_pick_simulator.py").read_text()
+        self.assertIn('"ipad": ' + json.dumps(list(ios_sim_runtime.IPAD_13)), gate)
+
+    def test_step_script_builds_iphone_only_on_the_13_inch_ipad(self):
+        text = SCRIPT.read_text()
+        self.assertIn('"iPad Pro 13-inch"* | "iPad Air 13-inch"*) family_settings=(TARGETED_DEVICE_FAMILY=1)', text)
+        for array in ("build_settings+=", "ui_prebuild_args+=", "    ${family_settings[@]+"):
+            self.assertIn(array, text)
 
     def test_an_ipad_mini_stands_in_for_an_unfolded_foldable(self):
         for want in ("iPad mini (A17 Pro)", "iPad-mini-A17-Pro"):
