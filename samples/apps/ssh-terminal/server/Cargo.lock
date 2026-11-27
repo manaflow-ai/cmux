@@ -206,6 +206,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -399,6 +400,15 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "fraction"
@@ -1403,6 +1413,18 @@ name = "unicode-width"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
 
 [[package]]
 name = "utf8_iter"

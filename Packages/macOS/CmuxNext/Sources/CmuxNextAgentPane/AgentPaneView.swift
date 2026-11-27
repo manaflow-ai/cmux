@@ -42,7 +42,7 @@ public final class AgentPaneView: NSView {
     /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
     let shownPushes = AgentPaneShownPushes()
     /// The newest recently closed items for the New Tab page's Recently Closed section.
-    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
+    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.owe(to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
