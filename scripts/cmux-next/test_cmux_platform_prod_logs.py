@@ -485,6 +485,17 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(row["log"]["bind_probe"]["agent_last"], "other")
         self.assertNotIn("agent_journal_lines", row["log"]["bind_probe"])
         self.assertNotIn("secret", json.dumps(row))
+        # The updater's line class, the last cloud line apart and the pre-bind flip count (a count past 1 is a loop).
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_last=updater_flipped\nagent_cloud_last=waiting_bind_file\nagent_flips=7\n"}}))
+        probe = row["log"]["bind_probe"]
+        self.assertEqual((probe["agent_last"], probe["agent_cloud_last"], probe["agent_flips"]),
+                         ("updater_flipped", "waiting_bind_file", 7))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_cloud_last=secret line\nagent_flips=7x\n"}}))
+        self.assertEqual(row["log"]["bind_probe"]["agent_cloud_last"], "other")
+        self.assertNotIn("agent_flips", row["log"]["bind_probe"])
+        self.assertNotIn("secret", json.dumps(row))
         self.assertNotIn("10.0.0", json.dumps(logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM,
                                                                "bind_probe": {"outcome": "ran", "out": out}}))))
 

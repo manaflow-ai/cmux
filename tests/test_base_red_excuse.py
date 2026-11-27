@@ -8963,6 +8963,21 @@ class WsCheckPerTest(unittest.TestCase):
         # Named as a check, the same.
         self.assertEqual(self.judge(checks=["ws-check"]), audit)
 
+    def test_a_main_verdict_a_runs_worth_of_merges_back_is_still_found(self):
+        # 2026-11-27: lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check verdict to
+        # compare with": main took 30 merges in 46 min while one ws-check run takes 55, so its newest finished verdict
+        # was 43 commits back. Both windows hold one run's peak of merges now.
+        self.assertGreaterEqual(excuse.WS_CHECK_COMMITS, excuse.WS_CHECK_PEAK_MERGES)
+        self.assertGreaterEqual(excuse.WS_CHECK_TESTED_TIPS, excuse.WS_CHECK_PEAK_MERGES)
+        self.assertLessEqual(excuse.WS_CHECK_COMMITS, 100)  # one page of GitHub's commit list
+        self.gh.statuses.pop(self.gh.TIP)
+        unverdicted = [f"{n:040x}" for n in range(1, excuse.WS_CHECK_PEAK_MERGES)]
+        self.gh.base_commits = [self.gh.TIP, *unverdicted, self.gh.OLDER, self.gh.MERGE_BASE]
+        self.gh.verdict(self.gh.OLDER, 2, {self.RELAY: self.relay_lint()})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"main {self.gh.OLDER[:12]} too", "\n".join(audit))
+
     def test_a_step_line_with_its_seconds_is_read(self):
         # leo-workspace#3746 (2026-11-07) ends each step line with its time, "(exit 1, ..., gh calls 0, 62.1 s)";
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
@@ -18617,6 +18632,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-rd-windows-host-build.yml",
             # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
             "shotdiff.yml",
+            # The Make cmux Yours intro walk (#60998), path-gated on the onboarding page: a red is that page's.
+            "intro-walk-check.yml",
             # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
             # (#57443) and the pause-policy A/B on staging (#54833).
             "ios-launch-tti-hosted.yml", "pause-ab.yml"),
