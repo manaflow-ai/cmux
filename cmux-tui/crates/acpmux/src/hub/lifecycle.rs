@@ -1,11 +1,10 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::full_access_bound::FullAccessEnd;
-use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
-use super::new_request::{claude_resume_refusal, suffixed_name_among, unique_name_among};
+use super::new_request::{suffixed_name_among, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
@@ -14,7 +13,7 @@ use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 mod cold_start;
 
 /// How often the person's agent start that is still under way says so (`person_start`).
-const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
+pub(super) const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Owns a session while a creation future is still configuring it. If that future is cancelled
 /// after publication, the guard purges the exact session rather than guessing from its name.
@@ -1366,35 +1365,6 @@ mod probe_off_tests;
 #[cfg(test)]
 #[path = "taken_name_tests.rs"]
 mod taken_name_tests;
-
-/// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
-/// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it
-/// from the log. ACP answers a load once its history is sent, and every reader (direct, Codex
-/// bridge, agent host, a pooled agent's hold) queues an agent's notifications in order before
-/// it resolves the answer, so the `ReplayDone` that `end` queues lands behind the whole replay,
-/// and before the next prompt is even written. The hold names the agent's generation: another
-/// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
-/// what that agent still had queued stays out of the preview as well, beside the next agent's
-/// own hold (`Session::replaying` keeps both).
-struct ReplayHold<'a> {
-    session: &'a Session,
-    agent: &'a crate::agent::ChildAgent,
-}
-
-impl<'a> ReplayHold<'a> {
-    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
-        session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
-        Self { session, agent }
-    }
-
-    /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
-    /// its queue is closed (nothing more can arrive).
-    async fn end(self) {
-        if !self.agent.queue_replay_done().await {
-            self.session.end_replay(self.agent.generation);
-        }
-    }
-}
 
 /// Whether `session`'s start waits on its harness instead of a deadline: the person's
 /// (`Session::person`), or one that asked to (`Session::wait_start`). Either ends when its harness
