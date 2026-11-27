@@ -110,9 +110,8 @@ pub(crate) fn enabled() -> bool {
 
 /// The reviewer's argv from `doc`, else a cheap model's.
 pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
-    let named: Option<Vec<String>> = doc
-        .and_then(|d| crate::user_settings::value(d, SETTING_COMMAND))
-        .and_then(|v| {
+    let named: Option<Vec<String>> =
+        doc.and_then(|d| crate::user_settings::value(d, SETTING_COMMAND)).and_then(|v| {
             v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         });
     match named {
