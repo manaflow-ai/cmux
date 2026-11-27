@@ -280,6 +280,31 @@
           ]
         },
         {
+          "key": "experiments.writtenHTMLOpenBeside",
+          "note": "First slice of docs/design/next-rich-output.md plan item 5 (hq): a written HTML file's card in the agent chat gets Open beside chat, which opens the file as the real page in the sandboxed browser tab beside the chat that `cmux file open` and MCP `open` already use (u18051), so its CSS, scripts and images load. The page posts file.open {where: tab}; the host's checkedFileOpen (AgentPaneFileOpen+Roots.swift) lets .html/.htm into a tab only with this switch on, under the pane's roots, on a real click it spends (webviews useExperimentSwitch(\"writtenHTMLOpenBeside\"), conversation/writtenArtifacts.tsx). Off by default; off keeps today's card and today's refusal.",
+          "title": {
+            "key": "settings.experiments.writtenHTMLOpenBeside",
+            "text": "Open Written HTML Beside the Chat"
+          },
+          "help": {
+            "key": "settings.experiments.writtenHTMLOpenBeside.help",
+            "text": "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "html",
+            "page",
+            "open",
+            "beside",
+            "preview",
+            "rich output"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
@@ -683,6 +708,33 @@
           ]
         },
         {
+          "key": "experiments.setupShelf",
+          "note": "Make cmux Yours offers the four setups in examples/setups (Calm, Dense, Chat-first, Terminal-first) as a shelf with Try, Keep and Revert (hq design dp-9eedbe44e5). Each setup owns one axis's keys; rivals on an axis replace each other, other axes stack; Try snapshots only the keys it writes, Revert puts back the ones still as the setup left them, Keep drops the snapshot, Skip puts everything back. The page reads it from its state (MakeItYoursStepModel.setupShelf; webviews onboarding setupShelf.ts); the host accepts a setup's paths only while it is on (FirstRunChoicesSettingsSource.setupPaths). Off by default; off keeps today's step with no shelf.",
+          "title": {
+            "key": "settings.experiments.setupShelf",
+            "text": "Setups in Make cmux Yours"
+          },
+          "help": {
+            "key": "settings.experiments.setupShelf.help",
+            "text": "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "onboarding",
+            "first run",
+            "setup",
+            "setups",
+            "profile",
+            "calm",
+            "dense",
+            "try"
+          ]
+        },
+        {
           "key": "experiments.appsTier",
           "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
           "title": {
@@ -726,6 +778,32 @@
             "typing",
             "streaming",
             "performance"
+          ]
+        },
+        {
+          "key": "experiments.eventsAsToolCalls",
+          "note": "cmuxterm-hq docs/design/events-that-are-tool-calls.md, first unbuilt slice (plan: \"Add subagent_resume and announcement to the known kinds\"): the agent chat reads both acpmux provenance kinds by origin (webviews conversation/incomingMessage.ts, eventsAsToolCalls.experiment.ts, experimentSwitchOn(\"eventsAsToolCalls\")). An urgent forum rule acpmux pushes into a chat (hub/forum.rs, kind announcement) draws as acpmux's line instead of the person's prompt; a subagent's Resume (hub/subagent_resume.rs) is never read as an agent's message. Later slices of the design join this switch. Off by default; off reads every prompt as before.",
+          "title": {
+            "key": "settings.experiments.eventsAsToolCalls",
+            "text": "Harness Events Read by Origin"
+          },
+          "help": {
+            "key": "settings.experiments.eventsAsToolCalls.help",
+            "text": "A rule cmux pushes into a chat shows as cmux's line, never as your own message."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "events",
+            "tool calls",
+            "forum",
+            "rule",
+            "announcement",
+            "subagent",
+            "resume"
           ]
         },
         {

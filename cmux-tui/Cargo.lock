@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-list-types",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -88,6 +89,7 @@ dependencies = [
  "cmux-tailnet-join",
  "cmux-tailnet-local",
  "cmux-transport",
+ "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
@@ -108,6 +110,7 @@ dependencies = [
  "hpke",
  "imbl",
  "inotify",
+ "jpeg-encoder",
  "jsonschema",
  "libc",
  "memchr",
@@ -187,6 +190,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "acpmux-client",
+ "acpmux-list-types",
  "arc-swap",
  "cmux-scope",
  "libc",
@@ -252,6 +256,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
@@ -1932,6 +1937,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -1970,6 +1976,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-critpath"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-customize"
 version = "0.1.0"
 dependencies = [
@@ -2001,6 +2014,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "base64",
  "cmux-local-auth",
  "cmux-sdk",
@@ -2226,6 +2240,7 @@ dependencies = [
  "cmux-egress",
  "cmux-process",
  "cmux-scope",
+ "cmux-transport-rewrite",
  "flate2",
  "futures-util",
  "hex",
@@ -2353,6 +2368,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -2516,6 +2532,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2727,6 +2744,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "rcgen",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
@@ -2743,6 +2779,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2817,6 +2855,7 @@ name = "cmux-rd-screen-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-screen",
+ "cmux-vnc",
  "serde_json",
 ]
 
@@ -2877,6 +2916,7 @@ dependencies = [
  "cmux-link",
  "cmux-netwatch",
  "cmux-process",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -3099,6 +3139,13 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -3373,6 +3420,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-transport-rewrite"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -3437,6 +3488,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",
@@ -3449,6 +3501,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-sign-clone-sweep",
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
@@ -3617,6 +3670,7 @@ dependencies = [
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
+ "cmux-transport-rewrite",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
@@ -4017,11 +4071,13 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -5408,6 +5464,7 @@ name = "ghostty-vt-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cmux-transport-rewrite",
 ]
 
 [[package]]
@@ -6401,6 +6458,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"
