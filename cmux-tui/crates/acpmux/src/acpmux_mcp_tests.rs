@@ -5,7 +5,7 @@ use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
-async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
+pub(super) async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut harnesses = BTreeMap::new();
     harnesses.insert(
@@ -36,7 +36,7 @@ async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestD
     (hub, client, dir)
 }
 
-async fn session(client: &Arc<Client>, name: &str) -> String {
+pub(super) async fn session(client: &Arc<Client>, name: &str) -> String {
     let s = client
         .request(
             method::SESSION_NEW,
@@ -1435,6 +1435,49 @@ fn instructions_stay_short() {
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
+}
+
+/// `inbox_read`'s list filters: `unread` keeps threads with unread messages, `from` the threads a
+/// sender (by shown name, HOST/NAME or session id) wrote, `limit` the first N, saying how many
+/// more match. None of them leaves the listing whole.
+#[test]
+fn an_inbox_listing_filters_by_unread_sender_and_limit() {
+    let listing = || {
+        json!({"threads": [
+            {"threadId": "a", "from": ["lane-a"], "unread": 2, "count": 2,
+             "sender": {"label": "lane-a", "session": "s-a", "machine": "host1"}},
+            {"threadId": "b", "from": ["lane-b"], "unread": 0, "count": 4,
+             "sender": {"label": "lane-b", "session": "s-b", "machine": null}},
+            {"threadId": "c", "from": ["lane-a"], "unread": 1, "count": 1,
+             "sender": {"label": "lane-a", "session": "s-a", "machine": "host1"}},
+            {"threadId": "d", "from": ["lane-c"], "unread": 5, "count": 5, "sender": {}}]})
+    };
+    let ids = |v: &Value| -> Vec<String> {
+        v["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["threadId"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let run = |args: Value| {
+        let mut v = listing();
+        let more = filter_threads(&mut v, &args);
+        (ids(&v), more, v)
+    };
+    assert_eq!(run(json!({})).0, ["a", "b", "c", "d"]);
+    assert_eq!(run(json!({"unread": true})).0, ["a", "c", "d"]);
+    assert_eq!(run(json!({"from": "lane-a"})).0, ["a", "c"]);
+    assert_eq!(run(json!({"from": "host1/lane-a"})).0, ["a", "c"]);
+    assert_eq!(run(json!({"from": "s-b"})).0, ["b"]);
+    assert_eq!(run(json!({"from": "nobody"})).0, Vec::<String>::new());
+    let (kept, more, v) = run(json!({"unread": true, "limit": 2}));
+    assert_eq!((kept, more), (vec!["a".to_owned(), "c".to_owned()], 1));
+    assert_eq!(v["moreThreads"], 1);
+    // A thread read is not a listing: left whole.
+    let mut read = json!({"threadId": "a", "messages": [{"text": "hi"}]});
+    assert_eq!(filter_threads(&mut read, &json!({"unread": true, "limit": 1})), 0);
+    assert_eq!(read, json!({"threadId": "a", "messages": [{"text": "hi"}]}));
 }
 
 /// A thread listing says each thread once: the id it is replied by, not that id again under
