@@ -56,6 +56,9 @@ jobs:
             scripts
             Packages/macOS/CmuxNext/Sources
 
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Sign the production agent account in
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -110,4 +113,4 @@ jobs:
           name: cloud-mvp-nightly-readback
           path: .build/cloud-mvp-nightly-readback/report.tgz
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3

@@ -69,7 +69,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
-          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

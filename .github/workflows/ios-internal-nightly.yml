@@ -664,7 +664,7 @@ jobs:
         with:
           name: cmux-internal-submission-ipa-${{ github.run_id }}
           path: ${{ runner.temp }}/submission-ipa/CmuxMobileApp.ipa
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: error
 
       - name: Keep the manifest and logs
@@ -741,5 +741,5 @@ jobs:
         with:
           name: cmux-internal-submission-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/receipt/submission.json
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: error

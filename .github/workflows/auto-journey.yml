@@ -174,7 +174,7 @@ jobs:
             ${{ runner.temp }}/auto-journey/auto-journey.json
             ${{ runner.temp }}/auto-journey/s4.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
       - name: Remove the run's machine and install
         if: always()

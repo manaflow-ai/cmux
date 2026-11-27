@@ -131,4 +131,4 @@ jobs:
           name: repro-capsule-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/repro-capsule/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

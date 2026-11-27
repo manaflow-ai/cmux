@@ -73,4 +73,5 @@ jobs:
         if: ${{ always() && !cancelled() }}
         with:
           name: shotdiff-self-check
+          retention-days: 3
           path: ${{ runner.temp }}/shotdiff-*

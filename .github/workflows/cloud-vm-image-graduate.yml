@@ -74,4 +74,4 @@ jobs:
           name: cloud-vm-image-graduate-${{ github.run_id }}
           path: ${{ runner.temp }}/graduate/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

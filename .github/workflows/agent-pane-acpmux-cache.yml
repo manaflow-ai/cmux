@@ -22,6 +22,7 @@ on:
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/**/Cargo.toml"
       - "cmux-tui/rust-toolchain.toml"
+      - ".cargo/config.toml"
       - "cmux-tui/.cargo/**"
       - ".github/workflows/agent-pane-acpmux-cache.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -59,7 +60,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
-          shared-key: agent-pane-real-acpmux
+          shared-key: agent-pane-real-acpmux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 

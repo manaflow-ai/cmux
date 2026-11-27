@@ -1609,7 +1609,9 @@ jobs:
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: echo "version=$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
@@ -1908,6 +1910,7 @@ jobs:
         run: rustup target add x86_64-pc-windows-gnu
 
       - name: Cache the reviewed MinGW-Builds sysroot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
