@@ -12,7 +12,7 @@ import Testing
         let view = PaneToolbarView()
         let paneWidth: CGFloat = 600, cap = paneWidth / 2
         let pins = Int((cap / TitlebarBandButton.side).rounded(.up)) + 2
-        view.show([], more: true, reserving: pins)
+        view.show([], zoomed: true, reserving: pins)
         #expect(view.intrinsicContentSize.width > cap, "the reserved room exceeds the half-pane cap")
 
         // What layout() shows at the cap: the trailing gap and "…" alone.
@@ -36,7 +36,7 @@ import Testing
     /// Room kept for another tab's pins stays while it fits (a selection moves no tab).
     @Test func uncappedToolbarKeepsItsReservedRoom() {
         let view = PaneToolbarView()
-        view.show([], more: true, reserving: 3)
+        view.show([], zoomed: true, reserving: 3)
         #expect(view.paneWidth(in: 600, sharing: false) == view.intrinsicContentSize.width)
         #expect(view.intrinsicContentSize.width > view.tabRowWidth)
     }
