@@ -138,6 +138,23 @@ impl PermissionOptions {
         }
     }
 
+    /// An independent view containing only `permission`'s state. `None`
+    /// produces an empty view, keeping checks without a permission id fail
+    /// closed without cloning the pane's growing permission history.
+    pub fn snapshot_for(&self, permission: Option<&str>) -> Self {
+        let source = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = State::default();
+        if let Some(permission) = permission {
+            if let Some(questions) = source.questions.get(permission) {
+                state.questions.insert(permission.to_owned(), questions.clone());
+            }
+            if let Some(denies) = source.denies.get(permission) {
+                state.denies.insert(permission.to_owned(), denies.clone());
+            }
+        }
+        Self { state: Mutex::new(state) }
+    }
+
     /// Records the options in a parsed daemon frame; `reply_to` is the
     /// request a reply answers.
     pub fn observe(&self, object: &Map<String, Value>, reply_to: Option<&str>) {

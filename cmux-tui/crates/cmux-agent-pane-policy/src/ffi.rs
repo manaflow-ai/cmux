@@ -86,10 +86,13 @@ impl Pane {
         Self::default()
     }
 
+    /// Direct Rust access bypasses the operation gate. Hosts using these
+    /// handles must serialize combined session/options observations with checks.
     pub fn sessions(&self) -> &PaneSessions {
         &self.sessions
     }
 
+    /// Direct Rust access has the same serialization requirement as `sessions`.
     pub fn options(&self) -> &PermissionOptions {
         &self.options
     }

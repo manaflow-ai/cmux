@@ -47,12 +47,21 @@ fn permission_snapshot_is_atomic_and_independent() {
         None,
     );
 
-    // The source advances to a deny, while the snapshot remains the prior
-    // coherent generation (question keys plus allow/deny observations).
-    assert!(!options.is_known_allow("p1", "allow"));
-    assert!(options.is_deny("p1", "allow"));
+    // The source advances to a non-question observation.  The option merge
+    // is conservative: an option once seen as allow remains allow even when
+    // a later frame labels it reject_policy.  The question is tombstoned,
+    // while the snapshot remains the prior coherent generation.
+    assert!(options.is_known_allow("p1", "allow"));
+    assert!(!options.is_deny("p1", "allow"));
+    assert!(options.question_keys("p1").is_none());
     assert!(snapshot.is_known_allow("p1", "allow"));
     assert_eq!(snapshot.question_keys("p1").unwrap().len(), 2);
+
+    let permission_only = options.snapshot_for(Some("p1"));
+    assert!(permission_only.is_known_allow("p1", "allow"));
+    assert!(!permission_only.is_deny("p1", "allow"));
+    assert!(permission_only.question_keys("p1").is_none());
+    assert!(!options.snapshot_for(None).is_deny("p1", "allow"));
 }
 
 #[test]
