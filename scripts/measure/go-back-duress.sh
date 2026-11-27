@@ -15,6 +15,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
+  source scripts/measure/build-progress.sh
   local out="$PWD/.build/go-back-duress" rounds=3 stress=12 agents=4 terminals=4 arg rc=0 i mode
   for arg in "$@"; do
     case "$arg" in
@@ -105,8 +106,8 @@ build_app() {
     fi
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build.log" 2>&1 || { echo "GBD GhosttyKit download failed" >&2; return 3; }
   fi
-  CMUX_FLEET_BUILD_TAG=gbd ./scripts/cmux-next/build-acpmux.sh >>"$out/build.log" 2>&1 || { echo "GBD acpmux build failed" >&2; tail -n 40 "$out/build.log" >&2; return 3; }
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag gbd --no-global-cli-links --config bench >>"$out/build.log" 2>&1
+  measure_quiet "GBD acpmux build" "$out/build.log" env CMUX_FLEET_BUILD_TAG=gbd ./scripts/cmux-next/build-acpmux.sh || { echo "GBD acpmux build failed" >&2; tail -n 40 "$out/build.log" >&2; return 3; }
+  measure_quiet "GBD build" "$out/build.log" env CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag gbd --no-global-cli-links --config bench
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "GBD build failed: no app path" >&2

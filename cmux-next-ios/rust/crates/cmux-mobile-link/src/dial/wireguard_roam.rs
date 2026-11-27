@@ -1331,6 +1331,15 @@ impl Session {
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
     /// The mapped endpoint (if any, and still among `endpoints`) is labeled
     /// so.
+    /// The phone sent `wg-init` before its gather (relay first): announce
+    /// the endpoints the gather found (host, reflexive and TURN) to the
+    /// Mac, through signaling and inside the tunnel (resent until
+    /// acknowledged), as an answer that trickles does.
+    pub(super) fn announce_gathered(self: &Arc<Self>) {
+        let session = Arc::clone(self);
+        tokio::spawn(async move { session.reannounce().await });
+    }
+
     /// Announce this side's endpoints again as they stand (after a relay
     /// join), even when none is new.
     async fn reannounce(&self) {
