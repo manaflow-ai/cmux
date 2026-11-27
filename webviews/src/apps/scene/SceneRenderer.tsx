@@ -999,8 +999,15 @@ const SceneNodeView = memo(function SceneNodeView({
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node, scrolledIn?.(id) !== true);
   const inheritedDisabled = useContext(DisabledContext);
-  const ref = useCallback((element: HTMLElement | null) => measure?.(element), [measure]);
   const element = useRef<HTMLElement>(null);
+  // One callback ref feeds both readers: the motion hook's `element` and a windowed stack's measure.
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      element.current = node;
+      measure?.(node);
+    },
+    [measure],
+  );
   const partRef = useRef<Element>(null);
   const type = node?.type;
   const part = useMemo<MotionPart | undefined>(() => {
@@ -1115,7 +1122,6 @@ const SceneNodeView = memo(function SceneNodeView({
     // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
     "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
-    ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
     title: sceneText(props.help) || undefined,
   };
