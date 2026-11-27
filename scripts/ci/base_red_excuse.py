@@ -1448,7 +1448,9 @@ def tested_sha(run: dict) -> str:
 
 ANSI = test_reds.ANSI  # one pattern for every reader
 ERROR = re.compile(r"##\[error\]|\berror:")
-WARNING = re.compile(r"##\[warning\]|\bwarning:")
+# Any case: a line that calls itself a warning (`prepush-gate: WARNING: ... error: 'rustfmt' is not installed`) is one,
+# whatever error it quotes (cmux#45212).
+WARNING = re.compile(r"##\[warning\]|(?i:\bwarning:)")
 # A job whose own script says its one red on a line of its own, not an annotation: that line is its error line.
 # scripts/ci/cua_signed_host_check.py ends a red run with `FAIL: <why>` and then only the runner's generic exit-code
 # annotation, so 'signed host admission' had no error line to compare, and its base red on cmux#37855 (the same
@@ -1905,14 +1907,17 @@ _live_red, _line_time = steps_log._live_red, steps_log._line_time
 class FailedView:
     """failed_view's answer for a placed log: the sections of JOB's failed steps, in log order, as (the index of the
     step in STEPS, its status, its raw lines), and nothing a passing step printed. A head's view (BASE false) keeps
-    its FAILED and ERRORED sections, everything that may be its red; a base's keeps its FAILED ones, everything that
+    its FAILED and ERRORED sections, everything that may be its red (only the ERRORED ones its own failed rollup names
+    red, when it names them); a base's keeps its FAILED ones, everything that
     may be base evidence, and the ERRORED ones its own failed rollup names red (rollup_vouched); any other ERRORED
     section is a continue-on-error step's: shown, never evidence. TEXT is the one way any comparator reads a log's
-    lines."""
-    __slots__ = ("job", "base", "steps", "sections", "_text")
+    lines. CHECKS: the indexes in STEPS of the continue-on-error checks its own failed rollup names red, whose finding
+    lines (CHECK_FINDING) are error lines too (step_errors)."""
+    __slots__ = ("job", "base", "steps", "sections", "checks", "_text")
 
-    def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]]):
-        self.job, self.base, self.steps, self.sections = job, base, steps, sections
+    def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]],
+                 checks: frozenset[int] = frozenset()):
+        self.job, self.base, self.steps, self.sections, self.checks = job, base, steps, sections, checks
         # Built once: every comparator reads a view's text, several times a judgment. Rebuilt per read, each read made
         # and freed two copies of a long log (the sections' join, then Steps' own), which glibc hands back to the OS
         # and faults in again above its trim threshold: view_text read 15x at 4x a HostileLog (PrLogReadersScale), 4x
@@ -1951,8 +1956,9 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
     step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'. BASE, keyword-only with no
     default, is the log's role, which every caller names: True for a base's log (evidence: FAILED sections and the
     ERRORED ones its failed rollup names red, rollup_vouched, or its failed gated step needed to fail, gate_vouched),
-    False for the head's or a stack's (its red: FAILED and ERRORED). The test scan (FailedViewIsTheOnlyReader) checks
-    each caller's role against where its log came from: the follow-up to #40542's Codex F1 at 8dc7e0dc, where
+    False for the head's or a stack's (its red: FAILED and ERRORED, or, when its own failed rollup names its red
+    checks, FAILED and the ERRORED ones it names: FailingChecksOwnErrorLines). The test scan
+    (FailedViewIsTheOnlyReader) checks each caller's role against where its log came from: the follow-up to #40542's Codex F1 at 8dc7e0dc, where
     next_batch read its base runs with the head's default role, so a base's ERRORED continue-on-error section was
     base evidence and next-batch said "no new failures" for a red judge() refuses."""
     if not log.strip():
@@ -1965,6 +1971,16 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
         steps.sort(key=lambda step: step["number"])
     keep = (FAILED,) if base else (FAILED, ERRORED)
     vouched = rollup_vouched(steps, owned) | gate_vouched(steps, owned, step_names) if base else frozenset()
+    # A head whose own failed rollup names its red checks (rollup_vouched) is red for those alone: an ERRORED section
+    # the rollup does not name is a continue-on-error check that passed (its tests print `##[error]` lines on purpose)
+    # or a warn-only guard, never this red's. cmux#45212 on 2026-11-17: its 'cmux-next checks' failed only "Main-thread
+    # concurrency", the red base run 44103410573 has too, and was refused for the passing script-tests step's
+    # `not a commit: 'nope'` and rustfmt WARNING lines, which a base view never keeps. A head with no rollup that
+    # parses keeps every ERRORED section, as before.
+    named = frozenset() if base else rollup_vouched(steps, owned)
+    if named:
+        keep = (FAILED,)
+        vouched = named | gate_vouched(steps, owned, step_names)
     sections: list[tuple[int, str, list[str]]] = []
     for line, k, status in owned:
         if status not in keep and not (status == ERRORED and k in vouched):
@@ -1972,7 +1988,7 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
         if not sections or sections[-1][0] != k:
             sections.append((k, status, []))
         sections[-1][2].append(line)
-    return FailedView(job, base, steps, sections)
+    return FailedView(job, base, steps, sections, rollup_vouched(steps, owned) if base else named)
 
 
 def gate_vouched(steps: list[dict], owned: list[tuple[str, int | None, str]], step_names) -> frozenset[int]:
@@ -2417,10 +2433,20 @@ def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced",
     return own
 
 
+# A static check's own finding: a line naming a repo file (a directory, a name with an extension), with or without its
+# line, then `:` and the finding (`main-actor-work violation: Sources/A/B.swift: string scan inside a loop: ...`,
+# `    Sources/A/B.swift:263: while ...`). Such a check prints no `error:` of its own, only its runner's
+# `##[error]<its command>`, so a different finding in the same check (another file) once matched the base's red by
+# that command alone (cmux#45212). An error line only in a section of a check its job's failed rollup names red
+# (FailedView.checks): the failing check's own lines, its file's digits kept and its line number masked
+# (normalise_error).
+CHECK_FINDING = re.compile(r"(?<![\w/.+-])(?:[\w.+-]+/)+[\w+-][\w.+-]*\.[A-Za-z][A-Za-z0-9]*:(?:\d+:)?(?:\s|$)")
+
+
 def step_errors(view: FailedView) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
-    (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
-    the same name."""
+    (failed_view) signature() reads, a named red check's finding lines (CHECK_FINDING) among them. judge() excuses a
+    head error only when a base printed it from a failed step of the same name."""
     text = view_text(view)
     scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
@@ -2431,6 +2457,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
         if n in skip or line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
             continue
         if ((ERROR.search(line)
+             or (scope[n][1] in view.checks and CHECK_FINDING.search(line))
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
              or (not tests and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())

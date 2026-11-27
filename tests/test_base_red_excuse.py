@@ -17132,9 +17132,10 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
                                   step_names=names, base=side == "base")
 
     def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
-        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
-        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
-        for side, sections in (("head", self.CHECKS_FAILED),
+        # Each side keeps its failed rollup and the one check that rollup names red (rollup_vouched), never the
+        # warn-only scrollbar guard's ERRORED section (the head alike since FailingChecksOwnErrorLines).
+        for side, sections in (("head", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"}),
                                ("base", {name: status for name, status in self.CHECKS_FAILED.items()
                                          if name != "Scrollbars thin, one style"})):
             with self.subTest(side=side):
@@ -17185,6 +17186,66 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
             self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
         self.assertIn("pin-cmux-tui.test.sh", str(said.exception))
         self.assertNotIn("does not map one to one", str(said.exception))
+
+
+class FailingChecksOwnErrorLines(unittest.TestCase):
+    """2026-11-17: cmux#45212's "cmux-next checks" (run 44099673862, job 134096943990 at 5fcbfef5) failed only
+    "Main-thread concurrency" (check-main-actor-work: DensityPlaygroundModel.swift's string scan inside a loop), the
+    red feat-cmux-next run 44103410573 (job 134109369146 at f6eaca11) has too, and was refused with "errors not on
+    feat-cmux-next ...: .s.prepush-gate: WARNING: the pinned rustfmt is not available here ... error: 'rustfmt' is
+    not installed ...; not a commit: 'nope'; could not post ...". Those lines are the script-tests step's: a
+    continue-on-error check that passed (its tests print `##[error]` lines and warnings on purpose), so step_owners
+    calls its section ERRORED, and the head's view kept every ERRORED section while the base's kept only the ones its
+    rollup names red (rollup_vouched). The head compared a passing check's noise with the base's red checks. A head's
+    view now keeps, beside its FAILED sections, the ERRORED ones its own failed rollup names red: the failing check's
+    own error lines. The fixtures are both jobs' steps and logs, trimmed to each step's header, first and last line,
+    every `##[` line and the lines named above, as served; the workflow's checks job at f6eaca11."""
+
+    CASE = "cmux-45212-checks"
+    NAME = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    PATHS = {CASE: ".github/workflows/cmux-next.yml"}
+    fixture = WorkflowHeadersPlaceRealLogs.fixture
+    github = WorkflowHeadersPlaceRealLogs.github
+    judge = WorkflowHeadersPlaceRealLogs.judge
+
+    def view(self, side, log=None):
+        github = self.github(self.CASE, self.fixture(self.CASE, "head"), self.fixture(self.CASE, "base"))
+        job = copy.deepcopy(github.jobs[1 if side == "head" else 2])
+        names = excuse.workflow_step_names(REPO, job, self.PATHS[self.CASE], github, {})
+        self.assertIsNotNone(getattr(names, "headers", None))
+        view = excuse.failed_view(job, github.logs[1 if side == "head" else 2] if log is None else log,
+                                  step_names=names, base=side == "base")
+        self.assertIsNot(view, excuse.UNPLACED)
+        return view
+
+    def test_cmux_45212_the_head_reads_only_the_checks_its_rollup_names_red(self):
+        sections = {str(view.steps[k]["name"]): status for view in [self.view("head")] for k, status, _ in view.sections}
+        self.assertEqual(sections, {"Main-thread concurrency": "errored", "Fail on any red check": "failed"})
+        errors = excuse.signature(self.view("head"))[2]
+        self.assertTrue(any("DensityPlaygroundModel.swift" in error for error in errors), errors)
+        for noise in ("rustfmt", "not a commit", "could not post"):
+            self.assertFalse(any(noise in error for error in errors), (noise, errors))
+
+    def test_cmux_45212_the_bases_main_actor_red_is_excused(self):
+        said = self.judge(self.github(self.CASE, self.fixture(self.CASE, "head"), self.fixture(self.CASE, "base")))
+        self.assertIn(f"excused '{self.NAME}'", said)
+        self.assertIn("DensityPlaygroundModel.swift", said)
+        self.assertNotIn("rustfmt", said)
+
+    def test_cmux_45212_a_different_error_in_the_same_check_is_refused(self):
+        head_job, head_log = self.fixture(self.CASE, "head")
+        moved = head_log.replace("DensityPlayground/DensityPlaygroundModel.swift", "DensityPlayground/DensityRowModel.swift")
+        self.assertNotEqual(moved, head_log)
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CASE, (head_job, moved), self.fixture(self.CASE, "base")))
+        self.assertIn("DensityRowModel.swift", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_a_warning_line_that_says_error_is_no_error_line(self):
+        for line in ("prepush-gate: WARNING: the pinned rustfmt is not available here; Rust formatting NOT checked: "
+                     "error: 'rustfmt' is not installed", "Warning: retrying: error: timed out"):
+            with self.subTest(line=line):
+                self.assertTrue(excuse.WARNING.search(line))
 
 
 class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
@@ -17266,7 +17327,9 @@ class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
         view = self.view(self.CHECKS, "head", base=False)
         self.assertIsNot(view, excuse.UNPLACED)
         statuses = {str(view.steps[k]["name"]): status for k, status, _ in view.sections}
-        self.assertEqual(statuses.get("Package conventions lint"), "errored")
+        # The warn-only lint's ERRORED section is not this red's: its rollup names only the FFI pin check red
+        # (FailingChecksOwnErrorLines), so the head's view leaves it out, as a base's does.
+        self.assertNotIn("Package conventions lint", statuses)
         self.assertEqual(statuses.get("Fail on any red check"), "failed")
         with self.assertRaises(excuse.Refused) as said:
             excuse.guard_tests(view)
