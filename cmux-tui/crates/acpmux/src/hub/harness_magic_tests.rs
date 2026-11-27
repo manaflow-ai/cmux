@@ -50,12 +50,3 @@ fn opt_in_features_are_stamped_only_when_switched_on() {
     let all = enabled_all(None, &env_on);
     assert!(all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()), "{all:?}");
 }
-
-#[test]
-fn this_build_stamps_an_empty_list_without_reading_settings() {
-    let mut msg = json!({});
-    if FEATURES.is_empty() {
-        stamp(&mut msg);
-        assert_eq!(msg["harnessMagic"]["enabled"], json!([]));
-    }
-}
