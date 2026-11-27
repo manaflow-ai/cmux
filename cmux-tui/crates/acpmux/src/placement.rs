@@ -426,9 +426,18 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
+    let lanes = machine.get("lanes");
+    // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
+    // override (Leo, 2026-11-27, of big-red: "then please don't rely on big-red").
+    if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
+        let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
+        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("never a lane host: {why}"),
+            None => "never a lane host (lanes.lane_host false)".into(),
+        });
+    }
     // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
     // lanes, so this pick skips it too and one field drains a host for every placer.
-    let lanes = machine.get("lanes");
     if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
         let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
         return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {

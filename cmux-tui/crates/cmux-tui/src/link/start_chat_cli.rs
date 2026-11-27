@@ -47,8 +47,8 @@
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
 //! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
-//!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
-//!   ([`preflight`], `sync_cli::size_cap`).
+//!   absolute folder goes on, whatever its size; attached local folders project first and fall
+//!   back to the existing head-first seed or held-copy path ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -1357,8 +1357,17 @@ fn push_seed_only(
 /// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
-    {
+    // The caller owns chat/folder paths (including the selected subpath) and
+    // whether this preparation is new or cached. Transport metadata cannot replace them.
+    for key in [
+        "mode",
+        "fallback_code",
+        "fallback_why",
+        "install_url",
+        "skipped_files",
+        "filling",
+        "projected",
+    ] {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }
@@ -1657,14 +1666,15 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
-/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
-/// keeps its hashed name: `CloudMoveFolder.remoteName`).
+/// A copied folder keeps its local basename. Each copy already has a distinct
+/// place (`fresh_place`), so equal basenames do not share a destination.
 pub(super) fn remote_name(root: &str) -> String {
-    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
-    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
-    let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
+    root.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty() && *name != "." && *name != "..")
+        .unwrap_or("folder")
+        .to_owned()
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).
