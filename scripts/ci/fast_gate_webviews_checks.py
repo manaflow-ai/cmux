@@ -135,6 +135,18 @@ HELP = re.compile(r"^\s*help:")
 NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$"
                    r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
                    r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
+# Rolldown prints this optional performance report while loading vp's config. Its presence, percentages and
+# callback counts depend on the run, not source findings. Strip only a complete, contiguous known report;
+# truncated reports, unknown lines and crashes (including ones inside a report) remain findings.
+PLUGIN_TIMINGS = re.compile(
+    r"^[ \t]*\[PLUGIN_TIMINGS\] JavaScript callbacks ran for \d+(?:\.\d+)?m?s of this "
+    r"\d+(?:\.\d+)?m?s build \(\d+(?:\.\d+)?%\)\.[ \t]*\n"
+    r"[ \t]*The slowest callbacks, timed inside each callback \(the wait before a callback starts is excluded, "
+    r"the time it awaits is included\):[ \t]*\n"
+    r"(?:[ \t]*- plugin \S+ \S+ \(\d+(?:\.\d+)?%, \d+(?:\.\d+)?m?s, \d+ calls?\)[ \t]*\n)+"
+    r"[ \t]*See https://rolldown\.rs/reference/InputOptions\.checks#bundlertimings for more details\.[ \t]*$",
+    re.MULTILINE,
+)
 # A finding as a GitHub workflow command, which `vp lint` (Oxlint) prints in GitHub Actions:
 # `::warning file=PATH,line=N,endLine=N,col=C,endColumn=C,title=eslint(rule)::MESSAGE`. GitHub turns the line into an
 # annotation and its log keeps only `##[warning]MESSAGE`, so a finding shown as that raw line names no file (#44638's
@@ -229,7 +241,7 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
-    lines = ANSI.sub("", output).splitlines()
+    lines = PLUGIN_TIMINGS.sub("", ANSI.sub("", output)).splitlines()
 
     def noise(i: int) -> bool:
         text = lines[i].strip()
