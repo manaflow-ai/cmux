@@ -171,6 +171,10 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
+    /// How long the joining line waits before it shows: the shared connection bound (``NoticeTiming/connectionQuiet``),
+    /// held by ``MacScreenHubQuiet``; a failure's line shows at once.
+    static let hubJoiningDelay: Duration = NoticeTiming.connectionQuiet
+
     /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
     static func hubNote(_ status: DeviceHub.Status) -> String {
         if case let .failed(reason) = status {
@@ -614,7 +618,7 @@ final class MacScreenHubQuiet {
     @ObservationIgnored private let joining: QuietHold
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        joining = QuietHold(owner: "mac-screen-home-hub-joining", delay: NoticeTiming.connectionQuiet, clock: clock)
+        joining = QuietHold(owner: "mac-screen-home-hub-joining", delay: MacScreenHomeSnapshot.hubJoiningDelay, clock: clock)
     }
 
     /// The note for `status` while this Mac is not registered: a failure at once, the joining line once it has lasted.
