@@ -407,6 +407,11 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
+            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
+            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            /tests/test_egress_gate.py
+            /tests/test_outbound_hosts.py
+            /tests/test_classic_cloud_routes.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
@@ -457,6 +462,21 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
@@ -471,7 +491,7 @@ jobs:
       # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
       - name: Restore the Bun package cache from R2
         id: bun-r2
-        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -480,8 +500,8 @@ jobs:
         with:
           backend: r2
           path: ~/.bun/install/cache
-          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
-          restore-keys: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       # The GitHub fallback is bounded at 2 minutes; past it the gates install cold. On 2026-11-23 04:15-06:15Z a pool
       # VM restored this 710 MB cache in 22 s (median of 104; p90 30-39 s). A Freestyle VM (fsr-*) pulled it at about
@@ -489,13 +509,14 @@ jobs:
       # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
       - name: Restore the Bun package cache
         id: bun-cache
-        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 2
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       # A restore stopped at its bound can leave a half-extracted cache. Bun would trust it, so the install
       # starts from an empty one instead.
@@ -778,7 +799,7 @@ jobs:
   fast-gates-fail-fast:
     name: head fail-fast after fast gates
     needs: fast-gates
-    if: ${{ failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next-fast-gates.yml
