@@ -1093,6 +1093,12 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        // Findable by name at once, before the peer's own list or notice says so.
+        let name = result
+            .pointer("/_meta/acpmux/name")
+            .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
+            .and_then(Value::as_str);
+        hub.note_created_remote(&peer.name, id, name);
         view::subscribe_remote(hub, conn, id, None);
         peer.mark_attached(id);
     }
