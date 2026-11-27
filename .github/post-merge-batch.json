@@ -482,6 +482,7 @@
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
+        "schemas/sidebar-hover-card-rules/vectors.json",
         "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
         "backend/catalog/cloud-relay-operations.json"
