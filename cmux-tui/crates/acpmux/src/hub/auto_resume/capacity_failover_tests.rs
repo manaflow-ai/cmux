@@ -23,7 +23,6 @@ fn the_notices_name_both_models() {
     assert!(back.contains("claude-sonnet-5-5"), "{back}");
 }
 
-
 #[tokio::test]
 async fn automatic_restart_capacity_switch_and_restore_preserve_background_work() {
     use crate::hub::NewRequest;
