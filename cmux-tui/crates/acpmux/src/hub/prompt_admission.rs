@@ -130,7 +130,7 @@ impl Admission {
         };
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
-        scope.spawn_named("prompt-admission-lease", lease(Arc::downgrade(self)));
+        scope.spawn_named("prompt-admission-lease", lease(Arc::downgrade(self), Instant::now()));
     }
 
     fn held(&self) -> bool {
@@ -185,8 +185,7 @@ impl Admission {
 
 /// A holder's lease: lets its lock go once it held it [`ADMISSION_BOUND`] of the runtime's time
 /// (or [`LEASE_WALL_CAP`] of the wall's). Ends at once when the holder let go or left.
-async fn lease(lease: std::sync::Weak<Admission>) {
-    let start = Instant::now();
+async fn lease(lease: std::sync::Weak<Admission>, start: Instant) {
     let (mut last, mut charged) = (start, Duration::ZERO);
     loop {
         tokio::time::sleep(LEASE_TICK).await;
