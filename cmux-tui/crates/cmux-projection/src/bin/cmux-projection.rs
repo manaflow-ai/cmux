@@ -483,17 +483,15 @@ mod cli {
         since.elapsed().as_millis()
     }
 
-    /// Fetches the blobs of `commit` that `git_dir` lacks (peers, the controller SSD, R2, then
-    /// GitHub) and answers how many there were.
-    fn fill_missing(git_dir: &Path, commit: &str) -> anyhow::Result<usize> {
-        let missing = git::missing(git_dir, commit)?;
-        // Nothing missing (every mount after the first of a commit): no chain, so no peer index
-        // is read over the network before the mount comes up.
+    /// Fetches `missing` into `git_dir` (peers, the controller SSD, R2, then GitHub).
+    fn fetch_oids(git_dir: &Path, missing: &[String]) -> anyhow::Result<()> {
+        // Nothing missing: no chain, so no peer index is read over the network before the mount
+        // comes up.
         let chain = if missing.is_empty() { None } else { Chain::from_env() };
         let rest = match chain {
             Some(chain) => {
                 let (rest, filled) =
-                    chain.fill(&missing, &|oid, bytes| peers::write_loose(git_dir, oid, bytes));
+                    chain.fill(missing, &|oid, bytes| peers::write_loose(git_dir, oid, bytes));
                 eprintln!(
                     "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
                      {} from R2, {} rejected answers, {} sources dropped, {} left for git",
@@ -507,10 +505,41 @@ mod cli {
                 );
                 rest
             }
-            None => missing.clone(),
+            None => missing.to_vec(),
         };
-        git::fetch_missing(git_dir, &rest)?;
-        Ok(missing.len())
+        git::fetch_missing(git_dir, &rest)
+    }
+
+    /// What a read of a blob the mirror lacks calls: the same sources as a mount used to ask
+    /// before it came up, for the one blob (the chain, built on the first miss, then git).
+    fn lazy_filler(git_dir: &Path) -> git::Filler {
+        let git_dir = git_dir.to_owned();
+        let chain =
+            std::sync::OnceLock::<Option<(Chain, Vec<std::sync::atomic::AtomicUsize>)>>::new();
+        Arc::new(move |oid: &str| {
+            let from_chain = chain
+                .get_or_init(|| {
+                    Chain::from_env().map(|chain| {
+                        let failures = chain.counters();
+                        (chain, failures)
+                    })
+                })
+                .as_ref()
+                .and_then(|(chain, failures)| chain.blob(oid, failures))
+                .is_some_and(|bytes| peers::write_loose(&git_dir, oid, &bytes).is_ok());
+            from_chain || git::fetch_missing(&git_dir, &[oid.to_owned()]).is_ok()
+        })
+    }
+
+    /// The links' own blobs are read at mount (their text is the manifest's), so get those
+    /// now; every other blob waits for its first read.
+    fn fill_links(git_dir: &Path, items: &[git::TreeItem]) -> anyhow::Result<()> {
+        let links: std::collections::BTreeSet<&str> = items
+            .iter()
+            .filter(|item| item.mode == 0o120_000)
+            .map(|item| item.oid.as_str())
+            .collect();
+        fetch_oids(git_dir, &git::absent(git_dir, &links)?)
     }
 
     #[cfg(test)]
@@ -566,16 +595,23 @@ mod cli {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let format = git::object_format(&git_dir)?;
-        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
-        // A listing kept from an earlier mount of this commit means its blobs were all fetched
-        // then: skip the walk of its trees.
-        let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+        // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
+        // fetched on first read; only a blob whose size no kept listing has is fetched before.
+        let listing = args
+            .trees
+            .clone()
+            .unwrap_or_else(|| keep.join("trees"))
+            .join(git::tree_of(&git_dir, &commit)?);
+        let missing = 0;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
-        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let items = git::ls_tree_cached_with(&git_dir, &commit, &listing, &|oids| {
+            fetch_oids(&git_dir, oids)
+        })?;
         let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
+        fill_links(&git_dir, &items)?;
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -609,7 +645,9 @@ mod cli {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let blobs = Arc::new(
+            GitBlobs::new(&git_dir, projection.sources).with_filler(lazy_filler(&git_dir)),
+        );
         let state = keep.join("state");
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
@@ -683,16 +721,23 @@ mod cli {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let format = git::object_format(&git_dir)?;
-        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
-        // A listing kept from an earlier mount of this commit means its blobs were all fetched
-        // then: skip the walk of its trees.
-        let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+        // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
+        // fetched on first read; only a blob whose size no kept listing has is fetched before.
+        let listing = args
+            .trees
+            .clone()
+            .unwrap_or_else(|| keep.join("trees"))
+            .join(git::tree_of(&git_dir, &commit)?);
+        let missing = 0;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
-        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let items = git::ls_tree_cached_with(&git_dir, &commit, &listing, &|oids| {
+            fetch_oids(&git_dir, oids)
+        })?;
         let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
+        fill_links(&git_dir, &items)?;
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -741,7 +786,9 @@ mod cli {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let blobs = Arc::new(
+            GitBlobs::new(&git_dir, projection.sources).with_filler(lazy_filler(&git_dir)),
+        );
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();

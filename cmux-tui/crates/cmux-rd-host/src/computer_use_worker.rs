@@ -50,9 +50,5 @@ fn platform(host: Option<Arc<dyn HostServices>>) -> Platform {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn extra_arguments_are_refused_before_any_desktop_opens() {
-        assert_eq!(super::run(&["--control".into(), "x".into()]), 2);
-    }
-}
+#[path = "computer_use_worker_tests.rs"]
+mod tests;

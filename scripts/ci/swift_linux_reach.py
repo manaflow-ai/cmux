@@ -38,25 +38,64 @@ WHOLE_RUN = (
     WORKFLOW,
     "scripts/ci/swift_linux_reach.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
 )
 # The listed group runs every row on a change to the list itself.
 LISTED_WHOLE = (LIST,)
-# A package whose Linux shape is only some of its targets: only these paths reach its listed row
-# (scripts/ci/pr_router.json's `affects` for this workflow names the same paths).
-NARROW = {
+# A package whose Linux shape is only some of its targets: only paths of those targets, its manifest and the
+# files NARROW_EXTRA names reach its listed row. The targets come from the manifest's own list (NARROW_LIST: the
+# `Set<String>` literal its Linux shape is built from), so a target added to that shape reaches the row with no
+# second list to keep in step. scripts/ci/pr_router.json's `affects` for this workflow names the same paths
+# (tests/test_swift_linux_reach.py checks it).
+NARROW_LIST = {"Packages/macOS/CmuxNext": "linuxTargetNames"}
+NARROW_EXTRA = {
     "Packages/macOS/CmuxNext": (
         "Packages/macOS/CmuxNext/Package.swift",
         "Packages/macOS/CmuxNext/Package.resolved",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/",
-        "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests/",
-        "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests/",
-        "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests/",
+        "Packages/macOS/CmuxNext/LinuxAppFFI/",
+        # The Linux shape links CCmuxAppFFI as libcmux_app_ffi.a, which scripts/ci/app_ffi_linux.py builds from
+        # the cmux-tui crates over build-app-ffi.sh's headers.
+        "scripts/ci/app_ffi_linux.py",
+        "scripts/cmux-next/build-app-ffi.sh",
+        "cmux-tui/crates/",
+        "cmux-tui/Cargo.lock",
     ),
 }
+
+
+def linux_target_names(root: Path, pkg: str) -> list[str]:
+    """The names in PKG's manifest literal `let NAME: Set<String> = [...]` (NARROW_LIST); raises when it is gone."""
+    var = NARROW_LIST[pkg]
+    text = (root / pkg / "Package.swift").read_text()
+    m = re.search(r"\blet\s+" + re.escape(var) + r"\s*:\s*Set<String>\s*=\s*\[(.*?)\]", text, re.S)
+    if not m:
+        raise ValueError(f"{pkg}/Package.swift: no `let {var}: Set<String> = [...]`")
+    names = re.findall(r'"([^"]+)"', re.sub(r"//[^\n]*", "", m.group(1)))
+    if not names:
+        raise ValueError(f"{pkg}/Package.swift: `{var}` is empty")
+    return names
+
+
+def narrow(root: Path) -> dict[str, tuple[str, ...]]:
+    """Package directory -> the path prefixes that reach its listed row (NARROW_LIST, NARROW_EXTRA).
+
+    A target lives at Sources/NAME or Tests/NAME (no listed target sets `path:`); a name with neither directory
+    raises, so the plan fails open and runs every group."""
+    out = {}
+    for pkg in NARROW_LIST:
+        dirs = []
+        for name in linux_target_names(root, pkg):
+            hits = [f"{pkg}/{top}/{name}/" for top in ("Sources", "Tests") if (root / pkg / top / name).is_dir()]
+            if not hits:
+                raise ValueError(f"{pkg}: {NARROW_LIST[pkg]} names {name}, which has no Sources/ or Tests/ directory")
+            dirs += hits
+        out[pkg] = tuple(dirs) + NARROW_EXTRA.get(pkg, ())
+    return out
+
+
 PATH_DEP = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"', re.S)
 
 
@@ -139,8 +178,11 @@ def reach(changed: list[str], root: Path = ROOT) -> dict:
     if any(f in WHOLE_RUN for f in changed):
         return {"groups": names, "listed": "*", "why": "a file every group runs changed"}
     pkgs = packages(root)
+    narrowed = narrow(root)
     touched: set[str] = set()
     for f in changed:
+        # A narrowed package's inputs outside the package roots (NARROW_EXTRA) reach only its row.
+        touched.update(p for p, prefixes in narrowed.items() if not f.startswith(PACKAGE_ROOTS) and f.startswith(prefixes))
         if not f.startswith(PACKAGE_ROOTS):
             continue
         p = owner(f, pkgs)
@@ -148,7 +190,7 @@ def reach(changed: list[str], root: Path = ROOT) -> dict:
             if f.startswith("Packages/macOS/"):
                 continue  # no macOS-only package is tested here, and none is a dependency of one that is
             return {"groups": names, "listed": "*", "why": f"{f} belongs to no package"}
-        if p in NARROW and not f.startswith(NARROW[p]):
+        if p in narrowed and not f.startswith(narrowed[p]):
             continue
         touched.add(p)
 
