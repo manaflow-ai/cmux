@@ -200,7 +200,7 @@ class BlankOnlyGate(unittest.TestCase):
 
     def test_a_pane_that_never_shows_its_page_fails(self):
         s = self.judged([(at(-50), self.old), (at(5), self.moving), (at(50), self.moving)])
-        self.assertTrue(any("never showed its page" in f or "never" in f for f in judge.budget_fails(s, "x")) or True)
+        self.assertTrue(any("never showed its page" in f for f in judge.budget_fails(s, "x")))
 
 
 if __name__ == "__main__":
