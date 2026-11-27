@@ -181,6 +181,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.dividerMenu = { [weak services, weak self] split in // the catalog's divider rows (DividerActions), on the split
             self.flatMap { services?.registry.makeContextMenu(for: .divider, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id), arguments: ["split": .string(split.rawValue)], machineID: $0.daemon.machineID).themeRows(in: $0.themeScope.fullStrength) }
         }
+        layoutView.frameTiming = services.frameTiming
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
