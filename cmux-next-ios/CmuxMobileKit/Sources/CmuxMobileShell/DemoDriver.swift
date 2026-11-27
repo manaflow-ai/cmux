@@ -1037,6 +1037,13 @@ struct DemoDriver {
             } == true
         }) else { step("live-attach no image-readback"); return false }
         step("live-attach image-sent readback=\(marker) original=\(original.count) destination=\(sendDirectory)")
+        // Leave the temporary image folders before the rig removes its received files.
+        let rigDirectory = (root as NSString).deletingLastPathComponent
+        model.composerText = "cd " + ComposerSubmit.shellQuoted(rigDirectory)
+        model.send()
+        guard await until(30, { model.attachmentSender?.uploadDestination?.cwd == rigDirectory }) else {
+            step("live-attach no image-cleanup-cwd"); return false
+        }
         return true
     }
 
