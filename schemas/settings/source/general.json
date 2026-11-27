@@ -511,6 +511,45 @@
           "swift_owner": "TitlebarButtonsSetting"
         },
         {
+          "key": "window.settingsPresentation",
+          "note": "Where Settings opens (SettingsWindowService.show; customize-app-profiles, the settings surface). tab, the default: an internal page tab in the active pane, which a split pane draws narrow with the category strip on top. page: the window's top page, the whole window with the category sidebar on the left, as the reference desktop agent apps draw their settings. A look turns it on.",
+          "title": {
+            "key": "settings.window.settingsPresentation",
+            "text": "Open Settings In"
+          },
+          "help": {
+            "key": "settings.window.settingsPresentation.help",
+            "text": "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "tab",
+              "title": {
+                "key": "settings.window.settingsPresentation.tab",
+                "text": "Tab"
+              }
+            },
+            {
+              "value": "page",
+              "title": {
+                "key": "settings.window.settingsPresentation.page",
+                "text": "Full Window"
+              }
+            }
+          ],
+          "default": "tab",
+          "keywords": [
+            "settings",
+            "preferences",
+            "full window",
+            "page",
+            "tab",
+            "open"
+          ],
+          "swift_owner": "SettingsPresentationSetting"
+        },
+        {
           "key": "app.globalHotKey",
           "note": "Off when unset or invalid.",
           "title": {

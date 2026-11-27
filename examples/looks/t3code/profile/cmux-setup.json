@@ -10,6 +10,9 @@
   ],
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     // The whole look (examples/looks/t3code/whole), which already unions the sidebar, display,
     // composer, archive, project-picker, open-in-editor and model-picker feature looks.
     "appearance.themeFile": "t3code-workspace",

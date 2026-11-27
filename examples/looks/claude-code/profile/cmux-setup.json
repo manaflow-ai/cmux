@@ -11,6 +11,9 @@
   ],
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     // The look (claude-code/whole: theme, sidebar, transcript, composer).
     "appearance.themeFile": "claude-code-app",
     "sidebar.groupBy": "folder",

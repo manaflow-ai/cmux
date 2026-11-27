@@ -10,6 +10,9 @@
 
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     "appearance.themeFile": "studio",
     "appearance.metrics.sidebarWidth": 255,
     "agentPane.display.font.ui": "system-ui",
