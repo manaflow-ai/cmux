@@ -333,6 +333,7 @@ impl Hub {
             }
             hub.stop_idle_children().await;
             hub.evict_idle_chats();
+            hub.evict_over_cap();
         }
     }
 
