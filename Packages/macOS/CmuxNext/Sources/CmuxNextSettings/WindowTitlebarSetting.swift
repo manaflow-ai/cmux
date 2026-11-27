@@ -1,5 +1,3 @@
-public import CmuxNextDesign
-
 /// `window.titlebar` in cmux.json: "minimal" (default: no titlebar strip,
 /// the top row's empty space moves the window) or "standard" (a titlebar
 /// strip with the workspace name).

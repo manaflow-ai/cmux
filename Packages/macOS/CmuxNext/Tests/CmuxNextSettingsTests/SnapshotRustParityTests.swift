@@ -106,7 +106,7 @@ import Testing
         #expect(found == (diagnostic.map { [$0] } ?? []), "\(row.key) in \(root.compactText)", sourceLocation: sourceLocation)
     }
 
-    @Test(arguments: rows) func everyValueMatchesTheDeletedSwift(_ row: Row) {
+    @Test(arguments: SnapshotRustParityTests.rows) func everyValueMatchesTheDeletedSwift(_ row: Row) {
         Self.expectParity(row, .object([:]))
         for value in row.samples + Self.badValues {
             Self.expectParity(row, Self.setting(row.path, to: value))
@@ -118,7 +118,7 @@ import Testing
     }
 
     /// A parent that is not an object (`"browser": 5`) reads as absent, as the deleted Swift did.
-    @Test(arguments: rows) func aParentThatIsNotAnObjectIsAbsent(_ row: Row) {
+    @Test(arguments: SnapshotRustParityTests.rows) func aParentThatIsNotAnObjectIsAbsent(_ row: Row) {
         guard row.path.count > 1 else { return }
         Self.expectParity(row, Self.setting(Array(row.path.dropLast()), to: .number(5)))
         Self.expectParity(row, Self.setting(Array(row.path.dropLast()), to: .string("on")))
