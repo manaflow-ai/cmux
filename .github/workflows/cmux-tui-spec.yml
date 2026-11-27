@@ -283,6 +283,9 @@ jobs:
           CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose land tier ran
+          # carries that run (head_tier.py's full-ci base merge carry rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
