@@ -138,7 +138,7 @@ export function chiefStartAuth(env: Record<string, string | undefined>): ChiefSt
 /** Wait for a fresh echo (allow surrounding punctuation/Markdown) or the Chief's turn failure. */
 export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number, secrets: string[] = []): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
-  const echo = new RegExp(`^[\\s\\p{P}]*${expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\p{P}]*$`, "u");
+  const echo = new RegExp("^[\\s\\p{P}`]*" + expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\p{P}`]*$", "u");
   for (;;) {
     const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
     const rows = (snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r);
