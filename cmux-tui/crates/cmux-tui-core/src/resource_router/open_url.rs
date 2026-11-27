@@ -76,7 +76,7 @@ use crate::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, RequestEnvelope, ResourceError,
     ResourceOperation, ScreenPublicId, TabPublicId, WorkspacePublicId,
 };
-use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
+use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceId, SurfaceKind};

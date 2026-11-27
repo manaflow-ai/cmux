@@ -32,10 +32,10 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
-//! shell's own empty prompt ("Resume Agents After Restart", on by default)
-//! unless its flags turn approvals off; a resume command a person set, or an
-//! agent resume with approvals off, is typed without Return (#22292); a
-//! command never runs again, and the marker line names it. The manual
+//! shell's own empty prompt ("Resume Agents After Restart", on by default),
+//! through the launcher and with the flags it was started with (`sr2 claude
+//! --resume <id> ...`); a resume command a person set is typed without
+//! Return; a command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker, in the same gate: a frontend restarts
 //! every kept tab of a restored session at its connect, and those launches
@@ -143,9 +143,9 @@ pub(crate) struct TerminalRespawns {
     /// Respawn launches still to fail on purpose with a launch error
     /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
     injected_launch_errors: AtomicU64,
-    /// Lazy start (`terminal_respawn/lazy.rs`, `CMUX_TUI_LAZY_START`): a
-    /// lost plain shell of a workspace nobody shows is parked, not
-    /// respawned, and starts on its first need.
+    /// Lazy start (`terminal_respawn/lazy.rs`, `CMUX_TUI_LAZY_START`, on
+    /// by default, `0` turns it off): a lost plain shell of a workspace
+    /// nobody shows is parked, not respawned, and starts on its first need.
     lazy_start: AtomicBool,
     /// Never-started lazy tabs by host terminal id (`lazy.rs`): their
     /// placeholder runtime is placed, and their park is pending or done.

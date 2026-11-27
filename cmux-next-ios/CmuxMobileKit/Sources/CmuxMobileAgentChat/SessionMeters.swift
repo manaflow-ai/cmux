@@ -38,36 +38,10 @@ public struct ContextUsage: Hashable, Sendable {
     }
 }
 
-/// The running turn's plan, pinned above the composer: `3 / 5` and the step in progress.
-public struct PlanProgress: Hashable, Sendable {
-    public var completed: Int
-    public var total: Int
-    /// The step in progress, else the next pending one.
-    public var current: String?
-
-    public init?(entries: [ACPPlanEntry]) {
-        guard !entries.isEmpty else { return nil }
-        completed = entries.count { $0.status == .completed }
-        total = entries.count
-        current = (entries.first { $0.status == .inProgress } ?? entries.first { $0.status == .pending })?.content
-    }
-
-    public var isDone: Bool { completed == total }
-
-    /// "3 / 5".
-    public var countLabel: String { "\(completed) / \(total)" }
-}
-
 extension AgentChatStore {
     /// The meter's reading, once the agent reported one.
     public var contextUsage: ContextUsage? {
         guard let usage, usage.size > 0 else { return nil }
         return ContextUsage(used: usage.used, size: usage.size)
     }
-
-    /// The latest plan of the running turn (nil when idle or planless).
-    public var runningPlan: PlanProgress? {
-        runningPlanEntries.flatMap(PlanProgress.init(entries:))
-    }
-
 }

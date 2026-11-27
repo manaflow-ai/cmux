@@ -218,8 +218,27 @@ impl Http {
         timeout: Duration,
         path: &str,
     ) -> Result<Reply, Failure> {
+        self.send_named(method, url, body, (idempotency_key, &[]), timeout, path).await
+    }
+
+    /// [`Http::send`] with `named` headers beside the auth's own: the idempotency key, and
+    /// headers that name the writer and hold no key (an Auto chat's chunk upload names its
+    /// holder and epoch, `auto_sessions.rs`). The rule below still holds: never a secret.
+    pub(crate) async fn send_named(
+        &self,
+        method: reqwest::Method,
+        url: reqwest::Url,
+        body: Option<Body>,
+        named: (Option<&str>, &[(&'static str, String)]),
+        timeout: Duration,
+        path: &str,
+    ) -> Result<Reply, Failure> {
+        let (idempotency_key, headers) = named;
         let mut builder =
             self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
+        for (name, value) in headers {
+            builder = builder.header(*name, value);
+        }
         match self.auth {
             Auth::Stack => {
                 builder = builder
@@ -231,7 +250,8 @@ impl Http {
                 }
             }
             // RULE (cx-kvmz, hq-84): Authorization, Content-Type, Content-Length and x-cmux-team
-            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret). The
+            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret) and
+            // `owner.op`'s x-cmux-client-version (the app's version, no secret). The
             // Worker's invocation log records every other header and the URL, so no other
             // header, no query and no path part that could hold a key is ever added.
             Auth::Owner | Auth::Worker => {
@@ -386,3 +406,7 @@ pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
         |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
     Failure::http(status, text("code"), text("message"))
 }
+
+#[cfg(test)]
+#[path = "http_seeded_tests.rs"]
+mod seeded_tests;

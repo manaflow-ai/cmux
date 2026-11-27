@@ -23,24 +23,67 @@ public struct TerminalDemoRoot: View {
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
                 accent: "blue")), keep: false)
         }
+        // `-CmuxMobileTerminalDemoAttach`: the phone attaches into htop
+        // already running on a Mac pane of 120x40, the Mac answering the
+        // attach and each resize a round trip later (`-CmuxMobileTerminalDemoMac
+        // -CmuxMobileTerminalDemoMacMs N`, default 60), with the attach in series
+        // under `-CmuxMobileTerminalDemoAttachSerial` (TerminalAttachFirstFrameUITests).
+        let attach = Self.attachRequested
+            ? MockTerminalSession(playsIntro: false, macResize: Self.macResize ?? .milliseconds(60), attachesTo: (120, 40),
+                                  attachesInSeries: CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttachSerial")) : nil
         let session: any TerminalSession
-        if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
+        var altMac: MacPaneMockSession?
+        let phases = TerminalDemoDriver.requestedPhases ?? []
+        if let attach {
+            session = attach
+        } else if phases.contains("projection") || phases.contains("altproj") {
             // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
             // pane narrower than the phone), through the session the app builds
-            // for a Mac terminal.
-            let grid = (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
-            let mac = grid.count == 2 ? MacPaneMockSession(columns: grid.first ?? 120, rows: grid.last ?? 40) : MacPaneMockSession()
+            // for a Mac terminal; `-CmuxMobileTerminalDemoMacProgram claude`:
+            // Claude Code inline in it. `altproj`: htop already running in it, and
+            // the Mac answering a claim a round trip later
+            // (`-CmuxMobileTerminalDemoMacLatencyMs`, default 60: LTE), or never
+            // (`-CmuxMobileTerminalDemoMacKeepsSize YES`: Prefer this Mac).
+            let defaults = UserDefaults.standard
+            let grid = (defaults.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
+            let alt = phases.contains("altproj")
+            let latency = alt ? (defaults.object(forKey: "CmuxMobileTerminalDemoMacLatencyMs") as? Int ?? 60) : 0
+            let mac = MacPaneMockSession(columns: grid.count == 2 ? grid.first ?? 120 : 120, rows: grid.count == 2 ? grid.last ?? 40 : 40,
+                                         program: alt ? "htop" : defaults.string(forKey: "CmuxMobileTerminalDemoMacProgram"),
+                                         latency: .milliseconds(latency),
+                                         keepsSize: alt && defaults.bool(forKey: "CmuxMobileTerminalDemoMacKeepsSize"))
+            if alt {
+                altMac = mac
+                // `altproj` shows Settings → Terminal → Zoom Full-Screen Apps on
+                // (registered, never saved; a launch argument still wins).
+                defaults.register(defaults: [CmuxMobilePreferences.Key.terminalZoomFullScreenApps: true])
+                // Starts with no program remembered: the first htop is viewed, not fitted.
+                TerminalFitMemory.reset()
+            }
             session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        } else if TerminalDemoDriver.requestedPhases?.contains(where: { $0.hasPrefix("tuiheld-") }) == true {
+            // `tuiheld`: the mock behind the phone's projection, as a Mac
+            // terminal is, answering the full-screen app's size claim as the Mac does.
+            let projecting = TerminalProjectingSession(inner: MockTerminalSession(playsIntro: false, macResize: .milliseconds(60)))
+            projecting.holdsRows = !CommandLine.arguments.contains("-CmuxMobileTerminalDemoNoHeldRows")
+            session = projecting
         } else {
             session = TerminalHostGridDemoSession.requestedSpec
                 .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+        if let attach { model.demoFinalGrid = { attach.macState } }
+        if let altMac {
+            // The settle probe: htop is right at the PTY's grid, once no resize is on its way.
+            model.demoFinalColumns = { altMac.resizeInFlight ? nil : altMac.ptyGrid.columns }
+        }
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    static var attachRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttach") }
 
     /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
     /// (its grid, a mirror reset and a replay, a round trip later:
@@ -74,6 +117,19 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
+            // The attach demo: its trace goes in the step label once the
+            // page's probe ended (5 s after the start), for UI tests.
+            if Self.attachRequested {
+                for _ in 0..<100 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(100))
+                    guard let trace = model.controller?.attachTrace else { continue }
+                    let ended = trace.marks.contains { $0.name == "probe-end" }
+                    model.demoNote = "attach.\(ended ? "done" : "running") first=\(trace.firstRightMs ?? -1) "
+                        + "fromstart=\(trace.firstRightFromStartMs ?? -1) marks=\(trace.line)"
+                    if ended { return }
+                }
+                return
+            }
             // The host grid demo is a still: no scripted phases. Its page's
             // layout goes in the step label, for UI tests.
             guard TerminalHostGridDemoSession.requestedSpec == nil else {
@@ -172,12 +228,51 @@ final class TerminalDemoDriver {
         if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
+        if selected.contains("wide") { await wide() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load", "primary-slow", "mouse-slow"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
+        if selected.contains("altproj") { await alternateProjection() }
+        for variant in ["keys", "keys-load"] where selected.contains("tuiheld-\(variant)") { await tuiHeld(variant) }
+        for variant in ["find", "select"] where selected.contains("highlight-\(variant)") { await highlightScroll(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             try? log.joined(separator: "\n").write(to: documents.appendingPathComponent("present-log.txt"), atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// `wide` (TerminalWideOutputUITests): a table 180 columns wide on a
+    /// phone that fits about 50, then the page's sideways state every 250 ms
+    /// for the UI test to read while it turns on Wide and pans: the mirror's
+    /// columns, the phone's, the pan and the last column on screen.
+    private func wide() async {
+        model.composerText = "widetable 180 12"
+        model.send()
+        await wait(2)
+        // `-CmuxMobileTerminalDemoWideView`: the page menu's Wide View, for the gallery.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideView") {
+            model.openWideView()
+            await wait(1)
+        }
+        mark("wide ready " + (model.controller?.wideProbe ?? "-"))
+        // `-CmuxMobileTerminalDemoWideType`: Wide on, then a 120-column paste
+        // at the prompt: its echo carries the cursor far right of the page,
+        // and the page pans after it (TerminalWideOutputUITests).
+        // The step label says "wide typed" once the paste is in: `mark` writes
+        // only the timeline file, and the label is what the UI test reads.
+        var step = "wide ready "
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideType") {
+            model.setWide(true)
+            await wait(2)
+            model.controller?.surface.sendText(String(repeating: "x", count: 120), pressReturn: false)
+            await wait(1.5)
+            mark("wide typed " + (model.controller?.wideProbe ?? "-"))
+            step = "wide typed "
+        }
+        let deadline = Date().addingTimeInterval(120)
+        while Date() < deadline {
+            model.demoNote = step + (model.controller?.wideProbe ?? "-")
+            await wait(0.25)
         }
     }
 
@@ -253,6 +348,10 @@ final class TerminalDemoDriver {
             ("claude-inline-long", "claudeinline 50 40 3000"),
             // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
             ("claude-full", "claudewheel 50"),
+            // Leo, 2026-11-24: "we can just treat the scroll like any pedestrian
+            // scroll". The same app's history the phone keeps, scrolled as a
+            // plain scroll view (TerminalTUIReader): no wheel, no round trip.
+            ("claude-reader", "claudewheel 50"),
         ]
         model.composerText = "stream 600 1"
         model.send()
@@ -264,15 +363,28 @@ final class TerminalDemoDriver {
                 model.send()
                 await wait(3)
             }
+            let reader = name == "claude-reader"
             let full = name == "claude-full"
-            if !full { model.scrollToBottom() }
+            if !full, !reader { model.scrollToBottom() }
             await wait(1)
+            if reader {
+                // Rows for the phone to keep: the app scrolls its transcript
+                // up and back (every frame it draws on the way is kept).
+                model.controller?.tuiFling(velocity: 3000)
+                await wait(1.6)
+                model.controller?.tuiFling(velocity: -3000)
+                await wait(1.6)
+            }
             let mock = model.session as? MockTerminalSession
             let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
             let sampler = FrameSampler()
             sampler.start()
             for _ in 0..<3 {
-                if full {
+                if reader {
+                    model.controller?.tuiReaderFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiReaderFling(velocity: -3000)
+                } else if full {
                     model.controller?.tuiFling(velocity: 3000)
                     await wait(1.6)
                     model.controller?.tuiFling(velocity: -3000)
@@ -284,6 +396,10 @@ final class TerminalDemoDriver {
                 await wait(1.6)
             }
             var line = "bench \(name) " + sampler.stop()
+            if reader {
+                let pacing = TerminalTUIReader.pacing
+                line += " kept=\(mock?.tuiTranscriptRowsAbove ?? 0) reader=\(model.controller?.tuiReader.isOpen == true ? "open" : "closed") readerframes=\(pacing.frames) readerhitches=\(pacing.hitches) readerlongest=\(String(format: "%.1f", pacing.longestMs))"
+            }
             if full, let mock {
                 line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
             }
@@ -380,11 +496,143 @@ final class TerminalDemoDriver {
         mark(model.demoNote)
     }
 
+    /// Leo, 2026-11-23: "if the data was sent through... why cant you simply
+    /// scroll through the depiction that was already given?" `tuiheld-keys`:
+    /// a mock full-screen app (no mouse) whose transcript scrolls off its
+    /// region's top, behind ``TerminalProjectingSession``: a pan within the
+    /// rows it scrolled off is painted on the phone and sends nothing.
+    /// `-load`: 12,000 rows and a new row every 16 ms while the finger pans;
+    /// the reader stays on the rows they read (`back`, rows back at the end).
+    /// `-CmuxMobileTerminalDemoNoHeldRows`: every pan goes to the app, as
+    /// before held rows (the "before" of the same harness).
+    /// `tuiheld-VARIANT done ... back=N backSamples=N bytes=N sends=N appScrolls=N heldPaints=N
+    /// held=N heldBytes=N paint... gesture=N gestureP50=MS gestureP95=MS`
+    /// (`paint`: receive to paint of the app's writes; `gesture`: a pan's
+    /// wheel to the present that showed its rows, held or the app's redraw).
+    private func tuiHeld(_ variant: String) async {
+        let load = variant.hasSuffix("-load")
+        model.composerText = load ? "claudefull 12000 keys scroll stream=16" : "claudefull 1500 keys scroll"
+        guard let projecting = model.session as? TerminalProjectingSession,
+              let session = projecting.inner as? MockTerminalSession else {
+            model.demoNote = "tuiheld-\(variant) done error=nosession"
+            return
+        }
+        session.stampsRedraws = true
+        projecting.stampsPans = true
+        let reports = PaintReports()
+        projecting.onPaintReport = { samples in
+            for sample in samples {
+                if (sample.first ?? 0) < 0 { reports.gesture.append(sample) } else { reports.receive.append(sample) }
+            }
+        }
+        model.send()
+        // Up once the app's screen holds rows (the size claim's answer and replay come first).
+        let up = Date().addingTimeInterval(load ? 20 : 12)
+        while Date() < up, !(model.isTUI && projecting.heldRows.rows > 0) { await wait(0.25) }
+        await wait(1)
+        guard let controller = model.controller, let window = controller.view.window else {
+            model.demoNote = "tuiheld-\(variant) done error=nocontroller"
+            return
+        }
+        session.batchesInputPerTurn = true
+        defer { session.batchesInputPerTurn = false }
+        let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+        let bytes = session.bytesFromPhone, sends = session.sends, scrolls = session.appScrolls
+        let paints = projecting.heldPaints
+        reports.receive = []
+        reports.gesture = []
+        let ready = "tuiheld-\(variant) ready isTUI=\(model.isTUI) held=\(projecting.heldRows.rows) holds=\(projecting.holdsRows)"
+        mark(ready)
+        model.demoNote = ready
+        let deadline = Date().addingTimeInterval(45)
+        var backSamples = 0
+        while Date() < deadline {
+            await wait(0.25)
+            if projecting.heldRowsBack > 0 { backSamples += 1 }
+            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
+        }
+        meter.stop()
+        // The last report: the screen reports every 5 s (the spinner keeps presenting).
+        await wait(5.5)
+        let held = projecting.heldRows
+        // Where the reader is after the finger lifted and (`-load`) the app
+        // kept writing for 9 s: output never takes them back to live.
+        let result = meter.summary + " back=\(projecting.heldRowsBack) backSamples=\(backSamples)"
+            + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
+            + " appScrolls=\(session.appScrolls - scrolls) heldPaints=\(projecting.heldPaints - paints)"
+            + " held=\(held.rows) heldBytes=\(held.bytes) touches=\(meter.touches) isTUI=\(model.isTUI)"
+            + Self.paintNote(reports.receive) + Self.paintNote(reports.gesture, name: "gesture")
+        model.demoNote = "tuiheld-\(variant) done " + result
+        mark(model.demoNote)
+    }
+
+    /// `tuiheld`'s paint reports: the app's writes, and the pans (negative seq).
+    @MainActor private final class PaintReports {
+        var receive: [TerminalPaintTally.Sample] = []
+        var gesture: [TerminalPaintTally.Sample] = []
+    }
+
+    /// Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont move when i
+    /// scroll?" A mock Claude Code in its full-screen mode with a highlight up while its screen
+    /// scrolls: `find` searches "lorem" and the UI test's finger scrolls the app; `select`
+    /// selects "transcript row N" on a row and the app's streamed reply scrolls it.
+    /// `highlight-VARIANT ready ...`, then `highlight-VARIANT done appScrolls=N` with
+    /// `on=N off=N missed=N` (find) or `sel=on|off|none` (select): `off` is a highlight left
+    /// over other text (``TerminalViewController/findHighlightProbe(query:)``).
+    private func highlightScroll(_ variant: String) async {
+        let find = variant == "find"
+        model.composerText = find ? "claudefull 1500 mouse" : "claudefull 1500 mouse stream=400"
+        model.send()
+        await wait(3)
+        guard let controller = model.controller, let window = controller.view.window,
+              let session = model.session as? MockTerminalSession else {
+            model.demoNote = "highlight-\(variant) done error=nocontroller"
+            return
+        }
+        let scrolls = session.appScrolls
+        if find {
+            controller.finder.debugSearch("lorem")
+            await wait(1.5)
+            let before = controller.findHighlightProbe(query: "lorem")
+            model.demoNote = "highlight-find ready isTUI=\(model.isTUI) \(before)"
+            mark(model.demoNote)
+            // Until the finger's scrolls are over: 2.5 s with no finger after the first, within 45 s.
+            let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline {
+                await wait(0.25)
+                if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 2.5 { break }
+            }
+            meter.stop()
+            model.demoNote = "highlight-find done appScrolls=\(session.appScrolls - scrolls) "
+                + controller.findHighlightProbe(query: "lorem")
+        } else {
+            // A "transcript row N" row ten rows above the input box: it stays on the screen
+            // while the reply streams a row every 400 ms.
+            let rows = controller.surface.grid.rows
+            let row = (1..<max(1, rows - 12)).reversed().first {
+                controller.tuiSelection.rowText($0)?.hasPrefix("  transcript row ") == true
+            }
+            guard let row, let line = controller.tuiSelection.rowText(row),
+                  let number = line.dropFirst(17).split(separator: " ").first else {
+                model.demoNote = "highlight-select done error=norow"
+                return
+            }
+            let label = "transcript row \(number)"
+            let text = controller.selectTUIForProbe(row: row, columns: 2...(1 + label.count)) ?? ""
+            model.demoNote = "highlight-select ready isTUI=\(model.isTUI) row=\(row) text=\(text.replacingOccurrences(of: " ", with: "_"))"
+            mark(model.demoNote)
+            await wait(3)
+            model.demoNote = "highlight-select done appScrolls=\(session.appScrolls - scrolls) " + controller.selectionHighlightProbe(text: label)
+        }
+        mark(model.demoNote)
+    }
+
     /// ` paint=N paintP50=MS paintP95=MS`: the screen's receive to the present that showed it
     /// (``TerminalPaintTally``), over the stamped writes it reported.
-    static func paintNote(_ samples: [TerminalPaintTally.Sample]) -> String {
-        guard let paint = TerminalPaintTally.receiveToPaint(samples) else { return " paint=0" }
-        return String(format: " paint=%d paintP50=%.1f paintP95=%.1f", samples.count, paint.p50, paint.p95)
+    static func paintNote(_ samples: [TerminalPaintTally.Sample], name: String = "paint") -> String {
+        guard let paint = TerminalPaintTally.receiveToPaint(samples) else { return " \(name)=0" }
+        return String(format: " %@=%d %@P50=%.1f %@P95=%.1f", name, samples.count, name, paint.p50, name, paint.p95)
     }
 
     private func keyboard() async {
@@ -582,6 +830,73 @@ final class TerminalDemoDriver {
         await wait(0.5)
         for _ in 0..<600 {
             counters("live")
+            await wait(0.25)
+        }
+    }
+
+    /// `altproj` (opt-in): htop on a Mac pane of 120x40 that answers a claim
+    /// a round trip later (`MacPaneMockSession`). `demoNote` keeps
+    /// `a.<stage>.mac<PTY resizes>.cl<claims and releases>.rb<replay bytes>
+    /// .st<settle ms>.uf<frames at a grid not final>.zg<zoom gestures>
+    /// .zs<zoom %>.cols<columns drawn>` current (TerminalProjectionUITests
+    /// `testAlternateScreen…`). Stages: `attach` (settled), `gestures` (the
+    /// UI test rotates, pinches and double taps until three zoom gestures
+    /// land, or 75 s), `kbup` and `kb` (the keyboard shown and hidden),
+    /// `typed` (`abc` typed into htop), `quit` (`q`), `again` (htop started
+    /// again from the shell), then `done`. A Mac that keeps its size
+    /// (`testAMacThatKeepsItsSize…`) skips the gestures stage: its test
+    /// drives none.
+    private func alternateProjection() async {
+        let mac = model.session.underlyingSession as? MacPaneMockSession
+        func counters(_ stage: String) {
+            let columns = model.controller?.appliedHostColumns ?? -1
+            note("a.\(stage).mac\(mac?.ptyResizes ?? -1).cl\(mac?.claimChanges ?? -1).rb\(mac?.replayBytes ?? -1)"
+                + ".st\(model.settleMs).uf\(model.unsettledTUIFrames).zg\(model.zoomGestures)"
+                + ".zs\(Int((model.zoomScale * 100).rounded())).cols\(columns)")
+        }
+        func settle(_ stage: String, timeout: Double) async {
+            var waited = 0.0
+            while model.settleMs == -1, waited < timeout {
+                counters(stage + "ing")
+                await wait(0.1)
+                waited += 0.1
+            }
+            await wait(0.3)
+            counters(stage)
+        }
+        await settle("attach", timeout: 8)
+        await wait(1)
+        var waited = 0.0
+        while model.zoomGestures < 3, waited < (mac?.keepsSize == true ? 0 : 75) {
+            counters("gestures")
+            await wait(0.25)
+            waited += 0.25
+        }
+        await wait(1)
+        counters("gestured")
+        await wait(0.5)
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kbup")
+        await wait(0.6)
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kb")
+        await wait(0.5)
+        model.controller?.startSettleProbe()
+        model.controller?.surface.sendText("abc", pressReturn: false, fullScreenApp: true)
+        await settle("typed", timeout: 3)
+        await wait(1)
+        model.controller?.surface.sendText("q", pressReturn: false, fullScreenApp: true)
+        await wait(1.5)
+        counters("quit")
+        await wait(0.5)
+        model.controller?.startSettleProbe()
+        model.controller?.surface.sendText("htop", pressReturn: true)
+        await settle("again", timeout: 6)
+        await wait(1)
+        for _ in 0..<600 {
+            counters("done")
             await wait(0.25)
         }
     }

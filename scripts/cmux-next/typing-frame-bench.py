@@ -140,7 +140,8 @@ parser.add_argument("--words", action="store_true", help="type words with spaces
 parser.add_argument("--fresh-draft", action="store_true",
                     help="empty the Home draft (Cmd-A, Delete) before each measure, so every round types the same draft")
 parser.add_argument("--prefill", type=int, default=0,
-                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys")
+                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys; "
+                         "for agentpane the chat's prompt does (debug.agent_pane reset_typing draft), every round")
 parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
@@ -583,14 +584,18 @@ def agent_expected_text(count):
     return "".join(letters[index % len(letters)] for index in range(count))
 
 
-def agent_typing_verdict(stats, expected, dispatch):
-    """Validate page telemetry and join its paint epoch to the native dispatch clock."""
+def agent_typing_verdict(stats, expected, dispatch, prefix_chars=0):
+    """Validate page telemetry and join its paint epoch to the native dispatch clock.
+
+    `prefix_chars`: the prompt held that many characters before the keys (--prefill), so the text ends with them."""
     stats = stats if isinstance(stats, dict) else {}
     samples = stats.get("samples") if isinstance(stats.get("samples"), list) else []
     keys = [sample.get("key") for sample in samples if isinstance(sample, dict)]
     ordered = (len(keys) == len(samples) == len(expected) and all(isinstance(key, str) for key in keys)
                and "".join(keys) == expected)
-    exact = stats.get("composer_text") == expected
+    text = stats.get("composer_text")
+    exact = (text == expected if not prefix_chars else
+             isinstance(text, str) and text.endswith(expected) and len(text) == prefix_chars + len(expected))
     finite = bool(samples) and len(samples) == len(expected)
 
     def good(value):
@@ -771,7 +776,11 @@ def measure_agentpane(phase, pid, pane, streams=()):
     cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
                              report.get("keys", 0) >= before_keys + 2 else None)(
         rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
-    reset = rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=10)
+    reset_params = {"action": "reset_typing", "pane": pane}
+    if opts.prefill > 0:
+        reset_params["draft"] = opts.prefill
+    reset = rpc("debug.agent_pane", reset_params, timeout=30)
+    prefix_chars = (reset or {}).get("chars", 0) if opts.prefill > 0 else 0
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rpc("debug.frames", {"action": "start"})
@@ -818,9 +827,12 @@ def measure_agentpane(phase, pid, pane, streams=()):
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     frames_after = draw_on_input_frames()
-    verdict = agent_typing_verdict(typing, expected, dispatch)
+    verdict = agent_typing_verdict(typing, expected, dispatch, prefix_chars)
     frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
+                  "prefill_chars": prefix_chars,
+                  # The page's own count (perf.ts keyDroppedFrames): vsyncs a key waited past, and frames its own ran over.
+                  "dropped_frames": typing.get("dropped_frames"), "frame_interval_ms": typing.get("frame_interval_ms"),
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
@@ -902,18 +914,34 @@ def workspaces():
 SENTENCE = "the chief reads your note and starts on the work in a new workspace "
 
 
+# The app stamps its key events on CLOCK_UPTIME_RAW; off macOS that name does not exist, and a unit test of this
+# module's own functions must still run on the Linux test host (2026-11-23, test_typing_frame_verdict on huge-blue).
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def type_keys(count, params, column):
     keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
+    # What the app did with each key, as `debug.key` reports it: "responder" or "page" went on to AppKit's dispatch,
+    # which is where the typing probe opens its sample; "app" means the key router consumed the key before that, so
+    # the key leaves no probe row and no sample. Without this a route the router eats reads as a surface that simply
+    # measured nothing -- 80 keys, 0 rows, no reason named (#45273's fleet run, 2026-11-23).
+    verdicts = {}
     for index in range(count):
         t0 = time.perf_counter()
         key = keys[index % len(keys)]
-        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(UPTIME_CLOCK)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"key {index}: {reply.get('error')}")
+        if isinstance(reply, dict):
+            verdict = f"{reply.get('handled_by')}/{reply.get('action')}@{reply.get('window_kind')}"
+            if reply.get("error"):
+                verdict = f"error:{json.dumps(reply.get('error'))[:80]}"
+                note(f"key {index}: {reply.get('error')}")
+        else:
+            verdict = f"no reply ({type(reply).__name__})"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
@@ -921,7 +949,7 @@ def type_keys(count, params, column):
     wait_until(lambda: sum(1 for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)) >= count,
                "a probe row for the last key", timeout=5, raise_on_timeout=False)
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
-    return rows, trips
+    return rows, trips, verdicts
 
 
 GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
@@ -1079,7 +1107,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    rows, trips = type_keys(opts.samples, params, column)
+    rows, trips, verdicts = type_keys(opts.samples, params, column)
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
@@ -1103,6 +1131,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "mode_missing": (MODE or {}).get("nativeMissing") or [],
         "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
+        # `measured: 0` with every key under "app/..." is the key router eating them, not a slow surface.
+        "key_verdicts": verdicts,
         # Every measured key's value, so a reader pools the rounds (the perf cron's terminal.key_to_echo rows).
         "key_to_frame_values": [round(v, 3) for v in f(column)],
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),

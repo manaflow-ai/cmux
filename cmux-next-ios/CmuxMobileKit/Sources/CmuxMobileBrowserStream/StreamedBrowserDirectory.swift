@@ -36,6 +36,10 @@ public final class StreamedBrowserDirectory {
     }
 
     private var models: [String: StreamedBrowserModel] = [:]
+    /// The last frame of each tab whose model went with its link (``reset()``):
+    /// the tab's next model starts with it, so its card and the opening page
+    /// show that frame, not a blank, until the stream draws again.
+    private var stills: [String: CGImageBox] = [:]
     private var lastWarm: ContinuousClock.Instant?
     /// How long a tab may stay missing from the Macs' lists before its model closes.
     public var missingGrace: Duration = .seconds(10)
@@ -77,6 +81,14 @@ public final class StreamedBrowserDirectory {
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
     public var tabsRetained: (@MainActor (Set<String>) -> Void)?
     public var tabRenamed: (@MainActor (_ old: String, _ new: String) -> Void)?
+    /// Hears one Mac's browser tabs each time it lists its workspaces: a tab new since
+    /// the last list opens where Settings → Browser → Open New Pages says.
+    public var browserTabsListed: (@MainActor (_ macID: String, _ tabs: [(id: String, url: URL?)]) -> Void)?
+
+    /// One Mac listed its workspaces (`tabs`: its browser tabs, in list order).
+    public func listed(macID: String, browserTabs tabs: [(id: String, url: URL?)]) {
+        browserTabsListed?(macID, tabs)
+    }
 
     /// The streamed model of a tab (`tab`: its key on the Mac, `url`: its
     /// first page), or nil when not linked.
@@ -103,6 +115,7 @@ public final class StreamedBrowserDirectory {
             guard let self else { return }
             for shown in models.values where shown.isShown { shown.reassertShown() }
         }
+        model.seed(snapshot: stills.removeValue(forKey: key))
         models[key] = model
         if !appActive { model.setAppActive(false) }
         warmMedia()
@@ -132,6 +145,7 @@ public final class StreamedBrowserDirectory {
             guard let self else { return }
             for shown in models.values where shown.isShown { shown.reassertShown() }
         }
+        model.seed(snapshot: stills.removeValue(forKey: key))
         models[key] = model
         if !appActive { model.setAppActive(false) }
         warmMedia()
@@ -176,6 +190,7 @@ public final class StreamedBrowserDirectory {
             log.notice("browser drop \(tab, privacy: .public)")
             models.removeValue(forKey: key)?.close()
         }
+        for key in stills.keys where Self.parts(key).tab == tab { stills.removeValue(forKey: key) }
     }
 
     /// The tabs the Macs list now (every workspace's, and this phone's
@@ -214,6 +229,7 @@ public final class StreamedBrowserDirectory {
             guard !Task.isCancelled, let self else { return }
             retain(tabs: lastRetained)
         }
+        for key in stills.keys where !tabs.contains(Self.parts(key).tab) { stills.removeValue(forKey: key) }
     }
 
     /// A new link (`macID`: that Mac's; nil: any): the shown tab's stream
@@ -241,7 +257,10 @@ public final class StreamedBrowserDirectory {
     }
 
     public func reset() {
-        for model in models.values { model.close() }
+        for (key, model) in models {
+            if let still = model.snapshot { stills[key] = still }
+            model.close()
+        }
         models = [:]
         missingSince = [:]
         recheck?.cancel()

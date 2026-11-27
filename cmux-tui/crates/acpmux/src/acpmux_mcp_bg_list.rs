@@ -5,6 +5,10 @@
 //! 395,433 characters, which Claude Code wrote to a file for the agent to read again, 6 times in
 //! 24 h on one VM). `limit`, `offset` and `state` pick the page; `full` adds each task's whole
 //! command and output tail; `all` still widens it to other callers' tasks.
+//!
+//! A row carries only what the caller cannot work out: the chat's `sessionId` and `cwd` are the
+//! same on every task, so the page says each once, and `summary`, `status` and the fields a task
+//! leaves null or at their default are left off ([`Page::trimmed`]).
 
 use serde_json::{Map, Value, json};
 
@@ -19,6 +23,8 @@ const STATES: [&str; 7] = ["running", "exited", "stopped", "killed", "lost", "ok
 const KEYS: [&str; 5] = ["state", "limit", "offset", "full", "all"];
 /// The keys the daemon or the server itself reads, which are not a page's and not a mistake.
 const PASSED_ON: [&str; 4] = ["sessionId", "callerSubagent", "description", "_meta"];
+/// Row fields every task of one chat carries the same value for: the page says each once.
+const SHARED: [&str; 2] = ["sessionId", "cwd"];
 
 /// The page a call asks for, taken out of its arguments (the daemon lists the whole chat).
 #[derive(Debug, PartialEq)]
@@ -124,7 +130,8 @@ impl Page {
         let page: Vec<Value> = matching.into_iter().skip(self.offset).take(self.limit).collect();
         let more = total.saturating_sub(self.offset + page.len());
         let mut lines: Vec<String> = page.iter().map(|t| self.line(t, now_ms)).collect();
-        let page: Vec<Value> = page.into_iter().map(|t| self.trimmed(t)).collect();
+        let mut page: Vec<Value> = page.into_iter().map(|t| self.trimmed(t)).collect();
+        let shared = self.hoisted(&mut page);
         let what = self.state.map_or(String::new(), |s| format!(" {s}"));
         if total == 0 && self.state.is_some() {
             lines.push(format!("No{what} tasks."));
@@ -142,6 +149,9 @@ impl Page {
         }
         lines.extend(self.notes.iter().map(|n| format!("({n})")));
         if let Some(o) = r.as_object_mut() {
+            for (key, value) in shared {
+                o.insert(key, value);
+            }
             o.insert("tasks".into(), json!(page));
             o.insert("total".into(), json!(total));
             o.insert("offset".into(), json!(self.offset));
@@ -179,8 +189,16 @@ impl Page {
         if self.full { format!("{line}\n{}", s("tail").trim_end()) } else { line }
     }
 
-    /// A task as the structured page carries it: without its tail and with its command cut,
-    /// unless `full`.
+    /// A task as the structured page carries it: without its tail, with its command cut, and
+    /// without what the row only repeats, unless `full`. A row used to carry 713 bytes of which
+    /// about two fifths were the same fact twice (measured over 3,742 rows in 224 answers,
+    /// 2026-11-24: `summary` 14.3% of a page's bytes, `sessionId` 7.4%, `cwd` 3.8%, `status`
+    /// 2.2%, and the null or default `outputError`, `resultLine`, `startedBy`, `signal`,
+    /// `keptFromByte`, `notify` 2.0-2.8% each), so a 30-row page spent thousands of tokens
+    /// saying what the caller already had. `summary` and `status` are
+    /// [`crate::bg_run::outcome`] read off the row's own `state`, `exitCode` and `description`,
+    /// which the text line prints; a task that prints its own outcome keeps the `summary` and
+    /// drops the `lastLine` it labels, so neither is lost.
     fn trimmed(&self, mut t: Value) -> Value {
         if self.full {
             return t;
@@ -191,8 +209,50 @@ impl Page {
                 let short = cut(command, COMMAND_CHARS * 2);
                 o.insert("command".into(), json!(short));
             }
+            o.remove("status");
+            match o.get("lastLine").and_then(Value::as_str) {
+                Some(line) if !line.trim().is_empty() => o.remove("lastLine"),
+                _ => o.remove("summary"),
+            };
+            o.retain(|k, v| !is_default(k, v));
         }
         t
+    }
+
+    /// The [`SHARED`] fields out of every row and into the page once, when the page's rows all
+    /// agree on one (they are one chat's tasks, so they do); a row that differs keeps its own.
+    fn hoisted(&self, page: &mut [Value]) -> Vec<(String, Value)> {
+        if self.full || page.is_empty() {
+            return Vec::new();
+        }
+        let mut shared = Vec::new();
+        for key in SHARED {
+            let first = page[0].get(key).cloned().unwrap_or(Value::Null);
+            if first.is_null() || page.iter().any(|t| t.get(key) != Some(&first)) {
+                continue;
+            }
+            for t in page.iter_mut() {
+                if let Some(o) = t.as_object_mut() {
+                    o.remove(key);
+                }
+            }
+            shared.push((key.to_owned(), first));
+        }
+        shared
+    }
+}
+
+/// A row field whose value is the one every task starts with, so the row says nothing by
+/// carrying it: an end that has not happened (`endedAt`, `exitCode`, `signal`), a spool that
+/// did not fail (`outputError`), the lead agent (`startedBy`), no output dropped
+/// (`keptFromByte`), and `notify` and `resultLine` as `bg_start` leaves them.
+pub(super) fn is_default(key: &str, v: &Value) -> bool {
+    match key {
+        "endedAt" | "exitCode" | "signal" | "outputError" | "startedBy" => v.is_null(),
+        "resultLine" => v == &json!(false),
+        "notify" => v == &json!(true),
+        "keptFromByte" | "skippedBytes" => v == &json!(0),
+        _ => false,
     }
 }
 
@@ -222,148 +282,5 @@ fn age(ms: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NOW: u64 = 10_000_000_000;
-
-    /// `n` tasks oldest first, as the daemon lists them, each with a long command and tail.
-    fn listed(n: usize) -> Value {
-        let tasks: Vec<Value> = (0..n)
-            .map(|i| {
-                json!({"id": format!("t{i}"), "state": if i % 2 == 0 { "exited" } else { "running" },
-                    "exitCode": if i % 2 == 0 { json!(i % 4) } else { Value::Null },
-                    "startedAt": NOW - 7_200_000, "endedAt": if i % 2 == 0 { json!(NOW - 60_000) } else { Value::Null },
-                    "command": format!("cargo test {}", "x".repeat(5000)), "tail": "y".repeat(1024)})
-            })
-            .collect();
-        json!({"tasks": tasks, "otherOwners": 0})
-    }
-
-    fn page(args: Value) -> Page {
-        let mut args = args;
-        let page = Page::take(&mut args).unwrap();
-        assert!(args.get("limit").is_none() && args.get("state").is_none(), "{args}");
-        page
-    }
-
-    /// A bare call over a chat of 1,000 tasks answers the newest 30, one short line each, and a
-    /// last line naming the rest and how to see them; the whole result stays small.
-    #[test]
-    fn a_bare_list_is_the_newest_thirty_compact_lines() {
-        let (structured, text) = page(json!({})).apply(listed(1000), NOW);
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 31, "{text}");
-        assert!(
-            lines[0].starts_with("t999  [running]  started 2h ago  cargo test x"),
-            "{}",
-            lines[0]
-        );
-        assert!(lines[1].starts_with("t998  [exited (exit 2)]  ended 1m ago  "), "{}", lines[1]);
-        assert!(lines[..30].iter().all(|l| l.chars().count() < 180), "{text}");
-        assert!(
-            lines[30].starts_with("970 older tasks not shown: offset: 30 lists the next 30;"),
-            "{}",
-            lines[30]
-        );
-        assert_eq!(structured["tasks"].as_array().unwrap().len(), 30);
-        assert_eq!(
-            (structured["total"].clone(), structured["more"].clone()),
-            (json!(1000), json!(970))
-        );
-        assert!(structured["tasks"][0].get("tail").is_none());
-        let size = text.len() + structured.to_string().len();
-        assert!(size < 20_000, "{size} characters");
-    }
-
-    /// offset, limit and state pick the page; full brings back command and tail; a misspelt
-    /// state is read as its one close match and said so; a bad one is refused with the choices.
-    #[test]
-    fn offset_limit_state_and_full_pick_the_page() {
-        let (s, text) = page(json!({"offset": 990, "limit": "20"})).apply(listed(1000), NOW);
-        assert_eq!(s["tasks"].as_array().unwrap().len(), 10);
-        assert_eq!(s["tasks"][9]["id"], "t0");
-        assert!(!text.contains("not shown"), "{text}");
-        let (s, text) = page(json!({"state": "runing", "limit": 5})).apply(listed(10), NOW);
-        let ids: Vec<&str> =
-            s["tasks"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["t9", "t7", "t5", "t3", "t1"]);
-        assert!(text.ends_with("(state \"runing\" read as \"running\")"), "{text}");
-        let (s, _) = page(json!({"state": "failed"})).apply(listed(8), NOW);
-        let ids: Vec<&str> =
-            s["tasks"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["t6", "t2"], "exit codes 2 and 2 failed; 0 is ok");
-        let (s, text) = page(json!({"full": true, "limit": 1})).apply(listed(2), NOW);
-        assert_eq!(s["tasks"][0]["tail"].as_str().unwrap().len(), 1024);
-        assert!(text.contains(&"y".repeat(1024)));
-        assert_eq!(page(json!({"limit": 9999})).limit, MAX_LIMIT);
-        assert!(Page::take(&mut json!({"state": "zzzzzzzz"})).is_err());
-        assert!(Page::take(&mut json!({"limit": "many"})).is_err());
-        let (_, text) = page(json!({"state": "lost"})).apply(listed(3), NOW);
-        assert_eq!(text, "No lost tasks.");
-    }
-
-    /// `status` is `state`'s near miss (as `runing` is `running`'s): it picks exactly the page
-    /// `state` picks, and the answer says it was read that way. It used to go to the daemon,
-    /// which does not read it either, so the call answered an unfiltered page.
-    #[test]
-    fn status_picks_the_page_state_picks_and_says_so() {
-        let (by_status, text) =
-            page(json!({"status": "running", "limit": 5})).apply(listed(10), NOW);
-        let (by_state, _) = page(json!({"state": "running", "limit": 5})).apply(listed(10), NOW);
-        assert_eq!(by_status, by_state);
-        let ids: Vec<&str> = by_status["tasks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["id"].as_str().unwrap())
-            .collect();
-        assert_eq!(ids, ["t9", "t7", "t5", "t3", "t1"]);
-        assert_eq!(
-            by_status["total"],
-            json!(5),
-            "the filter ran, so the page is not the whole list"
-        );
-        assert!(text.ends_with("(key \"status\" read as \"state\")"), "{text}");
-        // A near-miss key takes the state's own near-miss reading too, and both are said.
-        let (s, text) = page(json!({"status": "runing"})).apply(listed(4), NOW);
-        assert_eq!(s["total"], json!(2));
-        assert!(text.contains("(key \"status\" read as \"state\")"), "{text}");
-        assert!(text.contains("(state \"runing\" read as \"running\")"), "{text}");
-        // A near miss is not read over a key the call already gave.
-        let (s, text) = page(json!({"status": "running", "state": "failed"})).apply(listed(8), NOW);
-        assert_eq!(s["total"], json!(2), "state failed stands: {text}");
-    }
-
-    /// A key that is nobody's near miss is named in the answer, not quietly passed on: a filter
-    /// the call thought it set and did not is worse than a page it knows is unfiltered.
-    #[test]
-    fn an_unknown_key_is_named_not_ignored() {
-        let (s, text) = page(json!({"nonsense": "running", "limit": 2})).apply(listed(6), NOW);
-        assert_eq!(s["total"], json!(6), "nothing was filtered");
-        assert!(
-            text.ends_with(
-                "(\"nonsense\" is not one of state, limit, offset, full, all, so it picked nothing)"
-            ),
-            "{text}"
-        );
-        let mut args = json!({"nonsense": 1, "sessionId": "s", "all": true});
-        let taken = Page::take(&mut args).unwrap();
-        assert_eq!(
-            args,
-            json!({"sessionId": "s", "all": true}),
-            "the daemon's keys stay, the stray one goes"
-        );
-        assert_eq!(taken.notes.len(), 1, "{:?}", taken.notes);
-    }
-
-    #[test]
-    fn ages_and_cuts() {
-        assert_eq!(
-            [age(5_000), age(120_000), age(7_200_000), age(200_000_000)],
-            ["5s", "2m", "2h", "2d"]
-        );
-        assert_eq!(cut("a\n  b", 10), "a b");
-        assert_eq!(cut("abcdefghij", 5), "abcd…");
-    }
-}
+#[path = "acpmux_mcp_bg_list_tests.rs"]
+mod tests;

@@ -331,16 +331,28 @@ Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
-and holds them unanswered; when the restore ends, every held connection is
-served by the normal protocol handler. `identify` then reports
-`lifecycle_ready: false` until the owner finishes startup. `daemon stop` waits
+and answers an `identify` with `restore_progress: true` at once:
+`lifecycle_ready: false`, empty `registry_id` and `generation`, and
+`restore`: `phase` (`registry_open`, `schema`,
+`migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
+`browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
+when the phase does not count; `agent_roster` counts journal rows),
+`elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
+began: a restore that hangs keeps it while `elapsed_ms` grows). A
+`server-stats` with `restore_progress: true` fails with `server.restoring`
+and the same `restore` in `error_details`. A connection's first other
+request (an `identify` without the flag included) is held unanswered; when the restore ends,
+every held connection is served by the normal protocol handler, from that
+request on. `identify` then reports `lifecycle_ready: false` until the owner
+finishes startup. `server ensure --restore-progress` adds the owner's
+`restore` to its progress lines when the owner reports one. `daemon stop` waits
 for a restoring owner, through both phases, and then stops it: up to
 `--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
 gives a restore). While it waits it prints a progress line on stderr after the
 first second and then every 5 s (with `--json`, one JSON object per line:
-`progress: "restoring"`, `session`, `phase` (`restoring`: the owner holds the
-connection unanswered; `starting`: it restored and reports
-`lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
+`progress: "restoring"`, `session`, `phase` (`restoring`: the owner restores
+its session (it reports its `restore`, or an older owner holds the connection
+unanswered); `starting`: it restored and reports `lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
 bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other
@@ -770,7 +782,7 @@ agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
-agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook emit --source <provider> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
 agent hook install|uninstall|status [provider...]
 
 agent ls [--all] [--json]
@@ -886,6 +898,9 @@ git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side 
 git comments list [--root <path>]
 git comments save [--root <path>] --comment <json-object>
 git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+git comments send [--root <path>] <comment-id>... --threads --acp-session <id> [--text <note>]
+git comments reply [--root <path>] <comment-id> --text <answer> [--author agent|reviewer]
+git comments resolve [--root <path>] <comment-id> [--reopen]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1117,6 +1132,9 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+While a merge, rebase, cherry-pick or revert is stopped partway in the
+checkout, `git status` adds `in_progress` (`merge`, `rebase`, `cherry-pick` or
+`revert`), read from the checkout's own git directory with no extra run.
 `git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
 64 hex digits that stay equal while the scope's `git diff` stays equal, for a
 view that asks often if its diff is still current. It runs no patch: the
@@ -1373,6 +1391,15 @@ object, kept as given; its `id` names a saved comment to replace) and the
 session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
+
+`git comments send --threads` (`diff.comments.send` with `threads`, capability
+`diff-comments-threads-v1`) hands the named comments to the acpmux session
+`--acp-session` as review threads: one prompt the session host writes from
+what each thread holds that the agent has not read (a new comment, reviewer
+replies, a resolve), `--text` an optional note at its top. Nothing is
+removed. The agent answers each thread with `git comments reply <id> --text`
+(author `agent` by default) and closes one with `git comments resolve <id>`
+(`--reopen` undoes it); both are `diff.comments.thread`.
 
 ## Waiting for one event
 

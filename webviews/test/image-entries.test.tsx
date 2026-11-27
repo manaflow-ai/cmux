@@ -28,6 +28,7 @@ Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { localImagePreview } = await import("../src/agent-session/acpmux/composer/imagePool");
 const images = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { attachmentRetry } = await import("../src/pages/shared/attachmentRetry");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
@@ -62,6 +63,32 @@ try {
     expect(images.sentImageEntry("a")).toBe(first!);
     expect(reads).toBe(1);
     expect(first!.size).toEqual({ width: 300, height: 200 });
+  });
+
+  test("a freshly sent file uses the existing worker thumbnail even if the bubble mounts before it finishes", async () => {
+    const path = "/tmp/screenshot.png";
+    const thumb = { width: 400, height: 200, url: png(320, 160) };
+    const worker = Promise.withResolvers<typeof thumb>();
+    const primed = images.primeSentImages([
+      {
+        id: "composer-path",
+        kind: "link",
+        path,
+        mimeType: "image/png",
+        size: 100_000_000,
+        name: "screenshot.png",
+        [localImagePreview]: () => worker.promise,
+      },
+    ]);
+    let reads = 0;
+    const drawing = images.loadSentImage(`file:${path}`, async () => {
+      reads++;
+      return undefined;
+    });
+    worker.resolve(thumb);
+    await primed;
+    expect(await drawing).toMatchObject({ src: thumb.url, size: { width: 400, height: 200 }, thumbnail: true });
+    expect(reads).toBe(0);
   });
 
   test("an image acpmux does not have, or a failed read, is not kept", async () => {
@@ -179,8 +206,8 @@ try {
     const image = host.querySelector<HTMLImageElement>(".cv-user__images img")!;
     expect(image).not.toBeNull();
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
-    // 400×200 is 2:1: the whole image, 120px tall (UserBubble.tsx sentImageSize).
-    expect(image.style.width).toBe("240px");
+    // 400×200 is 2:1: the whole image, 160px tall (userBubbleModel.ts sentImageSize, #48558).
+    expect(image.style.width).toBe("320px");
     expect(image.getAttribute("decoding")).toBe("async");
     expect(reads).toBe(0);
     act(() => root.unmount());
@@ -220,11 +247,12 @@ try {
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
     expect(host.querySelector<HTMLImageElement>(".cv-user__images img")).toBe(first);
     expect(first.getAttribute("src")).toBe(src);
-    // An image that then fails to draw keeps its shape: 2:1 at 120px tall.
+    // An image that then fails to draw keeps its shape: 300×150 is under 160px tall, so it keeps
+    // its own size, never magnified (sentImageSize, #48558).
     await act(async () => {
       first.dispatchEvent(new dom.window.Event("error"));
     });
-    expect(host.querySelector<HTMLElement>(".cv-user__image-failed")!.style.width).toBe("240px");
+    expect(host.querySelector<HTMLElement>(".cv-user__image-failed")!.style.width).toBe("300px");
     act(() => root.unmount());
   });
 

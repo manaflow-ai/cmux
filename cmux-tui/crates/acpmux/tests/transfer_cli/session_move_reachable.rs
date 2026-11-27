@@ -58,6 +58,9 @@ import json, os, pathlib, signal, socket as net, sys, threading
 home = {home}
 socket = {socket}
 args = sys.argv[1:]
+# session_move.rs PLAIN_SCRIPT, the folder a move makes on the target, by its exact text:
+# other scripts (the carry's APPLY_SCRIPT) also read `d` and `mkdir -p`.
+PLAIN = 'read -r d || exit 2; mkdir -p -- "$d"'
 if '-W' in args:
     host, port = args[args.index('-W') + 1].rsplit(':', 1)
     s = net.create_connection((host, int(port)))
@@ -86,7 +89,7 @@ if 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
-elif 'mkdir -p' in command and 'read -r d' in command:
+elif PLAIN in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')
     folder.mkdir(parents=True, exist_ok=True)
@@ -185,7 +188,10 @@ fn move_command(source: &Daemon, id: &str, to: &Path) -> tokio::process::Command
 async fn committed(src: &mut Rpc, id: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
-        let info = src.call("_acpmux/info", json!({"sessionId": id})).await;
+        // The row this machine keeps: a plain `{sessionId}` info of a chat that moved to a
+        // connected peer is answered from its copy there (`MOVED_FORWARDED`, #52853).
+        let listed = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+        let info = &listed["rows"][0];
         if info["status"] == "closed" && info["movedTo"]["host"] == "target" {
             return;
         }

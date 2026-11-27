@@ -5,13 +5,19 @@
 // Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
 // A failed renewal (the app's `cmux.cloud.billing.status` answers true) shows one line under the plan
 // with Manage Billing; any other answer, a failed read or a signed-out account shows nothing.
+// This month (`cloud.usage.current`): the total and each meter with the billing owner's dollars, when it was
+// counted, uncounted spans, the card on file ("Add payment method" runs the checkout; "Change" opens billing),
+// and "Test mode" while payments run in test mode. A server that does not serve it shows nothing.
 import { useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
+import { poolOf, spendLimitEnabled } from "./pool";
+import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
-import { usd } from "./spendCap";
+import { clockTime, usd } from "./spendCap";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, ratePrice, testMode, type UsageMeter } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";
@@ -49,6 +55,100 @@ function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => s
   );
 }
 
+const METERS: { meter: UsageMeter; label: string; unit: string; rate: string }[] = [
+  { meter: "vcpu", label: L.usageVcpu, unit: L.usageVcpuHours, rate: L.usageRateVcpu },
+  { meter: "memory", label: L.usageMemory, unit: L.usageGibHours, rate: L.usageRateGibHour },
+  { meter: "stored", label: L.usageStored, unit: L.usageGibMonths, rate: L.usageRateGibMonth },
+];
+
+/** This month's usage and its cost, and the payment method on file. */
+function MonthUsage({ store, state, strings }: { store: CloudStore; state: CloudState; strings: Strings }) {
+  const { t, language } = strings;
+  const { usage } = state;
+  if (state.unavailable.includes(CloudOps.usageCurrent)) return null;
+  if (!usage) {
+    return (
+      <section className="cloud-month" aria-label={t(L.usageMonth)} aria-busy={!state.usageFailed}>
+        <div className="cloud-month-head">
+          <span className="cloud-month-title">{t(L.usageMonth)}</span>
+        </div>
+        {state.usageFailed ? (
+          <div className="cloud-month-failed" role="alert">
+            <span className="cloud-muted">{t(L.usageFailed)}</span>
+            <button
+              type="button"
+              className="cloud-link-button cloud-month-retry"
+              onClick={() => void store.retryUsage()}
+            >
+              {t(L.retry)}
+            </button>
+          </div>
+        ) : (
+          <span className="cloud-muted cloud-month-loading">{t(L.loading)}</span>
+        )}
+      </section>
+    );
+  }
+  const brand = cardBrand(usage.payment_method.brand);
+  const digits = usage.payment_method.last4 ?? undefined;
+  return (
+    <section className="cloud-month" aria-label={t(L.usageMonth)}>
+      <div className="cloud-month-head">
+        <span className="cloud-month-title">{t(L.usageMonth)}</span>
+        {testMode(usage) && <span className="cloud-month-test">{t(L.usageTestMode)}</span>}
+        <span className="cloud-month-total">{usd(monthTotal(usage), language)}</span>
+      </div>
+      <dl className="cloud-month-lines">
+        {METERS.map(({ meter, label, unit, rate: rateLabel }) => {
+          const { amount, usd: dollars, rate } = meterAmount(usage, meter);
+          return (
+            <div key={meter} className={`cloud-month-line cloud-month-${meter}`}>
+              <dt>{t(label)}</dt>
+              <dd className="cloud-month-amount">
+                {format(t(unit), { value: quantity(amount, language) })}
+                {rate !== undefined && (
+                  <span className="cloud-month-rate">
+                    {" × "}
+                    {format(t(rateLabel), { price: ratePrice(rate, language) })}
+                  </span>
+                )}
+              </dd>
+              <dd className="cloud-month-usd">{usd(dollars, language)}</dd>
+            </div>
+          );
+        })}
+      </dl>
+      <p className="cloud-muted cloud-month-asof">
+        {format(t(L.usageAsOf), { time: clockTime(usage.as_of, language) })}
+        {hasGaps(usage) && <span className="cloud-month-gaps"> · {t(L.usageGaps)}</span>}
+      </p>
+      <div className="cloud-month-payment">
+        {usage.payment_method.attached ? (
+          <>
+            <span className="cloud-month-card">
+              {brand && digits ? format(t(L.paymentCard), { brand, digits }) : (brand ?? "")}
+            </span>
+            {(brand || digits) && <span className="cloud-muted"> · </span>}
+            <button
+              type="button"
+              className="cloud-link-button cloud-month-change"
+              onClick={() => void store.manageBilling()}
+            >
+              {t(L.paymentChange)}
+            </button>
+          </>
+        ) : state.paymentOff ? (
+          <span className="cloud-muted">{t(L.paymentOff)}</span>
+        ) : (
+          <button type="button" className="cloud-button cloud-month-add" onClick={() => void store.addPaymentMethod()}>
+            {t(L.paymentAdd)}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function UsageRow({ label, used, limit, text }: { label: string; used: number; limit?: number | null; text: string }) {
   return (
     <div className="cloud-meter">
@@ -70,6 +170,8 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
   // The team's spend against its spending cap this period (cloud.plan.get `spend_cap`, absent without the cap).
   const capSpent = finite(plan?.spend_cap?.spent_usd);
   const capLimit = finite(plan?.spend_cap?.cap_usd);
+  // The plan's hours and the spend limit past them (RFD 0081), behind the default-off switch (pool.ts).
+  const pool = spendLimitEnabled() ? poolOf(plan) : undefined;
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -141,6 +243,8 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
               />
             )}
           </div>
+          <MonthUsage store={store} state={state} strings={strings} />
+          {pool && <PoolPanel store={store} state={state} pool={pool} strings={strings} />}
           {plan.retention && !unavailable.includes(CloudOps.retentionSet) && (
             <CleanupSettings store={store} state={state} retention={plan.retention} strings={strings} />
           )}

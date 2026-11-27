@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "trust.allowsRepo" : {
+      "comment" : "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكن لـ {agent} تشغيل الأوامر وتعديل الملفات فيه وفي كل أشجار العمل التابعة له، وتُحمَّل خطافات المستودع وخوادم MCP والإعدادات. ليس الآن: لن يعمل {agent} هنا حتى تثق به."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} može pokretati naredbe i uređivati fajlove u njemu i svim njegovim radnim stablima, a učitavaju se hookovi, MCP serveri i postavke repozitorija. Ne sada: {agent} se neće pokretati ovdje dok mu ne vjerujete."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} kan køre kommandoer og redigere filer i det og alle dets worktrees, og repoets hooks, MCP-servere og indstillinger indlæses. Ikke nu: {agent} kører ikke her, før du stoler på det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} kann darin und in allen seinen Worktrees Befehle ausführen und Dateien bearbeiten, und die Hooks, MCP-Server und Einstellungen des Repos werden geladen. Nicht jetzt: {agent} läuft hier erst, wenn du vertraust."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} can run commands and edit files in it and all its worktrees, and its hooks, MCP servers and settings load. Not now: {agent} won't run here."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} puede ejecutar comandos y editar archivos en él y en todos sus worktrees, y se cargan los hooks, servidores MCP y ajustes del repositorio. Ahora no: {agent} no se ejecutará aquí hasta que confíes en él."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} peut exécuter des commandes et modifier des fichiers dans ce dépôt et tous ses worktrees, et les hooks, serveurs MCP et réglages du dépôt sont chargés. Pas maintenant : {agent} ne s'exécutera pas ici tant que vous ne lui ferez pas confiance."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} può eseguire comandi e modificare file al suo interno e in tutti i suoi worktree, e vengono caricati hook, server MCP e impostazioni del repository. Non ora: {agent} non verrà eseguito qui finché non ti fidi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} はこのリポジトリとそのすべてのワークツリーでコマンドを実行し、ファイルを編集できます。リポジトリのフック、MCP サーバー、設定も読み込まれます。後で: 信頼するまで {agent} はここで実行されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} អាចដំណើរការពាក្យបញ្ជា និងកែឯកសារក្នុងវា និង worktree ទាំងអស់របស់វា ហើយ hooks, ម៉ាស៊ីនមេ MCP និងការកំណត់របស់ឃ្លាំងនឹងត្រូវផ្ទុក។ មិនមែនឥឡូវ៖ {agent} នឹងមិនដំណើរការនៅទីនេះទេ រហូតដល់អ្នកទុកចិត្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent}이(가) 이 저장소와 모든 워크트리에서 명령을 실행하고 파일을 편집할 수 있으며, 저장소의 훅, MCP 서버, 설정이 로드됩니다. 나중에: 신뢰하기 전까지 {agent}은(는) 여기서 실행되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} kan kjøre kommandoer og redigere filer i det og alle dets worktrees, og repoets hooks, MCP-servere og innstillinger lastes inn. Ikke nå: {agent} kjører ikke her før du stoler på det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} może uruchamiać polecenia i edytować pliki w nim i we wszystkich jego worktree, a hooki, serwery MCP i ustawienia repozytorium zostaną wczytane. Nie teraz: {agent} nie uruchomi się tu, dopóki mu nie zaufasz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} pode executar comandos e editar arquivos nele e em todos os seus worktrees, e os hooks, servidores MCP e configurações do repositório são carregados. Agora não: {agent} não será executado aqui até você confiar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} сможет выполнять команды и редактировать файлы в нём и во всех его рабочих деревьях, и загрузятся хуки, MCP-серверы и настройки репозитория. Не сейчас: {agent} не будет запускаться здесь, пока вы не доверитесь."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} สามารถเรียกใช้คำสั่งและแก้ไขไฟล์ในรีโพนี้และ worktree ทั้งหมด และจะโหลด hooks, เซิร์ฟเวอร์ MCP และการตั้งค่าของรีโพ ไม่ใช่ตอนนี้: {agent} จะไม่ทำงานที่นี่จนกว่าคุณจะเชื่อถือ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} bu depoda ve tüm worktree'lerinde komut çalıştırabilir ve dosya düzenleyebilir; deponun hook'ları, MCP sunucuları ve ayarları yüklenir. Şimdi değil: güvenene kadar {agent} burada çalışmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} зможе виконувати команди й редагувати файли в ньому та в усіх його робочих деревах, і завантажаться хуки, MCP-сервери й налаштування репозиторію. Не зараз: {agent} не запускатиметься тут, доки ви не довіритеся."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} có thể chạy lệnh và chỉnh sửa tệp trong kho này và mọi worktree của nó, đồng thời hooks, máy chủ MCP và cài đặt của kho sẽ được tải. Để sau: {agent} sẽ không chạy ở đây cho đến khi bạn tin cậy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} 可以在此仓库及其所有工作树中运行命令和编辑文件，并会加载仓库的钩子、MCP 服务器和设置。以后再说：在你信任之前，{agent} 不会在此运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} 可以在此儲存庫及其所有工作樹中執行指令和編輯檔案，並會載入儲存庫的掛鉤、MCP 伺服器和設定。稍後再說：在你信任之前，{agent} 不會在此執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

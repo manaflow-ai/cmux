@@ -48,7 +48,11 @@ pub(super) async fn serve_stream(
 ) {
     let daemon_id = hub.run_id();
     let v1 = hub.clone();
+    // What a take-over needs to move this connection to the next daemon (`conn_handover.rs`).
+    let watched = super::conn_handover::watch(&stream);
+    let movable = watched.as_ref().map(|w| w.movable.clone());
     let (rd, wr) = crate::local_stream::split(stream);
+    let wr = super::conn_handover::KeepOpen::new(wr, movable.clone());
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
@@ -58,7 +62,16 @@ pub(super) async fn serve_stream(
     let piped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let reader_piped = piped.clone();
     let reader = tokio::spawn(async move {
-        read_lines(rd, in_tx, last_tx, limits, reader_v2.as_deref(), &reader_piped).await
+        read_lines_movable(
+            rd,
+            in_tx,
+            last_tx,
+            limits,
+            reader_v2.as_deref(),
+            &reader_piped,
+            movable.as_deref(),
+        )
+        .await
     });
     let writer = tokio::spawn(async move { write_lines(wr, out_rx, last_rx).await });
     serve_connection_from(
@@ -68,7 +81,7 @@ pub(super) async fn serve_stream(
         Origin::Local,
         ConnAuth::LocalSocket,
         peer,
-        provisioner,
+        super::Transport::LocalStream { provisioner },
         socket_peer,
         None,
         None,
@@ -159,7 +172,7 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         let reply = Message::ok(
             self.id,
             json!({
-                "protocol": 2, "surfaces": self.surfaces, "upgrade": true,
+                "protocol": 2, "abi": crate::protocol::ABI, "surfaces": self.surfaces, "upgrade": true,
             }),
         );
         writer.write_all(reply.to_line().as_bytes()).await?;
@@ -221,6 +234,7 @@ fn v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> Option<(Value, Vec<Stri
 /// request id is in the part not kept, so no reply could name it, and a client waiting on it sees
 /// the connection end instead. Why goes to [`write_lines`] on `last`, as the connection's last
 /// line.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn read_lines<R: AsyncRead + Unpin>(
     rd: R,
     in_tx: mpsc::Sender<String>,
@@ -229,11 +243,49 @@ async fn read_lines<R: AsyncRead + Unpin>(
     v2: Option<&acpmux_core::life::V2>,
     piped: &std::sync::atomic::AtomicBool,
 ) -> Option<Taken<R>> {
+    read_lines_movable(rd, in_tx, last, limits, v2, piped, None).await
+}
+
+/// [`read_lines`] for a connection a take-over may move to the next daemon (`movable`,
+/// `conn_handover.rs`): asked to park, a reader between lines of a plain connection reads no
+/// more and holds its half, so what the client sends next waits in the socket for that daemon.
+async fn read_lines_movable<R: AsyncRead + Unpin>(
+    rd: R,
+    in_tx: mpsc::Sender<String>,
+    last: oneshot::Sender<String>,
+    limits: Limits,
+    v2: Option<&acpmux_core::life::V2>,
+    piped: &std::sync::atomic::AtomicBool,
+    movable: Option<&super::conn_handover::Movable>,
+) -> Option<Taken<R>> {
     let max = limits.line;
     // The codec counts a line's `\r` with it and strips it after, so it holds one byte more.
     let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max.saturating_add(1)));
     let mut first = true;
-    while let Some(line) = lines.next().await {
+    let mut park_open = movable.is_some();
+    loop {
+        let line = tokio::select! {
+            biased;
+            () = async {
+                match movable {
+                    Some(movable) if park_open => movable.park_asked().await,
+                    _ => std::future::pending().await,
+                }
+            } => {
+                park_open = false;
+                if movable.is_some_and(|m| m.settle(lines.read_buffer().is_empty())) {
+                    // Parked: the socket is the next daemon's to read. This task keeps the
+                    // read half (and the server's queue) until the process ends.
+                    return std::future::pending().await;
+                }
+                continue;
+            }
+            line = lines.next() => line,
+        };
+        let Some(line) = line else { break };
+        if let Some(movable) = movable {
+            movable.saw(line.as_deref().ok());
+        }
         // An HTTP request (a WebSocket upgrade, perhaps with the Cloud carrier's header) is for
         // the carrier socket, never this one (`carrier.rs`): no header here names anyone.
         let is_first = std::mem::take(&mut first);

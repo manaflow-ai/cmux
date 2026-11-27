@@ -117,7 +117,10 @@ extension AgentTabStore {
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         CloudFrontedChats.wire(tabs, services: services); tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in // the Cloud chats Mac tabs show in place first (cmux#47677)
-            guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
+            guard let services else { return }
+            // A moved chat's cards, and with `cloud.addFolderLive` every Cloud chat's (CloudAccessAsks).
+            let moved = services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness)
+            guard moved || CloudUploads.addFolderIsOn(services) else { return }
             services.cloud.accessAsks.start(services: services)
         }
         tabs.cloudRepositoryLocal = { [weak services] in
@@ -128,6 +131,22 @@ extension AgentTabStore {
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
             return await services.imessage.respond(action, view: view)
         }
+        // Where the chat runs and its move's progress, for the header's `place` (``CloudPlaceFlows``).
+        // The session as every other reader takes it (the record's, else the one its page bound), and only for a chat
+        // the place actions move: the same rule as ``AppServices/placeChats()``, so an SSH chat or a chat started in Cloud
+        // gets no control that would answer success and move nothing.
+        tabs.placeState = { [weak services, weak tabs] tab in
+            guard let services, let tabs, let found = tabs.record(for: tab), let session = found.record.session ?? tabs.sessions[tab],
+                  let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
+                  services.placeEligible(found.record, session: session, on: daemon) else { return nil }
+            // Rust's blocked, slots-full and Keep Running state (``CloudPlaceFlows/controlFacts(signedIn:restoring:planId:chats:)``), off
+            // unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`). Unset, `place` is what it was.
+            let planId = services.cloud.isSignedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
+            let control = UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") ? services.cloud.place.controlFacts(signedIn: services.cloud.isSignedIn, restoring: services.cloud.auth.isRestoring, planId: planId) { services.placeChats() } : nil
+            return services.cloud.place.placeJSON(session: session, onCloud: found.record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: found.record.hostName,
+                                                  control: control, starts: services.cloud.tuiState)
+        }
+        tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
         // chat a move took from here (``CloudMoveTargets``). Each goes through the Cloud move actions:
         // this Mac's chat Move to Cloud on the machine named, a machine's chat Move to Another Machine
@@ -273,8 +292,15 @@ extension AgentTabStore {
         }
         // The header's Terminal and Browser on the chat's right (Leo, 2026-10-31): a tab in the pane holding that kind,
         // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
+        tabs.openCloudTerminalScoped = { [weak services] chat, cwd in
+            guard let services else { return false }
+            return CloudFrontedChats.openTool(.terminal, chat: chat, cwd: cwd, services: services) ?? false
+        }
         tabs.openToolScoped = { [weak services] chat, kind, cwd in
-            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
+            guard let services else { return false }
+            // A Cloud chat's Browser is its machine's desktop and its Terminal runs there (CloudFrontedChats.openTool, cmux#55413).
+            if let routed = CloudFrontedChats.openTool(kind, chat: chat, cwd: cwd, services: services) { return routed }
+            guard let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
             switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: if kind == .terminal, services.linkOpener.terminalSplitsAtOnce(from: source) { return false } }
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
@@ -434,7 +460,7 @@ extension AgentTabStore {
             let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
-            host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.linksHost = AgentTabStore.registryHost(of: daemon); host.chatNoted = AgentTabRemoteHost.notesChats(of: machineID) // names from this daemon only (cmux#55668)
             host.servesSide = daemon.supports(DaemonCapability.agentSessionSide.rawValue)
             host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
@@ -453,6 +479,10 @@ extension AgentTabStore {
             if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {
                 host.cloudTurnRewind = { [weak services] session in await services?.cloudTurnRewindHost.rows(chat: key.key, session: session) ?? [] }
             }
+            // Sources > Add Folder (`cloud.addFolderLive`, on by default; the click checks it again).
+            host.cloudFolderAdd = host.cloudMachineID != nil && CloudUploads.addFolderIsOn(services)
+            // A Cloud chat shown again (a restored tab) gets its access cards too.
+            if host.cloudFolderAdd { services.cloud.accessAsks.start(services: services) }
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the app link's own answer).
@@ -595,7 +625,7 @@ extension AgentTabStore {
             return tabs.openToolScoped?(tabs.tabKey(chat), kind, cwd) ?? false
         }
         tabs.runAttach = { [weak tabs] key, request in
-            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.daemonStopped }
+            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.timedOut }
             try await runAttachScoped(tabs.tabKey(key), request)
         }
         tabs.gitLink = { [weak tabs] key in tabs.flatMap { $0.gitLinkScoped?($0.tabKey(key)) } }
@@ -666,5 +696,9 @@ extension AgentTabStore {
             tryAnotherApproach = nil
         }
         cloudTurnRewind = services.cloudTurnRewindHost
+        cloudFolderAdd = { [weak services] chat, session in
+            guard let services else { throw CancellationError() }
+            return try await CloudUploads.addFolder(tab: chat, session: session, services: services)
+        }
     }
 }

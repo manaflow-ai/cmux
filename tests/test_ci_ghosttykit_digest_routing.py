@@ -86,6 +86,22 @@ class GhosttyKitDigestRouting(unittest.TestCase):
     def test_mac_jobs_use_digest(self) -> None:
         self.assertEqual(gate("true", "true"), "1")
 
+    def test_next_pr_without_provenance_change_skips_the_check(self) -> None:
+        """A feat-cmux-next PR that leaves the pin alone does not route the release check."""
+        route = load()["jobs"]["changes"]["outputs"]["ghosttykit_release"]
+        self.assertIn("steps.unchanged_inputs.outputs.compile_admitted == 'true'", route)
+        self.assertIn(
+            "(github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') "
+            "&& !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) "
+            "&& steps.ghosttykit_provenance.outputs.changed == 'false')",
+            route,
+        )
+        self.assertTrue(route.endswith("&& 'false' || steps.linux_guards.outputs.ghosttykit_release }}"))
+        # The pin is still downloaded and checked on every feat-cmux-next push and nightly.
+        workflows = WORKFLOW.parent
+        for name in ("cmux-next.yml", "nightly.yml"):
+            self.assertIn("download-prebuilt-ghosttykit", (workflows / name).read_text(encoding="utf-8"), name)
+
 
 if __name__ == "__main__":
     unittest.main()

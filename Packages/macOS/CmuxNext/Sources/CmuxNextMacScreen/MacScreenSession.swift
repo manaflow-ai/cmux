@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextRemoteView
 public import CmuxScreenKit
 import CmuxNextCompat
@@ -42,6 +43,11 @@ public final class MacScreenSession {
         /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
         /// labels Ultra only from this, never from the quality it asked for.
         public var encodeProfile: String?
+        /// The frames the host says it has sent (its `stats` `frames`) and when that line arrived. The host
+        /// sends a line every second while frames flow and every two seconds on a still screen, so a fresh
+        /// line whose count the viewer has already decoded means the screen did not change, not a stall.
+        public var hostFrames: Double?
+        var hostStatsAt: Date?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -75,7 +81,7 @@ public final class MacScreenSession {
     @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
-    /// This approach never reconnects on its own: Try Again asks the hub again.
+    /// The session never reconnects itself: the pane asks the hub again (``MacScreenPane``'s retry, or Try Again).
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.
@@ -117,6 +123,14 @@ public final class MacScreenSession {
     @ObservationIgnored var timings = MacScreenConnectTimings()
     /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
     @ObservationIgnored var frameCounter: MacScreenFrameCounter?
+    /// Whether this session offers clipboard text sync (cap `clipboard.text`): the setting and the
+    /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
+    /// lists the cap only when its person turned clipboard sync on.
+    @ObservationIgnored public var offersClipboard = false
+    /// Whether this session's hello offers cap `video.sharp_text` (Settings > Customize "Sharper Text
+    /// from Linux Machines", `remoteDesktop.sharpLinuxText`): a Linux OpenH264 host codes it in screen
+    /// usage. Other hosts do not list the cap, so it changes nothing there.
+    @ObservationIgnored public var offersSharpText = false
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -189,6 +203,7 @@ public final class MacScreenSession {
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
         connectDeadline.cancel()
+        lostDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
@@ -373,10 +388,16 @@ public final class MacScreenSession {
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        // `clock` and `ledger`: every frame's stage times, on the host's clock.
+        // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
+        // `video.ltr`: the decode pipeline acknowledges each decoded frame (`noteDecoded(frame:)`),
+        // so a host started with `--ltr 1` recovers a loss without a keyframe; others ignore it.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap, RemoteRdHello.ltrCap]
+                                      + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
-                                                      control: true) else {
+                                                      control: true, clipboard: offersClipboard) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }
@@ -403,8 +424,10 @@ public final class MacScreenSession {
                         timings.sampleRtt(Double(rtt))
                     }
                 case let .ended(why):
+                    // Which transport end this was: the link bridge's socket closing (the carrier's "after N bytes") or the host's own.
+                    logger.notice("link transport ended at \(self.connectStage.name, privacy: .public): \(String(describing: why), privacy: .public)")
                     switch why {
-                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case .connectionLost: failLostUnlessLinkExplains(transport: transport)
                     case let .hostFailed(reason): hostFailed(reason)
                     case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     default: end(String(describing: why))
@@ -424,19 +447,37 @@ public final class MacScreenSession {
                 stats.lossPercent = report.lossPercent
                 stats.encodeMsP50 = report.encodeMsP50
                 stats.encodeProfile = report.encodeProfile
+                stats.hostFrames = Double(report.frames)
+                stats.hostStatsAt = Date()
             }
         })
         transport.connect()
     }
 
     private func end(_ reason: String) {
-        logger.info("session ended: \(reason, privacy: .public)")
+        logger.notice("session ended at \(self.connectStage.name, privacy: .public): \(reason, privacy: .public)")
         let wasConnected = phase == .connected
         disconnect()
         phase = wasConnected ? .ended : .failed(message: reason, needsSignIn: false)
     }
 
+    /// How long a lost stream waits for the link's own `ended` line (stdout) before the card says only "lost".
+    @ObservationIgnored var lostGrace: Duration = .seconds(1)
+    /// The pending lost-stream grace; `linkEnded` (through disconnect()) cancels it.
+    @ObservationIgnored let lostDeadline = DemandTimer(owner: "mac-screen.lost-grace")
+
+    /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
+    /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
+    func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
+        let stream = transport.map(ObjectIdentifier.init)
+        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self] in
+            guard let self, self.transport.map(ObjectIdentifier.init) == stream else { return }
+            fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+        }
+    }
+
     private func fail(_ message: String) {
+        logger.notice("session failed at \(self.connectStage.name, privacy: .public): \(message, privacy: .public)")
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
     }
@@ -457,7 +498,7 @@ public final class MacScreenSession {
     /// The host said it could not serve the session: a failure even after the picture started
     /// (the host stopped, and why), never a plain Disconnected.
     private func hostFailed(_ reason: String) {
-        logger.info("session ended: the host failed: \(reason, privacy: .public)")
+        logger.notice("session ended at \(self.connectStage.name, privacy: .public): the host failed: \(reason, privacy: .public)")
         fail(reason)
         failureCause = .host(reason)
     }
@@ -586,7 +627,7 @@ public final class MacScreenSession {
 /// The link bridge's Unix socket as the remote view transport's byte stream.
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = CmuxEgress.connection(to: .unix(path: path), using: .tcp, site: "CmuxNextMacScreen.MacScreenSession")
         // The stream's bytes: the next decoded frame waits for them.
         let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in

@@ -70,19 +70,27 @@
     "cloud.machine.chat_access",
     "cloud.machine.chief_resize",
     "cloud.machine.chief_start",
+    "cloud.machine.fork",
     "cloud.machine.io",
+    "cloud.machine.setup_desktop",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_clone_token",
+    "cloud.owner.github_complete",
     "cloud.owner.github_connect",
+    "cloud.owner.github_list",
     "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.op",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
     "cloud.owner.turn_checkpoint",
     "cloud.owner.turn_rewind",
     "cloud.owner.turns",
@@ -128,6 +136,7 @@
     "diff.comments.list",
     "diff.comments.save",
     "diff.comments.send",
+    "diff.comments.thread",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
@@ -265,12 +274,16 @@
     "session.window.title.set",
     "settings.edit",
     "settings.get",
+    "settings.history",
     "settings.list",
     "settings.reset",
     "settings.reset_all",
+    "settings.reset_group",
+    "settings.restore",
     "settings.schema",
     "settings.set",
     "settings.snapshot",
+    "settings.undo",
     "sidebar.adopt",
     "sidebar.apply",
     "sidebar.get",
@@ -349,6 +362,7 @@
     "theme.scheme.convert",
     "theme.scheme.export",
     "theme.scheme.from_image",
+    "theme.slots.resolve",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -435,6 +449,7 @@
       "feed-local-list",
       "feed-local-read",
       "float-pane",
+      "flush-launch-snapshot",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -507,6 +522,7 @@
       "read-scrollback",
       "reattach-view",
       "release-surface-size",
+      "release-workspace-names",
       "reload-config",
       "remote-terminal-snapshot",
       "remove-screens-from-screen-group",
@@ -564,6 +580,7 @@
       "swap-pane",
       "terminal-command-context",
       "terminal-events",
+      "terminal-find",
       "terminal-history",
       "terminal-last-command",
       "terminal-ports",
@@ -635,6 +652,7 @@
       "shutdown-daemon",
       "pairing-response",
       "url-open",
+      "offer-link-to-phone",
       "conversation-list",
       "conversation-create",
       "conversation-snapshot",
@@ -791,6 +809,12 @@
       "name": "client-detached",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "client-disconnected-by",
+      "streams": [
+        "control"
       ]
     },
     {
@@ -1179,6 +1203,12 @@
       ]
     },
     {
+      "name": "phone-open-link",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "device-setup-step",
       "streams": [
         "control"
@@ -1318,6 +1348,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "apps-cloud-machine",
       "streams": [
         "control"
       ]
