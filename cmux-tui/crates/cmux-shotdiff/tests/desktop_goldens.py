@@ -95,6 +95,9 @@ class DesktopGoldens(unittest.TestCase):
         keys = self.repo / "input-keys.json"
         keys.write_text(json.dumps(metadata))
         out = self.repo / "render"
+        app_binary = self.repo / "Test.app/Contents/MacOS/Test"
+        app_binary.parent.mkdir(parents=True)
+        app_binary.touch()
         argv = ["gallery-mac-reference", "--tag", "test", "--app", str(self.repo / "Test.app"),
                 "--gallery", str(self.repo), "--manifest", str(manifest), "--out", str(out),
                 "--golden-root", str(self.root), "--runtime", self.runtime, "--rev", "HEAD",
