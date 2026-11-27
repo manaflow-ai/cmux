@@ -55,7 +55,7 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
             guard let account = text("account", limit: 320) else { return nil }
             self = .uninvite(account: account)
         case "approve":
-            guard let account = text("account", limit: 320), let role = role("view") else { return nil }
+            guard let account = text("account", limit: 320), let role = role(["view", "talk"], default: "view") else { return nil }
             self = .approve(account: account, role: role)
         case "decline":
             guard let account = text("account", limit: 320) else { return nil }

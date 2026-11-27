@@ -39,6 +39,7 @@ struct AgentPaneShareOpTests {
             ["op": "invite", "account": "a@b.co"], ["op": "invite", "account": "", "role": "view"],
             ["op": "invite", "account": String(repeating: "a", count: 400), "role": "view"],
             ["op": "uninvite"], ["op": "approve"], ["op": "approve", "account": "@leo", "role": "admin"], ["op": "decline"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],
+            ["op": "approve", "account": "@leo", "role": "drive"], ["op": "approve", "account": "@leo", "role": 1],
             ["op": "state", "session": ""], ["op": "state", "session": 7], ["op": "state", "session": String(repeating: "s", count: 300)],
         ]
         for params in refused {
