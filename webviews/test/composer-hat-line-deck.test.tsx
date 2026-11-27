@@ -104,7 +104,8 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
   );
   const head = () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
   const title = () => host.querySelector(".acpmux-running-tray__title")?.textContent ?? "";
-  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark")];
+  // The running lines' marks; `trail` pads its deck with blank slots (HatHeadDeck.tsx `blanks`).
+  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark:not([data-blank])")];
   // React's enter and leave come from pointerover and pointerout with the node the pointer came from.
   const enter = async (node: Element, from: Element | null = null) =>
     act(async () => {
