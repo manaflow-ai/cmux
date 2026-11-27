@@ -10,7 +10,7 @@ import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
@@ -68,6 +68,8 @@ describe("cloud journey", () => {
     expect(parseWarmHomeAnswer('{\n  "accepted": true,\n  "state": "ready",\n  "shapes": [\n    {\n      "harness": "claude"\n    }\n  ]\n}\n')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
     expect(parseWarmHomeAnswer('note: dialing\n{\n  "accepted": false,\n  "state": "busy"\n}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
+    // Prod stub run 45848359611: "warm-home answered state=none" said nothing of why; acpmux now names it.
+    expect(parseWarmHomeAnswer('{"accepted":true,"state":"none","why":"another key holds its slot (warming), differing in model"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=none (another key holds its slot (warming), differing in model)" });
     expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
     expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });
   });
@@ -638,6 +640,45 @@ describe("cloud journey: login preflight", () => {
     await expect(waitOwnerKind(never, 0, 0, noPause)).rejects.toThrow(/vm-kind reads team after 1 tries .*team mode \(CodeRouter\)/);
     const unread = async () => ({ code: 255, stdout: "", stderr: "" });
     await expect(waitOwnerKind(unread, 0, 0, noPause)).rejects.toThrow(/reads unread \(exit 255\)/);
+  });
+
+  test("the owner read rides the start's exec: one trip on an owner record, the old wait and a lone start otherwise", async () => {
+    // Real leg 45563753386 / 45571173365: the owner read was its own exec, 1.6 to 2.3 s before the start's.
+    const seen: string[] = [];
+    let kindMs: number | null | undefined;
+    const owner = async (command: string) => { seen.push(command); return { code: 0, stdout: "vm-kind=owner\n@@kind_ms 12\n@@session s\n@@prompted\n@@guest_ms 40\n", stderr: "" }; };
+    let waited = 0;
+    const r = await startAfterOwnerKind(owner, "START", 120_000, async () => { waited++; }, (ms) => { kindMs = ms; });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeGreaterThanOrEqual(0);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeLessThan(seen[0].indexOf("START"));
+    expect(waited).toBe(0);
+    expect(kindMs).toBe(12);
+    expect(r.stdout).toContain("@@prompted");
+    // Not owner yet: the gate keeps the start from running, the journey's wait runs, then the start alone.
+    const seen2: string[] = [];
+    const team = async (command: string) => { seen2.push(command); return seen2.length === 1 ? { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n@@kind_ms 9\n", stderr: "" } : { code: 0, stdout: "@@session s\n", stderr: "" }; };
+    await startAfterOwnerKind(team, "START", 120_000, async () => { waited++; }, () => { throw new Error("not owner"); });
+    expect(waited).toBe(1);
+    expect(seen2).toHaveLength(2);
+    expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    // A wait that fails fails the start as before, with no start run.
+    const seen3: string[] = [];
+    const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
+    await expect(startAfterOwnerKind(none, "START", 120_000, async () => { throw new Error("vm-kind reads team"); }, () => {})).rejects.toThrow(/vm-kind reads team/);
+    expect(seen3).toHaveLength(1);
+    // The gate itself, in a shell: a record that is not owner stops before the start.
+    const dir = mkdtempSync(join(tmpdir(), "owner-gate-"));
+    const program = (kind: string) => ownerKindGated(`echo STARTED`).replaceAll("/etc/cmux/vm-kind", join(dir, kind)).replaceAll("/usr/local/bin/cmux-vm-kind-sync", join(dir, "no-sync"));
+    writeFileSync(join(dir, "owner"), "owner\n");
+    writeFileSync(join(dir, "team"), "team\n");
+    const ran = spawnSync("bash", ["-c", program("owner")], { encoding: "utf8" });
+    expect(ran.status).toBe(0);
+    expect(ran.stdout).toMatch(/vm-kind=owner\n@@kind_ms \d+\nSTARTED/);
+    const gated = spawnSync("bash", ["-c", program("team")], { encoding: "utf8" });
+    expect(gated.status).toBe(OWNER_KIND_GATE_EXIT);
+    expect(gated.stdout).not.toContain("STARTED");
+    rmSync(dir, { recursive: true });
   });
 });
 
@@ -3399,6 +3440,22 @@ open(out, 'w').write(json.dumps(seen))
         cwd: home,
         _meta: { acpmux: { name: "journey-jr-1", harness: "claude", model: "claude-sonnet-5-5", credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: token } } } },
       });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("a start with no launch credential (a receipt spare's own login) sends session/new with no credentials", { timeout: 30_000 }, () => {
+    const home = mkdtempSync("/tmp/jn-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX);
+      const program = launchCredentialStartProgram("journey-jr-1", "claude", null, null);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nwait`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      expect(r.stdout).toContain("@@session s-1");
+      const seen = JSON.parse(readFileSync(join(home, "seen.json"), "utf8"));
+      expect(seen[1].params).toEqual({ mcpServers: [], cwd: home, _meta: { acpmux: { name: "journey-jr-1", harness: "claude" } } });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

@@ -60,7 +60,10 @@ The keys most asks need ({surfaces}). A feature on or off is a toggle key: find 
 `cmux settings list | grep -i WORD`. A saved profile is previewed with `cmux customize use NAME` \
 (`cmux customize profiles` lists them).\n\
 \n\
-Recipes and working templates are in the cmux-customization skill; read the one that fits before you write.\n\
+Recipes and working templates are in the cmux-customization skill; read the one that fits before you write. \
+`cmux customize docs SURFACE` is the reference for one surface (a settings surface above, or a view of \
+your own: section, pane, newtab, widget, command, ...) with a working example; `cmux customize prompts` has \
+tested prompts for common goals.\n\
 \n\
 Do this:\n\
 1. Make the smallest change that does what they asked. Change only what the ask needs.\n\
