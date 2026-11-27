@@ -115,6 +115,21 @@ def failed_job(job_id, run_id, sha, name=SWIFT, step=TEST_STEP):
                 {"name": step, "status": "completed", "conclusion": "failure"}]}
 
 
+
+def suites_by_commit(args, runs, jobs) -> str:
+    """GraphQL's answer to SuiteChecks' read (SUITE_COMMITS_QUERY: each commit's check suites, under `repository`)
+    from a fixture's RUNS (a run's check_suite_node_id at its head_sha) and JOBS (a suite's check runs of $check)."""
+    query = next(arg for arg in args if arg.startswith("query="))
+    name = next(arg for arg in args if arg.startswith("check="))[len("check="):]
+    commits = {}
+    for alias, sha in re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query):
+        commits[alias] = {"checkSuites": {"pageInfo": {"hasNextPage": False}, "nodes": [
+            {"id": run["check_suite_node_id"], "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"conclusion": (job["conclusion"] or "").upper() or None}
+                for job in jobs if job["run_id"] == run["id"] and job["name"] == name]}}
+            for run in runs if run.get("head_sha") == sha and run.get("check_suite_node_id")]}}
+    return json.dumps({"data": {"repository": commits}})
+
 class CrashClassRuleSignature(unittest.TestCase):
     OBJC = ("objc-selectors: Sources/A.swift:12: super.viewDidMove (NSView call:viewDidMove/0): probe needed; "
             "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit t.json")
@@ -1813,7 +1828,7 @@ class Excusing(unittest.TestCase):
         title = "cmux-next base tier · "
         older = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "in_progress",
                  "conclusion": None, "display_title": title + "e" * 40, "created_at": "2026-11-09T12:00:00Z",
-                 "check_suite_node_id": "CS_40"}
+                 "check_suite_node_id": "CS_40", "head_sha": "e" * 40}
         self.gh.jobs[4] = failed_job(4, 40, "e" * 40, name=name, step="Run the suites")
         self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
         runs = [older]
@@ -1822,20 +1837,15 @@ class Excusing(unittest.TestCase):
             runs.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
                          "status": "completed", "conclusion": "cancelled",
                          "display_title": title + f"{offset % 16:x}" * 39 + "0",
-                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}"})
+                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}",
+                         "head_sha": "0" * 40})  # SuiteChecks reads a run's suite by its commit
             self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, "0" * 40, name=name), conclusion="cancelled",
                                         steps=[])
         self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
 
         def run(args, *, repo=None):
             # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
-            query = next(arg for arg in args if arg.startswith("query="))
-            asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-            return json.dumps({"data": {"nodes": [
-                {"id": f"CS_{suite}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                    {"conclusion": (job["conclusion"] or "").upper() or None}
-                    for job in self.gh.jobs.values() if job["run_id"] == int(suite) and job["name"] == asked]}}
-                for suite in re.findall(r'"CS_(\d+)"', query)]}})
+            return suites_by_commit(args, self.gh.base_runs, self.gh.jobs.values())
 
         self.gh.run = run
 
@@ -10312,15 +10322,7 @@ class SweepGitHub(FakeGitHub):
     def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         self.graphql += 1
-        query = next(arg for arg in args if arg.startswith("query="))
-        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-        suites = __import__("re").findall(r'"CS_(\d+)"', query)
-        assert 0 < len(suites) <= excuse.SUITES_PER_QUERY, suites
-        return json.dumps({"data": {"nodes": [
-            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                {"conclusion": (job["conclusion"] or "").upper() or None}
-                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-            for run in suites]}})
+        return suites_by_commit(args, self.runs.values(), self.jobs.values())
 
     def judge(self, reds):
         try:
@@ -10529,7 +10531,8 @@ class SweepLimit(unittest.TestCase):
                 # One head run and one base run per red, and none of the 32 head runs the status was looked for in.
                 self.assertEqual(len(gh.targets), 2 * reds)
                 self.assertLess(len(gh.targets), limit)
-                self.assertEqual(gh.graphql, 2 + 2 * reds)  # 32 head runs and 36 base runs each: two requests apiece
+                # 32 head runs (at HEAD) and 36 base runs (at BASE_SHA): one request apiece, by commit
+                self.assertEqual(gh.graphql, 1 + reds)
         rest = SweepGitHub(1, suites=False)
         rest.judge(1)
         self.assertGreater(len(rest.targets), limit)  # what land-judge hit on cmux#36958
@@ -15553,13 +15556,7 @@ class StepFixture:
             def run(self, args, *, repo=None):
                 # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
                 assert args[:2] == ["api", "graphql"], args
-                query = next(arg for arg in args if arg.startswith("query="))
-                name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-                return json.dumps({"data": {"nodes": [
-                    {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                        {"conclusion": (job["conclusion"] or "").upper() or None}
-                        for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-                    for run in re.findall(r'"CS_(\d+)"', query)]}})
+                return suites_by_commit(args, [*self.base_runs, *test.dispatches], self.jobs.values())
 
         github = GitHub()
         jobs, logs = {}, {}
@@ -17761,13 +17758,7 @@ class SpawnOwnerGitHub:
     def run(self, args, *, repo=None):
         # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
         assert args[:2] == ["api", "graphql"], args
-        query = next(arg for arg in args if arg.startswith("query="))
-        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-        return json.dumps({"data": {"nodes": [
-            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                {"conclusion": (job["conclusion"] or "").upper() or None}
-                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-            for run in re.findall(r'"CS_(\d+)"', query)]}})
+        return suites_by_commit(args, self.runs.values(), self.jobs.values())
 
 
 class SpawnOwnerFixedOnBase(unittest.TestCase):
