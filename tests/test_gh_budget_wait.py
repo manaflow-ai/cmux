@@ -349,13 +349,18 @@ class TickTests(unittest.TestCase):
         tooling = steps[names.index("Checkout the gh rate-limit wait")]
         self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
         self.assertEqual(tooling["with"]["path"], ".tick-tooling")
-        self.assertIn("scripts/ci/gh_budget_wait.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree, no promisor fetch
         install = names.index("Wait through GitHub API rate limits in this job's gh calls")
         self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install")
         for i, step in enumerate(steps):
             if "GH_TOKEN" in step.get("env", {}):
                 self.assertGreater(i, install, step.get("name"))
-        self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + 60)
+        # The request step's waits are capped below its own bound, and the job outlasts that
+        # bound plus the rest of the tick (15 minutes): a tick holds the one tick group for
+        # minutes, not the hour of waits it once could (2026-11-26, the feed stood 3 hours).
+        request = steps[names.index("Request nightly-next promotion on main")]
+        self.assertLessEqual(int(request["env"]["GH_BUDGET_WAIT_MAX_SECONDS"]), int(request["timeout-minutes"]) * 60 // 2)
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + int(request["timeout-minutes"]))
 
 
 class AutoResumeTests(unittest.TestCase):
@@ -366,13 +371,29 @@ class AutoResumeTests(unittest.TestCase):
         doc = yaml.safe_load(AUTO_RESUME.read_text(encoding="utf-8"))
         for name in ("publish", "republish-deltas"):
             job = doc["jobs"][name]
-            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "1800", name)
+            # A whole core window: a 1800 s cap gave up 40 s before the reset (11-25, run 45690985851).
+            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "3600", name)
             steps = job["steps"]
             runs = [step.get("run", "") for step in steps]
             install = runs.index("bash scripts/ci/gh_budget_wait.sh --install")
-            self.assertTrue(steps[install - 1].get("uses", "").startswith("actions/checkout@"), name)
+            # The release App wrapper goes on PATH first (the budget wait wraps it), right after the
+            # App token is minted, right after the checkout that brings both scripts.
+            self.assertEqual(runs[install - 1], "bash scripts/ci/gh_app_token.sh --install", name)
+            app_env = steps[install - 1]["env"]
+            self.assertEqual(app_env["GH_APP_TOKEN"], "${{ steps.gh-app-token.outputs.token }}", name)
+            self.assertEqual(app_env["GH_FALLBACK_TOKEN"], "${{ github.token }}", name)
+            mint = steps[install - 2]
+            self.assertEqual(mint.get("id"), "gh-app-token", name)
+            self.assertTrue(mint.get("uses", "").startswith("actions/create-github-app-token@"), name)
+            self.assertTrue(mint.get("continue-on-error"), name)  # a failed mint falls back to github.token
+            self.assertTrue(steps[install - 3].get("uses", "").startswith("actions/checkout@"), name)
             publisher = next(i for i, run in enumerate(runs) if "publish-release-assets.py" in run)
             self.assertLess(install, publisher, name)
+            # Every publisher call spends the release App's quota first, not the shared github.token's.
+            for step in steps:
+                if "publish-release-assets.py" in step.get("run", ""):
+                    self.assertEqual(step["env"].get("GH_APP_TOKEN"), "${{ steps.gh-app-token.outputs.token }}",
+                                     f"{name}: {step.get('name')}")
             # No step timeout shorter than the publisher's 30 minutes plus the wrapper's hour.
             self.assertGreaterEqual(int(steps[publisher].get("timeout-minutes", 360)), 30, name)
             self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)

@@ -1,6 +1,11 @@
 public import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 internal import SQLite3
+#if canImport(os)
 internal import os
+#endif
 
 /// Append-only, durable store for semantic agent events.
 ///

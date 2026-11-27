@@ -71,6 +71,14 @@ OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 # The repository check is stricter than the owner check (manaflow-ai/cmux implies owner manaflow-ai), so a job
 # behind it never runs outside manaflow-ai either (fast-checks.yml's checks job since #30529).
 OWNER_ONLY_JOB_IFS = frozenset({OWNER_ONLY_JOB_IF, "if: github.repository == 'manaflow-ai/cmux'"})
+
+
+def owner_only_if(line: str) -> bool:
+    """LINE is an owner-only job `if:`, alone or `&&`-joined with more terms (no `||`, which could run it elsewhere):
+    fast-checks.yml's `admit` and `checks` add `&& inputs.setup != 'kernel-free'` (cmux#56909)."""
+    return any(line == guard or (line.startswith(guard + " && ") and "||" not in line) for guard in OWNER_ONLY_JOB_IFS)
+
+
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
@@ -152,9 +160,11 @@ GATE_SMALL_TRUSTED_RUNNER_EXPRESSION = SMALL_TRUSTED_RUNNER_EXPRESSION.replace(
 # trusted selector unchanged after it, so it can only ever add that one literal label.
 PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
 REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+# Secret-bearing Linux jobs lead with the secret one-job JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+SECRET_FIRST_OPERAND = "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || "
 JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS = tuple(
     base.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
-    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND, SECRET_FIRST_OPERAND)
     for base in (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION, SMALL_TRUSTED_RUNNER_EXPRESSION))
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION,
                               SMALL_TRUSTED_RUNNER_EXPRESSION,
@@ -163,9 +173,10 @@ TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPR
                               *JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
-# GitHub-hosted. No input can select a persistent runner.
+# GitHub-hosted. No input can select a persistent runner: the input is compared with
+# the one size, and the label it yields is that literal, not the input.
 FAST_CHECKS_ADMISSION_EXPRESSION = (
-    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
+    "${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
@@ -175,6 +186,11 @@ TRUSTED_RUNNER_LINE = re.compile(
 PR_CONTROL_JIT_LINE = re.compile(
     r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                      "'cmux-gcp-pr-control-jit-x64' }}") + r"\s*(?:#.*)?$")
+# A trusted selector written out as the label it resolves to: the fork branch, then one Blacksmith or one-job JIT
+# literal (OWNED_EPHEMERAL_LABELS, checked where it is used), and no variable.
+LITERAL_EPHEMERAL_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ")
+    + r"'(blacksmith-\d+vcpu-ubuntu-2404|cmux-gcp-[a-z-]+-jit-x64)' \}\}\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -194,7 +210,8 @@ TRUSTED_RUNNER_JOBS = (
 # (a fork outside manaflow-ai may get a hosted one), or the exact CI_TRUSTED_RUNNER
 # selector. #27022 let CI_CONTROL_RUNNER move the overflow watch, which mints
 # GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
-APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
+# .github/actions/app-token-spread takes the keys as route-private-key and bot-private-key.
+APP_KEY_MARKER = re.compile(r"create-github-app-token@|app-token-spread|^\s*(?:route-|bot-)?private-key:", re.MULTILINE)
 # The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
 # when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
@@ -205,6 +222,9 @@ BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
+# The selector written out as the label it yields today (LINUX_RUNNER names none of the sizes, so 4 vCPU): no variable
+# is read, so no value can move the job at all.
+BOUNDED_LINUX_FROZEN = "'blacksmith-4vcpu-ubuntu-2404' }}"
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
 BOUNDED_SELECTOR_JOBS = {
@@ -235,11 +255,13 @@ FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
 JIT_FIRST_OPERANDS = {
     "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
+    "CI_SECRET_SKIP_FLEET": "cmux-gcp-secret-jit-x64",
 }
 FLEET_FIRST_OPERAND = re.compile(
     r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
     r"(?:vars\.CI_REPAIR_SKIP_FLEET != '1' && '(?:" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS | {JIT_FIRST_OPERANDS["CI_REPAIR_SKIP_FLEET"]}))) + r")'"
-    r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"') \|\| "
+    r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"'"
+    r"|vars\.CI_SECRET_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_SECRET_SKIP_FLEET"]) + r"') \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 # The queue-management jobs' on switch for the reserved queue label (tests/test_ci_write_token_jit_label.py
@@ -262,6 +284,9 @@ def without_fleet_first(runs_on: str) -> str:
 OWNED_EPHEMERAL_LABELS = frozenset({
     "cmux-gcp-nightly-jit-x64", "cmux-gcp-repair-jit-x64", "cmux-gcp-pr-control-jit-x64", "cmux-gcp-deploy-jit-x64",
     "cmux-gcp-queue-jit-x64", "cmux-gcp-secret-jit-x64",
+    # The required merge gates' label (GATE_JIT_LABEL): the same one-job JIT VMs, which backend-migrations' trusted
+    # jobs now name as a literal.
+    "cmux-gcp-gate-jit-x64",
 })
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
@@ -1067,17 +1092,57 @@ def outsider_triggered_workflows() -> list[Path]:
     ]
 
 
+# One persistent-pool line an outsider-triggered workflow may hold: backend-migrations.yml's gate-no-change, the
+# required `backend migrations applied` once an ephemeral plan job found no migration change. Admitted only for a job
+# that can hold nothing a persistent machine could leak or a PR could steer (inert_job): permissions {}, no
+# environment, no container or services, and steps that are each a literal `run` with no expression. 2026-11-25
+# 21:22-21:50Z: 96 of 127 queued one-job gate jobs were this echo and gate jobs waited about 14 min for a VM.
+INERT_POOL_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                     "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+INERT_POOL_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(INERT_POOL_RUNNER) + r"\s*(?:#.*)?$")
+
+
+def inert_job(job: object) -> bool:
+    """A job with no token, no secrets, no environment and only literal shell steps."""
+    if not isinstance(job, dict) or job.get("permissions") != {}:
+        return False
+    if any(key in job for key in ("environment", "container", "services", "uses", "secrets", "env", "defaults")):
+        return False
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return False
+    for step in steps:
+        if not isinstance(step, dict) or set(step) - {"name", "run"} or "run" not in step:
+            return False
+        if "${{" in str(step.get("run")) or "${{" in str(step.get("name", "")):
+            return False
+    return True
+
+
+def inert_pool_lines(text: str) -> set[int]:
+    """Line numbers of INERT_POOL_RUNNER runs-on lines whose job is inert_job (every such job must be)."""
+    lines = [n for n, line in enumerate(text.splitlines(), start=1) if INERT_POOL_RUNNER_LINE.match(line)]
+    if not lines:
+        return set()
+    jobs = (yaml.safe_load(text) or {}).get("jobs") or {}
+    users = [job for job in jobs.values() if isinstance(job, dict) and job.get("runs-on") == INERT_POOL_RUNNER]
+    return set(lines) if len(users) == len(lines) and all(inert_job(job) for job in users) else set()
+
+
 def outsider_runner_errors(name: str, text: str) -> list[str]:
     """Every runner must be a hosted literal or the trusted ephemeral selector."""
     errors: list[str] = []
+    inert = inert_pool_lines(text)
     for number, line in enumerate(text.splitlines(), start=1):
-        if line.lstrip().startswith("#"):
+        if line.lstrip().startswith("#") or number in inert:
             continue
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
               and not TRUSTED_RUNNER_LINE.match(line)
-              and not PR_CONTROL_JIT_LINE.match(line)):
+              and not PR_CONTROL_JIT_LINE.match(line)
+              and not ((m := LITERAL_EPHEMERAL_LINE.match(line))
+                       and (m.group(1).startswith("blacksmith-") or m.group(1) in OWNED_EPHEMERAL_LABELS))):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -1139,7 +1204,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         header = JOB_HEADER.match(raw)
         if header:
             job = header.group(1)
-        elif job and raw.strip() in OWNER_ONLY_JOB_IFS and raw.startswith("    if:"):
+        elif job and raw.startswith("    if:") and owner_only_if(raw.strip()):
             owner_only_jobs.add(job)
 
     def input_is_translated(input_name: str) -> bool:
@@ -1584,6 +1649,19 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertGreater(saw_linux, 0)
         self.assertGreater(saw_macos, 0)
 
+    def test_the_inert_pool_line_needs_an_inert_job(self) -> None:
+        inert = ("jobs:\n  a:\n    permissions: {}\n    runs-on: " + INERT_POOL_RUNNER
+                 + "\n    steps:\n      - name: ok\n        run: echo ok\n")
+        self.assertEqual(outsider_runner_errors("x.yml", inert), [])
+        for bad in (inert.replace("permissions: {}", "permissions:\n      contents: read"),
+                    inert.replace("    permissions: {}\n", ""),
+                    inert.replace("run: echo ok", "run: echo ${{ github.event.pull_request.title }}"),
+                    inert.replace("      - name: ok\n        run: echo ok", "      - uses: actions/checkout@v6"),
+                    inert.replace("    permissions: {}\n", "    permissions: {}\n    environment: prod\n"),
+                    inert.replace("    permissions: {}\n", "    permissions: {}\n    env:\n      X: ${{ secrets.X }}\n")):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(outsider_runner_errors("x.yml", bad), [])
+
     def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""
         roots = outsider_triggered_workflows()
@@ -1641,13 +1719,16 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertIsNotNone(block, f"{workflow} has no job {job}")
                 runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
                 self.assertEqual(len(runs_on), 1, runs_on)
-                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+                if not LITERAL_EPHEMERAL_LINE.match(runs_on[0]):
+                    self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
                 if workflow in {"cla.yml", "cla-policy-guard.yml"}:
                     self.assertIn(runs_on[0].strip(), ("runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION,
                                                        "runs-on: " + GATE_CLA_TRUSTED_RUNNER_EXPRESSION))
                 if workflow == "backend-migrations.yml":
                     # The required gates' reserved label leads (test_ci_required_gate_label.py).
-                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + GATE_TRUSTED_RUNNER_EXPRESSION)
+                    # Written out as a literal, the label the gate switch and trusted selector resolved to.
+                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(),
+                                     "runs-on: " + FORK_BRANCH_PREFIX + "'" + GATE_JIT_LABEL + "' }}")
 
     def test_the_gate_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
         # A trusted-token gate may lead with cmux-gcp-gate-jit-x64 (one VM per job, deleted after it). Only that
@@ -1660,13 +1741,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(runner_label_errors(
             GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64")), [])
         for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
-                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
-                        GATE_JIT_LABEL):
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER")):
             with self.subTest(runs_on=refused):
                 self.assertNotEqual(runner_label_errors(refused), [])
-        # Not the repair workflows' switch: a variable named for the other label cannot turn this one off.
-        self.assertNotEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION.replace(
-            "CI_GATE_SKIP_FLEET", "CI_REPAIR_SKIP_FLEET")), [])
+        # The switch's name no longer matters here: the gate label is itself a one-job JIT label
+        # (OWNED_EPHEMERAL_LABELS), so any switch in front of it yields only ephemeral labels.
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1680,7 +1759,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for workflow, job, runs_on in jobs:
             if (workflow, job) in APP_KEY_RUNNER_EXCEPTIONS:
                 continue
-            bounded += BOUNDED_LINUX_SELECTOR in runs_on
+            bounded += BOUNDED_LINUX_SELECTOR in runs_on or ("vars." not in runs_on
+                                                             and runs_on.endswith(BOUNDED_LINUX_FROZEN))
             with self.subTest(workflow=workflow, job=job):
                 self.assertEqual(runner_label_errors(runs_on), [], f"{workflow}:{job} holds an App key")
         self.assertGreater(bounded, 0)
@@ -1761,6 +1841,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                if "vars." not in runs_on[key]:
+                    # The queue workflows' frozen form is their reserved label (CI_QUEUE_RESERVED was on); a
+                    # secret-bearing job's is the secret one-job JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+                    self.assertTrue(runs_on[key].endswith((BOUNDED_LINUX_FROZEN, "'cmux-gcp-queue-jit-x64' }}",
+                                                           "'cmux-gcp-secret-jit-x64' }}")),
+                                    runs_on[key])
+                    continue
                 self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
@@ -2017,8 +2104,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "  d:\n"
             "    if: github.repository == 'manaflow-ai/cmux'\n"
             "    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}\n"
+            "  e:\n"
+            "    if: github.repository == 'manaflow-ai/cmux' && inputs.setup != 'kernel-free'\n"
+            "    runs-on: blacksmith-2vcpu-ubuntu-2404\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        either = "  f:\n    if: github.repository == 'manaflow-ai/cmux' || inputs.x\n    runs-on: blacksmith-2vcpu-ubuntu-2404\n"
+        self.assertNotEqual(ungated_blacksmith_labels("x.yml", "jobs:\n" + either), [])
         # Another repository's check is not an owner gate.
         other = "jobs:\n  e:\n    if: github.repository == 'someone/cmux'\n    runs-on: blacksmith-8vcpu-ubuntu-2404\n"
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)

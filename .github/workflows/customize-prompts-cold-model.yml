@@ -22,6 +22,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  attestations: read
 
 concurrency:
   group: customize-prompts-cold-model
@@ -30,13 +32,27 @@ concurrency:
 jobs:
   prompts:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 75
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Allow the tree publication wait (30 min), GitHub retry budget (60 min), and cold agent (60 min).
+    timeout-minutes: 165
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -52,14 +68,38 @@ jobs:
           printf '%s\n' "$resolved"
           client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
           [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
-          bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
-          mkdir -p "$bundle/Contents"
-          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$bundle" --arch native \
-            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
-            --expected-commit "$client_commit" \
-            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
-          echo "$bundle/Contents/Resources/bin" >> "$GITHUB_PATH"
-          "$bundle/Contents/Resources/bin/cmux" customize prompts >/dev/null
+          source scripts/ci/ensure-gh-attestation.sh
+          base="https://files.cmux.com/cmux-tui/$client_commit"
+          bin="$(mktemp -d "$RUNNER_TEMP/cmux-linux.XXXXXX")"
+          manifest="$bin/manifest.json"
+          download=(curl --proto '=https' -fsSL --retry 3 --connect-timeout 10 --max-time 180)
+          "${download[@]}" "$base/manifest.json" -o "$manifest"
+          digest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+          signer=(--repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml" --source-digest "$client_commit")
+          if ! { curl -fsS --connect-timeout 5 --max-time 30 "https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json" -o "$bin/bundle.json" &&
+                 gh attestation verify "$manifest" --bundle "$bin/bundle.json" "${signer[@]}"; }; then
+            gh_waiting_out_rate_limit attestation verify "$manifest" "${signer[@]}"
+          fi
+          jq -e --arg commit "$client_commit" '.commit == $commit' "$manifest" >/dev/null
+          target="$(uname -m)-unknown-linux-musl"
+          for name in cmux cmux-app-host; do
+            asset="${name/#cmux/cmux-tui}-$target"
+            expected="$(jq -er --arg asset "$asset" '.binaries[$asset] | select(type == "string" and test("^[0-9a-f]{64}$"))' "$manifest")"
+            "${download[@]}" "$base/$asset" -o "$bin/$name"
+            printf '%s  %s\n' "$expected" "$bin/$name" | sha256sum --check
+            chmod +x "$bin/$name"
+          done
+          "$bin/cmux" --version
+          "$bin/cmux" customize prompts >/dev/null
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Verify the command prompts against the installed client and app host
+        env:
+          CMUX_TEST_PROMPT_CLI: "1"
+        run: |
+          command -v cmux-app-host
+          python3 tests/test_ext_prompt_checks.py
+          python3 tests/test_ext_prompt_composer.py
+          python3 tests/test_ext_prompt_palette.py
       - name: Install Claude Code
         run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
       - name: Paste every prompt into a cold agent
@@ -93,4 +133,4 @@ jobs:
           name: customize-prompts-cold-model
           path: ${{ runner.temp }}/prompts.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -30,6 +30,7 @@ const fs = {readFileSync: () => {
   if (currentReport === null) throw new Error('report file missing');
   return currentReport;
 }};
+const getOctokit = () => null;
 const core = {warning: message => writes.push(['warning', message])};
 const context = {repo: {owner: 'o', repo: 'r'}, serverUrl: 'https://github.com', runId: 1};
 const github = {rest: {issues: {
@@ -46,6 +47,8 @@ const run = async () => {
     process.env.HEAD_SHA = String(context.runId).repeat(40);
     await (async function(require) { SCRIPT })(name => {
       if (name === 'fs') return fs;
+      // The workflow arms scripts/ci/incident_report.cjs (spare tokens); its own tests cover it.
+      if (name.endsWith('/scripts/ci/incident_report.cjs')) return {arm: () => {}};
       throw new Error('unexpected dependency: ' + name);
     });
     context.runId++;

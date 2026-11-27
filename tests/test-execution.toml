@@ -659,6 +659,10 @@ path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
@@ -728,6 +732,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_classic_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_release_compile_script.py"
 lane = "linux-guard"
 
 [[test]]
@@ -936,6 +944,10 @@ path = "tests/test_token_budget_sampler.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cloud_probe_team_grant.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_vm_skill_coverage.py"
 lane = "linux-guard"
 
@@ -960,6 +972,14 @@ path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_token_spread_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_continuation_jobs_wait_through_rate_limits.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_publish_app_token_workflow.py"
 lane = "linux-guard"
 
@@ -968,7 +988,19 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_precheck_scan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_request_bound.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_rolling.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_fast_pass.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1836,6 +1868,10 @@ path = "tests/test_github_token_budget.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cron_dispatch_token_lint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_main_regression_bisect.py"
 lane = "linux-guard"
 
@@ -1876,6 +1912,10 @@ path = "tests/test_ci_app_spend_mark.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_job_token_floor.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -1885,10 +1925,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_set.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_runner_pins_movable.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2078,7 +2114,15 @@ path = "tests/test_ci_cron_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publication_guard_release_read.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_bare_urlopen.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2306,6 +2350,10 @@ path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
@@ -2395,6 +2443,10 @@ path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_warnings_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
 lane = "linux-guard"
 
@@ -2420,6 +2472,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_prt_raw_base_files.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2464,4 +2520,28 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_red_fix_mine.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_checkout_branch_ref_exact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_rate_limit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ghostty_zig_packages_fetched.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_duplicate_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_debug_labs_keys_dispatch.py"
 lane = "linux-guard"

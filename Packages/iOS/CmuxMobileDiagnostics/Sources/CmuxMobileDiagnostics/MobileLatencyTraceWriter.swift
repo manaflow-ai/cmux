@@ -1,6 +1,11 @@
 #if DEBUG
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
+#if canImport(os)
 internal import os
+#endif
 
 /// Fixed-capacity producer buffer for synchronous latency-trace call sites.
 final class MobileLatencyTraceWriter: Sendable {

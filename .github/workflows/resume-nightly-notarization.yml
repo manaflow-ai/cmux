@@ -63,10 +63,33 @@ jobs:
       REQUESTED_VARIANT: ${{ inputs.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -293,7 +316,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
