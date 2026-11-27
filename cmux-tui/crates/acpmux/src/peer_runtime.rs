@@ -76,6 +76,7 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            list_baseline_missing: AtomicBool::new(false),
             rows_link: AtomicU64::new(0),
             listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
@@ -753,10 +754,20 @@ impl Peer {
 
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
     /// last. A notice no link queued (a test's) stands for the live link.
-    pub(crate) fn note_rows_applied(&self) {
+    pub(crate) fn note_rows_applied(&self) -> bool {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
+        if self.list_baseline_missing.load(Ordering::SeqCst) {
+            return false;
+        }
         self.rows_link.store(link + 1, Ordering::SeqCst);
+        link == self.link_epoch()
+    }
+
+    pub(crate) fn skip_superseded_list(&self) {
+        self.list_baseline_missing.store(true, Ordering::SeqCst);
+        self.rows_ready.store(false, Ordering::SeqCst);
+        self.rows_link.store(0, Ordering::SeqCst);
     }
 
     /// The link is ready and the hub applied the session list this link read (`Listed`), so
