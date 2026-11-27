@@ -103,6 +103,24 @@ function range(heights: StepHeights, view: View): [number, number] {
 }
 
 /// A drawn step's height with its margins (a flex column, so they never collapse).
+/// Has `observer` watch each step drawn in `node` and stop watching the ones gone. No layout read:
+/// a step newly watched reports its size once, after the browser lays it out.
+function watchSteps(node: HTMLElement, observer: ResizeObserver, watched: Set<HTMLElement>): void {
+  const drawn = new Set<HTMLElement>();
+  for (const element of node.querySelectorAll<HTMLElement>(":scope > [data-step]")) {
+    drawn.add(element);
+    if (!watched.has(element)) {
+      observer.observe(element);
+      watched.add(element);
+    }
+  }
+  for (const element of watched)
+    if (!drawn.has(element)) {
+      observer.unobserve(element);
+      watched.delete(element);
+    }
+}
+
 function outerHeight(element: HTMLElement): number {
   const style = getComputedStyle(element);
   return (
@@ -256,11 +274,35 @@ export function useStepWindow({
     else setView(next);
   };
 
-  // Before paint, after every draw: the drawn steps' heights, then the view (a list opened scrolled
-  // into, or whose heights just changed). It draws again only when a height changed, and a draw that
+  /// The list's observer (the life effect's), which watches each drawn step as well: a step that
+  /// changes its height reports in the browser's own layout pass, before paint, where reading it lays
+  /// nothing out again.
+  const sizes = useRef<ResizeObserver | undefined>(undefined);
+  /// The step elements `sizes` watches now.
+  const watched = useRef(new Set<HTMLElement>());
+
+  // Before paint, after every draw: the steps drawn are watched, and a step mounted that was never
+  // measured (the list opened, or the view moved to steps not drawn before) is read now, then the
+  // view (a list opened scrolled into, or whose heights just changed): it must hold its height in the
+  // frame it first shows. Any other draw reads nothing: a read here after React's writes laid the
+  // page out again on every draw of every expanded step list (renderer-main-busy: 466 ms per minute
+  // of a streamed chat, `measure.current` under commitLayoutEffectOnFiber). A step whose height a
+  // draw changed reports through `sizes`. It draws again only when a height changed, and a draw that
   // changes none settles it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- after every draw by design: what it reads is the DOM just drawn
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- after every draw by design: what it watches is the DOM just drawn
   useLayoutEffect(() => {
+    const observer = sizes.current;
+    const node = list.current;
+    if (observer && node) {
+      watchSteps(node, observer, watched.current);
+      const { keys: now } = built.current!;
+      let fresh = usual.current === undefined;
+      for (const piece of drawn.current.pieces)
+        if (piece.rest === undefined)
+          for (let at = piece.from; at < piece.to && !fresh; at++)
+            if (!measured.current.has(now[at]!)) fresh = true;
+      if (!fresh) return;
+    }
     if (measure.current()) redraw((n) => n + 1);
     follow.current(false);
   });
@@ -277,14 +319,17 @@ export function useStepWindow({
     scroller?.addEventListener("scroll", scrolled, { passive: true });
     view?.addEventListener("scroll", scrolled, { passive: true });
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
-    const sizes = Observer
+    const observer = Observer
       ? new Observer(() => {
           if (measure.current()) flushSync(() => redraw((n) => n + 1));
           follow.current(true);
         })
       : undefined;
-    sizes?.observe(node);
-    if (box) sizes?.observe(box);
+    sizes.current = observer;
+    const steps = watched.current;
+    observer?.observe(node);
+    if (box) observer?.observe(box);
+    if (observer) watchSteps(node, observer, steps);
     /// The list's child holding `target`, if any.
     const childOf = (target: Node | null | undefined) => {
       let child: Node | null | undefined = target;
@@ -327,7 +372,9 @@ export function useStepWindow({
       box?.removeEventListener("scroll", scrolled);
       scroller?.removeEventListener("scroll", scrolled);
       view?.removeEventListener("scroll", scrolled);
-      sizes?.disconnect();
+      observer?.disconnect();
+      if (sizes.current === observer) sizes.current = undefined;
+      steps.clear();
       node.removeEventListener("focusin", focusin);
       node.removeEventListener("focusout", focusout);
       doc.removeEventListener("selectionchange", selection);

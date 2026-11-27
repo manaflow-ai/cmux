@@ -104,21 +104,30 @@ function FoldedThought({
       node.style.maxWidth = "";
       return;
     }
-    const fit = () => {
-      node.style.maxWidth = "";
+    // Read once the browser laid the line out at its full width, never in the commit: a read here
+    // after React's writes laid the page out again for every thought row a commit drew
+    // (renderer-main-busy: 329 ms per minute of a streamed chat, `firstLineWidth` under
+    // commitLayoutEffectOnFiber). The observer's first report comes after layout, before paint, so
+    // the chevron still stands at its gap in the first frame drawn.
+    const fitNow = () => {
       const width = firstLineWidth(node);
-      if (width !== null) node.style.maxWidth = `${Math.ceil(width) + 1}px`;
+      node.style.maxWidth = width === null ? "" : `${Math.ceil(width) + 1}px`;
     };
-    fit();
+    node.style.maxWidth = "";
     const row = node.parentElement;
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
-    if (!row || !Observer) return;
-    let width = row.getBoundingClientRect().width;
-    const observer = new Observer(() => {
-      const now = row.getBoundingClientRect().width;
+    if (!row || !Observer) {
+      fitNow();
+      return;
+    }
+    let width: number | undefined;
+    const observer = new Observer((entries: ResizeObserverEntry[]) => {
+      const now = entries.at(-1)?.contentRect.width ?? row.getBoundingClientRect().width;
       if (now === width) return;
+      // A later width (the pane resized) wraps the words again from the line's whole width.
+      if (width !== undefined) node.style.maxWidth = "";
       width = now;
-      fit();
+      fitNow();
     });
     observer.observe(row);
     return () => observer.disconnect();
