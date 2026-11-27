@@ -34,6 +34,8 @@ serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 # Swift's `count` (grapheme clusters) for a one-character shortcut key (app_ops/shortcut.rs).
 unicode-segmentation.workspace = true
+# link_rules: host normalization (IDN as punycode, IPv6 hosts) as Foundation's URL.host gives them.
+url.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -42,3 +44,5 @@ core-foundation-sys = "0.8"
 
 [dev-dependencies]
 jsonschema.workspace = true
+# site_engines_tests.rs: the shared cases' URLs, split as the daemon splits them.
+url.workspace = true

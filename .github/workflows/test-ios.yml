@@ -114,15 +114,16 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
   # The package conventions lint (namespace types, free functions, singletons,
-  # ...) is a style guard. For pull requests and merge groups into
-  # feat-cmux-next it prints its findings as warnings and passes (Leo,
+  # ...) is a style guard. For pull requests and merge groups onto any base
+  # but main (feat-cmux-next, or a lane branch a stacked pull request sits on,
+  # #54185) it prints its findings as warnings and passes (Leo,
   # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
   # tests still fail the job, and so the ios-tests gate. One rule still fails a
   # pull request: a namespace type it adds that --namespace-fix rewrites
   # (scripts/ci/pr_added_namespace_types.py; label namespace-lint-override skips it).
-  # Everywhere else it still fails. Change `warn` to `fail` to make it block
-  # feat-cmux-next again.
-  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+  # main and release tags still fail. Same expression as
+  # CMUX_NEXT_STYLE_GUARDS_LEVEL in ci-web.yml (tests/test_style_guards_level.py).
+  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'main' || github.event.merge_group.base_ref == 'refs/heads/main' || (!github.base_ref && !github.event.merge_group && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) && 'fail' || 'warn' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -143,7 +144,9 @@ jobs:
   # '0' turns it off.
   full-carry:
     name: full-ci base merge carry
-    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     continue-on-error: true
@@ -602,7 +605,7 @@ jobs:
 
       # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite.
       - name: Install python3 and SQLite headers
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev
 
       - name: package-test-lane.sh suite, mobile-core packages
         env:

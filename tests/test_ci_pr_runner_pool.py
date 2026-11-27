@@ -4375,14 +4375,18 @@ class IrohReleaseGateWiring(unittest.TestCase):
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
-    SCREENSHOTS_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
-                           "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    PLAIN_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
+                     "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    BOT = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+    # Only the rescue bot's re-run takes the picker's Blacksmith retry; a person's re-run keeps the
+    # run's pick (RFD 0165).
+    SCREENSHOTS_RUNS_ON = PLAIN_RUNS_ON.replace("fromJSON(github.run_attempt > 1 ",
+                                                f"fromJSON(github.run_attempt > 1 && {BOT} ")
     # test-ios: a bot's re-run takes the picker's Blacksmith route, a person's the lane's
     # (tests/test_ci_ios_bot_rerun_route.py).
-    TEST_IOS_RUNS_ON = SCREENSHOTS_RUNS_ON.replace(
+    TEST_IOS_RUNS_ON = PLAIN_RUNS_ON.replace(
         "fromJSON(github.run_attempt > 1 ",
-        "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
-        "github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
+        f"fromJSON(github.run_attempt > 1 && {BOT} && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
 
     def workflow(self, name):
         return yaml.safe_load((WORKFLOWS / name).read_text())
@@ -4968,9 +4972,9 @@ class SharedRunnerStateTests(unittest.TestCase):
                         continue
                     # The compile report's `gap` subcommand only reads git;
                     # the default invocation is the runner picker.
-                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in with_moved_step_scripts(run) and not (
                         script == "dev_landing_place.py"
-                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
+                        and re.search(r"dev_landing_place\.py\s+gap\b", with_moved_step_scripts(run)))]
                     if hits:
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
@@ -5009,7 +5013,7 @@ def with_moved_step_scripts(run: str) -> str:
     nightly.yml moves long run blocks into those scripts to stay under its size cap
     (tests/test_workflow_file_size.py); a step that runs the picker through one still
     counts as a picker step, and one whose script runs no picker still fails."""
-    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+    for path in re.findall(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh", run):
         script = ROOT / path
         if script.is_file():
             run += "\n" + script.read_text()

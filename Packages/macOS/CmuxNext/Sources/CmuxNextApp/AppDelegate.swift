@@ -121,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
-            guard let services = self?.services else { return NSApp.terminate(nil) }
+            guard let services = self?.services else { return NSApplication.terminateFromRunLoop() }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
@@ -186,12 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services, laps: binderLaps)
+        AppActions.bind(services, laps: binderLaps, deferring: true)
         DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
+        firstFrame.whenOpen { [weak services] in guard let services else { return }; binderLaps.restart(); AppActions.bindDeferred(services, laps: binderLaps); DebugTimings.markLaunch("dfl.app_actions_deferred") } // before HandlerCoverage.verify below
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter); self.ghosttyKeybinds = ghosttyKeybinds; ghosttyKeybinds.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -218,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.registry.logBindingProblems()
             logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
+        LaunchTypeProbe.armChat(environment: ProcessInfo.processInfo.environment, listen: AgentPaneLaunchTimings.shared.listen) { DebugTimings.markLaunch($0) }; firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1; launch_tti_check.py's chat rounds
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
