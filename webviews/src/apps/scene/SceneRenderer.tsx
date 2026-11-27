@@ -1055,10 +1055,11 @@ const SceneNodeView = memo(function SceneNodeView({
   const entering = useSceneEntering(store, node, scrolledIn?.(id) !== true);
   const inheritedDisabled = useContext(DisabledContext);
   const element = useRef<HTMLElement>(null);
+  // One ref for both: the motion hooks read `element`, and the stack measures the node.
   const ref = useCallback(
-    (nodeElement: HTMLElement | null) => {
-      element.current = nodeElement;
-      measure?.(nodeElement);
+    (el: HTMLElement | null) => {
+      element.current = el;
+      measure?.(el);
     },
     [measure],
   );

@@ -2564,6 +2564,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -2577,6 +2578,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3116,6 +3118,7 @@ jobs:
         if: env.CMUX_FAST_TIER_FLEET != 'report'
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3131,6 +3134,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3358,7 +3362,7 @@ jobs:
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       # Why: note-559
-      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
+      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_FAST_TIER_PR_SCOPE) != '0' && '1' || '' }}
     steps:
       # Why: 2026-11-26-fast-tier-freestyle-link.md
       - name: Note when the checkout starts (Freestyle link check)
@@ -3535,7 +3539,10 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
       - name: Test the R2 workspace delta
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
-        run: bash scripts/ci/tests/cargo-target-delta.test.sh
+        run: |
+          bash scripts/ci/tests/cargo-target-delta.test.sh
+          # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
+          bash scripts/ci/tests/r2-cache-multipart.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
@@ -3602,6 +3609,17 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
 
+      # Why: 2026-11-27-cargo-delta-matched-entry.md
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
+
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       - name: Restore source mtimes for the R2 cargo build
         if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
@@ -3635,7 +3653,9 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/cargo-delta
           key: ${{ steps.r2-cargo-key.outputs.ws-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: r2-cargo-ws-apply
@@ -3856,6 +3876,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3870,6 +3891,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4323,6 +4345,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-247
@@ -4339,6 +4362,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-249
@@ -4792,6 +4816,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &generated-files-linux-checkout
           persist-credentials: false
@@ -4816,6 +4841,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *generated-files-linux-checkout
       - name: Trust workspace
@@ -4954,6 +4980,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4968,6 +4995,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5519,7 +5547,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5538,7 +5566,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        timeout-minutes: 15
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5934,6 +5962,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-301
@@ -5948,6 +5977,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-303
@@ -6586,6 +6616,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -6595,6 +6626,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
