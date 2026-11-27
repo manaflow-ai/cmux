@@ -209,6 +209,7 @@ async fn a_device_id_another_account_registered_stops_hostd() {
             team_id: "team".into(),
             wg_public_key: None,
             machine_id: None,
+            model_kind: None,
             sibling_device_ids: Vec::new(),
         })
         .await
@@ -237,6 +238,7 @@ async fn the_owner_registering_its_id_again_is_accepted() {
         team_id: "team".into(),
         wg_public_key: None,
         machine_id: None,
+        model_kind: None,
         sibling_device_ids: Vec::new(),
     };
     api.register_device(&registration).await.unwrap();
