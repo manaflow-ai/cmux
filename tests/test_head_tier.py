@@ -956,11 +956,16 @@ NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # records a pass on every pull request so land-judge's required list can name it.
 KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
-# land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition.
+# land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only
+# where those jobs would (full-ci or CI_LAND_FULL_PER_PR; ios-e2e's PR tailnet gate too), or its runner decides nothing.
 FULL_CARRY_JOBS = {(name, "full-carry") for name in ("cmux-next-guards.yml", "ios-e2e.yml", "test-ios.yml",
                                                      "rust-workspaces.yml")}
-# Runs for a closed pull request (cancels its hot-verify) or a head handed to land.
+# Runs for a closed pull request (cancels its hot-verify) or a head handed to land. The look plan also runs on every
+# head that carries ready-to-land whatever CI_LAND_FULL_PER_PR says: a look starts on the fleet Mac, not a GitHub
+# runner, and the newest 20 merges land within about an hour while a look takes about 2 h (p50 126 min,
+# 2026-11-27), so a look that starts only at the merge commit is never posted before NOW reads the PR.
 CLOSED_OR_LAND = {("cmux-next-hot-verify.yml", "plan")}
+LAND_LABEL = "contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
 
 
 def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
@@ -1056,13 +1061,19 @@ class GatedWorkflowTests(unittest.TestCase):
                 if (name, job) in FULL_CARRY_JOBS:
                     self.assertIn("github.event.action == 'labeled' && contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), "
                                   "github.event.label.name)", condition or "", f"{name}: job {job}")
+                    # Only where the land tier's jobs run on that label: a bare ready-to-land skips them anyway.
+                    self.assertIn("(contains(github.event.pull_request.labels.*.name, 'full-ci') || "
+                                  "vars.CI_LAND_FULL_PER_PR == '1')", condition or "", f"{name}: job {job}")
+                    if name == "ios-e2e.yml":
+                        self.assertIn("vars.IOS_E2E_PR_TAILNET == 'true'", condition or "", f"{name}: job {job}")
                     continue
                 if (name, job) in KEEP_ON_EVERY_HEAD:
                     self.assertNotIn("CI_LAND_TIER", condition or "", f"{name}: job {job}")
                     continue
                 self.assertIsNotNone(condition, f"{name}: job {job} has no if:")
                 if (name, job) in CLOSED_OR_LAND:
-                    self.assertIn(f"(github.event.action == 'closed' || {expected})", condition, f"{name}: job {job}")
+                    self.assertIn(f"(github.event.action == 'closed' || {LAND_LABEL} || {expected})", condition,
+                                  f"{name}: job {job}")
                     continue
                 self.assertIn(expected, condition, f"{name}: job {job}")
                 self.assertNotIn("github.event.pull_request.draft != true ||", condition, f"{name}: job {job}")
