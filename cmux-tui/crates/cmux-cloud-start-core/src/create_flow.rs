@@ -97,6 +97,9 @@ pub struct CreateInput {
     pub name: Option<String>,
     #[serde(default)]
     pub environment: Option<String>,
+    /// Explicit infrastructure provider; absent preserves the platform default.
+    #[serde(default)]
+    pub provider: Option<String>,
     /// The size the app read off the request (`CloudMachineRequest.atLeast`); the default machine's when none.
     #[serde(default)]
     pub cpu: Option<i64>,
@@ -144,6 +147,9 @@ pub fn create_params(input: &CreateInput) -> CreateParams {
     }
     if let Some(environment) = &input.environment {
         args.insert("environment".into(), json!(environment));
+    }
+    if let Some(provider) = &input.provider {
+        args.insert("provider".into(), json!(provider));
     }
     let mut options = args.clone();
     if let Some(size) = &input.size_name {

@@ -64,6 +64,9 @@ struct Entry {
     #[serde(default)]
     account: String,
     machine_id: String,
+    /// Explicit provider selected for this send. Missing means the historical/default route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
     /// The folder under the machine's work root this send's copy goes to,
     /// kept before anything is copied (see [`Ledger::start_copy`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,6 +107,9 @@ pub(crate) struct AppEntry {
 pub(crate) struct PendingCreate {
     pub(crate) key: String,
     pub(crate) account: String,
+    /// Explicit provider selected for this idempotent create, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider: Option<String>,
     pub(crate) name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) team: Option<String>,
@@ -178,8 +184,17 @@ impl Ledger {
         self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
     }
 
-    pub(crate) fn begin_create(&mut self, send: &Send, name: &str, key: &str) -> bool {
+    pub(crate) fn begin_create(
+        &mut self,
+        send: &Send,
+        name: &str,
+        key: &str,
+        provider: Option<&str>,
+    ) -> bool {
         if let Some(pending) = self.pending_creates.iter_mut().find(|pending| pending.is(send)) {
+            if pending.provider.as_deref() != provider {
+                return false;
+            }
             if pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key {
                 return false;
             }
@@ -195,6 +210,7 @@ impl Ledger {
         self.pending_creates.push(PendingCreate {
             key: send.key.clone(),
             account: send.account.clone(),
+            provider: provider.map(str::to_owned),
             name: name.to_string(),
             team: None,
             sent: false,
@@ -317,27 +333,39 @@ impl Ledger {
     /// Pins `send` to `machine` (before anything runs there). A pin to the
     /// same machine keeps its copy's place and finished copy.
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
-        self.record_made(machine, send, false);
+        self.record_made_with_provider(machine, send, false, None);
     }
 
     /// [`Self::record`], and `made`: `machine` was made for `send` (kept once true for the same machine).
     pub(crate) fn record_made(&mut self, machine: &str, send: &Send, made: bool) {
+        self.record_made_with_provider(machine, send, made, None);
+    }
+
+    pub(crate) fn record_made_with_provider(
+        &mut self,
+        machine: &str,
+        send: &Send,
+        made: bool,
+        provider: Option<&str>,
+    ) {
         self.pending_creates.retain(|pending| !pending.is(send));
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat, copied_folder, target_pane, was_made) =
-            same.map_or((None, None, None, None, false), |entry| {
+        let (place, copied_chat, copied_folder, target_pane, was_made, old_provider) =
+            same.map_or((None, None, None, None, false, None), |entry| {
                 (
                     entry.place.clone(),
                     entry.copied_chat.clone(),
                     entry.copied_folder.clone(),
                     entry.target_pane.clone(),
                     entry.made,
+                    entry.provider.clone(),
                 )
             });
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
+            provider: provider.map(str::to_owned).or(old_provider),
             place,
             copied_chat,
             copied_folder,
@@ -350,7 +378,22 @@ impl Ledger {
     /// pending ([`Self::begin_create`]), the App's create; a repick's machine, chosen, never is.
     pub(crate) fn record_pin(&mut self, machine: &str, send: &Send) {
         let made = self.pending_create(send).is_some_and(|pending| !pending.refused);
-        self.record_made(machine, send, made);
+        let provider = self.pending_create(send).and_then(|p| p.provider);
+        self.record_made_with_provider(machine, send, made, provider.as_deref());
+    }
+
+    pub(crate) fn record_pin_with_provider(
+        &mut self,
+        machine: &str,
+        send: &Send,
+        provider: Option<&str>,
+    ) {
+        let made = self.pending_create(send).is_some_and(|pending| !pending.refused);
+        self.record_made_with_provider(machine, send, made, provider);
+    }
+
+    pub(crate) fn provider(&self, send: &Send) -> Option<String> {
+        self.entry(send).and_then(|entry| entry.provider.clone())
     }
 
     /// Whether `machine` was made for `send` ([`Self::record_made`]).
@@ -416,6 +459,7 @@ impl Ledger {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
+            provider: self.provider(send),
             place: Some(place.to_string()),
             copied_chat: None,
             copied_folder: None,
@@ -437,6 +481,7 @@ impl Ledger {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
+            provider: self.provider(send),
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
             copied_folder: Some(folder.to_string()),
@@ -464,6 +509,7 @@ impl Ledger {
                 key: send.key,
                 account: send.account,
                 machine_id: old.machine_id.clone(),
+                provider: None,
                 place: old.place.clone(),
                 copied_chat: old.copied_chat.clone(),
                 copied_folder: None,

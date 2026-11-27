@@ -453,6 +453,33 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 }
 
 #[test]
+fn an_explicit_provider_never_reuses_the_default_machine() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let dir = scratch();
+        let path = ledger_in(dir.path());
+        let request = json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true,
+        "provider": provider, "machines": [{"id": "vm-free", "title": "cloud-chats", "created_by": ME,
+        "status": "running", "connected": true}]})
+    .to_string();
+        let answer = plan(&path, &request);
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["machine"], Value::Null, "explicit provider must cold-create");
+    }
+}
+
+#[test]
+fn an_unknown_provider_is_rejected_before_selection() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let answer = plan(
+        &path,
+        &json!({"key": key(), "account": ACCOUNT, "provider": "hetzner", "machines": []})
+            .to_string(),
+    );
+    assert_eq!(answer["error_code"], "bad_request");
+}
+
+#[test]
 fn a_copied_folder_keeps_its_basename_under_the_sends_unique_place() {
     let paint = remote_name("/Users/me/src/paint");
     assert_eq!(paint, "paint");

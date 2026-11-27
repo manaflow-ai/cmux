@@ -14,6 +14,7 @@ fn existing(wait: bool) -> Request {
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait,

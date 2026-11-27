@@ -345,6 +345,14 @@ fn an_environment_boot_sends_the_environment() {
 }
 
 #[test]
+fn an_explicit_provider_is_part_of_the_approved_create_args() {
+    let params =
+        create_params(&CreateInput { provider: Some("gcp".into()), ..CreateInput::default() });
+    assert_eq!(params.args["provider"], "gcp");
+    assert_eq!(params.options["provider"], "gcp");
+}
+
+#[test]
 fn the_options_carry_what_the_op_does_not() {
     let input = CreateInput {
         cpu: Some(4),

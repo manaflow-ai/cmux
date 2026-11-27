@@ -287,6 +287,8 @@ pub enum BootstrapKind {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NewMachine {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub name: Option<String>,
     pub size: Option<String>,
     pub memory_mb: Option<i64>,
@@ -315,6 +317,13 @@ pub fn new_machine(args: &Args, home: &str) -> Checked<NewMachine> {
         }
     }
     let mut request = NewMachine::default();
+    if let Some(provider) = args.get("provider") {
+        let provider = provider
+            .as_str()
+            .filter(|provider| matches!(*provider, "gcp" | "own-host" | "freestyle"))
+            .ok_or_else(|| Said::key("providerInvalid"))?;
+        request.provider = Some(provider.to_owned());
+    }
     if let Some(name) = trimmed(args, "name") {
         if !is_plain_name(name) {
             return Err(Said::key("machineNameInvalid"));
