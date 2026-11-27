@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import datetime
 import ctypes.util
 import json
 import math
@@ -106,6 +107,7 @@ import os
 import plistlib
 import select
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -889,6 +891,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     # --load busy starts after the quiet wait: started before it, the round would wait out --load-wait on its own load.
     args.load_runner.start()
     spawned = uptime_ns()
+    launched_wall = time.time()
     try:
         if args.launch == "open":
             process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
@@ -990,11 +993,55 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["probe_focus"] = probe_focus(marks)
     row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
+    row["binders"] = launch_row_binders(env["HOME"], app, launched_wall)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process, app
+
+
+def launch_row_binders(home: str, app: Path, since: float, wait: float = 3.0) -> dict | None:
+    """This launch's ``binders`` from the app's launch-times.jsonl (cmux#57799: each `AppActions.bind` binder's
+    main-thread ms, the slowest LaunchTimesRecord.binderCount). The row has no pid: it is the newest one started at or
+    after SINCE (wall seconds, less 1 s for the row's whole-second started_at). None when no such row arrives in WAIT
+    seconds or the build writes no binders: the round reads nothing, never fails."""
+    import fresh_home_launch_smoke as smoke
+    try:
+        bundle_id, _ = smoke.bundle_info(app)
+    except (OSError, KeyError, ValueError):
+        return None
+    path = Path(home) / "Library" / "Application Support" / bundle_id / "launch-times.jsonl"
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            try:
+                record = json.loads(line)
+                started = datetime.datetime.fromisoformat(str(record.get("started_at", "")).replace("Z", "+00:00"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if started.timestamp() < since - 1.0:
+                break
+            binders = record.get("binders")
+            return binders if isinstance(binders, dict) else None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def binder_medians(rows: list) -> dict:
+    """Each binder's median ms over ROWS' ``binders``, slowest first (the pre-frame cut's list)."""
+    got: dict = {}
+    for row in rows:
+        for name, ms in (row.get("binders") or {}).items() if isinstance(row.get("binders"), dict) else ():
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                got.setdefault(name, []).append(ms)
+    medians = {name: round(statistics.median(v), 2) for name, v in got.items()}
+    return dict(sorted(medians.items(), key=lambda kv: -kv[1]))
 
 
 # ---- restart to first paint ----------------------------------------------------------------
@@ -1127,6 +1174,9 @@ def check(args) -> int:
     # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
     result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
                         for which in fronts}
+    # Each launch binder's median per front (startup-under-100ms: which binders the pre-frame cut defers).
+    result["binders"] = {which: binder_medians([r for r in result["rounds"] if r.get("front") == which]) for which in fronts}
+    rr.safe_print("TTI-BINDERS " + json.dumps(result["binders"]), flush=True)
     # The percentile rows (startup-matrix): p50/p95 per KIND_FRONT over the rounds launched under the load bound.
     result["percentiles"] = percentiles(result["rounds"], args.max_load_per_core, args.min_quiet)
     rr.safe_print("TTI-PCT " + json.dumps(result["percentiles"]), flush=True)
@@ -1146,7 +1196,7 @@ def check(args) -> int:
         print("RESTART-FIRST-PAINT " + json.dumps(line), flush=True)
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
-    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "percentiles",
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "binders", "percentiles",
              "recoveries", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
