@@ -51,7 +51,7 @@ jobs:
           mkdir -p "$out"
           deadline=$(( $(date +%s) + 125 * 60 ))
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --model stub \
-            --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
+            --cleanup-created-ids-only --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
