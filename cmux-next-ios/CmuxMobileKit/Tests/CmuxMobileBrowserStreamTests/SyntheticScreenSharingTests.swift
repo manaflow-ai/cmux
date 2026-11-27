@@ -58,7 +58,10 @@ struct SyntheticScreenSharingTests {
             let deadline = ProcessInfo.processInfo.systemUptime + 2
             var matched = false
             repeat {
-                if let pixels = layer.sampleBufferRenderer.displayedPixelBuffer(),
+                // enqueue can present before the decoder queue invokes shown. Require both
+                // events within this deadline rather than racing the final count assertion.
+                if decoded.lock.withLock({ decoded.shown.last?.frame == UInt32(index) }),
+                   let pixels = layer.sampleBufferRenderer.displayedPixelBuffer(),
                    Self.matches(pixels, grey: grey, width: width, height: height) {
                     matched = true
                     break
