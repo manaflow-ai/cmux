@@ -49,7 +49,7 @@ async fn a_busy_shard_applies_only_the_newest_of_a_peers_waiting_lists() {
         .await
         .expect("the shard drains")
         .unwrap();
-    assert_eq!(hub.resolve_remote("live").unwrap().2["name"], "v5999");
+    assert_eq!(hub.resolve_remote("live").unwrap().2["name"], "remote/v5999");
     assert_eq!(hub.outbox.peer_ready_count(&peer.name), 1, "only the applied list wakes sends");
     assert!(peer.rows_current());
     assert!(hub.no_session_is_final("remote/missing"));
