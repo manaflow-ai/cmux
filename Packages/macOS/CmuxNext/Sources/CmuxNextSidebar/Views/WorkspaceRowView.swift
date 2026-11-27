@@ -140,12 +140,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// Classic's status block under the name (`WorkspaceRowContent.status`).
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
-    /// Its chats' subagents under the name and status block (`WorkspaceRowContent.subagents`), and their height.
-    let subagentsView = SidebarSubagentsView()
-    internal(set) var subagentsHeight: CGFloat = 0
-    /// The selection and hover fill while subagent lines hang under the row: the name's part only, so the lines
-    /// below take no fill (the Code tab's children under a selected chat).
-    let headFill = CALayer()
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
@@ -231,9 +225,7 @@ final class WorkspaceRowView: SidebarRowView {
         pinMark.isHidden = true
         pinMark.setAccessibilityElement(false) // the row's label says Pinned
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
-        headFill.isHidden = true
-        layer?.insertSublayer(headFill, at: 0)
+         treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -250,9 +242,7 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        // The subagent lines take their own presses (`SidebarSubagentsView`); the rest of the row selects it.
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator,
-          subagentsView.pressable.isEmpty ? nil : subagentsView] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -298,7 +288,6 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTree = nil
-        subagentsView.onOpen = nil
         onToggleAudio = nil
         title.stopMarquee()
         title.cancelRoll()
@@ -447,9 +436,6 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
-        // Keyed by subagent id: a line keeps its view as others start and finish, so none jumps.
-        subagentsView.configure(isShowingPlaceholder ? nil : shown.subagents)
-        subagentsHeight = subagentsView.isHidden ? 0 : SidebarLayoutMetrics.standard.subagentsHeight(shown)
         rowBadgeStyle = content.rowBadge
         statusLeads = shown.statusLeads
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
