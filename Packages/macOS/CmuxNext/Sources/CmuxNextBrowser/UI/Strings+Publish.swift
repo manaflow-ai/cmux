@@ -29,6 +29,10 @@ nonisolated extension Strings {
     static func publishPublished(_ url: String) -> String {
         String(localized: "browser.publish.published", defaultValue: "Published at \(url)", bundle: .localizedModule)
     }
+    /// A publish went live but its run named no address: `name` is the app's.
+    static func publishPublishedNamed(_ name: String) -> String {
+        String(localized: "browser.publish.publishedNamed", defaultValue: "Published \(name)", bundle: .localizedModule)
+    }
     static func publishFailed(code: String, message: String) -> String {
         String(localized: "browser.publish.failed", defaultValue: "Publish failed (\(code)): \(message)", bundle: .localizedModule)
     }
