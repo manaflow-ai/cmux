@@ -32,6 +32,7 @@ on:
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
       - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tooling_only.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
       - ".github/actions/cache-restore/**"
@@ -281,6 +282,9 @@ jobs:
           CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose land tier ran
+          # carries that run (head_tier.py's full-ci base merge carry rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
@@ -514,6 +518,9 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
+    # A pull request whose files miss acpmux's own paths skips it even with full-ci (the post-merge batch and base
+    # pushes still run it): 2026-11-26 14:00-21:03Z, the acpmux family took 7,125 runner-min (about 13 per merge)
+    # on about 390 full-ci runs with acpmux_own=false, with 0 reds of the pull request's own (every red matched a red base).
     # A pull request that changes acpmux runs it: while pull requests skipped it (pull_request_skip Tier A),
     # base went red on a stale IR four times on 2026-11-26 (#55935's taskList, transfer_end_stale at
     # a8aa49b3, rooms and transcript_offload), each a protocol change whose own run would have failed.
@@ -523,7 +530,7 @@ jobs:
     # 2026-11-26 13:30-14:45Z it started beside acpmux-tests on most pull request runs, about 10 min each, about
     # 10.5k runner-min a day (Leo: "Okay, surely we don't need to do that many Linux builds, do we?"). The
     # conjunct is acpmux-tests' own `if` for a pull request with a router that succeeded; any other run keeps this job.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-protocol-ir') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') && !(github.event_name == 'pull_request' && inputs.only == '' && needs.changes.result == 'success' && needs.changes.outputs.acpmux_tests != 'false' && (needs.changes.outputs.acpmux_own != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on')) }}
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-protocol-ir') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false')) && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') && !(github.event_name == 'pull_request' && inputs.only == '' && needs.changes.result == 'success' && needs.changes.outputs.acpmux_tests != 'false' && needs.changes.outputs.acpmux_own != 'false' && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
@@ -1111,6 +1118,8 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}
+          # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
+          required: true
 
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
@@ -1134,7 +1143,10 @@ jobs:
     # the job (a skip passes a required check), and neither does a missing output.
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-sim') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
+    # A pull request whose files miss acpmux's own paths skips it even with full-ci (the post-merge batch and base
+    # pushes still run it): 2026-11-26 14:00-21:03Z, the acpmux family took 7,125 runner-min (about 13 per merge)
+    # on about 390 full-ci runs with acpmux_own=false, with 0 reds of the pull request's own (every red matched a red base).
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-sim') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
