@@ -8,9 +8,10 @@
 //! - `features` are the ids each side reads or serves (`capabilities.rs`,
 //!   `server/client_features.rs`), already exchanged before this module.
 //!
-//! The rule is Linux's: an old peer degrades, it never errors. Nothing in a peer's hello can fail
-//! its `initialize`: a missing, malformed or newer `abi` is read as what it is ([`Skew`]) and the
-//! connection goes on. What a peer does with the skew (send a new field only once the other side
+//! The rule is Linux's: an old peer degrades, it never errors. Nothing this module reads can fail a
+//! peer's `initialize`: a missing, malformed or newer `abi` is read as what it is ([`Skew`]) and
+//! the connection goes on. The one refusal is `protocol/range.rs`'s, for an `{abi, abiMin}` range
+//! that shares no revision with this build's. What a peer does with the skew (send a new field only once the other side
 //! lists it; translate by the compat rules) is the caller's; this module only says it.
 //!
 //! The daemon counts the hellos it heard since it started by client, revision and build, and

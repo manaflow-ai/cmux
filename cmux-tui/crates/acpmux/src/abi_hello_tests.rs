@@ -53,9 +53,11 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
         json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": name},
             "_meta": {"acpmux": meta}})
     };
-    for meta in
-        [json!({}), json!({"abi": ours + 5, "build": "future"}), json!({"abi": [1, 2], "build": 7})]
-    {
+    for meta in [
+        json!({}),
+        json!({"abi": ours + 5, "abiMin": ours, "build": "future"}),
+        json!({"abi": [1, 2], "build": 7}),
+    ] {
         let init = client.request(method::INITIALIZE, hello(meta.clone())).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/abi"), Some(&json!(ours)), "{meta}: {init}");
         assert_eq!(
@@ -74,7 +76,8 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
             .map(|p| p["hellos"].as_u64().unwrap())
             .sum::<u64>()
     };
-    // The empty and the malformed hello are both pre-hello; the future one is newer.
+    // The empty and the malformed hello are both pre-hello; the future one (whose range still
+    // reaches this build's, as `protocol/range.rs` requires) is newer.
     assert_eq!(mine("pre-hello"), 2, "{status}");
     assert_eq!(mine("newer"), 1, "{status}");
     // The CLI's own hello is counted the same: this build, same revision.
