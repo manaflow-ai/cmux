@@ -64,6 +64,8 @@
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -110,6 +112,7 @@ mod cloud_sequence;
 mod cloud_task;
 mod dock_model;
 pub mod drag_handle;
+mod empty_workspace;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -648,6 +651,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            operation if empty_workspace::handles(operation) => {
+                empty_workspace::respond(operation, request)?
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?

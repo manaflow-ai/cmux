@@ -361,6 +361,12 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for the lock check's serial network pass and retries on a cold, busy runner (cmux#41586).
     timeout-minutes: 20
+    # head_tier.py reads the previous head's Actions runs (the green-head and red-head base merge rules). No
+    # statuses: read, which the callers (cmux-next-post-merge.yml, docs-only-fallback.yml) do not grant; a rule
+    # that needs cmux/land-tier reads nothing and keeps the usual tier.
+    permissions:
+      actions: read
+      contents: read
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
@@ -427,6 +433,35 @@ jobs:
           git checkout -q --detach "$SHA"
           echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
+      # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml, cmux-tui-spec.yml), with the same
+      # switches. A head it gives `none` (an idle or green-head base merge, a same patch, or a base merge onto a
+      # red head where this workflow's own run was green) plans no workspace: its previous head proved the change.
+      # On 11-26 21Z, base merges were about 68% of this workflow's pull request minutes, most on ready-to-land
+      # heads (optchat-chief, cmux-app-ffi). A landing head stays pending there and land-judge's label pulse runs
+      # this on the exact head it merges (a `labeled` event, which the rule never reads), so next_autoland's
+      # `rust workspaces / <root>` compile still runs on that head. `cheap` keeps planning: the land carry rule's
+      # head carries cmux/land-tier success and gets no pulse. Only this workflow's own run reads it
+      # (github.workflow_ref: a caller's run would judge the caller's workflow). A failure leaves tier empty.
+      - name: CI tier of this head
+        id: tier
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && inputs.sha == '' && contains(github.workflow_ref, '/.github/workflows/rust-workspaces.yml@') }}
+        continue-on-error: true
+        env:
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+          CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
+          CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
+          CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
+          CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
+          tier=$(python3 -I scripts/ci/head_tier.py tier)
+          echo "tier=$tier"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+
       - name: Test the workspace check
         run: python3 .github/scripts/test_rust_workspaces.py
 
@@ -465,9 +500,11 @@ jobs:
       # --deadline: the whole check ends inside this job's timeout-minutes, with room for the setup and the plan
       # after it, so a slow resolve is reported as unchecked instead of the job being cut (cmux#41742 review F2).
       - name: Set up pinned Rust (lock check)
+        if: ${{ steps.tier.outputs.tier != 'none' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Every Cargo.lock matches its manifests
+        if: ${{ steps.tier.outputs.tier != 'none' }}
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
@@ -487,9 +524,15 @@ jobs:
         id: plan
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          TIER: ${{ steps.tier.outputs.tier }}
           # Into feat-cmux-next it runs only for a file a workspace reads (reads above): plan those alone.
           OWN_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && '--reads-only' || '--own-only') || '' }}
         run: |
+          if [[ "$TIER" == none ]]; then
+            echo "jobs=[]" >> "$GITHUB_OUTPUT"
+            echo "head_tier.py: none (its previous head proved this change); no workspace planned"
+            exit 0
+          fi
           # shellcheck disable=SC2086 # empty or one flag
           jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA" $OWN_ONLY)
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"

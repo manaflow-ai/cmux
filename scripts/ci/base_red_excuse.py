@@ -106,6 +106,9 @@ Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidenc
 # A read GitHub rate-limited, where the evidence reader tells it apart (main's main_fix_evidence.py): exit 3, which
 # gh-merge-green reports as a rate limit rather than a red. A reader without it raises Refused (exit 1).
 RateLimited = getattr(_evidence, "RateLimited", ())
+# A read that never happened (main_fix_evidence.Unread: a request past its deadline, an answer over the size cap, a
+# `gh` that failed): exit 3, "not judged, a retry", never a verdict on the red. A reader without it leaves ().
+Unread = getattr(_evidence, "Unread", ())
 
 
 class RateLimitedRead(Exception):
@@ -114,6 +117,17 @@ class RateLimitedRead(Exception):
     main's RateLimited is a Refused, and the comparison turns a Refused from a read into a refusal of its
     own ("no rollup red is excused", say) in a dozen places, so a rate limit read as a verdict on the red
     and main() returned 1 where gh-merge-green expects 3. This is not a Refused, so only main() catches it.
+    """
+
+
+class UnreadRead(Exception):
+    """A read that never happened, as rate_limit_aware re-raises it so the comparison cannot swallow it.
+
+    RateLimitedRead's reason exactly (above): main's Unread is a Refused, and the comparison turns a Refused from a
+    read into a refusal of its own ("no rollup red is excused", say) in a dozen places, so a 90 s `gh` deadline came
+    out as a verdict on the code and main() returned 1 -- which land-judge records as red_not_excused, a strike no
+    rerun clears. leo-workspace#9276 and #9153 both sat unlandable on that line (2026-11-24). Not a Refused, so only
+    main() catches it.
     """
 
 
@@ -134,6 +148,13 @@ def rate_limited_classes() -> tuple:
     inherit from BaseException"), which would break the ordinary exit-1 path. Read at call time, so a caller that
     loads a reader with RateLimited (main's) is honoured."""
     return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
+
+
+def unread_classes() -> tuple:
+    """What main() reports as a read that never happened, as one flat tuple. Same shape and the same reason as
+    rate_limited_classes: a reader without Unread leaves it the empty tuple, and `except ((), UnreadRead)` is a
+    TypeError on every other refusal. Read at call time, so a caller that loads a reader with Unread is honoured."""
+    return ((Unread,) if isinstance(Unread, type) else tuple(Unread)) + (UnreadRead,)
 
 
 def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
@@ -177,7 +198,7 @@ def read_once(key: tuple, read: Callable[[], object]):
     if key not in memo:
         try:
             memo[key] = (True, read())
-        except (Refused, RateLimitedRead) as why:
+        except (Refused, RateLimitedRead, UnreadRead) as why:
             memo[key] = (False, why)
     ok, found = memo[key]
     if not ok:
@@ -271,6 +292,10 @@ def rate_limit_aware(github):
             def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
+                except unread_classes() as error:
+                    # Before RateLimited: both are Refused subclasses on main's reader, and a read that never
+                    # happened must not be answered as one that a quota refused.
+                    raise UnreadRead(str(error)) from None
                 except RateLimited as error:
                     raise RateLimitedRead(str(error)) from None
                 if name == "json" and args:
@@ -2208,7 +2233,11 @@ def job_step_names(repo: str, job: dict, github, seen: dict, path=None) -> dict[
                 seen[key] = None
         record = seen[key]
         path = record.get("path") if isinstance(record, dict) else None
-    return workflow_step_names(repo, job, path, github, seen)
+    else:
+        record = seen.get(("run-record", job.get("run_id")))
+    sha = str(job.get("head_sha") or "")
+    ref = workflow_ref(repo, record, sha, github, seen) if re.fullmatch(r"[0-9a-f]{40}", sha) else sha
+    return workflow_step_names(repo, job if ref == sha else dict(job, head_sha=ref), path, github, seen)
 
 
 def _step_marks(declared, names: list[str]) -> list[bool | None] | None:
@@ -2759,6 +2788,37 @@ def peer_event(run: dict) -> str:
     return event if event in PR_EVENTS else "pull_request"
 
 
+# A pull_request_target run runs its workflow as the repository's default branch declares it, never as the PR's head
+# or merge-base does (GitHub, since 2025-12-08: pull_request_target always takes the default branch's workflow), so
+# its workflow is read at the default branch's tip. 2026-11-26, cmux#58103 at f4231191 and cmux#58118 at f80606d4:
+# namespace-autofix.yml and risk-tier.yml live on main alone, run on PRs into feat-cmux-next, and have no
+# feat-cmux-next run; read at the head, "namespace-autofix.yml is not a text file GitHub served", so neither cross-PR
+# rule (other_pr_setup_verdict, other_pr_peer_verdict) could read the workflow, and every PR's red of either was
+# refused as "no feat-cmux-next run of its workflow has a verdict for it to compare with" (an installation rate limit
+# at 18:51Z that every PR's run of both failed on). Detector: OtherPrPeerVerdict's
+# test_a_pull_request_target_workflow_that_lives_on_the_default_branch_alone.
+def workflow_ref(repo: str, run: dict | None, sha: str, github, seen: dict | None) -> str:
+    """The commit RUN's workflow is read at: the default branch's tip for a pull_request_target run, read once per
+    judgement in SEEN, else SHA (the head, or the merge-base a caller names). An unread tip leaves SHA, the read
+    before this rule."""
+    if not isinstance(run, dict) or run.get("event") != "pull_request_target":
+        return sha
+    seen = {} if seen is None else seen
+    key = ("default-branch-tip", repo)
+    if key not in seen:
+        tip = ""
+        try:
+            info = github.json(f"repos/{repo}")
+            branch = str((info.get("default_branch") if isinstance(info, dict) else None) or "")
+            if branch:
+                found = github.json(f"repos/{repo}/branches/{branch}")
+                tip = str(((found.get("commit") if isinstance(found, dict) else None) or {}).get("sha") or "")
+        except Refused:
+            tip = ""
+        seen[key] = tip if re.fullmatch(r"[0-9a-f]{40}", tip) else ""
+    return seen[key] or sha
+
+
 TEST_STEP_NAME = re.compile(r"(?i)\b(?:tests?|testing|e2e|specs?|suites?)\b")
 # A test runner a step's script starts (runs_tests), read word by word so no pattern rescans a script: a runner by
 # name, a build tool's test verb, or a script whose file name says it tests.
@@ -2951,7 +3011,8 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
     if path in changed:
         return False, f"this PR changes its workflow ({path}), so no step of it is known to be the base's setup"
     # The workflow as the base declares it, at the merge-base: its step order and each step's `uses:` or script.
-    setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=merge_base), path, github, run_reads),
+    declared = workflow_ref(repo, workflow_info, merge_base, github, run_reads)  # the default tip: pull_request_target
+    setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=declared), path, github, run_reads),
                             path, changed,
                             lambda: gitlinks | gitmodule_paths(source_text_if_present(repo, merge_base, ".gitmodules",
                                                                                       github)))
@@ -2993,8 +3054,10 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
             own = test_reds.read(text)
             if own.crashes or [why for why in own.truncated if not why.startswith(test_reds.UNNAMED_WHY)]:
                 continue  # a crash or a cut-short run is no evidence
-            view = failed_view(other, text, step_names=workflow_step_names(repo, other, run.get("path"), github,
-                                                                           run_reads), base=True)
+            declared = workflow_ref(repo, run, str(other.get("head_sha") or ""), github, run_reads)
+            view = failed_view(other, text, step_names=workflow_step_names(repo, dict(other, head_sha=declared),
+                                                                           run.get("path"), github, run_reads),
+                               base=True)
             found = setup_errors(view, unplaced_signature(other, text) if view is UNPLACED else None,
                                  sorted(failed) if view is UNPLACED else steps)
             if found is None or not mine <= found:
@@ -3096,7 +3159,7 @@ def changed_in_full(repo: str, base: str, sha: str, github) -> tuple[set[str], s
 
 
 def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_info: dict, workflow: int,
-                          github) -> tuple[bool, str]:
+                          github, seen: dict | None = None) -> tuple[bool, str]:
     """(True, the audit line) for red head JOB (NAME), whose workflow (WORKFLOW, its run WORKFLOW_INFO) has no BASE
     verdict, when it failed at the same first failed step on PR_ONLY_PEERS other PRs' heads that change none of the
     workflow's files, and this PR changes none either (the rule above); else (False, why not)."""
@@ -3106,7 +3169,8 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
         return False, "its run names no workflow file or head commit"
     try:
         own = changed_in_full(repo, base, sha, github)
-        owned = workflow_files(path, source_text(repo, sha, path, github)) if own is not None else []
+        declared = workflow_ref(repo, workflow_info, sha, github, seen)  # the default tip: pull_request_target
+        owned = workflow_files(path, source_text(repo, declared, path, github)) if own is not None else []
     except Refused as why:
         return False, f"its changed files or its workflow could not be read ({str(why)[:200]})"
     if own is None:
@@ -7434,9 +7498,30 @@ def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     if sig is UNPLACED:
         return None
     steps, tests, errors = sig
+    if steps and not tests and not errors:
+        # A step that printed the refusal as plain output and then exited (`gh: API rate limit exceeded for
+        # installation` above the runner's exit annotation: namespace-autofix.yml's 'Fix safe namespace violations',
+        # cmux#58103 at f4231191) names no error line: its failed sections' last words before each exit stand for it,
+        # as last_words reads an unplaced log.
+        errors = {re.sub(rf"^{LAST_WORDS} \d+: ", "", error) for error in last_words(lines_of(view_text(view)))}
     if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
         return None
     return sorted(errors)[0].strip()
+
+
+# The same rule for a log step_owners could not place (UNPLACED): its whole log's error lines (unplaced_signature, the
+# last words before each exit when it printed no error line) are each the rate-limit refusal, and it names no test and
+# no crash. 2026-11-26, cmux#58103 at f4231191 and cmux#58118: 'namespace autofix' (namespace-autofix.yml, job
+# 140113770732) and 'risk evidence' failed on `gh: API rate limit exceeded for installation` then exit 1, logs not
+# placed, so github_quota_only (a placed view's) never saw them and each was refused as having no base verdict.
+def unplaced_quota_only(unplaced: "UnplacedSignature | None") -> str | None:
+    """The error line UNPLACED (unplaced_signature) shows when each of its error lines is GitHub's API rate-limit
+    refusal (GITHUB_QUOTA) and it names no test and no crash, else None."""
+    if unplaced is None or unplaced.tests or unplaced.crashes or not unplaced.errors:
+        return None
+    if not all(GITHUB_QUOTA.search(error) for error in unplaced.errors):
+        return None
+    return re.sub(rf"^{LAST_WORDS} \d+: ", "", sorted(unplaced.errors)[0]).strip()
 
 
 def tree_handoff_quota_only(job: dict, log: str) -> str | None:
@@ -10084,7 +10169,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 base_workflow, base_name = caller, caller_name
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
-        quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
+        quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
+                 if base_run is None or base_job.get("conclusion") != "failure" else None)
         if quota is not None:
             raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
@@ -10098,7 +10184,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if shared:
                 audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
                 continue
-            peers, why_not_peers = other_pr_peer_verdict(repo, base, name, job, workflow_info, workflow, github)
+            peers, why_not_peers = other_pr_peer_verdict(repo, base, name, job, workflow_info, workflow, github,
+                                                         run_reads)
             if peers:
                 audit.append(why_not_peers)  # the workflow's red on other PRs' heads (other_pr_peer_verdict)
                 continue
@@ -10399,6 +10486,11 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
+    except unread_classes() as error:
+        # Not "not excused": nothing was read, so nothing was judged. land-judge reads 3 as a retry
+        # (classifier_rate_limited), never as the red_not_excused strike an exit 1 would record.
+        print(f"not judged: a read that never happened: {error}", file=sys.stderr)
         return 3
     except Infra as error:
         print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
