@@ -336,6 +336,19 @@ pub(crate) fn run_host_parser(
 /// as the daemon mirror's `OUTPUT_COALESCE_BYTES`.
 pub(crate) const HOST_PARSER_COALESCE_BYTES: usize = 64 * 1024;
 
+/// [`HOST_PARSER_COALESCE_BYTES`], unless `CMUX_HOST_PARSER_COALESCE_BYTES`
+/// names another bound (0 parses one frame at a time, as before G6), so the
+/// stage bench compares both on one binary and one machine.
+fn host_parser_coalesce_bytes() -> usize {
+    static BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        std::env::var("CMUX_HOST_PARSER_COALESCE_BYTES")
+            .ok()
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(HOST_PARSER_COALESCE_BYTES)
+    })
+}
+
 /// Joins the Output commands already queued behind `frame` (up to
 /// [`HOST_PARSER_COALESCE_BYTES`]) into `joined`. Returns the last joined
 /// source cursor, the accounted bytes of every joined command, and the joined
@@ -351,16 +364,19 @@ fn coalesce_queued_parser_output<'a>(
     mut accounted_bytes: usize,
 ) -> (u64, usize, Option<&'a [u8]>) {
     joined.clear();
+    let bound = host_parser_coalesce_bytes();
     let mut total = frame.payload.len();
-    while let Ok(next) = receiver.try_recv() {
+    while total < bound
+        && let Ok(next) = receiver.try_recv()
+    {
         match next {
             ParserCommand::Output {
                 frame: more,
                 source_cursor: more_cursor,
                 accounted_bytes: more_accounted,
-            } if total.saturating_add(more.payload.len()) <= HOST_PARSER_COALESCE_BYTES => {
+            } if total.saturating_add(more.payload.len()) <= bound => {
                 if joined.is_empty() {
-                    joined.reserve(HOST_PARSER_COALESCE_BYTES);
+                    joined.reserve(bound);
                     joined.extend_from_slice(&frame.payload);
                 }
                 joined.extend_from_slice(&more.payload);
