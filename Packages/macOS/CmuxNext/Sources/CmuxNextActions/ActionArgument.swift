@@ -139,7 +139,10 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     }
 }
 
-extension ActionArgument {
+// nonisolated like the type: the package's default isolation is MainActor, and an extension does not
+// take the type's `nonisolated`, so these were MainActor statics. Xcode 27.2's compiler rejects reading
+// them from the nonisolated SettingOption.themeOptions (nightly run 45994285351, 80d30ecb).
+nonisolated extension ActionArgument {
     /// The `theme` argument value that resets to the Ghostty config.
     public static let themeConfigValue = "config"
 
