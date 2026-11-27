@@ -99,9 +99,13 @@ jobs:
             exit 0
           fi
           status=0
+          # No --key: KEY fingerprints the inputs, so every PR whose Nightly inputs match shares it at a different
+          # --ref, and the controller refuses the second with HTTP 409 "step_key already names a different step"
+          # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
+          # is what skips a build whose inputs already passed.
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
-            --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly --key "$KEY" \
+            --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
             --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
             | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
