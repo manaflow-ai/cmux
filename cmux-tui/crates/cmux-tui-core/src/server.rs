@@ -223,6 +223,7 @@ use resource_trust::{
     trusted_local_resource_client,
 };
 mod api_revision_wire;
+mod conversation_question_decision;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -366,6 +367,8 @@ mod chief_control;
 mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
+#[cfg(unix)]
+mod chief_question_routes;
 mod chief_registry_resource;
 #[cfg(unix)]
 mod chief_work;
@@ -2137,6 +2140,9 @@ enum Command {
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
+    /// What Home's card has the person sign to answer a Chief question
+    /// (`conversation-question-decision-v1`, server/conversation_question_decision.rs).
+    ConversationQuestionDecision(conversation_question_decision::DecisionParams),
     ConversationInboxOp(conversations::InboxOpParams),
     /// Send Later (`conversation-scheduled-v1`, server/conversation_scheduled.rs).
     ConversationScheduledList(conversation_scheduled::ListParams),

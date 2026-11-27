@@ -1307,6 +1307,25 @@ pub struct ConversationOpResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionDecisionRequest {
+    /// What the person chose; only \`selections\` is read (the owner sets \`respondent\` and \`answered_at\`).
+    pub answer: T::ConversationQuestionAnswer,
+    pub conversation: String,
+    pub message_id: String,
+    /// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub native_record: Option<bool>,
+    pub part_index: u64,
+    /// The stored Question JSON exactly as Home displayed it. Refused \`question.stale\` unless it parses to the stored question; required unless \`native_record\` is true.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub question: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ConversationQuestionDecisionResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub after_rev: Option<u64>,
@@ -5032,6 +5051,10 @@ impl CmuxClient {
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
         self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_question_decision(&mut self, request: ConversationQuestionDecisionRequest) -> Result<ConversationQuestionDecisionResult> {
+        self.execute(&CONVERSATION_QUESTION_DECISION_METADATA, &request)
     }
 
     pub fn conversation_run(&mut self, request: ConversationRunRequest) -> Result<ConversationRunResult> {

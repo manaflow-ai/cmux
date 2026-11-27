@@ -4427,7 +4427,19 @@ async fn dispatch_request_with_identity(
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
-            hub.respond_permission_annotated(
+            if params.get("deliveryAttempt").is_some()
+                && !matches!(conn.origin, Origin::Local | Origin::LocalApp)
+            {
+                return Err(RpcError::invalid_params("deliveryAttempt is local only"));
+            }
+            let attempt = params
+                .get("deliveryAttempt")
+                .map(|value| {
+                    serde_json::from_value(value.clone())
+                        .map_err(|_| RpcError::invalid_params("invalid deliveryAttempt"))
+                })
+                .transpose()?;
+            hub.respond_permission_receipted(
                 &s,
                 pid,
                 option,
@@ -4436,6 +4448,7 @@ async fn dispatch_request_with_identity(
                 answered_by,
                 answerer,
                 control,
+                attempt,
             )
             .await?;
             Ok(checkpoint.map_or_else(|| json!({}), |c| json!({"forkCheckpoint": c})))

@@ -99,6 +99,8 @@ public actor MockHomeSource: HomeSource {
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
     /// Every upload call, by hash, in call order (for tests).
     public private(set) var uploadCalls: [String] = []
+    /// Each `question.answer`'s person decision as compact sorted JSON, in order (nil: none came).
+    public private(set) var answerDecisions: [String?] = []
     /// The location of every fetch, in call order (for tests).
     public private(set) var fetchLocations: [AttachmentLocation] = []
     /// Where `fetch` writes files (one directory per source instance).
@@ -761,6 +763,7 @@ public actor MockHomeSource: HomeSource {
             guard list[index].parts.indices.contains(partIndex), case .question(let question) = list[index].parts[partIndex] else {
                 throw HomeRejection.invalid("invalid_part_index")
             }
+            answerDecisions.append(answer.decision.flatMap { try? $0.data() }.map { String(decoding: $0, as: UTF8.self) })
             let respondent = AgentQuestionAnswer.Respondent(participant: me.id.rawValue, displayName: me.displayName)
             do {
                 let answered = try question.answering(answer, respondent: respondent, atMs: Int64(Date().timeIntervalSince1970 * 1000))

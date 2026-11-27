@@ -26,6 +26,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var approvals: (any HomeApprovalDeciding)?
     var approvalWrites: [HomeApprovalWriteGate] = []
     var approvalCards: [String: HomeApprovalDisplay] = [:]
+    /// Each open question card's picks and state, by question (HomeProjection+Question).
+    var questionCards: [String: HomeQuestionDisplay] = [:]
     /// Each failed-turn card's Details and Copy state, by message (HomeProjection+TurnFailure).
     var turnFailureCards: [ID: HomeTurnFailureRowProvider.Local] = [:]
     /// Copy error's destination: the general pasteboard; tests record it.
@@ -201,6 +203,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
+        controller.questionAction = { [weak self] ref, target in self?.questionAction(ref, target) }
         controller.turnFailureAction = { [weak self] ref, action in self?.turnFailureAction(ref, action) }
         refresh()
         noteObservedInputs()
@@ -218,6 +221,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
+        controller.questionAction = nil
         controller.turnFailureAction = nil
     }
 
@@ -226,6 +230,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func refresh() {
         defer {
             refreshApprovalStates()
+            refreshQuestionStates()
             refreshTurnFailureStates()
         }
         refreshPasses += 1

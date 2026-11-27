@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const ir_sha256 = "81ce4c4dbf91a8179d6047995bb208ccf829404c5b802e542b5ad20533610dae";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -622,6 +622,32 @@ pub const ConversationParticipant = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "acp_session",
         "agent_class",
+    };
+};
+
+pub const ConversationQuestionAnswer = struct {
+    answered_at: wire.Field([]const u8) = .absent,
+    respondent: wire.Field(ConversationQuestionRespondent) = .absent,
+    selections: wire.Map(ConversationQuestionSelection),
+};
+
+pub const ConversationQuestionRespondent = struct {
+    device: wire.Field([]const u8) = .absent,
+    display_name: []const u8,
+    participant: []const u8,
+    remote: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "remote",
+    };
+};
+
+pub const ConversationQuestionSelection = struct {
+    option_ids: ?[]const []const u8 = null,
+    other: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "option_ids",
     };
 };
 
@@ -6027,6 +6053,37 @@ pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Dec
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationQuestionDecisionRequest = struct {
+    /// What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`).
+    answer: ConversationQuestionAnswer,
+    conversation: []const u8,
+    message_id: []const u8,
+    /// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+    native_record: ?bool = null,
+    part_index: u64,
+    /// The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.
+    question: wire.Field(JsonValue) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "native_record",
+    };
+};
+
+pub const ConversationQuestionDecisionResult = JsonValue;
+
+pub fn conversationQuestionDecision(client: anytype, request: ConversationQuestionDecisionRequest) !wire.Decoded(ConversationQuestionDecisionResult) {
+    return client.callTyped(
+        ConversationQuestionDecisionResult,
+        .{
+            .name = "conversation-question-decision",
+            .authority = "control",
+            .since = 12,
+            .capability = "conversation-question-decision-v1",
         },
         request,
     );
@@ -13365,7 +13422,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 315;
+pub const command_count: usize = 316;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13451,6 +13508,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-live", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
     .{ .name = "conversation-live-publish", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-question-decision", .authority = "control", .since = 12, .capability = "conversation-question-decision-v1", .stream = null },
     .{ .name = "conversation-run", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
     .{ .name = "conversation-run-append", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
     .{ .name = "conversation-runs", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },

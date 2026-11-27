@@ -19,6 +19,14 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         return rows(hub, conn, params).await;
     }
     let s = hub.resolve_told(session_key(params)?, conn.origin == Origin::Local)?;
+    if let Some(attempt) = params.get("deliveryAttempt") {
+        if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+            return Err(RpcError::invalid_params("deliveryAttempt is local only"));
+        }
+        let id =
+            attempt.as_str().ok_or_else(|| RpcError::invalid_params("invalid deliveryAttempt"))?;
+        return Ok(json!({"deliveryAttempt": hub.permission_delivery_status(&s, id)?}));
+    }
     // Never waited for: the next read has it (`hub/usage_view.rs`), one pass behind at a time.
     hub.revalidate_usage();
     // After a restart the chat logs are read after the ready line; until

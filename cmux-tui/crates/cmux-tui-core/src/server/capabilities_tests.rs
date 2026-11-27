@@ -54,3 +54,8 @@ fn identify_serves_every_static_capability() {
     assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
     assert!(listed.contains(&TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY), "static");
 }
+
+#[test]
+fn question_delivery_is_advertised_only_where_the_acp_transport_exists() {
+    assert_eq!(static_capabilities().contains(&"conversation-question-delivery-v1"), cfg!(unix));
+}

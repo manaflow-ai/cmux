@@ -11056,6 +11056,108 @@
    },
    "additional_properties": false
   },
+  "ConversationQuestionSelection": {
+   "kind": "object",
+   "fields": {
+    "option_ids": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": []
+    },
+    "other": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationQuestionRespondent": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "display_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "device": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "remote": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationQuestionAnswer": {
+   "kind": "object",
+   "fields": {
+    "selections": {
+     "type": {
+      "kind": "map",
+      "values": {
+       "kind": "ref",
+       "name": "ConversationQuestionSelection"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "respondent": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationQuestionRespondent"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "answered_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
   "CloseReason": {
    "kind": "enum",
    "values": [
@@ -21636,6 +21738,79 @@
    "stream": null,
    "constraints": [
     "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
+   ]
+  },
+  "conversation-question-decision": {
+   "authority": "control",
+   "since": 12,
+   "capability": "conversation-question-decision-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "message_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "part_index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "answer": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationQuestionAnswer"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`)."
+     },
+     "question": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true."
+     },
+     "native_record": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Read-only; trusted local connections only, and only where the daemon reaches acpmux (a Unix socket). Holds no key and grants nothing: acpmux alone verifies and spends the signed proof.",
+    "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, stale, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
+    "See spec/commands.md for the result object."
    ]
   },
   "new-frontend-browser-tab": {

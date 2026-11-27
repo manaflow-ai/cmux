@@ -166,6 +166,9 @@ pub(super) fn always_identified() -> Vec<&'static str> {
     // Receipts can outlive the acpmux configuration that prepared them.
     #[cfg(unix)]
     capabilities.push(agent_cli_job::CAPABILITY);
+    // Home's Chief question answers, signed by the person (conversation_question_decision.rs).
+    #[cfg(unix)]
+    capabilities.push(conversation_question_decision::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
     #[cfg(unix)]
@@ -551,6 +554,8 @@ pub(super) fn advertised_capabilities(
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
+    #[cfg(unix)]
+    capabilities.push(conversations::CONVERSATION_QUESTION_DELIVERY_CAPABILITY);
     capabilities.extend(crate::apps::advertised_capabilities());
     capabilities.extend(crate::device_setup::advertised());
     #[cfg(unix)]

@@ -673,6 +673,30 @@ class ConversationParticipant:
 
 
 @dataclass(frozen=True)
+class ConversationQuestionAnswer:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationQuestionAnswer'
+    selections: Dict[str, ConversationQuestionSelection]
+    answered_at: Union[str, None, MissingType] = field(default=MISSING)
+    respondent: Union[ConversationQuestionRespondent, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationQuestionRespondent:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationQuestionRespondent'
+    display_name: str
+    participant: str
+    device: Union[str, None, MissingType] = field(default=MISSING)
+    remote: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationQuestionSelection:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationQuestionSelection'
+    option_ids: Union[List[str], MissingType] = field(default=MISSING)
+    other: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationReaction:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationReaction'
     at: str
@@ -3647,6 +3671,17 @@ class ConversationOpResult:
     rev: int
     seq: Union[int, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationQuestionDecisionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-question-decision/request'
+    answer: ConversationQuestionAnswer
+    conversation: str
+    message_id: str
+    part_index: int
+    native_record: Union[bool, MissingType] = field(default=MISSING)
+    question: Union[JsonValue, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7058,6 +7093,9 @@ __all__ = [
     'ConversationPart',
     'ConversationPartRef',
     'ConversationParticipant',
+    'ConversationQuestionAnswer',
+    'ConversationQuestionRespondent',
+    'ConversationQuestionSelection',
     'ConversationReaction',
     'ConversationReactionKind',
     'ConversationSearchHit',
@@ -7367,6 +7405,7 @@ __all__ = [
     'ConversationLivePublishRequest',
     'ConversationOpRequest',
     'ConversationOpResult',
+    'ConversationQuestionDecisionRequest',
     'ConversationRunRequest',
     'ConversationRunResult',
     'ConversationRunAppendRequest',

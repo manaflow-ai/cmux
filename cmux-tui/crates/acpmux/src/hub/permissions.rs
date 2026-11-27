@@ -53,6 +53,7 @@ pub(crate) use display::{ChildTags, drop_display_lines};
 pub(super) mod external;
 mod inbound;
 mod pending;
+pub(crate) mod receipt;
 
 #[cfg(test)]
 mod delivery_tests;
@@ -903,6 +904,36 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
+        self.respond_permission_receipted(
+            session,
+            permission_id,
+            option_id,
+            answers,
+            annotations,
+            answered_by,
+            answerer,
+            control,
+            None,
+        )
+        .await
+    }
+
+    /// Optional durable evidence for Home reconciliation. Legacy callers use no receipt.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn respond_permission_receipted(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+        annotations: Option<Value>,
+        answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
+        control: Control,
+        attempt: Option<receipt::Attempt>,
+    ) -> Result<(), RpcError> {
+        let delivery_path = attempt.as_ref().and_then(|_| self.delivery_path(session));
+        let attempt_id = attempt.as_ref().map(|a| a.id.clone());
         // The Web's asking rule, checked here at the answer, where its option
         // and proof are known (`Hub::web_answer_check`); the prompt's own
         // checks below run again under its lock.
@@ -994,6 +1025,11 @@ impl Hub {
                     return Err(RpcError::new(-32000, "policy_changed")
                         .with_data(json!({"reason":"policy_changed"})));
                 }
+                if attempt.is_some() && !matches!(kind, Some("allow_once" | "reject_once")) {
+                    return Err(RpcError::invalid_params(
+                        "deliveryAttempt requires a once-only option or cancellation",
+                    ));
+                }
                 if kind == Some("allow_always") {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
@@ -1003,6 +1039,21 @@ impl Hub {
                 Some(a) => super::questions::check_annotations(&p.request, a)?,
                 None => None,
             };
+            let delivery = attempt
+                .map(|a| {
+                    receipt::Receipt::prepare(
+                        a,
+                        &session.id,
+                        permission_id,
+                        self.person.instance(),
+                        p,
+                        option_id.as_deref(),
+                        answers.as_ref(),
+                        annotations.as_ref(),
+                    )
+                })
+                .transpose()?;
+            let mut claimed = false;
             // The authoritative person rule (`person.rs`), here under the
             // prompt's lock, whatever the request check saw: a client that
             // is not the person may cancel or reject; an allow, or who
@@ -1048,6 +1099,13 @@ impl Hub {
                         answered_by.is_some(),
                         &answerer,
                     );
+                    if let Some(delivery) = &delivery {
+                        if !proved && !signed {
+                            return Err(super::person::person_required("allowing a permission"));
+                        }
+                        state.deliveries.claim(delivery, delivery_path.as_deref())?;
+                        claimed = true;
+                    }
                     // A phone's signature counts only while its phone is still enrolled, checked
                     // again as the nonce is spent (`approver_spends`: lock order there).
                     let spent = (proved
@@ -1070,6 +1128,9 @@ impl Hub {
                         return Err(super::person::person_required("allowing a permission"));
                     }
                 }
+            }
+            if !claimed && let Some(delivery) = &delivery {
+                state.deliveries.claim(delivery, delivery_path.as_deref())?;
             }
             let p = map.remove(permission_id).unwrap();
             // An ancestor's answer that won: its fence goes to the asking task, which writes it
@@ -1131,6 +1192,15 @@ impl Hub {
         // The asking task is gone: nothing writes the answer. Cut its fence and
         // tell the caller instead of acknowledging an answer that was never delivered.
         if pending.reply.send(outcome).is_err() {
+            if let Some(id) = &attempt_id {
+                // Failure to record a known refusal must remain unknown to later callers.
+                let _ = session
+                    .permissions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .deliveries
+                    .finish(id, false, delivery_path.as_deref());
+            }
             if let Some(fence) = answerer.fence {
                 self.answer_fences.lock().unwrap().remove(permission_id);
                 fence.cut();
@@ -1140,6 +1210,13 @@ impl Hub {
             )
             .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
                                   "permissionId": permission_id})));
+        }
+        if let Some(id) = &attempt_id {
+            session.permissions.lock().unwrap_or_else(|e| e.into_inner()).deliveries.finish(
+                id,
+                true,
+                delivery_path.as_deref(),
+            )?;
         }
         if let Some(plan) = approved {
             self.approved_plan_set(session, plan);

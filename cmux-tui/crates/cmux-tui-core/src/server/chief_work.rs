@@ -100,6 +100,16 @@ fn answer(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failu
 /// Resolve only records this daemon owns. Named homes also carry their complete Chief id,
 /// so a colliding short directory never makes one Chief's work look like another's.
 fn target(mux: &Mux, chief: &str) -> Result<(PathBuf, PathBuf), Failure> {
+    let (root, home) = trusted_homes(mux, chief)?;
+    // SAFETY: geteuid has no preconditions; only this user's configured Chief socket is used.
+    let uid = unsafe { libc::geteuid() };
+    let socket =
+        cmux_agent_pane_policy::environment::default_socket_path(&root.join("acpmux"), uid);
+    Ok((home, PathBuf::from(socket)))
+}
+
+/// The configured root and this registered Chief's verified brain home. No directory scan.
+pub(super) fn trusted_homes(mux: &Mux, chief: &str) -> Result<(PathBuf, PathBuf), Failure> {
     let mut slot = mux.chiefs().store.lock().map_err(|_| UNAVAILABLE)?;
     if slot.is_none() {
         *slot = Some(
@@ -129,15 +139,11 @@ fn target(mux: &Mux, chief: &str) -> Result<(PathBuf, PathBuf), Failure> {
         }
         home
     };
-    // SAFETY: geteuid has no preconditions; only this user's configured Chief socket is used.
-    let uid = unsafe { libc::geteuid() };
-    let socket =
-        cmux_agent_pane_policy::environment::default_socket_path(&root.join("acpmux"), uid);
-    Ok((home, PathBuf::from(socket)))
+    Ok((root, home))
 }
 
 /// The brain pins this id when it first starts. Older homes used the path's FNV-1a.
-fn home_id(home: &Path) -> String {
+pub(super) fn home_id(home: &Path) -> String {
     if let Ok(text) = std::fs::read_to_string(home.join("optchat/home-id")) {
         let id = text.trim();
         if id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {

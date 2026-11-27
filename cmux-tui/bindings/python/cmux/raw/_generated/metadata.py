@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c'
+IR_SHA256 = '81ce4c4dbf91a8179d6047995bb208ccf829404c5b802e542b5ad20533610dae'
 
 
 @dataclass(frozen=True)
@@ -1141,6 +1141,22 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-question-decision': CommandMetadata(
+        'conversation-question-decision',
+        'control',
+        12,
+        'conversation-question-decision-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'answer': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'message_id': CommandFieldMetadata(None, None),
+            'native_record': CommandFieldMetadata(None, None),
+            'part_index': CommandFieldMetadata(None, None),
+            'question': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-run': CommandMetadata(

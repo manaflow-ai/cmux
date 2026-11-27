@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c" as const;
+export const SDK_IR_SHA256 = "81ce4c4dbf91a8179d6047995bb208ccf829404c5b802e542b5ad20533610dae" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1070,6 +1070,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+    ]
+  },
+  "conversation-question-decision": {
+    "authority": "control",
+    "since": 12,
+    "capability": "conversation-question-decision-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read-only; trusted local connections only, and only where the daemon reaches acpmux (a Unix socket). Holds no key and grants nothing: acpmux alone verifies and spends the signed proof.",
+      "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, stale, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
+      "See spec/commands.md for the result object."
     ]
   },
   "conversation-run": {
@@ -6584,6 +6596,108 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "description": "Known values: human, agent. Other values are future kinds.",
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationQuestionAnswer": {
+    "additional_properties": false,
+    "fields": {
+      "answered_at": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "respondent": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationQuestionRespondent"
+        }
+      },
+      "selections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "ref",
+            "name": "ConversationQuestionSelection"
+          }
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationQuestionRespondent": {
+    "additional_properties": false,
+    "fields": {
+      "device": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "display_name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "remote": {
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationQuestionSelection": {
+    "additional_properties": false,
+    "fields": {
+      "option_ids": {
+        "default": [],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "other": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -21906,6 +22020,70 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "conversation-question-decision": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "answer": {
+          "description": "What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`).",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationQuestionAnswer"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "message_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "native_record": {
+          "default": false,
+          "description": "true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "part_index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "question": {
+          "description": "The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "conversation-run": {

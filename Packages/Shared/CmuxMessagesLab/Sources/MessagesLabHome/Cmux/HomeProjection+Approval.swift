@@ -61,18 +61,25 @@ extension HomeProjection {
     }
 
     /// No card answer is recorded until acpmux confirms that its pending request was answered.
-    /// An answered request remains disabled even when recording the card fails.
+    /// An answered request remains disabled even when recording the card fails. The answer to
+    /// acpmux carries a delivery attempt, and the record names its receipt (`native_record`): the
+    /// owner records the card only after it reads that exact receipt back from acpmux.
     func completeApproval(_ request: HomeApprovalRequest, allow: Bool, question: AgentQuestion,
                           message: MessageID, partIndex: Int, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalRowProvider.Local {
-        guard let approvals else { return .init(note: CmuxStrings.approvalFailed) }
-        switch await approvals.decide(request, allow: allow, through: gate) {
+        guard let approvals, let item = question.items.first else { return .init(note: CmuxStrings.approvalFailed) }
+        var answer = AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [allow ? "allow" : "deny"])])
+        guard let answerJSON = try? answer.conversationAnswer.data() else { return .init(note: CmuxStrings.approvalFailed) }
+        let record = HomeQuestionRequest(chief: request.chief, conversation: conversation.rawValue, message: message.rawValue,
+                                         partIndex: partIndex, answerJSON: answerJSON,
+                                         displayedQuestionJSON: question.displayedJSON)
+        let receipted = HomeApprovalRequest(chief: request.chief, session: request.session, permission: request.permission,
+                                            requestJSON: request.requestJSON, record: record)
+        switch await approvals.decide(receipted, allow: allow, through: gate) {
         case .expired: return .init(note: CmuxStrings.approvalExpired, ended: true)
         case .refused: return .init(note: CmuxStrings.approvalFailed)
-        case .answered: break
+        case .answered(let native):
+            answer.decision = native.flatMap { try? AgentQuestionJSON(data: Data($0.utf8)) }
         }
-        let selection = AgentQuestionAnswer.Selection(optionIDs: [allow ? "allow" : "deny"])
-        guard let item = question.items.first else { return .init(ended: true) }
-        let answer = AgentQuestionAnswer(selections: [item.id: selection])
         do {
             _ = try await homeStore.perform(.answerQuestion(message: message, conversation: conversation, partIndex: partIndex, answer: answer))
             return .init(note: allow ? CmuxStrings.approvalAllowed : CmuxStrings.approvalDenied, ended: true)

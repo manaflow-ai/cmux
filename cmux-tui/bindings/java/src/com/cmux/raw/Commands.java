@@ -94,6 +94,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_LIVE = new CommandMetadata("conversation-live", Authority.LOCAL_ADMIN, 12, "chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIVE_PUBLISH = new CommandMetadata("conversation-live-publish", Authority.LOCAL_ADMIN, 12, "chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_QUESTION_DECISION = new CommandMetadata("conversation-question-decision", Authority.CONTROL, 12, "conversation-question-decision-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("answers", "conversation-run-answers-v1")));
@@ -413,6 +414,7 @@ public final class Commands {
         values.put("conversation-live", CONVERSATION_LIVE);
         values.put("conversation-live-publish", CONVERSATION_LIVE_PUBLISH);
         values.put("conversation-op", CONVERSATION_OP);
+        values.put("conversation-question-decision", CONVERSATION_QUESTION_DECISION);
         values.put("conversation-run", CONVERSATION_RUN);
         values.put("conversation-run-append", CONVERSATION_RUN_APPEND);
         values.put("conversation-runs", CONVERSATION_RUNS);

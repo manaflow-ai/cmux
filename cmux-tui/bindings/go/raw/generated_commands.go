@@ -8884,6 +8884,146 @@ func (value *ConversationOpOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ConversationQuestionDecisionRequest is the exact conversation-question-decision wire payload.
+type ConversationQuestionDecisionRequest struct {
+	// What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`).
+	Answer       ConversationQuestionAnswer `json:"answer"`
+	Conversation string                     `json:"conversation"`
+	MessageID    string                     `json:"message_id"`
+	// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+	NativeRecord *bool  `json:"native_record,omitempty"`
+	PartIndex    uint64 `json:"part_index"`
+	// The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.
+	Question Presence[JSONValue] `json:"-"`
+}
+
+func (value ConversationQuestionDecisionRequest) MarshalJSON() ([]byte, error) {
+	type wire ConversationQuestionDecisionRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Question.IsAbsent() {
+		delete(object, "question")
+	} else if value.Question.IsNull() {
+		object["question"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Question.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionDecisionRequest.Question: %w", err)
+		}
+		object["question"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ConversationQuestionDecisionRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: expected object")
+	}
+	var fields struct {
+		Answer       *ConversationQuestionAnswer `json:"answer"`
+		Conversation *string                     `json:"conversation"`
+		MessageID    *string                     `json:"message_id"`
+		NativeRecord optionalNonNullJSON[bool]   `json:"native_record"`
+		PartIndex    *uint64                     `json:"part_index"`
+		Question     Presence[JSONValue]         `json:"question"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: %w", err)
+	}
+	type wire ConversationQuestionDecisionRequest
+	var decoded wire
+	if fields.Answer == nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: required field answer is missing or null")
+	}
+	decoded.Answer = *fields.Answer
+	if fields.Conversation == nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: required field conversation is missing or null")
+	}
+	decoded.Conversation = *fields.Conversation
+	if fields.MessageID == nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: required field message_id is missing or null")
+	}
+	decoded.MessageID = *fields.MessageID
+	if fields.NativeRecord.null {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: non-nullable field native_record is null")
+	}
+	if fields.NativeRecord.set {
+		decoded.NativeRecord = &fields.NativeRecord.value
+	}
+	if fields.PartIndex == nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionRequest: required field part_index is missing or null")
+	}
+	decoded.PartIndex = *fields.PartIndex
+	decoded.Question = fields.Question
+	*value = ConversationQuestionDecisionRequest(decoded)
+	return nil
+}
+
+type ConversationQuestionDecisionResult = JSONValue
+
+type ConversationQuestionDecisionOptions struct {
+	// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+	NativeRecord *bool `json:"native_record,omitempty"`
+	// The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.
+	Question Presence[JSONValue] `json:"-"`
+}
+
+func (value ConversationQuestionDecisionOptions) MarshalJSON() ([]byte, error) {
+	type wire ConversationQuestionDecisionOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Question.IsAbsent() {
+		delete(object, "question")
+	} else if value.Question.IsNull() {
+		object["question"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Question.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionDecisionOptions.Question: %w", err)
+		}
+		object["question"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ConversationQuestionDecisionOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConversationQuestionDecisionOptions: expected object")
+	}
+	var fields struct {
+		NativeRecord optionalNonNullJSON[bool] `json:"native_record"`
+		Question     Presence[JSONValue]       `json:"question"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConversationQuestionDecisionOptions: %w", err)
+	}
+	type wire ConversationQuestionDecisionOptions
+	var decoded wire
+	if fields.NativeRecord.null {
+		return fmt.Errorf("decode ConversationQuestionDecisionOptions: non-nullable field native_record is null")
+	}
+	if fields.NativeRecord.set {
+		decoded.NativeRecord = &fields.NativeRecord.value
+	}
+	decoded.Question = fields.Question
+	*value = ConversationQuestionDecisionOptions(decoded)
+	return nil
+}
+
 // ConversationRunRequest is the exact conversation-run wire payload.
 type ConversationRunRequest struct {
 	AfterRev     *uint64          `json:"after_rev,omitempty"`
@@ -38871,6 +39011,18 @@ func (c *Client) ConversationOp(ctx context.Context, request ConversationOpReque
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["conversation-op"], "conversation-op", params, &result)
+	return result, err
+}
+
+// ConversationQuestionDecision sends conversation-question-decision. Protocol v12; authority control.
+func (c *Client) ConversationQuestionDecision(ctx context.Context, request ConversationQuestionDecisionRequest) (ConversationQuestionDecisionResult, error) {
+	var result ConversationQuestionDecisionResult
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode conversation-question-decision parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["conversation-question-decision"], "conversation-question-decision", params, &result)
 	return result, err
 }
 

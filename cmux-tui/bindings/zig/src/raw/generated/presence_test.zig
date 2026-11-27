@@ -42,6 +42,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "truncated");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
+    try expectExplicitNullRejected(protocol.ConversationQuestionDecisionRequest, "native_record");
     try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
     try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
     try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "change");
@@ -220,6 +221,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationPart, "text");
     try expectExplicitNullRejected(protocol.ConversationParticipant, "acp_session");
     try expectExplicitNullRejected(protocol.ConversationParticipant, "agent_class");
+    try expectExplicitNullRejected(protocol.ConversationQuestionRespondent, "remote");
+    try expectExplicitNullRejected(protocol.ConversationQuestionSelection, "option_ids");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "emoji");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "tapback");
     try expectExplicitNullRejected(protocol.ConversationSummary, "last_message");

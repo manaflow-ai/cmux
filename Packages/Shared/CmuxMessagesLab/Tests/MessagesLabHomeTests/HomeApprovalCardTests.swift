@@ -16,7 +16,7 @@ import Testing
         var held = false
         private var waiting: CheckedContinuation<HomeApprovalDecision, Never>?
 
-        init(_ result: HomeApprovalDecision = .answered) { self.result = result }
+        init(_ result: HomeApprovalDecision = .answered(record: nil)) { self.result = result }
 
         func decide(_ request: HomeApprovalRequest, allow: Bool,
                     through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
@@ -24,7 +24,7 @@ import Testing
             let answer: HomeApprovalDecision
             if held { answer = await withCheckedContinuation { waiting = $0 } }
             else { answer = result }
-            if answer == .answered, !gate({}) { return .refused }
+            if case .answered = answer, !gate({}) { return .refused }
             return answer
         }
 
@@ -132,9 +132,18 @@ import Testing
                                                        message: message, partIndex: 0, through: { gate.write($0) })
         }
         await HomeChatRig.until { decider.calls.count == 1 }
-        #expect(decider.calls == [.init(request: request, allow: allow)])
+        let call = try #require(decider.calls.first)
+        #expect(call.allow == allow)
+        #expect(call.request.chief == request.chief && call.request.session == request.session
+                && call.request.permission == request.permission && call.request.requestJSON == request.requestJSON)
+        // The card asks for its native record: the stored part and the exact answer the owner records.
+        let record = try #require(call.request.record)
+        #expect(record.message == message.rawValue && record.partIndex == 0 && record.chief == request.chief)
+        let sent = try #require(try JSONSerialization.jsonObject(with: record.answerJSON) as? [String: Any])
+        let itemID0 = try #require(question.items.first?.id)
+        #expect(((sent["selections"] as? [String: Any])?[itemID0] as? [String: Any])?["option_ids"] as? [String] == [allow ? "allow" : "deny"])
         #expect(currentQuestion(item, in: rig)?.isPending == true, "the conversation must not claim an unconfirmed answer")
-        decider.release(.answered)
+        decider.release(.answered(record: nil))
         let local = await task.value
         await HomeChatRig.until { currentQuestion(item, in: rig)?.isPending == false }
         guard case .answered(let answer)? = currentQuestion(item, in: rig)?.state else {
@@ -163,7 +172,7 @@ import Testing
         #expect(currentQuestion(item, in: rig)?.isPending == true)
         #expect(local.note == CmuxStrings.approvalFailed)
         #expect(payload(question, local: local).takesClicks)
-        decider.result = .answered
+        decider.result = .answered(record: nil)
         let next = HomeApprovalWriteGate(deadline: ProcessInfo.processInfo.systemUptime + 60)
         let retried = await rig.view.projection.completeApproval(request, allow: false, question: question,
                                                                 message: message, partIndex: 0, through: { next.write($0) })

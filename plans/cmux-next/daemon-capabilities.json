@@ -70,6 +70,8 @@
     "computer-use-v1",
     "conversation-draft-events-v1",
     "conversation-inbox-state-v1",
+    "conversation-question-decision-v1",
+    "conversation-question-delivery-v1",
     "conversation-run-answers-v1",
     "conversation-runs-v1",
     "conversation-search-v1",

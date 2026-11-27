@@ -9,6 +9,7 @@
 //! only after a method returns, so no event ever describes an uncommitted
 //! write. Typing indicators are never stored.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_deliveries.rs"]
+pub(crate) mod deliveries;
 #[path = "conversation_home_window.rs"]
 pub(crate) mod home_window;
 #[path = "conversation_import.rs"]
@@ -96,6 +99,15 @@ fn rejected(reject: Reject) -> anyhow::Error {
     ConversationRejected(reject).into()
 }
 
+#[derive(Debug)]
+pub(crate) struct QuestionDeliveryBusy;
+impl std::fmt::Display for QuestionDeliveryBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("question.delivery_pending")
+    }
+}
+impl std::error::Error for QuestionDeliveryBusy {}
+
 /// The result of a committed op, stored in the idempotency ledger and
 /// returned unchanged to every replay.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,6 +142,7 @@ pub(crate) mod attachments;
 
 pub(crate) struct ConversationStore {
     connection: Connection,
+    question_deliveries: HashSet<String>,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
     /// The Home list order last read for a window (`home_window`).
@@ -252,6 +265,7 @@ impl ConversationStore {
         transaction.execute_batch(threads::SCHEMA)?;
         transaction.execute_batch(inbox::SCHEMA)?;
         transaction.execute_batch(runs::SCHEMA)?;
+        transaction.execute_batch(deliveries::SCHEMA)?;
         transaction.execute_batch(scheduled::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
@@ -260,7 +274,12 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments, home_order_cache: Default::default() })
+        Ok(Self {
+            connection,
+            attachments,
+            question_deliveries: HashSet::new(),
+            home_order_cache: Default::default(),
+        })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -328,6 +347,11 @@ impl ConversationStore {
         crate::conversation_search::search(&mut self.connection, actor, input, |connection, id| {
             load_head(connection, id)
         })
+    }
+
+    /// One stored message by id, any conversation's (the caller checks which).
+    pub(crate) fn message(&mut self, id: &str) -> anyhow::Result<Option<Message>> {
+        load_message_by_id(&self.connection, id)
     }
 
     /// Every conversation, newest `updated_at` first.
@@ -459,14 +483,61 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        self.check_question_delivery(op)?;
         // A person's send past the text limit goes as a file (conversation_spill).
         let spilled = self.spill_oversized_send(conversation, actor, op)?;
         let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        deliveries::check_pending(&transaction, op)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
         transaction.commit()?;
         Ok(outcome)
+    }
+
+    /// Dry-run reducer validation and reserve just this message. No store lock or SQLite
+    /// transaction is held during ACP delivery. Other conversations remain writable.
+    pub(crate) fn prepare_question_answer(
+        &mut self,
+        conversation: &str,
+        key: &str,
+        actor: &str,
+        op: &Op,
+    ) -> anyhow::Result<Result<cmux_conversation::Question, OpOutcome>> {
+        let Op::QuestionAnswer { message_id, part_index, .. } = op else {
+            anyhow::bail!("not a question answer");
+        };
+        self.check_question_delivery(op)?;
+        let transaction =
+            self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        deliveries::check_pending(&transaction, op)?;
+        let target = load_message_by_id(&transaction, message_id)?;
+        let outcome = apply_op_in(&transaction, conversation, key, actor, op)?;
+        transaction.rollback()?;
+        if outcome.replayed {
+            return Ok(Err(outcome));
+        }
+        let Some(cmux_conversation::Part::Question(question)) =
+            target.as_ref().and_then(|m| m.parts.get(*part_index as usize))
+        else {
+            return Err(rejected(Reject::InvalidPartIndex));
+        };
+        self.question_deliveries.insert(message_id.clone());
+        Ok(Ok(question.clone()))
+    }
+
+    pub(crate) fn release_question_answer(&mut self, message: &str) {
+        self.question_deliveries.remove(message);
+    }
+
+    fn check_question_delivery(&self, op: &Op) -> anyhow::Result<()> {
+        let Some(id) = op.target_message_id() else { return Ok(()) };
+        if self.question_deliveries.contains(id)
+            || deliveries::message_pending(&self.connection, id)?
+        {
+            return Err(QuestionDeliveryBusy.into());
+        }
+        Ok(())
     }
 
     /// Apply every op in one transaction: all commit or none does (pairing a
@@ -475,10 +546,14 @@ impl ConversationStore {
         &mut self,
         ops: &[(String, String, String, Op)],
     ) -> anyhow::Result<Vec<OpOutcome>> {
+        for (_, _, _, op) in ops {
+            self.check_question_delivery(op)?;
+        }
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut outcomes = Vec::with_capacity(ops.len());
         for (conversation, idempotency_key, actor, op) in ops {
+            deliveries::check_pending(&transaction, op)?;
             outcomes.push(apply_op_in(&transaction, conversation, idempotency_key, actor, op)?);
         }
         transaction.commit()?;

@@ -754,6 +754,10 @@ fn dispatch_command(
         Command::ConversationLinkResolve(params) => {
             conversations::link_resolve(mux, client, params)
         }
+        Command::ConversationQuestionDecision(params) => {
+            conversations::require_local(mux, client)?;
+            conversation_question_decision::decision(mux, params)
+        }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
         Command::ConversationScheduledList(params) => {
             conversation_scheduled::list(mux, client, params)

@@ -2852,6 +2852,193 @@ func (value *ConversationParticipant) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type ConversationQuestionAnswer struct {
+	AnsweredAt Presence[string]                         `json:"-"`
+	Respondent Presence[ConversationQuestionRespondent] `json:"-"`
+	Selections map[string]ConversationQuestionSelection `json:"selections"`
+}
+
+func (value ConversationQuestionAnswer) MarshalJSON() ([]byte, error) {
+	type wire ConversationQuestionAnswer
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.AnsweredAt.IsAbsent() {
+		delete(object, "answered_at")
+	} else if value.AnsweredAt.IsNull() {
+		object["answered_at"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.AnsweredAt.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionAnswer.AnsweredAt: %w", err)
+		}
+		object["answered_at"] = encodedField
+	}
+	if value.Respondent.IsAbsent() {
+		delete(object, "respondent")
+	} else if value.Respondent.IsNull() {
+		object["respondent"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Respondent.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionAnswer.Respondent: %w", err)
+		}
+		object["respondent"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ConversationQuestionAnswer) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConversationQuestionAnswer: expected object")
+	}
+	var fields struct {
+		AnsweredAt Presence[string]                          `json:"answered_at"`
+		Respondent Presence[ConversationQuestionRespondent]  `json:"respondent"`
+		Selections *map[string]ConversationQuestionSelection `json:"selections"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConversationQuestionAnswer: %w", err)
+	}
+	type wire ConversationQuestionAnswer
+	var decoded wire
+	decoded.AnsweredAt = fields.AnsweredAt
+	decoded.Respondent = fields.Respondent
+	if fields.Selections == nil {
+		return fmt.Errorf("decode ConversationQuestionAnswer: required field selections is missing or null")
+	}
+	decoded.Selections = *fields.Selections
+	*value = ConversationQuestionAnswer(decoded)
+	return nil
+}
+
+type ConversationQuestionRespondent struct {
+	Device      Presence[string] `json:"-"`
+	DisplayName string           `json:"display_name"`
+	Participant string           `json:"participant"`
+	Remote      *bool            `json:"remote,omitempty"`
+}
+
+func (value ConversationQuestionRespondent) MarshalJSON() ([]byte, error) {
+	type wire ConversationQuestionRespondent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Device.IsAbsent() {
+		delete(object, "device")
+	} else if value.Device.IsNull() {
+		object["device"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Device.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionRespondent.Device: %w", err)
+		}
+		object["device"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ConversationQuestionRespondent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConversationQuestionRespondent: expected object")
+	}
+	var fields struct {
+		Device      Presence[string]          `json:"device"`
+		DisplayName *string                   `json:"display_name"`
+		Participant *string                   `json:"participant"`
+		Remote      optionalNonNullJSON[bool] `json:"remote"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConversationQuestionRespondent: %w", err)
+	}
+	type wire ConversationQuestionRespondent
+	var decoded wire
+	decoded.Device = fields.Device
+	if fields.DisplayName == nil {
+		return fmt.Errorf("decode ConversationQuestionRespondent: required field display_name is missing or null")
+	}
+	decoded.DisplayName = *fields.DisplayName
+	if fields.Participant == nil {
+		return fmt.Errorf("decode ConversationQuestionRespondent: required field participant is missing or null")
+	}
+	decoded.Participant = *fields.Participant
+	if fields.Remote.null {
+		return fmt.Errorf("decode ConversationQuestionRespondent: non-nullable field remote is null")
+	}
+	if fields.Remote.set {
+		decoded.Remote = &fields.Remote.value
+	}
+	*value = ConversationQuestionRespondent(decoded)
+	return nil
+}
+
+type ConversationQuestionSelection struct {
+	OptionIDs *[]string        `json:"option_ids,omitempty"`
+	Other     Presence[string] `json:"-"`
+}
+
+func (value ConversationQuestionSelection) MarshalJSON() ([]byte, error) {
+	type wire ConversationQuestionSelection
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Other.IsAbsent() {
+		delete(object, "other")
+	} else if value.Other.IsNull() {
+		object["other"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Other.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ConversationQuestionSelection.Other: %w", err)
+		}
+		object["other"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ConversationQuestionSelection) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConversationQuestionSelection: expected object")
+	}
+	var fields struct {
+		OptionIDs optionalNonNullJSON[[]string] `json:"option_ids"`
+		Other     Presence[string]              `json:"other"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConversationQuestionSelection: %w", err)
+	}
+	type wire ConversationQuestionSelection
+	var decoded wire
+	if fields.OptionIDs.null {
+		return fmt.Errorf("decode ConversationQuestionSelection: non-nullable field option_ids is null")
+	}
+	if fields.OptionIDs.set {
+		decoded.OptionIDs = &fields.OptionIDs.value
+	}
+	decoded.Other = fields.Other
+	*value = ConversationQuestionSelection(decoded)
+	return nil
+}
+
 type ConversationReaction struct {
 	At        string                   `json:"at"`
 	Author    string                   `json:"author"`

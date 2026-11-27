@@ -7,13 +7,22 @@ public struct HomeApprovalRequest: Sendable, Equatable {
     public let session: String
     public let permission: String
     public let requestJSON: String
-    public init(chief: String, session: String, permission: String, requestJSON: String) {
-        (self.chief, self.session, self.permission, self.requestJSON) = (chief, session, permission, requestJSON)
+    /// The stored card and the answer the owner will record for it. With it, the answer to acpmux
+    /// carries a delivery attempt and ``HomeApprovalDecision/answered(record:)`` returns the
+    /// `native_record` decision; nil: no record is asked for.
+    public let record: HomeQuestionRequest?
+    public init(chief: String, session: String, permission: String, requestJSON: String, record: HomeQuestionRequest? = nil) {
+        (self.chief, self.session, self.permission, self.requestJSON, self.record) = (chief, session, permission, requestJSON, record)
     }
 }
 
 public enum HomeApprovalDecision: Sendable, Equatable {
-    case answered, expired, refused
+    /// acpmux took the answer. `record`: the `question.answer` op's decision for the card,
+    /// `{"native_record": {question, receipt_id, instance, decision_nonce}}` as JSON text (the
+    /// stored question unchanged and the exact acpmux receipt it names), or nil when the request
+    /// asked for none. It holds no proof or key.
+    case answered(record: String?)
+    case expired, refused
 }
 
 /// Only the native app answers acpmux. The transcript records its card's answer afterward.

@@ -426,6 +426,7 @@
       "close-tabs",
       "close-terminal",
       "close-workspace",
+      "conversation-question-decision",
       "copy",
       "create-bookmark",
       "create-browser-profile",

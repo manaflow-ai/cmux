@@ -34,6 +34,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
     "ConversationTabSplitParams": "ConversationTabSplit",
+    "QuestionAnswer": "ConversationQuestionAnswer",
     "TabPlaceRequest": "TabPlace",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",

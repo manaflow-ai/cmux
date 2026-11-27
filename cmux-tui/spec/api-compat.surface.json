@@ -14213,6 +14213,67 @@
         "nullable": true
       }
     },
+    "request:conversation-question-decision": {
+      "/answer": {
+        "ty": "object",
+        "required": true
+      },
+      "/answer/answered_at": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/answer/respondent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/answer/respondent/device": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/answer/respondent/display_name": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer/respondent/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer/respondent/remote": {
+        "ty": "boolean"
+      },
+      "/answer/selections": {
+        "ty": "map",
+        "required": true
+      },
+      "/answer/selections/*": {
+        "ty": "object"
+      },
+      "/answer/selections/*/option_ids": {
+        "ty": "array"
+      },
+      "/answer/selections/*/option_ids/*": {
+        "ty": "string"
+      },
+      "/answer/selections/*/other": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/message_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/native_record": {
+        "ty": "boolean"
+      },
+      "/part_index": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:conversation-run": {
       "/after_rev": {
         "ty": "uint64"
@@ -21433,6 +21494,12 @@
       },
       "/data/transaction": {
         "ty": "string"
+      }
+    },
+    "response:conversation-question-decision": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:conversation-run": {

@@ -918,6 +918,21 @@ export type ConversationOpResult = {
   "transaction"?: string;
 };
 
+/** Protocol v12; authority: control. */
+export interface ConversationQuestionDecisionRequest extends CmuxRequestBase {
+  cmd: "conversation-question-decision";
+  /** What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`). */
+  "answer": T.ConversationQuestionAnswer;
+  "conversation": string;
+  "message_id": string;
+  /** true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively. */
+  "native_record"?: boolean;
+  "part_index": bigint;
+  /** The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true. */
+  "question"?: (T.JsonValue) | null;
+}
+export type ConversationQuestionDecisionResult = T.JsonValue;
+
 /** Protocol v12; authority: local-admin. */
 export interface ConversationRunRequest extends CmuxRequestBase {
   cmd: "conversation-run";
@@ -3296,6 +3311,7 @@ export type CmuxRequest =
   | ConversationLiveRequest
   | ConversationLivePublishRequest
   | ConversationOpRequest
+  | ConversationQuestionDecisionRequest
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
@@ -4200,6 +4216,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-question-decision": {
+    request: ConversationQuestionDecisionRequest;
+    result: ConversationQuestionDecisionResult;
+    authority: "control";
+    since: 12;
+    capability: "conversation-question-decision-v1";
     stream: null;
   };
   "conversation-run": {

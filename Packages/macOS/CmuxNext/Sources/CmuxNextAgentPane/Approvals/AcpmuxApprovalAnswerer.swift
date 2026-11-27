@@ -9,8 +9,8 @@ import os
 /// and Deny send it.
 @MainActor
 public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswering {
-    private let environment: AcpmuxEnvironment
-    private let chiefHomeID: String?
+    let environment: AcpmuxEnvironment
+    let chiefHomeID: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications.approval")
 
     public init(environment: AcpmuxEnvironment, chiefHomeID: String? = nil) {
@@ -123,15 +123,33 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: true, through: gate) { true }
     }
 
+    /// As ``answerOnce(_:allow:through:)``, with an acpmux delivery attempt bound to the prompt read
+    /// right before the send: its run (`personInstance`), one-use `decisionNonce` and request
+    /// digest, with no answers or annotations. acpmux records the attempt before it answers, and
+    /// the conversation owner later reads that exact receipt before it records the card
+    /// (`native_record`). Nil: nothing was sent, or acpmux refused it.
+    public func answerOnceReceipted(_ approval: AgentApproval, allow: Bool,
+                                    through gate: @escaping @Sendable (() -> Void) -> Bool) async -> AcpmuxDeliveryReceipt? {
+        await send(approval, allow: allow, once: true, receipted: true, through: gate) { true }?.receipt
+    }
+
     private func answer(_ approval: AgentApproval, allow: Bool, once: Bool, always: Bool = false,
                         through gate: (@Sendable (() -> Void) -> Bool)? = nil,
                         spend: @MainActor () -> Bool) async -> Bool {
-        guard let line = await AcpmuxPersonLine.open(environment) else { return false }
+        await send(approval, allow: allow, once: once, always: always, through: gate, spend: spend) != nil
+    }
+
+    private struct Sent { let receipt: AcpmuxDeliveryReceipt? }
+
+    private func send(_ approval: AgentApproval, allow: Bool, once: Bool, always: Bool = false, receipted: Bool = false,
+                      through gate: (@Sendable (() -> Void) -> Bool)? = nil,
+                      spend: @MainActor () -> Bool) async -> Sent? {
+        guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
         defer { line.close() }
         // acpmux refuses an allow from a connection that is not the person.
         if allow, !line.isPerson {
             logger.error("approval banner: acpmux refused this app's person proof; nothing allowed")
-            return false
+            return nil
         }
         let pending = once ? await line.ownPending(of: approval.session, chiefHomeID: chiefHomeID) : await line.pending(of: approval.session)
         let offered = { (request: [String: Any]) in request["options"] as? [[String: Any]] ?? [] }
@@ -142,10 +160,19 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
                   : AcpmuxPermissionPrompt.option(allow: allow, offered: offered(request))
         else {
             logger.info("approval banner: the prompt ended or changed since its banner posted; nothing answered")
-            return false
+            return nil
         }
-        guard spend() else { return false }
-        let params: [String: Any] = ["sessionId": approval.session, "permissionId": approval.permission, "optionId": option]
-        return await line.call("_acpmux/permission_respond", params, through: gate) != nil
+        var params: [String: Any] = ["sessionId": approval.session, "permissionId": approval.permission, "optionId": option]
+        var receipt: AcpmuxDeliveryReceipt?
+        if receipted {
+            guard let attempt = AcpmuxDeliveryReceipt.attempt(entry: now, request: request) else {
+                logger.info("approval answer: the prompt carries no run or nonce for a receipt; nothing answered")
+                return nil
+            }
+            receipt = attempt.receipt
+            params["deliveryAttempt"] = attempt.params
+        }
+        guard spend() else { return nil }
+        return await line.call("_acpmux/permission_respond", params, through: gate) != nil ? Sent(receipt: receipt) : nil
     }
 }

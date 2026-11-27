@@ -576,6 +576,36 @@ pub struct ConversationParticipant {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionAnswer {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answered_at: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respondent: Optional<ConversationQuestionRespondent>,
+    pub selections: BTreeMap<String, ConversationQuestionSelection>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionRespondent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device: Optional<String>,
+    pub display_name: String,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub remote: Option<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationQuestionSelection {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub option_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub other: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationReaction {
     pub at: String,
     pub author: String,

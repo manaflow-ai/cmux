@@ -18,6 +18,7 @@ mod link;
 mod link_preview;
 mod question;
 pub mod question_reply;
+pub mod question_wire;
 mod reducer;
 mod search;
 mod types;

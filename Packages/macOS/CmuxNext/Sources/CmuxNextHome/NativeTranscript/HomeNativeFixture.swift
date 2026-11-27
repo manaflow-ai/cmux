@@ -481,12 +481,12 @@ public final class HomeNativeFixture {
     private(set) var attempts: [Bool] = []
     init(_ decision: HomeApprovalDecision) { self.decision = decision }
     static func result(_ value: String) -> HomeApprovalDecision? {
-        switch value { case "answered": .answered; case "refused": .refused; case "expired": .expired; default: nil }
+        switch value { case "answered": .answered(record: nil); case "refused": .refused; case "expired": .expired; default: nil }
     }
     func decide(_ request: HomeApprovalRequest, allow: Bool,
                 through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
         attempts.append(allow)
-        if decision == .answered, !gate({}) { return .refused }
+        if case .answered = decision, !gate({}) { return .refused }
         return decision
     }
 }

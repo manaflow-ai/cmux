@@ -264,6 +264,9 @@ class GeneratedClientMixin:
     def conversation_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None], *, actor: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> ConversationOpResult:
         return self._invoke_command('conversation-op', ConversationOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op, actor=actor, transaction=transaction))
 
+    def conversation_question_decision(self, answer: ConversationQuestionAnswer, conversation: str, message_id: str, part_index: int, *, native_record: Union[bool, MissingType] = MISSING, question: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('conversation-question-decision', ConversationQuestionDecisionRequest(answer=answer, conversation=conversation, message_id=message_id, part_index=part_index, native_record=native_record, question=question))
+
     def conversation_run(self, conversation: str, run: str, *, after_rev: Union[int, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> ConversationRunResult:
         return self._invoke_command('conversation-run', ConversationRunRequest(conversation=conversation, run=run, after_rev=after_rev, limit=limit))
 
@@ -1042,6 +1045,7 @@ GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation
 GeneratedClientMixin.conversation_live.__cmux_command__ = COMMANDS['conversation-live']
 GeneratedClientMixin.conversation_live_publish.__cmux_command__ = COMMANDS['conversation-live-publish']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
+GeneratedClientMixin.conversation_question_decision.__cmux_command__ = COMMANDS['conversation-question-decision']
 GeneratedClientMixin.conversation_run.__cmux_command__ = COMMANDS['conversation-run']
 GeneratedClientMixin.conversation_run_append.__cmux_command__ = COMMANDS['conversation-run-append']
 GeneratedClientMixin.conversation_runs.__cmux_command__ = COMMANDS['conversation-runs']

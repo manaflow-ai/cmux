@@ -39,6 +39,7 @@ impl AgentRequestKey {
 #[derive(Debug, Default)]
 pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
+    pub deliveries: super::permissions::receipt::Ledger,
     /// What the asks no longer pending were answered, for a later answer (`permission_settled.rs`).
     pub settled: super::permissions::settled::Settled,
     /// Permission requests whose handlers have been admitted but have not

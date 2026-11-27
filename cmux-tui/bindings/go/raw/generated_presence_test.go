@@ -1479,6 +1479,154 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "agent_class", true, "\"value\"")
 	})
+	t.Run("ConversationQuestionAnswer.AnsweredAt", func(t *testing.T) {
+		var missing ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{}}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.AnsweredAt.IsAbsent() {
+			t.Fatal("AnsweredAt did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "answered_at", false, "")
+		var nullValue ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{},\"answered_at\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.AnsweredAt.IsNull() {
+			t.Fatal("AnsweredAt did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "answered_at", true, "null")
+		var presentValue ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{},\"answered_at\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.AnsweredAt.Get(); !ok {
+			t.Fatal("AnsweredAt did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "answered_at", true, "\"value\"")
+	})
+	t.Run("ConversationQuestionAnswer.Respondent", func(t *testing.T) {
+		var missing ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{}}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Respondent.IsAbsent() {
+			t.Fatal("Respondent did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "respondent", false, "")
+		var nullValue ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{},\"respondent\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Respondent.IsNull() {
+			t.Fatal("Respondent did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "respondent", true, "null")
+		var presentValue ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":{},\"respondent\":{\"display_name\":\"value\",\"participant\":\"value\"}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Respondent.Get(); !ok {
+			t.Fatal("Respondent did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "respondent", true, "{\"display_name\":\"value\",\"participant\":\"value\"}")
+	})
+	t.Run("ConversationQuestionRespondent.Device", func(t *testing.T) {
+		var missing ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Device.IsAbsent() {
+			t.Fatal("Device did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "device", false, "")
+		var nullValue ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\",\"device\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Device.IsNull() {
+			t.Fatal("Device did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "device", true, "null")
+		var presentValue ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\",\"device\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Device.Get(); !ok {
+			t.Fatal("Device did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "device", true, "\"value\"")
+	})
+	t.Run("ConversationQuestionRespondent.Remote", func(t *testing.T) {
+		var missing ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Remote != nil {
+			t.Fatal("Remote did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "remote", false, "")
+		var nullValue ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\",\"remote\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field remote accepted null")
+		}
+		var presentValue ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":\"value\",\"remote\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Remote == nil {
+			t.Fatal("Remote lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "remote", true, "true")
+	})
+	t.Run("ConversationQuestionSelection.OptionIDs", func(t *testing.T) {
+		var missing ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.OptionIDs != nil {
+			t.Fatal("OptionIDs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "option_ids", false, "")
+		var nullValue ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{\"option_ids\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field option_ids accepted null")
+		}
+		var presentValue ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{\"option_ids\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.OptionIDs == nil {
+			t.Fatal("OptionIDs lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "option_ids", true, "[]")
+	})
+	t.Run("ConversationQuestionSelection.Other", func(t *testing.T) {
+		var missing ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Other.IsAbsent() {
+			t.Fatal("Other did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "other", false, "")
+		var nullValue ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{\"other\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Other.IsNull() {
+			t.Fatal("Other did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "other", true, "null")
+		var presentValue ConversationQuestionSelection
+		if err := json.Unmarshal([]byte("{\"other\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Other.Get(); !ok {
+			t.Fatal("Other did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "other", true, "\"value\"")
+	})
 	t.Run("ConversationReactionKind.Emoji", func(t *testing.T) {
 		var missing ConversationReactionKind
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -17940,6 +18088,102 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Transaction did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "transaction", true, "\"value\"")
+	})
+	t.Run("ConversationQuestionDecisionRequest.NativeRecord", func(t *testing.T) {
+		var missing ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.NativeRecord != nil {
+			t.Fatal("NativeRecord did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "native_record", false, "")
+		var nullValue ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1,\"native_record\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field native_record accepted null")
+		}
+		var presentValue ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1,\"native_record\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.NativeRecord == nil {
+			t.Fatal("NativeRecord lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "native_record", true, "true")
+	})
+	t.Run("ConversationQuestionDecisionRequest.Question", func(t *testing.T) {
+		var missing ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Question.IsAbsent() {
+			t.Fatal("Question did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "question", false, "")
+		var nullValue ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1,\"question\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Question.IsNull() {
+			t.Fatal("Question did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "question", true, "null")
+		var presentValue ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1,\"question\":{\"value\":true}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Question.Get(); !ok {
+			t.Fatal("Question did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "question", true, "{\"value\":true}")
+	})
+	t.Run("ConversationQuestionDecisionOptions.NativeRecord", func(t *testing.T) {
+		var missing ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.NativeRecord != nil {
+			t.Fatal("NativeRecord did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "native_record", false, "")
+		var nullValue ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{\"native_record\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field native_record accepted null")
+		}
+		var presentValue ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{\"native_record\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.NativeRecord == nil {
+			t.Fatal("NativeRecord lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "native_record", true, "true")
+	})
+	t.Run("ConversationQuestionDecisionOptions.Question", func(t *testing.T) {
+		var missing ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Question.IsAbsent() {
+			t.Fatal("Question did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "question", false, "")
+		var nullValue ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{\"question\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Question.IsNull() {
+			t.Fatal("Question did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "question", true, "null")
+		var presentValue ConversationQuestionDecisionOptions
+		if err := json.Unmarshal([]byte("{\"question\":{\"value\":true}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Question.Get(); !ok {
+			t.Fatal("Question did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "question", true, "{\"value\":true}")
 	})
 	t.Run("ConversationRunRequest.AfterRev", func(t *testing.T) {
 		var missing ConversationRunRequest
@@ -49536,6 +49780,24 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field kind decoded successfully")
 		}
 	})
+	t.Run("ConversationQuestionAnswer.Selections", func(t *testing.T) {
+		var decoded ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field selections decoded successfully")
+		}
+	})
+	t.Run("ConversationQuestionRespondent.DisplayName", func(t *testing.T) {
+		var decoded ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"participant\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field display_name decoded successfully")
+		}
+	})
+	t.Run("ConversationQuestionRespondent.Participant", func(t *testing.T) {
+		var decoded ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field participant decoded successfully")
+		}
+	})
 	t.Run("ConversationReaction.At", func(t *testing.T) {
 		var decoded ConversationReaction
 		if err := json.Unmarshal([]byte("{\"author\":\"value\",\"kind\":{},\"part_index\":1}"), &decoded); err == nil {
@@ -55074,6 +55336,30 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field rev decoded successfully")
 		}
 	})
+	t.Run("ConversationQuestionDecisionRequest.Answer", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field answer decoded successfully")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.Conversation", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"message_id\":\"value\",\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field conversation decoded successfully")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.MessageID", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field message_id decoded successfully")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.PartIndex", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field part_index decoded successfully")
+		}
+	})
 	t.Run("ConversationRunRequest.Conversation", func(t *testing.T) {
 		var decoded ConversationRunRequest
 		if err := json.Unmarshal([]byte("{\"run\":\"value\"}"), &decoded); err == nil {
@@ -59413,6 +59699,24 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded ConversationParticipant
 		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"id\":\"value\",\"kind\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("ConversationQuestionAnswer.Selections", func(t *testing.T) {
+		var decoded ConversationQuestionAnswer
+		if err := json.Unmarshal([]byte("{\"selections\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field selections accepted null")
+		}
+	})
+	t.Run("ConversationQuestionRespondent.DisplayName", func(t *testing.T) {
+		var decoded ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":null,\"participant\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field display_name accepted null")
+		}
+	})
+	t.Run("ConversationQuestionRespondent.Participant", func(t *testing.T) {
+		var decoded ConversationQuestionRespondent
+		if err := json.Unmarshal([]byte("{\"display_name\":\"value\",\"participant\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field participant accepted null")
 		}
 	})
 	t.Run("ConversationReaction.At", func(t *testing.T) {
@@ -64285,6 +64589,30 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded ConversationOpResult
 		if err := json.Unmarshal([]byte("{\"change\":{\"kind\":\"value\"},\"replayed\":true,\"rev\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field rev accepted null")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.Answer", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":null,\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field answer accepted null")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.Conversation", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":null,\"message_id\":\"value\",\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field conversation accepted null")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.MessageID", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":null,\"part_index\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field message_id accepted null")
+		}
+	})
+	t.Run("ConversationQuestionDecisionRequest.PartIndex", func(t *testing.T) {
+		var decoded ConversationQuestionDecisionRequest
+		if err := json.Unmarshal([]byte("{\"answer\":{\"selections\":{}},\"conversation\":\"value\",\"message_id\":\"value\",\"part_index\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field part_index accepted null")
 		}
 	})
 	t.Run("ConversationRunRequest.Conversation", func(t *testing.T) {
@@ -70000,12 +70328,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1971
-	generatedOptionalNullableFieldCount    = 1365
+	generatedFieldShapeCount               = 1981
+	generatedOptionalNullableFieldCount    = 1371
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
-	generatedRequiredFieldCount            = 1662
-	generatedRequiredNonnullableFieldCount = 1484
+	generatedOptionalNonnullableFieldCount = 432
+	generatedRequiredFieldCount            = 1669
+	generatedRequiredNonnullableFieldCount = 1491
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )

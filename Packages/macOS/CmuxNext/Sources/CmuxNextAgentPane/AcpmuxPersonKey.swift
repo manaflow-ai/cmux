@@ -145,6 +145,13 @@ nonisolated enum AcpmuxPersonKey {
         return proof(key: key, transport: transport, nonce: nonce, connection: connection)
     }
 
+    /// This app's key for the daemon on `socketPath` in a buffer of its own, zeroed when released,
+    /// to sign one person decision (``AcpmuxSecretKey/decisionProof(instance:session:permission:option:nonce:answers:annotations:)``).
+    /// Nil without a key for that daemon.
+    static func secretKey(socketPath: String) -> AcpmuxSecretKey? {
+        keys.withLock { $0[socketPath]?.key }.flatMap { AcpmuxSecretKey(hex: $0) }
+    }
+
     static func proof(key: String, transport: Transport, nonce: String, connection: String) -> String? {
         guard let keyBytes = hexBytes(key), keyBytes.count == 32 else { return nil }
         var message = Data("acpmux-person-v1".utf8)

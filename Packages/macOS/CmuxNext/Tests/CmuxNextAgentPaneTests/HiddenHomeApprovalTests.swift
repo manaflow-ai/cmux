@@ -72,6 +72,69 @@ import Testing
         #expect((server.info["pending"] as? [[String: Any]])?.count == 1)
     }
 
+    /// Home's receipted answer binds acpmux's delivery attempt to the prompt it read right before
+    /// the send: its run, nonce and request digest, with empty answers and annotations digests.
+    @Test(arguments: [true, false]) func aReceiptedAnswerCarriesTheExactDeliveryAttempt(_ allow: Bool) async throws {
+        let (answerer, server) = try fixture()
+        defer { server.stop() }
+        let request: [String: Any] = ["toolCall": ["title": "Bash", "rawInput": ["command": "ls \"a b\" ✓ /tmp", "big": 9_007_199_254_740_993]],
+                                      "options": [["optionId": "once", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]]]
+        let nonce = String(repeating: "c", count: 64)
+        var info = server.info
+        info["pending"] = [["permissionId": "p1", "personInstance": "0123456789abcdef", "decisionNonce": nonce, "request": request]]
+        server.info = info
+        let pending = try #require(await answerer.pendingAsk(session: "local/s1", permission: "p1"))
+        let receipt = try #require(await answerer.answerOnceReceipted(pending.approval, allow: allow, through: { bytes in bytes(); return true }))
+        #expect(receipt.instance == "0123456789abcdef")
+        #expect(receipt.decisionNonce == nonce)
+        #expect(receipt.id.hasPrefix("home-approval-") && receipt.id.count <= 128)
+        #expect(receipt.id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "-_.:".unicodeScalars.contains($0) })
+        #expect(server.attempts.count == 1)
+        let attempt = try #require(server.attempts.first)
+        #expect(Set(attempt.keys) == ["id", "instance", "decisionNonce", "requestDigest", "answersDigest", "annotationsDigest"])
+        #expect(attempt["id"] as? String == receipt.id)
+        #expect(attempt["instance"] as? String == "0123456789abcdef")
+        #expect(attempt["decisionNonce"] as? String == nonce)
+        #expect(attempt["requestDigest"] as? String == AcpmuxSecretKey.canonicalDigest(request))
+        #expect(attempt["answersDigest"] as? String == "")
+        #expect(attempt["annotationsDigest"] as? String == "")
+        #expect(server.responses == [allow ? "once" : "no"])
+    }
+
+    /// A prompt that names no run or nonce gets no receipted answer: nothing is sent.
+    @Test func aPromptWithoutARunOrNonceIsNotAnsweredWithAReceipt() async throws {
+        let (answerer, server) = try fixture()
+        defer { server.stop() }
+        var info = server.info
+        info["pending"] = [["permissionId": "p1", "request": ["toolCall": ["title": "Bash", "rawInput": ["command": "ls", "n": 2]],
+                                                               "options": [["optionId": "once", "kind": "allow_once"]]]]]
+        server.info = info
+        let pending = try #require(await answerer.pendingAsk(session: "local/s1", permission: "p1"))
+        #expect(await answerer.answerOnceReceipted(pending.approval, allow: true, through: { bytes in bytes(); return true }) == nil)
+        #expect(!server.methods.contains("_acpmux/permission_respond"))
+        #expect(server.attempts.isEmpty)
+    }
+
+    /// Only a request whose canonical digest the app can write is receipted; a fractional number is not.
+    @Test func onlyAnIntegerOnlyRequestIsReceiptable() {
+        #expect(AcpmuxDeliveryReceipt.receiptable(#"{"toolCall":{"rawInput":{"n":9007199254740993,"s":"✓"}},"options":[]}"#))
+        #expect(!AcpmuxDeliveryReceipt.receiptable(#"{"toolCall":{"rawInput":{"timeout":1.5}},"options":[]}"#))
+        #expect(!AcpmuxDeliveryReceipt.receiptable("not json"))
+    }
+
+    /// A refused click sends no receipted answer either.
+    @Test func aRefusedClickSendsNoReceiptedAnswer() async throws {
+        let (answerer, server) = try fixture()
+        defer { server.stop() }
+        var info = server.info
+        info["pending"] = [["permissionId": "p1", "personInstance": "0123456789abcdef", "decisionNonce": String(repeating: "c", count: 64),
+                            "request": ["toolCall": ["title": "Bash"], "options": [["optionId": "once", "kind": "allow_once"]]]]]
+        server.info = info
+        let pending = try #require(await answerer.pendingAsk(session: "local/s1", permission: "p1"))
+        #expect(await answerer.answerOnceReceipted(pending.approval, allow: true, through: { _ in false }) == nil)
+        #expect(server.responses.isEmpty)
+    }
+
     @Test func ownershipRequiresExactLocalSessionHomeAndOwnerPolicy() {
         let valid: [String: Any] = ["sessionId": "s1", "tags": ["mux.parent": "optchat-chief:abcdef12", "optchat.subagent": "a1"]]
         #expect(AcpmuxPersonLine.isOwnerSubagent(valid, session: "local/s1", home: "abcdef12"))
@@ -98,6 +161,9 @@ import Testing
             "pending": [["permissionId": "p1", "request": ["toolCall": ["title": "Bash", "rawInput": ["command": "printf '你好 /tmp/a'", "nested": ["n": 1.25]]],
                 "options": [["optionId": "once", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]]]]]]
         var info: [String: Any] { get { lock.withLock { infoState } } set { lock.withLock { infoState = newValue } } }
+        private var attemptLog: [[String: Any]] = []
+        /// Each `permission_respond`'s `deliveryAttempt`, in order.
+        var attempts: [[String: Any]] { lock.withLock { attemptLog } }
         var responses: [String] { lock.withLock { log.sets } }
         private var rejection = false
         var reject: Bool { get { lock.withLock { rejection } } set { lock.withLock { rejection = newValue } } }
@@ -212,6 +278,7 @@ import Testing
                         }
                     case "_acpmux/permission_respond":
                         let option = params["optionId"] as? String ?? ""
+                        if let attempt = params["deliveryAttempt"] as? [String: Any] { lock.withLock { attemptLog.append(attempt) } }
                         if !reject && (person || option == "no"), params["permissionId"] as? String == "p1",
                            !(info["pending"] as? [[String: Any]] ?? []).isEmpty {
                             lock.withLock { infoState["pending"] = [[String: Any]](); log.sets.append(option) }

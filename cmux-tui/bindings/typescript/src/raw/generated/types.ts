@@ -323,6 +323,24 @@ export type ConversationParticipant = {
   "kind": string;
 };
 
+export type ConversationQuestionAnswer = {
+  "answered_at"?: (string) | null;
+  "respondent"?: (ConversationQuestionRespondent) | null;
+  "selections": Record<string, ConversationQuestionSelection>;
+};
+
+export type ConversationQuestionRespondent = {
+  "device"?: (string) | null;
+  "display_name": string;
+  "participant": string;
+  "remote"?: boolean;
+};
+
+export type ConversationQuestionSelection = {
+  "option_ids"?: Array<string>;
+  "other"?: (string) | null;
+};
+
 export type ConversationReaction = {
   "at": string;
   "author": string;

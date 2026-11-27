@@ -44,6 +44,133 @@ fn ids(reply: &Value) -> Vec<&str> {
 
 const WAIT: Duration = Duration::from_secs(5);
 
+/// No reader thread is needed for tests whose peer never replies.
+fn unwatched_pair() -> (AcpmuxLink, UnixStream) {
+    let (stream, peer) = UnixStream::pair().unwrap();
+    stream.set_write_timeout(Some(CONNECT_TIMEOUT)).unwrap();
+    (
+        AcpmuxLink {
+            stream: parking_lot::Mutex::new(stream),
+            pending: Arc::default(),
+            next_id: AtomicU64::new(1),
+            closed: Arc::new(AtomicBool::new(false)),
+            late: AtomicBool::new(false),
+            capabilities: OnceLock::new(),
+        },
+        peer,
+    )
+}
+
+#[test]
+fn absolute_deadline_accepts_a_reply_and_cleans_its_slot() {
+    let (link, asked, _dir) = scripted(vec![json!({"ok":true})]);
+    assert_eq!(
+        link.call_until("_acpmux/info", json!({}), Instant::now() + WAIT),
+        Ok(json!({"ok":true}))
+    );
+    assert_eq!(asked.recv_timeout(WAIT).unwrap()["method"], "_acpmux/info");
+    assert!(link.pending.lock().unwrap().is_empty());
+    assert_eq!(link.stream.lock().write_timeout().unwrap(), Some(CONNECT_TIMEOUT));
+}
+
+#[test]
+fn expired_deadline_sends_no_bytes_and_leaves_link_usable() {
+    use std::io::Read;
+    let (link, mut peer) = unwatched_pair();
+    assert_eq!(
+        link.call_until("must-not-send", json!({}), Instant::now()),
+        Err(LinkError::Timeout)
+    );
+    peer.set_nonblocking(true).unwrap();
+    assert_eq!(peer.read(&mut [0; 1]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert!(link.pending.lock().unwrap().is_empty());
+    assert!(!link.closed.load(Ordering::Acquire));
+    link.notify("still-usable", json!({})).unwrap();
+    assert!(peer.read(&mut [0; 256]).unwrap() > 0);
+}
+
+#[test]
+fn absolute_deadline_bounds_writer_contention_without_sending() {
+    use std::io::Read;
+    let (link, mut peer) = unwatched_pair();
+    let link = Arc::new(link);
+    // Hold the writer until after call_until returns: a blocking lock cannot pass this test.
+    let writer = link.stream.lock();
+    let started = Instant::now();
+    let caller = link.clone();
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = caller.call_until(
+            "must-not-send",
+            json!({}),
+            Instant::now() + Duration::from_millis(80),
+        );
+        let _ = send.send(result);
+    });
+    let result = receive.recv_timeout(Duration::from_secs(2));
+    let elapsed = started.elapsed();
+    drop(writer);
+    worker.join().unwrap();
+    assert_eq!(result.unwrap(), Err(LinkError::Timeout));
+    assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+    peer.set_nonblocking(true).unwrap();
+    assert_eq!(peer.read(&mut [0; 1]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert!(link.pending.lock().unwrap().is_empty());
+    assert!(!link.closed.load(Ordering::Acquire));
+}
+
+#[test]
+fn absolute_deadline_bounds_partial_write_to_a_nonreading_peer() {
+    use std::io::Read;
+    let (link, mut peer) = unwatched_pair();
+    socket2::SockRef::from(&*link.stream.lock()).set_send_buffer_size(4096).unwrap();
+    let payload = json!({"text":"x".repeat(512 << 10)});
+    let started = Instant::now();
+    let result = link.call_until("large", payload, started + Duration::from_millis(150));
+    assert_eq!(result, Err(LinkError::Timeout));
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    assert!(link.pending.lock().unwrap().is_empty());
+    assert!(link.closed.load(Ordering::Acquire), "a partial frame must close the connection");
+    peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    let mut bytes = Vec::new();
+    peer.read_to_end(&mut bytes).unwrap();
+    assert!(!bytes.is_empty());
+    assert!(!bytes.ends_with(b"\n"), "the request was only partially sent");
+    assert_eq!(link.notify("never-appended", json!({})), Err(LinkError::Closed));
+    assert_eq!(link.stream.lock().write_timeout().unwrap(), Some(CONNECT_TIMEOUT));
+}
+
+// Linux admits one connection for listen(0); the next blocking connect waits until accept.
+// Close the listener before joining even on failure, so this regression cannot strand a thread.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_accept_backlog_refuses_instead_of_hanging() {
+    let dir = cmux_unix_socket::short_test_dir("asfull");
+    let path = dir.path().join("acpmux.sock");
+    let address = socket2::SockAddr::unix(&path).unwrap();
+    let listener =
+        socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+    listener.bind(&address).unwrap();
+    listener.listen(0).unwrap();
+    let queued = UnixStream::connect(&path).unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let refused = match AcpmuxLink::connect(&path, |_| {}) {
+            Ok(link) => {
+                link.close();
+                false
+            }
+            Err(_) => true,
+        };
+        let _ = send.send(refused);
+    });
+    let result = receive.recv_timeout(CONNECT_TIMEOUT + Duration::from_secs(2));
+    drop(listener);
+    drop(queued);
+    worker.join().unwrap();
+    assert!(result.unwrap(), "a queued connection is not a connected ACP agent");
+}
+
 #[test]
 fn pages_in_byte_page_order_are_joined_newest_first() {
     let (link, asked, _dir) = scripted(vec![

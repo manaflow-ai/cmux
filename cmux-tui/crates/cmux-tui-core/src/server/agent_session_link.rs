@@ -122,7 +122,7 @@ pub(crate) enum Inbound {
 type Pending = Mutex<HashMap<u64, SyncSender<Result<Value, LinkError>>>>;
 
 pub(crate) struct AcpmuxLink {
-    stream: Mutex<UnixStream>,
+    stream: parking_lot::Mutex<UnixStream>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
     closed: Arc<AtomicBool>,
@@ -140,11 +140,18 @@ impl AcpmuxLink {
         socket: &Path,
         on_inbound: impl FnMut(Inbound) + Send + 'static,
     ) -> std::io::Result<Arc<Self>> {
-        let stream = UnixStream::connect(socket)?;
+        // A live daemon can stop accepting while its backlog is full. Bound connection
+        // admission as well as writes/replies so callers cannot hold work indefinitely.
+        let address = socket2::SockAddr::unix(socket)?;
+        let stream = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+        stream.connect_timeout(&address, CONNECT_TIMEOUT)?;
+        // AF_UNIX backlog exhaustion can report writable without establishing a peer.
+        stream.peer_addr()?;
+        let stream: UnixStream = stream.into();
         stream.set_write_timeout(Some(CONNECT_TIMEOUT))?;
         let reader = stream.try_clone()?;
         let link = Arc::new(Self {
-            stream: Mutex::new(stream),
+            stream: parking_lot::Mutex::new(stream),
             pending: Arc::default(),
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),
@@ -169,6 +176,43 @@ impl AcpmuxLink {
     ) -> Result<Value, LinkError> {
         let (id, receiver) = self.send(method, params)?;
         let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
+        self.forget(id);
+        result
+    }
+
+    /// One absolute deadline covers writer contention, every partial write and the reply.
+    /// Expiry before writing sends nothing. An interrupted frame closes the link so a
+    /// later request cannot complete or append to that frame. Timeout after submission
+    /// is indeterminate: callers must reconcile delivery rather than send again.
+    pub(crate) fn call_until(
+        &self,
+        method: &str,
+        params: Value,
+        until: Instant,
+    ) -> Result<Value, LinkError> {
+        if Instant::now() >= until {
+            return Err(LinkError::Timeout);
+        }
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LinkError::Closed);
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = sync_channel(1);
+        {
+            let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            if pending.len() >= MAX_IN_FLIGHT {
+                return Err(LinkError::Busy);
+            }
+            pending.insert(id, sender);
+        }
+        let frame = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        let result = self.write_until(&frame, until).and_then(|()| {
+            let remaining = until.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(LinkError::Timeout);
+            }
+            receiver.recv_timeout(remaining).unwrap_or(Err(LinkError::Timeout))
+        });
         self.forget(id);
         result
     }
@@ -421,16 +465,62 @@ impl AcpmuxLink {
             return;
         }
         self.closed.store(true, Ordering::Release);
-        let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
+        let stream = self.stream.lock();
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
 
     fn write(&self, frame: &Value) -> std::io::Result<()> {
         let mut line = serde_json::to_vec(frame)?;
         line.push(b'\n');
-        let mut stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stream = self.stream.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return Err(std::io::ErrorKind::NotConnected.into());
+        }
         stream.write_all(&line)?;
         stream.flush()
+    }
+
+    fn write_until(&self, frame: &Value, until: Instant) -> Result<(), LinkError> {
+        let mut line = serde_json::to_vec(frame).map_err(|_| LinkError::Closed)?;
+        line.push(b'\n');
+        let mut stream = self.stream.try_lock_until(until).ok_or(LinkError::Timeout)?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LinkError::Closed);
+        }
+        let previous = stream.write_timeout().map_err(|_| LinkError::Closed)?;
+        let mut written = 0;
+        let result = (|| {
+            while written < line.len() {
+                let remaining = until.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(LinkError::Timeout);
+                }
+                stream.set_write_timeout(Some(remaining)).map_err(|_| LinkError::Closed)?;
+                match stream.write(&line[written..]) {
+                    Ok(0) => return Err(LinkError::Closed),
+                    Ok(count) => written += count,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::Interrupted
+                                | std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => return Err(LinkError::Closed),
+                }
+            }
+            Ok(())
+        })();
+        let restored = stream.set_write_timeout(previous);
+        if (result.is_err() && written > 0) || restored.is_err() {
+            self.closed.store(true, Ordering::Release);
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+        restored.map_err(|_| LinkError::Closed)?;
+        result
     }
 
     pub(super) fn forget(&self, id: u64) {
