@@ -324,6 +324,58 @@ UNWIRED: set[str] = {
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.
     "tests/test_nightly_next_network_bounds.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/post_merge_batch.py (tick, plan, judge, bisect, revert) and
+    # that .github/post-merge-batch.json, cmux-next-post-merge.yml's caller jobs and the callees stay in step (#48662).
+    # Run it by hand after changing any of them. Exit: as above.
+    "tests/test_ci_post_merge_batch.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/pr_ran_line.py on fixture .github/workflows trees: the status
+    # comment's ran line names the workflows a diff starts and why (#47361). Run it by hand after changing
+    # pr_ran_line.py. Exit: as above.
+    "tests/test_ci_pr_ran_line.py",
+    # No new CI tests (CLAUDE.md); scripts/ci/pr_trigger_paths.py says the same. It checks every pull request
+    # workflow has trigger paths or an every_pr reason, and derived paths match their decider (#49072). Run it by hand
+    # after changing a PR workflow's trigger or a decider's source. Exit: as above.
+    "tests/test_ci_pr_trigger_paths.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It pins tooling_steps.py's per-step
+    # selection and that each tooling-tests run step of cmux-next-guards.yml carries its selection (#47388). Run it by
+    # hand after changing tooling_steps.py or a tooling-tests step. Exit: as above.
+    "tests/test_ci_tooling_steps.py",
+    # No new CI tests (CLAUDE.md). It checks that a re-run cmux-tui build leg rereads the runner pool instead of a 2 or
+    # 4 vCPU label its plan baked in (#48691). Run it by hand after changing cmux-tui-artifacts.yml's build runs-on.
+    # Exit: as above.
+    "tests/test_ci_tui_rerun_leg_rereads_pool.py",
+    # lane = "manual" (tests/test-execution.d/cmux.toml; no new CI tests, CLAUDE.md). It checks that a same-repo pull
+    # request's cmux-next control hops take the reserved PR control JIT label on attempt 1 (#48405). Run it by hand
+    # after changing those jobs' runs-on. Exit: as above.
+    "tests/test_cmux_next_pr_control_on_jit.py",
+    # No new CI tests (CLAUDE.md). It checks the cache-restore receipt classification and the composite's shell wiring. Run it by hand after changing the cache restore action. Exit: as above.
+    "tests/test_ci_cache_restore_receipt.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/mac_grants.py: which cmux-next Mac PR jobs take a scheduler grant, and on which labels. Run it by hand after changing mac_grants.py or those jobs' runs-on. Exit: as above.
+    "tests/test_ci_mac_grants.py",
+    # No new CI tests (CLAUDE.md). It checks ci-oops fault isolation (scripts/ci/oops/isolate.py, optional-units.json): a PR build leaves out an optional unit that alone fails to compile. Run it by hand after changing isolate.py or optional-units.json. Exit: as above.
+    "tests/test_ci_oops_isolate.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/piece_swap.py: a first-red commit's pieces come out one at a time, never the whole commit. Run it by hand after changing piece_swap.py. Exit: as above.
+    "tests/test_ci_piece_swap.py",
+    # No new CI tests (CLAUDE.md). It checks that a routed job reads each need's result itself and the web rollup gate always runs. Run it by hand after adding or changing a routed job's if. Exit: as above.
+    "tests/test_ci_routed_jobs_check_needs.py",
+    # No new CI tests (CLAUDE.md). It checks that a same-repository Linux job names the persistent cmux-linux pool on attempt 1, not Blacksmith. Run it by hand after changing a Linux job's runs-on. Exit: as above.
+    "tests/test_ci_same_repo_linux_owned_first.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/webviews_affected.py picks the webviews test files a pull request can affect. Run it by hand after changing webviews_affected.py. Exit: as above.
+    "tests/test_ci_webviews_affected.py",
+    # No new CI tests (CLAUDE.md). It checks that a Linux leg the runner lost does not turn off the macOS fallback, while a Linux build failure still does. Run it by hand after changing darwin-fallback-plan. Exit: as above.
+    "tests/test_cmux_tui_fallback_lost_leg.py",
+    # No new CI tests (CLAUDE.md). It checks the IndexNow notification step of the web deploy workflow. Run it by hand after changing that step. Exit: as above.
+    "tests/test_indexnow_notification.py",
+    # No new CI tests (CLAUDE.md). It checks the Mac publication step with failed delivery dependencies: a missing live build fails its job. Run it by hand after changing the Mac publication step. Exit: as above.
+    "tests/test_mac_live_delivery.py",
+    # No new CI tests (CLAUDE.md). It checks that every job cross-building the cmux-tui macOS binaries on Linux installs the Go cmux-tailnet's build.rs needs. Run it by hand after adding or changing a macOS cross-build job. Exit: as above.
+    "tests/test_macos_cross_builds_have_go.py",
+    # No new CI tests (CLAUDE.md). It checks that the one-job nightly runs its webview checks before the signer and skips the retry on a webview red. Run it by hand after changing nightly.yml's webview step or retry. Exit: as above.
+    "tests/test_nightly_early_webviews.py",
+    # No new CI tests (CLAUDE.md). It checks that every nightly job that compiles gives its tools the macOS SDK of the Xcode it selected. Run it by hand after adding or changing a compiling nightly job. Exit: as above.
+    "tests/test_nightly_job_sdkroot.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/nightly_next_signer_pick.py and nightly.yml's use of it. Run it by hand after changing the signer pick or its use in nightly.yml. Exit: as above.
+    "tests/test_nightly_next_signer_pick.py",
 }
 
 

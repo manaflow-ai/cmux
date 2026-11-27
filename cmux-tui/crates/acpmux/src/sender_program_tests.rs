@@ -145,3 +145,48 @@ fn a_carried_host_is_one_plain_label() {
     assert!(program("a b").unwrap().get("host").is_none());
     assert!(program("").unwrap().get("host").is_none());
 }
+
+/// cmux#60107: a burst of sends on one socket walks its pid's parents once, not once per send;
+/// a second later the next send walks again.
+#[tokio::test(start_paused = true)]
+async fn a_burst_from_one_pid_walks_once() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let walks = Arc::new(Walks::new());
+    let ran = Arc::new(AtomicUsize::new(0));
+    let sends: Vec<_> = (0..64)
+        .map(|_| {
+            let (walks, ran) = (walks.clone(), ran.clone());
+            tokio::spawn(async move {
+                walks
+                    .get(42, move || {
+                        ran.fetch_add(1, Ordering::SeqCst);
+                        Some(json!({"name": "fanin"}))
+                    })
+                    .await
+            })
+        })
+        .collect();
+    for send in sends {
+        assert_eq!(send.await.unwrap(), Some(json!({"name": "fanin"})));
+    }
+    assert_eq!(ran.load(Ordering::SeqCst), 1, "one walk answered the burst");
+    let other = ran.clone();
+    walks
+        .get(7, move || {
+            other.fetch_add(1, Ordering::SeqCst);
+            None
+        })
+        .await;
+    assert_eq!(ran.load(Ordering::SeqCst), 2, "another pid walks its own chain");
+    tokio::time::advance(WALK_FRESH).await;
+    let again = ran.clone();
+    let found = walks
+        .get(42, move || {
+            again.fetch_add(1, Ordering::SeqCst);
+            Some(json!({"name": "renamed"}))
+        })
+        .await;
+    assert_eq!(found, Some(json!({"name": "renamed"})), "a stale walk is redone");
+    assert_eq!(ran.load(Ordering::SeqCst), 3);
+}
