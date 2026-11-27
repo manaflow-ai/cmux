@@ -101,9 +101,10 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
   return seen;
 }
 
-// Jump up is off by default (jumpUp.experiment.ts, #42247): these press the control while it is on.
+// Jump up is off by default (jumpUp.experiment.ts, #42247), and the default single look suppresses
+// it too (jumpPair.experiment.ts). Exercise the glide with both the feature and its look enabled.
 beforeEach(() => {
-  globalThis.cmuxExperiments = { "jump-up": "on" };
+  globalThis.cmuxExperiments = { "jump-up": "on", "jump-pair-look": "frosted" };
 });
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
