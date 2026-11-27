@@ -214,7 +214,15 @@ public final class AcpmuxHub {
         (sources[sessionID] ?? []).compactMap(\.source)
     }
 
-    public init() {}
+    public init() {
+        // An upload's acked bytes are bytes heard from the Mac: a prompt the outbox holds keeps
+        // going while an attachment is still moving (a hub gone leaves a no-op behind).
+        UploadActivity.listen(self) { [weak self] macID in
+            for source in self?.liveSources ?? [] where source.summary.macID == macID {
+                source.linkProgressed()
+            }
+        }
+    }
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
     /// `gate`: a channel opened behind `auth` before its pairing finished. `initialize` and the first

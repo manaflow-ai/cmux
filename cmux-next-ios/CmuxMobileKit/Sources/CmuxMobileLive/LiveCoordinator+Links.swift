@@ -938,6 +938,14 @@ extension LiveCoordinator {
         }
     }
 
+    /// Where a terminal tab's attachments go in the upload queue: its Mac
+    /// and folder (the engine falls back to the Mac's uploads folder when the
+    /// folder is refused). Nil while the tab has no session on a Mac.
+    public func terminalAttachmentDestination(tabID: String, macID: String? = nil) -> AttachmentDestination? {
+        guard let owner = session(tabID: tabID, macID: macID) else { return nil }
+        return AttachmentDestination(macID: owner.macID, cwd: owner.tree?.directories[tabID])
+    }
+
     /// The normalized working directory captured by a terminal upload closure.
     public func terminalDirectory(tabID: String, macID: String? = nil) -> String? {
         LinkUpload.folder(session(tabID: tabID, macID: macID)?.tree?.directories[tabID])
