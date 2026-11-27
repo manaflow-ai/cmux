@@ -74,11 +74,13 @@ pub(super) async fn within<T>(
 pub(super) fn add_tool_hooks(request: &mut Value) {
     let mcp = crate::bg_hook::mcp_matcher();
     let matcher = format!("Bash|{mcp}");
+    #[cfg(not(unix))]
+    let pre_matcher = format!("{matcher}|{}", crate::model_router::SUBAGENT_TOOLS.join("|"));
     for (event, tools) in [
         // Unix already registers a repo-sync callback for every tool. Its successful
         // reply carries the plugin decision too, for the same Bash/MCP matcher.
         #[cfg(not(unix))]
-        ("PreToolUse", Some(matcher.as_str())),
+        ("PreToolUse", Some(pre_matcher.as_str())),
         ("PostToolUse", Some(matcher.as_str())),
         ("PostToolUseFailure", Some(mcp.as_str())),
         ("SubagentStop", None),
@@ -123,7 +125,9 @@ impl Translator {
                 if output == json!({}) {
                     let tool = input["tool_name"].as_str().unwrap_or("");
                     let tool_callback = input["hook_event_name"] == "PreToolUse"
-                        && (tool == "Bash" || crate::bg_hook::MCP_CALLS.contains(&tool));
+                        && (tool == "Bash"
+                            || crate::bg_hook::MCP_CALLS.contains(&tool)
+                            || crate::model_router::SUBAGENT_TOOLS.contains(&tool));
                     output = plugin_answer(tool_callback, home, &session, &input).await;
                 }
                 crate::gauges::hook_answers().answered(started.elapsed());
@@ -167,7 +171,8 @@ async fn plugin_answer(
     // or subagent call to finish, so answer without copying it or waking a worker.
     if tool_callback
         && (input["agent_id"].is_string()
-            || input["hook_event_name"] == "PreToolUse" && input["tool_name"] == "Bash")
+            || input["hook_event_name"] == "PreToolUse" && input["tool_name"] == "Bash"
+            || crate::model_router::starts_subagent(input))
         && let Some(home) = home
     {
         let session = session.to_owned();

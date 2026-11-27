@@ -41,6 +41,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
+    Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
 ];
 
 /// The settings key of `feature`'s off switch.
