@@ -206,10 +206,16 @@ final class NotificationsPanelView: NSView {
 /// The list's scroll view: tells the list each time the clip view moves, so
 /// it mounts the rows a scroll reveals.
 private final class NotificationsPanelScrollView: OverlayScrollView {
-    var onScroll: (() -> Void)?
-
-    override func reflectScrolledClipView(_ clipView: NSClipView) {
-        super.reflectScrolledClipView(clipView)
-        onScroll?()
+    /// Set once; observes the clip view's bounds (no selector override: the crash-class
+    /// selector table needs no Mac probe for it).
+    var onScroll: (() -> Void)? {
+        didSet {
+            contentView.postsBoundsChangedNotifications = true
+            boundsObserver = MainActorObservation(NSView.boundsDidChangeNotification, object: contentView) { [weak self] in
+                self?.onScroll?()
+            }
+        }
     }
+
+    private var boundsObserver: MainActorObservation?
 }
