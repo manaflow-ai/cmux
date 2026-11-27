@@ -268,6 +268,78 @@ extension Workspace {
         return currentIdentity == recordedIdentity
     }
 
+    /// Recomputes a pane's agent lifecycle from the authoritative hook
+    /// session registry when the journal projection has no live entry for
+    /// the pane (#62857).
+    ///
+    /// A same-pane resume accepted as the pane's owner publishes its resume
+    /// binding and registers its process, but the journal-reduced lifecycle
+    /// can stay absent after stale-gated hooks left the projection retired,
+    /// so the pane input API must consult the registry's owner record
+    /// instead of reporting no agent. Returns nil when the pane has no
+    /// accepted hook owner whose registry record and registered process
+    /// generation still agree, leaving the journal-derived answer untouched.
+    func reconciledAgentHookLifecycle(panelId: UUID) -> AgentHibernationLifecycleState? {
+        let registeredPID = agentPIDs[ClaudeBackgroundWorkDrain.statusKey]
+        let registeredPIDMatchesGeneration: Bool
+        if let registeredPID, registeredPID > 0 {
+            registeredPIDMatchesGeneration = isRecordedAgentPIDLive(
+                key: ClaudeBackgroundWorkDrain.statusKey,
+                pid: registeredPID
+            )
+        } else {
+            registeredPIDMatchesGeneration = false
+        }
+        return Self.reconciledAgentHookInputLifecycle(
+            binding: surfaceResumeBindingsByPanelId[panelId],
+            recordedAgentPID: registeredPID,
+            recordedAgentPIDMatchesGeneration: registeredPIDMatchesGeneration,
+            registryRecords: Self.loadClaudeHookRegistryRecords(),
+            panelId: panelId
+        )
+    }
+
+    /// Pure decision core for the reconciliation above: the accepted agent
+    /// hook resume binding names the pane's owner, whose registry record
+    /// must match the same session on the same pane while the pane's
+    /// registered process generation is still live. The registry record's
+    /// own lifecycle is the answer; a record without one projects the
+    /// registry's idle baseline.
+    static func reconciledAgentHookInputLifecycle(
+        binding: SurfaceResumeBindingSnapshot?,
+        recordedAgentPID: pid_t?,
+        recordedAgentPIDMatchesGeneration: Bool,
+        registryRecords: [RestorableAgentHookSessionRecord],
+        panelId: UUID
+    ) -> AgentHibernationLifecycleState? {
+        guard let binding,
+              binding.isAgentHookBinding,
+              binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "claude",
+              let sessionId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        guard let recordedAgentPID,
+              recordedAgentPID > 0,
+              recordedAgentPIDMatchesGeneration else {
+            return nil
+        }
+        guard let record = registryRecords.first(where: {
+            $0.sessionId == sessionId && $0.surfaceId == panelId.uuidString
+        }) else {
+            return nil
+        }
+        return record.agentLifecycle ?? .idle
+    }
+
+    private static func loadClaudeHookRegistryRecords() -> [RestorableAgentHookSessionRecord] {
+        guard let data = try? Data(contentsOf: RestorableAgentKind.claude.hookStoreFileURL()),
+              let store = try? JSONDecoder().decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
+            return []
+        }
+        return Array(store.sessions.values)
+    }
+
     /// Reads the identity the port scanner and session restore compare against.
     ///
     /// Delegates rather than reading the process table itself: a second reader

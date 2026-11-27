@@ -37,8 +37,18 @@ extension TerminalController {
                 surfaceId = focused
             }
 
-            let lifecycle = workspace.agentHibernationLifecycleState(panelId: surfaceId, fallback: nil)
-            let hasAgent = workspace.agentLifecycleStatesByPanelId[surfaceId]?.isEmpty == false
+            var lifecycle = workspace.agentHibernationLifecycleState(panelId: surfaceId, fallback: nil)
+            var hasAgent = workspace.agentLifecycleStatesByPanelId[surfaceId]?.isEmpty == false
+            if !hasAgent,
+               let reconciled = workspace.reconciledAgentHookLifecycle(panelId: surfaceId) {
+                // The journal projection lost this pane's live agent (#62857):
+                // an accepted same-pane resume whose registry record and
+                // registered process generation still agree is authoritative,
+                // so the pane reflects the registry's lifecycle instead of
+                // reporting `agent: false` and an unknown lifecycle.
+                hasAgent = true
+                lifecycle = reconciled
+            }
             var payload: [String: Any] = [
                 "surface_id": surfaceId.uuidString,
                 "workspace_id": workspace.id.uuidString,
