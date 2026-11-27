@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The pages the first window never shows ship raw-deflated (CMUX-570, app size): the pages
 /// builder (webviews/scripts/pages/pack-pages.mjs) replaces each `pages/__shared` script that Home
