@@ -30,8 +30,9 @@ jobs:
   probe:
     name: Accounts flow on published NIGHTLY
     environment: cmux-next-cloud-journey
-    # The same Mac as the NIGHTLY canary's fallback (nightly-next-canary.yml): the overflow Mac, else cmux-mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    # It holds test-account secrets, so it runs where no variable can move it: an ephemeral Mac
+    # (tests/test_ci_fork_runner_routing.py; PAID_ONLY_JOBS in tests/test_ci_paid_queue_pin.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     env:
       CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -45,6 +46,26 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      # The side-instance launcher, the look-keys AX/RPC driver and the dev sign-in token helper live on
+      # feat-cmux-next, the NIGHTLY's branch; take them from there rather than keeping copies on main.
+      - name: Checkout NEXT helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .next-helpers
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/side-instance.sh
+            scripts/cmux-next/dev-signin-token.py
+            scripts/measure/look-keys-readback.py
+          sparse-checkout-cone-mode: false
+      - name: Place NEXT helpers
+        run: |
+          set -euo pipefail
+          mkdir -p scripts/cmux-next
+          for f in scripts/cmux-next/side-instance.sh scripts/cmux-next/dev-signin-token.py scripts/measure/look-keys-readback.py; do
+            [ -e "$f" ] || cp -p ".next-helpers/$f" "$f"
+          done
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: Run fresh-install Accounts probe

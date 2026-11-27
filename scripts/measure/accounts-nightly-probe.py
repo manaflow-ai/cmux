@@ -69,9 +69,13 @@ def label(e: dict) -> str:
         if str(e.get(key) or "").strip(): return str(e[key]).strip()
     return ""
 
-def find_labelled(pid: int, text: str) -> dict | None:
-    needle = text.lower()
-    return next((e for e in ax_elements(pid) if needle in label(e).lower()), None)
+def element_key(e: dict) -> tuple:
+    return (e.get("_window"), e.get("element_token", e.get("element_index")))
+
+def find_labelled(pid: int, text: str, skip: tuple | None = None) -> dict | None:
+    # A word start, so "Connect GitHub" never matches "Disconnect GitHub".
+    needle = re.compile(r"(?<![a-z])" + re.escape(text.lower()))
+    return next((e for e in ax_elements(pid) if needle.search(label(e).lower()) and element_key(e) != skip), None)
 
 def press(pid: int, e: dict) -> dict:
     token = {"element_token": e["element_token"]} if "element_token" in e else {"element_index": e["element_index"]}
@@ -160,7 +164,8 @@ def reset_existing_connection(pid: int) -> bool:
     first = press(pid, disconnect)
     if first.get("error"):
         return False
-    confirm = wait_for(lambda: find_labelled(pid, "Disconnect"), 10)
+    # The confirmation's own Disconnect, not the row's button just pressed.
+    confirm = wait_for(lambda: find_labelled(pid, "Disconnect", skip=element_key(disconnect)), 10)
     if not confirm:
         return False
     second = press(pid, confirm)

@@ -56,6 +56,8 @@ SIGNING = ("holds a release signing, notary or App Store key; an owned Mac takes
            "SIGNING_JOBS entry (exclusive claim, scripts/ci/signing-runner-claim.sh), which this job is not")
 # Jobs that stay on an ephemeral Mac, each with why. Keyed (workflow file name, job key).
 PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
+    ("accounts-nightly-probe.yml", "probe"):
+        "holds the test accounts' Stack and GitHub credentials, which only a throwaway Mac may read",
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-outer"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-stapled"): SIGNING,
