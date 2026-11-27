@@ -296,6 +296,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -448,7 +458,11 @@ pub struct HypervisorOpts {
     #[arg(long, value_name = "DIR")]
     pub pods_dir: Option<PathBuf>,
     /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
-    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`.
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
+    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
+    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
+    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
+    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
     #[arg(long, value_name = "PROGRAM")]
     pub pod_init: Option<String>,
     /// An argument for --pod-init; repeat for more.
