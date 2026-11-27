@@ -537,6 +537,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         reportLaunchMark(CEFLaunchMarks.inputReady)
+        // In tree, an ask whose grant left the keyboard on no view of this page is kept (`grantFocus`): the document
+        // drew, so its view is in the container now. A grant that lands reports the page ready itself.
+        if pendingFocus, presentation == .inTree {
+            grantPendingFocusIfShown()
+            if !pendingFocus { return }
+        }
         onReadyForKeys?()
     }
 

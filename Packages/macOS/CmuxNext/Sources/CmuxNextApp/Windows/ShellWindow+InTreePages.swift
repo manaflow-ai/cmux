@@ -6,7 +6,8 @@ import CmuxNextDesign
 extension ShellWindow {
     /// Whether the gate refuses making `responder`, a view of an in-tree Chromium page, the first responder: the page
     /// takes the keys only for the person's input aimed at it, a focus-model move to its pane, a routed move naming
-    /// it (`routeTarget`), or cmux's own grant (`InTreePageFocus.granting`). Chromium restoring focus by itself,
+    /// it (`routeTarget`), cmux's own grant (`InTreePageFocus.granting`), or a move inside the page that already has the
+    /// keyboard (Chromium's focus restore to its new view). Chromium focusing a page that does not have the keyboard,
     /// `CefBrowserHost::SetFocus` outside a grant and a page's `window.focus()` are refused. False for every other
     /// responder and with the mode off.
     func refusesInTreePage(_ responder: NSResponder?, routeTarget: NSResponder?) -> Bool {

@@ -217,12 +217,19 @@ final class CEFInTreeHosting {
     /// activation moved Chromium's contents view) is put back.
     func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard let calls else { return }
+        let shownBefore = self.browser
         self.browser = browser
         if retryArmed {
             retryArmed = false
             return attach(retry: true)
         }
-        guard let container, page != nil else { return }
+        guard let container, let page else { return }
+        // Another tab of the window shows (a tab that joined it, a tab switch): Chromium's activation put its
+        // WebContentsViewCocoa in the container in place of the one held here. It is read again, so a grant before the
+        // tab's first navigation has its page view to go to (`grantFocus(browser:_:)`).
+        if browser != shownBefore, !page.isDescendant(of: container), let shown = calls.setInTreeHosting(browser, container) {
+            self.page = shown
+        }
         let content = calls.contentView(browser)
         if let content, !content.isDescendant(of: container) { return attach(retry: true) }
     }
@@ -365,8 +372,50 @@ final class CEFInTreeHosting {
         return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
     }
 
-    /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the
-    /// window's first responder to the page view, both inside one grant the window's gate lets through.
+    /// Whether the page is in the tree and has its window's keyboard (``InTreePageFocus/holdsTheKeyboard(_:in:)``):
+    /// Chromium's own ask to focus it is allowed then (`CEFTab.chromiumRequestsFocus`).
+    var hasTheKeyboard: Bool {
+        guard page != nil, let container, let window = container.window else { return false }
+        return InTreePageFocus.holdsTheKeyboard(container, in: window)
+    }
+
+    /// Whether `browser`'s main-frame view (its `RenderWidgetHostViewCocoa`) is in the container and has its window's
+    /// keyboard.
+    func viewHasTheKeyboard(_ browser: Int32) -> Bool {
+        guard page != nil, let container, let window = container.window,
+              let view = calls?.contentView(browser), view.isDescendant(of: container) else { return false }
+        return window.firstResponder === view
+    }
+
+    /// Gives `browser`'s page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of
+    /// the window's first responder to that page's own view, both inside one grant the window's gate lets through.
+    ///
+    /// The view is that browser's, never the one of the page the container showed before: a tab that joins its pane's
+    /// live Chromium window (`tab_add`) is granted inside Chromium's OnAfterCreated, before Chromium shows it there, and a
+    /// grant to the container's page then went to the page it replaced. The keyboard left the window with that page's
+    /// view and the ask was dropped (other-Mac runs flf-after-tabterm1, flf-after-tabterm2 and flf-after-tabchat2).
+    /// A grant before the page's first navigation finds no main-frame view and leaves the keyboard on the page's
+    /// `WebContentsViewCocoa`; Chromium's ask after that navigation moves it to the new view (``hasTheKeyboard``).
+    /// - Returns: Whether the page's main-frame view is the window's first responder after it. False while the page has
+    ///   no view there yet (no navigation made one, or Chromium shows another tab in the container): the caller keeps
+    ///   the ask.
+    func grantFocus(browser: Int32, _ focus: () -> Void) -> Bool {
+        guard let container, let window = container.window, let page, let calls else { return false }
+        return InTreePageFocus.shared.granting(container) {
+            focus()
+            let route = FocusRoute(.person, "cmux grants an in-tree page the keyboard")
+            if let view = calls.contentView(browser), view.isDescendant(of: container) {
+                return window.firstResponder === view || route.moveKeyboard(in: window, to: view)
+            }
+            if browser == self.browser, page.isDescendant(of: container), window.firstResponder !== page {
+                _ = route.moveKeyboard(in: window, to: page)
+            }
+            return false
+        }
+    }
+
+    /// Gives the hosting's page the keyboard on cmux's behalf (a docked DevTools' own host): Chromium's focus call and
+    /// the move of the window's first responder to the page view, both inside one grant the window's gate lets through.
     /// - Returns: Whether the page view is the window's first responder after it.
     @discardableResult
     func grantFocus(_ focus: () -> Void) -> Bool {

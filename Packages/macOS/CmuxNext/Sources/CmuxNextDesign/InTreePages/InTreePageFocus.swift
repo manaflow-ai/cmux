@@ -33,8 +33,10 @@ public struct InTreePageCensus: Equatable, Sendable {
 /// The cmux window is always key, so a page takes the keyboard only by becoming the window's first responder, and every
 /// such move passes the window's gate (`ShellWindow.makeFirstResponder`, `ResponderMoveGate`). Chromium also asks for
 /// it by itself: after a load, from `CefBrowserHost::SetFocus`, a page's `window.focus()`, a tab activation. The gate
-/// lets a page view in only for the person's own input aimed at it, cmux's focus model applying a move to its pane, or
-/// a grant cmux makes itself (``granting(_:_:)``, the browser's own focus call to Chromium).
+/// lets a page view in only for the person's own input aimed at it, cmux's focus model applying a move to its pane, a
+/// grant cmux makes itself (``granting(_:_:)``, the browser's own focus call to Chromium), or a move inside the page
+/// that already has the keyboard (``holdsTheKeyboard(_:in:)``: Chromium's focus restore to the page's new
+/// `RenderWidgetHostViewCocoa`, which takes it from no one).
 @MainActor
 public final class InTreePageFocus {
     /// The process's grants and counters.
@@ -132,6 +134,10 @@ public final class InTreePageFocus {
         if let routeTarget, routeTarget === view { return nil }
         if let event, Self.event(event, isAimedAt: container, in: window) { return nil }
         if focusModelApplies, let pane = paneOf(container), focusedPane() == pane { return nil }
+        // Chromium's own focus restore inside the page that has the keyboard: cmux's grant before the page's first
+        // navigation leaves it on the page's WebContentsViewCocoa (no RenderWidgetHostViewCocoa yet), and Chromium moves
+        // it to the view the navigation made (other-Mac run osr-func-17). It takes the keyboard from no one.
+        if !view.isHiddenOrHasHiddenAncestor, Self.holdsTheKeyboard(container, in: window) { return nil }
         if view.isHiddenOrHasHiddenAncestor { return "page not shown" }
         return event == nil ? "no input event or focus route" : "input event aimed elsewhere"
     }
@@ -146,10 +152,16 @@ public final class InTreePageFocus {
                   let hit = frame.hitTest(frame.convert(event.locationInWindow, from: nil)) else { return false }
             return hit === container || hit.isDescendant(of: container)
         case .keyDown, .keyUp, .flagsChanged:
-            guard let current = window.firstResponder as? NSView else { return false }
-            return current === container || current.isDescendant(of: container)
+            return holdsTheKeyboard(container, in: window)
         default:
             return false
         }
+    }
+
+    /// Whether the page in `container` has `window`'s keyboard: the window's first responder is the container or a
+    /// view inside it (its `WebContentsViewCocoa` or `RenderWidgetHostViewCocoa`).
+    public static func holdsTheKeyboard(_ container: any InTreePageContainer, in window: NSWindow) -> Bool {
+        guard let current = window.firstResponder as? NSView else { return false }
+        return current === container || current.isDescendant(of: container)
     }
 }

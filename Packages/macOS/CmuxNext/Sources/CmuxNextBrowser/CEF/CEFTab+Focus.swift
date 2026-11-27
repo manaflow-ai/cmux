@@ -55,8 +55,19 @@ extension CEFTab {
     /// granting one activates the page window, which takes the keys from
     /// the omnibar of a new tab (that omnibar stays focused until the
     /// user clicks the page) or from wherever the user is typing.
+    ///
+    /// In tree, a shown page that already has cmux's keyboard (its window's first responder is in its container) is
+    /// allowed: no window is activated, and Chromium's focus moves the keyboard only inside the page. cmux's grant runs
+    /// before a new page's first navigation, when the page has no `RenderWidgetHostViewCocoa`, and leaves the keyboard on
+    /// its `WebContentsViewCocoa`; CEF's ask after that navigation (source navigation) focuses the view it made. Refused,
+    /// the page never had Chromium's focus and keys typed with no click reached nothing (other-Mac run osr-func-17:
+    /// 0 keydowns, document.hasFocus() false; NIGHTLY's child-window mode, osr-func-18, keeps the focus).
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
         if isGrantingFocus { return true }
+        if presentation == .inTree, isShown, host.hostView.inTree.hasTheKeyboard {
+            host.lifecycleTrace.record(id, "focus-allowed source=\(source.name): the page has the keyboard")
+            return true
+        }
         host.lifecycleTrace.record(id, "focus-refused source=\(source.name)")
         return false
     }
@@ -116,14 +127,26 @@ extension CEFTab {
         // In-tree pages: the cmux window stays key; the page view becomes its first responder inside cmux's grant,
         // which the window's gate lets through (InTreePageFocus). No page window is made key.
         if presentation == .inTree {
-            guard host.hostView.inTree.isInTree else {
+            let inTree = host.hostView.inTree
+            guard inTree.isInTree else {
                 host.lifecycleTrace.record(id, "grant kept: not in tree yet")
                 pendingFocus = true
                 return
             }
+            // Chromium's ask after the page's first navigation moved the keyboard to its view already.
+            if inTree.viewHasTheKeyboard(browser) {
+                traceGrant("skipped: has the keys")
+                return host.lifecycleTrace.record(id, "grant skipped: the page's view has the keyboard")
+            }
             // The fork never makes the page's headless window key (fork API 36, cef#48 one window): SetFocus makes the
-            // page view the first responder of this window, which keeps the keys.
-            host.hostView.inTree.grantFocus { runtime.shim?.setFocus(browser, 1) }
+            // page view the first responder of this window, which keeps the keys. A grant that leaves the keyboard on no
+            // view of this page keeps the ask: the page had no view yet, or Chromium did not show it in the container yet
+            // (a tab that joined its pane's live window is granted inside `tab_add`). Its first load grants it again
+            // (`documentArrived`), as its next show does.
+            if !inTree.grantFocus(browser: browser, { runtime.shim?.setFocus(browser, 1) }) {
+                host.lifecycleTrace.record(id, "grant kept: the page's view does not have the keyboard yet")
+                pendingFocus = true
+            }
             return
         }
         runtime.shim?.setFocus(browser, 1)
