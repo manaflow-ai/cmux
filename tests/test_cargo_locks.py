@@ -108,6 +108,23 @@ class CargoLocksTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "drop b")
 
+    def test_an_optional_dependency_the_default_resolve_leaves_out_is_not_an_orphan(self):
+        """a names c behind a feature that is off: the lock lists c, a default `cargo metadata` does not (cmux#57348:
+        wasmtime behind acpmux-hot's feature was called an orphan on every cmux-tui push)."""
+        self.write("extra/c/Cargo.toml", '[package]\nname = "c"\nversion = "0.1.0"\nedition = "2021"\n')
+        self.write("extra/c/src/lib.rs", "")
+        self.write("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\nc = { path = "../../extra/c", optional = true }\n')
+        self.cargo("core", "update", "--workspace", "--offline")
+        self.cargo("ffi", "update", "--workspace", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a may use c")
+        self.assertIn('name = "c"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_lock_entry_for_a_crate_no_manifest_names_is_stale(self):
         self.drop_crate_b()
         self.assertIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())

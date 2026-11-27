@@ -282,30 +282,74 @@ def lock_packages(text: str) -> set[tuple[str, str]]:
     return set(LOCK_PACKAGE.findall(text))
 
 
+LOCK_SOURCE = re.compile(r'^source = "', re.M)
+LOCK_DEPENDENCIES = re.compile(r'^dependencies = \[(.*?)^\]', re.M | re.S)
+
+
+def lock_graph(text: str) -> dict[tuple[str, str], tuple[bool, list[str]]]:
+    """(name, version) -> (has a source, the dependency references it lists) for every [[package]] in a lock."""
+    graph: dict[tuple[str, str], tuple[bool, list[str]]] = {}
+    for block in text.split("[[package]]")[1:]:
+        found = LOCK_PACKAGE.match("[[package]]" + block)
+        if not found:
+            continue
+        deps = LOCK_DEPENDENCIES.search(block)
+        refs = re.findall(r'"([^"]+)"', deps.group(1)) if deps else []
+        graph[(found.group(1), found.group(2))] = (bool(LOCK_SOURCE.search(block)), refs)
+    return graph
+
+
+def unreached(graph: dict[tuple[str, str], tuple[bool, list[str]]], roots: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """The lock entries no dependency edge of the lock reaches from ROOTS. The lock's edges include optional and
+    other-platform dependencies, which a default `cargo metadata` resolve leaves out (wasmtime behind acpmux-hot's
+    feature was called an orphan on every cmux-tui push, cmux#57348)."""
+    by_name: dict[str, list[tuple[str, str]]] = {}
+    for key in graph:
+        by_name.setdefault(key[0], []).append(key)
+    seen, todo = set(), [r for r in roots if r in graph]
+    while todo:
+        key = todo.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        for ref in graph[key][1]:
+            parts = ref.split(" ")
+            if len(parts) == 1:
+                todo.extend(by_name.get(parts[0], []))
+            elif (parts[0], parts[1]) in graph:
+                todo.append((parts[0], parts[1]))
+    return set(graph) - seen
+
+
+def manifest_names(repo: Path) -> set[str]:
+    """Every [package] name a Cargo.toml in REPO's index declares (the index: a sparse checkout still names all)."""
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "grep", "--cached", "-h", "-A6", r"^\[package\]", "--",
+                              "*Cargo.toml"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(re.findall(r'^name\s*=\s*"([^"]+)"', out, re.M))
+
+
 def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --locked --offline`, all
-    targets) does not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
-    failure, no time left): this only adds to cargo's own verdict."""
+    """`name version` of each package ROOT's lock lists that no manifest names: a path package whose Cargo.toml is
+    gone, and every entry the lock's own dependency edges reach only through such packages. The edges include
+    optional and other-platform dependencies, which a default `cargo metadata` resolve leaves out (wasmtime behind
+    acpmux-hot's feature and cmux-tailnet behind tsnet read as orphans on every cmux-tui push, cmux#57348). Empty
+    when the index names no manifest or the lock is unreadable: this only adds to cargo's own verdict."""
     if timeout <= 1:
         return []
-    out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
-                    timeout=timeout, out=out)
-    if code != 0 or not out or not out[0].strip():
-        return []
+    names = manifest_names(repo)
     try:
-        import json
-        resolved = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return []
-    lock = repo / root / "Cargo.lock"
-    try:
-        listed = lock_packages(lock.read_text(encoding="utf-8"))
+        graph = lock_graph((repo / root / "Cargo.lock").read_text(encoding="utf-8"))
     except OSError:
         return []
-    if not resolved:
+    if not names or not graph:
         return []
-    return sorted(f"{name} {version}" for name, version in listed - resolved)
+    gone = {key for key, (sourced, _) in graph.items() if not sourced and key[0] not in names}
+    roots = {key for key, (sourced, _) in graph.items() if not sourced and key[0] in names}
+    live = {key: entry for key, entry in graph.items() if key not in gone}
+    return sorted(f"{name} {version}" for name, version in gone | unreached(live, roots))
 
 
 def label(root: str) -> str:
