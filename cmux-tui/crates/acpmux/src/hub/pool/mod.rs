@@ -50,6 +50,7 @@ pub(crate) mod policy;
 mod reaper;
 mod reserved;
 mod spare;
+mod spare_guard;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
@@ -124,6 +125,9 @@ pub(crate) struct PoolState {
     /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
     /// next person request tries again only after this.
     spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
+    /// Holds spares the RSS cap ended, refuses spares that would not fit, and rate limits the
+    /// spare starts the daemon makes on its own (`spare_guard.rs`).
+    spare_guard: StdMutex<spare_guard::SpareGuard>,
 }
 
 type Spec = (String, Option<String>);
@@ -149,6 +153,7 @@ impl PoolState {
             spare_wake: Notify::new(),
             spare_presence_busy: AtomicBool::new(false),
             spare_presence_retry_at: StdMutex::new(None),
+            spare_guard: StdMutex::new(Default::default()),
         }
     }
 }
@@ -814,8 +819,9 @@ impl Hub {
             tokio::task::spawn_blocking(move || pids.into_iter().map(|p| (p, probe(p))).collect())
                 .await
                 .unwrap_or_default();
-        let evicted = {
+        let (evicted, held) = {
             let mut pool = lock(&self.pool.pool);
+            let mut guard = lock(&self.pool.spare_guard);
             for p in pool.ready_mut() {
                 if let Some(rss) = measured.get(&p.record.host_pid) {
                     p.rss = *rss;
@@ -829,17 +835,29 @@ impl Hub {
             let evicted = pool.enforce_cap(cap, |p| p.rss);
             // A session over the cap on its own would only start again.
             let mut oversize = lock(&self.pool.oversize);
-            for v in &evicted {
+            let mut held = Vec::new();
+            for (v, spare) in &evicted {
                 if v.rss > cap {
                     oversize.insert(v.key.clone());
                 }
+                // Ended by the cap, a spare is held as if it idled out: nothing starts it again
+                // on its own until the person uses its harness again (`spare_guard.rs`).
+                if *spare && guard.evicted_by_cap(&v.key.harness) {
+                    held.push(v.key.harness.clone());
+                }
             }
-            evicted
+            (evicted.into_iter().map(|(v, _)| v).collect::<Vec<_>>(), held)
         };
         if !evicted.is_empty() {
             tracing::info!(
                 count = evicted.len(),
                 "session pool over its RSS cap; oldest entries end"
+            );
+        }
+        for harness in held {
+            tracing::info!(
+                %harness,
+                "the RSS cap ended this spare; it starts again when the person uses the harness"
             );
         }
         self.pool_discard(evicted);
