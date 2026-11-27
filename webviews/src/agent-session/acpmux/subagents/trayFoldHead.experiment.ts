@@ -82,7 +82,11 @@ export const trayFoldHeadLook = defineExperiment({
   // unnecessary space to the point where it's just... not great" / "like claude code just has this and
   // they tuck it at the very bottom of the transcript after the latest message"). trayHeadKinds.ts
   // `trayHeadLine` writes it.
-  defaultArm: "line",
+  // Then back to the rounded two-group hat with its full header height (Leo, 2026-11-27: "as for the
+  // hat, let's just restore it and add those strict improvements. im not sure if the text is better
+  // than just the rounded hat" / on the line's open header: "this is just too thin. idk why the top
+  // was reduced in this way"). The line stays an arm for comparison.
+  defaultArm: "groups",
 });
 
 /// One of the folded header's arms.

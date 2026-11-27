@@ -119,6 +119,7 @@ import type { SilentTurn } from "../conversation/silentTurns";
 import { backgroundTurnLabel } from "../conversation/backgroundTurns";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
+import { hatCards, hatWaitOf, splitSpecific, type HatCard, type HatWait } from "./hatRows";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
 import { hatPhase, PHASE_DWELL_MS } from "./hatStep";
@@ -568,7 +569,19 @@ export const SubagentTray = memo(function SubagentTray({
   // "what the fuck are you timing man" (trayHeadClock.experiment.ts).
   const leadStart = leading[0] === undefined ? undefined : itemStart(leading[0]);
   const itemsSince = headClock === "run" ? since : headClock === "running" ? leadStart : undefined;
-  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
+  // The open list (hatRows.ts): agents, then commands, each under its count; the most recently changed
+  // line on top; identical lines folded into one ×N line. The one-line arm keeps its plain list.
+  const ordered = useMemo<readonly TrayCard[]>(
+    () =>
+      foldHead === "line"
+        ? attentionFirst(items, finished, waiting)
+        : hatCards(items, finished, waiting, (item) => sameLineKey(t, item, waiting)),
+    [items, finished, waiting, t, foldHead],
+  );
+  const bothGroups = useMemo(
+    () => items.some((item) => item.kind === "command" || item.kind === "turn") && items.some((item) => item.kind === "agent" || item.kind === "session"),
+    [items],
+  );
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
     () => (head === "stack" || lone ? stackMarks(leading, finished, chatHarness) : NO_MARKS),
@@ -611,7 +624,9 @@ export const SubagentTray = memo(function SubagentTray({
     () => (foldHead === "kinds" && facesArm !== "lead" ? hatFaces(t, items, finished, chatHarness) : NO_FACES),
     [foldHead, facesArm, t, items, finished, chatHarness],
   );
-  if (items.length === 0 && finished.length === 0) return null;
+  // Nothing runs: no hat (Leo, 2026-11-27, hat improvements: "the hat hides when nothing is running").
+  // What just ended shows in the transcript, never on an empty hat.
+  if (items.length === 0) return null;
   // The `line` arm names no silent turn (trayHeadLine): a hat of only those has no words, so it draws
   // nothing rather than an empty line over the composer (chat-flow-shift-budget's compaction-steer:
   // the compaction's silent turn put a bare hat in at its end and pushed the transcript 75px).
@@ -691,7 +706,9 @@ export const SubagentTray = memo(function SubagentTray({
   const cards = drawn.map(({ key, card: { item, finished: ended }, leaving: going }) => {
     const first = ended && !going && firstFinished;
     if (ended && !going) firstFinished = false;
-    return (
+    const hat = card as Partial<HatCard>;
+    const opens = hat.opens && bothGroups && !going ? hat.opens : undefined;
+    const row = (
       <TrayRow
         key={key}
         rowKey={key}
@@ -702,9 +719,19 @@ export const SubagentTray = memo(function SubagentTray({
         finished={ended}
         first={first}
       >
-        {line(item)}
+        {line(item, hat.same)}
       </TrayRow>
     );
+    if (!opens) return row;
+    // Each group opens under its count, its line in the list's own column (not a control).
+    return [
+      <li key={`group:${opens.group}`} className="acpmux-running-tray__group" data-group={opens.group}>
+        {opens.group === "agents"
+          ? t("subagents.count", { n: opens.count })
+          : t(opens.count === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", { n: opens.count })}
+      </li>,
+      row,
+    ];
   });
   // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
   const toggle = () => {
@@ -1253,8 +1280,12 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }
 
-  function line(item: TrayItem) {
+  function line(item: TrayItem, same: readonly TrayItem[] = [item]) {
     const key = itemKey(item);
+    // Identical lines folded into this one (hatRows.ts): its ×N, and its Stop stops them all.
+    const count = same.length > 1 ? same.length : undefined;
+    const wait = hatWaitOf(item, waiting);
+    const waitsOn = wait ? t(HAT_WAIT_LABEL[wait]) : undefined;
     const isOpen = expanded.has(key);
     const toggleThis = () => toggleLine(key);
     // hatOpen.experiment.ts: `row` opens what every line stands for on its click and keeps the details
@@ -1273,11 +1304,15 @@ export const SubagentTray = memo(function SubagentTray({
           {menu(
             <AgentLine
               // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
-              name={subagentTaskLabel(t, item.agent)}
+              {...splitName(subagentTaskLabel(t, item.agent))}
+              count={count}
+              waitsOn={waitsOn}
               progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
               progressAgent={item.agent}
-              icon={SUBAGENT_FALLBACK}
-              mark={item.agent.harness ?? chatHarness}
+              // An agent's mark, not the task sparkle (Leo, 2026-11-27, hat improvements: "subagent rows use
+              // an agent icon, not a shield"); one on another harness than the chat's keeps that brand.
+              icon={SUBAGENT_ROW_ICON}
+              mark={foreignHarness(item.agent.harness, chatHarness)}
               tone={agentTone(item.agent.id)}
               plainMark
               doneLook={doneLook}
@@ -1310,7 +1345,7 @@ export const SubagentTray = memo(function SubagentTray({
               disclose={detailsButton(true)}
               after={
                 item.agent.state === "running"
-                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stopSame(same, stop)} solid />
                   : // A stopped one's Resume sits in Stop's column (Leo, 2026-11-12: "WHY CANT WE
                     // RESTART AGENTS THAT WERE STOPPED").
                     resume && <ResumeControl agent={item.agent} actions={resume} />
@@ -1362,12 +1397,16 @@ export const SubagentTray = memo(function SubagentTray({
         <>
           {menu(
             <AgentLine
-              name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
+              {...splitName(item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named)}
+              count={count}
+              waitsOn={waitsOn}
               latest={showLatest ? trimRawCommand(item.command.command, ROW_WIDTH) : undefined}
               latestAt={latestPlacement}
               latestCode
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
-              title={item.command.command}
+              // The whole line on hover, then the command as typed (Leo, 2026-11-27, hat improvements:
+              // "show the full text on hover").
+              title={`${item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}\n${item.command.command}`}
               chevron
               icon={read.icon}
               working={runs}
@@ -1935,6 +1974,45 @@ function TrayRow({
     </li>
   );
 }
+/// What a line waits on, in words the app already says (hatRows.ts `hatWaitOf`).
+const HAT_WAIT_LABEL: Record<HatWait, string> = {
+  ci: "header.prChecks",
+  merge: "header.prMerge",
+  reply: "steerQueue.reason.ask",
+};
+
+/// A subagent line's mark: an agent, as the open chat's sidebar draws one.
+const SUBAGENT_ROW_ICON = "agent.bot";
+
+/// A subagent's harness when it is not the chat's own: its line then draws that brand; the chat's own
+/// subagents draw the agent mark.
+const foreignHarness = (harness: string | undefined, chat: string | undefined): string | undefined =>
+  harness && (!chat || harnessFamily(harness) !== harnessFamily(chat)) ? harness : undefined;
+
+/// A line's words split where the generic part ends, for AgentLine's `nameLead`.
+function splitName(name: string): { name: string; nameLead?: string } {
+  const { lead, rest } = splitSpecific(name);
+  return lead ? { name: rest, nameLead: lead } : { name };
+}
+
+/// Stop on a ×N line stops each line folded into it.
+const stopSame =
+  (same: readonly TrayItem[], stop: (id: string) => void) =>
+  (id: string): void => {
+    if (same.length < 2) return stop(id);
+    for (const item of same) if (item.kind === "agent") stop(item.agent.id);
+  };
+
+/// When two lines read the same: their kind, their words, their state, their owner.
+function sameLineKey(t: Translate, item: TrayItem, waiting: ReadonlySet<string>): string {
+  if (item.kind === "agent")
+    return `agent:${subagentTaskLabel(t, item.agent)}:${subagentStatus(item.agent, waiting)}:${item.agent.harness ?? ""}`;
+  if (item.kind === "command")
+    return `command:${item.command.description ?? ""}:${item.command.command}:${item.command.subagent ?? ""}:${commandStatus(item.command)}`;
+  if (item.kind === "session") return `session:${item.session.title}:${item.session.state}:${item.session.harness ?? ""}`;
+  return `turn:${item.id}`;
+}
+
 /// The most lines that rise in from one update; a bigger burst is simply there.
 const ARRIVALS_PER_UPDATE = 3;
 /// The shared gate on an entrance or a fold now: the page shows, its first frame back has passed, and

@@ -83,8 +83,18 @@ export function AgentLine({
   doneLook = "words",
   cardClassName,
   disclose,
+  nameLead,
+  count,
+  waitsOn,
 }: {
   name: string;
+  /// The generic start of `name` ("tbd-leo: "), drawn before it and truncated first, so the specific
+  /// part stays (Leo, 2026-11-27, hat improvements: "truncate from the generic part"). Tray lines only.
+  nameLead?: string;
+  /// How many identical lines this one stands for, drawn as ×N after its name when over 1.
+  count?: number;
+  /// What it waits on (Checks, Merge, Waiting on you), muted after its name, when known.
+  waitsOn?: string;
   /// What it does now, or the kind of agent it is; dim after the name.
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
@@ -220,7 +230,20 @@ export function AgentLine({
         ) : (
           kind && <span className="acpmux-agent-line__kind">{kind}</span>
         )}
-        <span className="acpmux-summary-agent__name">{name}</span>
+        {nameLead ? (
+          <span className="acpmux-summary-agent__name acpmux-agent-line__split">
+            <span className="acpmux-agent-line__lead">{nameLead}</span>
+            <span className="acpmux-agent-line__specific">{name}</span>
+          </span>
+        ) : (
+          <span className="acpmux-summary-agent__name">{name}</span>
+        )}
+        {count !== undefined && count > 1 && (
+          <span className="acpmux-agent-line__count" data-count={count}>
+            {`×${count}`}
+          </span>
+        )}
+        {waitsOn && <span className="acpmux-agent-line__waits">{waitsOn}</span>}
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {/* What it does now hands over as a status line does: the old step slides up and out as the
             new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
