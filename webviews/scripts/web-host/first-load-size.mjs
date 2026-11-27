@@ -6,6 +6,12 @@
 //
 //   bun scripts/web-host/first-load-size.mjs SITE_DIR            # print the measurement as JSON
 //   bun scripts/web-host/first-load-size.mjs SITE_DIR --check    # fail past first-load-budget.json
+//   bun scripts/web-host/first-load-size.mjs SITE_DIR --report   # warn past it, exit 0 (CI)
+//
+// CI reports and does not fail: pane.js is the agent pane's bundle, which every webviews change grows,
+// so a fixed budget went red on PRs that never touched the web host (2026-11-26: base past the
+// 11-25 budget within a day). It turns blocking once the chat path's split gives the web host its own
+// first load (cmuxterm-hq docs/rfd/0083-cmux-web-client.md).
 //
 // SITE_DIR is scripts/cmux-next/build-web-host.sh's output. CI: .github/workflows/cmux-next-size-budget.yml, job web-host.
 import { readFileSync } from "node:fs";
@@ -52,15 +58,19 @@ if (import.meta.main) {
   const got = measure(site);
   const largest = [...got.rows].sort((a, b) => b.gzip - a.gzip).slice(0, 5);
   console.log(JSON.stringify({ files: got.files, raw: got.raw, gzip: got.gzip, largest }, null, 2));
-  if (flag === "--check") {
+  if (flag === "--check" || flag === "--report") {
     const budget = JSON.parse(readFileSync(BUDGET_FILE, "utf8"));
     const kib = (n) => `${(n / 1024).toFixed(1)} KiB`;
     if (got.gzip > budget.gzipBytes) {
-      console.error(
+      const over =
         `web host first load is ${kib(got.gzip)} gzip, past its budget of ${kib(budget.gzipBytes)} ` +
-          `(${BUDGET_FILE}). Make the first load smaller (move code behind a dynamic import), or raise ` +
-          `gzipBytes there and say why in the pull request.`,
-      );
+        `(${BUDGET_FILE}). Make the first load smaller (move code behind a dynamic import), or raise ` +
+        `gzipBytes there and say why in the pull request.`;
+      if (flag === "--report") {
+        console.log(`::warning title=web host first load::${over}`);
+        process.exit(0);
+      }
+      console.error(over);
       process.exit(1);
     }
     console.log(`web host first load ${kib(got.gzip)} gzip, within ${kib(budget.gzipBytes)}`);

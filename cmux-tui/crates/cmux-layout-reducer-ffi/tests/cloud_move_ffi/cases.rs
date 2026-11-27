@@ -185,6 +185,11 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     );
     assert_eq!(ok(c"cloud_move_start_redial", json!({})), json!({"redial": "nothing"}));
     assert_eq!(
+        ok(c"cloud_move_rereads_record", json!({"running": true, "answeredAgoMs": 12})),
+        json!({"rereads": false})
+    );
+    assert_eq!(ok(c"cloud_move_rereads_record", json!({})), json!({"rereads": true}));
+    assert_eq!(
         ok(c"cloud_move_new_workspace_route", json!({"signedIn": false, "hasWindow": true})),
         json!({"route": "thisMac", "refusal": {"kind": "signedOut"}})
     );
@@ -219,43 +224,40 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
 }
 
 #[test]
-fn a_move_says_its_step_and_about_how_long_is_left() {
+fn a_move_says_its_step_and_how_long_it_has_run() {
     let copying = ok(
         c"cloud_move_progress",
         json!({"direction": "move", "stage": "copy", "name": "dev", "stageMs": 10_000,
                "copy": {"phase": "copy", "filesDone": 301, "filesTotal": 1_204}}),
     );
-    assert_eq!(copying["text"], "3 of 5 · Copying the folder (1,204 files) · about 45 s left");
+    assert_eq!(copying["text"], "3 of 5 · Copying the folder (1,204 files) · 10s");
     assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(3), json!(5)));
-    assert_eq!(copying["etaMs"], 43_000);
-    assert_eq!(copying["nextMs"], 3_000, "a measured copy counts down to its next text");
+    assert_eq!(copying["etaMs"], 43_000, "a measured copy still estimates what is left");
+    assert_eq!(copying["nextMs"], 1_000, "the clock wakes at its next whole second");
     let stale = ok(
         c"cloud_move_progress",
         json!({"stage": "copy", "name": "dev", "stageMs": 120_000, "copyMs": 10_000,
                "copy": {"phase": "copy", "filesDone": 99, "filesTotal": 100}}),
     );
-    assert_eq!(
-        stale["text"],
-        "3 of 5 · Copying the folder (100 files) · taking longer than its progress said, 2 min so far"
-    );
+    assert_eq!(stale["text"], "3 of 5 · Copying the folder (100 files) · 2:00");
     assert_eq!(
         (stale["etaMs"].clone(), stale["nextMs"].clone()),
-        (Value::Null, json!(60_000)),
-        "past its estimate it keeps a clock, waking when the minute changes"
+        (Value::Null, json!(1_000)),
+        "past its estimate it has no estimate and keeps counting"
     );
     let back = ok(
         c"cloud_move_progress",
         json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),
     );
-    assert_eq!(back["text"], "1 of 4 · Resuming dev · about 1 min left");
+    assert_eq!(back["text"], "1 of 4 · Resuming dev · 0s");
     let running = ok(
         c"cloud_move_progress",
         json!({"stage": "machine", "machine": "running", "name": "dev"}),
     );
-    assert_eq!(running["text"], "2 of 5 · Connecting to dev · about 35 s left");
-    assert_eq!(running["nextMs"], 3_000);
+    assert_eq!(running["text"], "2 of 5 · Connecting to dev · 0s");
+    assert_eq!(running["nextMs"], 1_000);
     let checking = ok(c"cloud_move_progress", json!({"direction": "move", "stage": "folder"}));
-    assert_eq!(checking["text"], "1 of 5 · Checking the folder · about 40 s left");
+    assert_eq!(checking["text"], "1 of 5 · Checking the folder · 0s");
     let (code, _) = call(c"cloud_move_progress", &json!({"stage": "teleport"}));
     assert_eq!(code, ERR_INVALID);
 }
@@ -545,4 +547,232 @@ fn a_session_moves_run_says_what_the_tab_opens() {
         run(json!({"moved": false, "error": "nope"}), 1, "box/chat-1", "box", false),
         json!({"kind": "failed", "message": "nope"})
     );
+}
+
+#[test]
+fn a_machine_update_outcome_names_its_kind() {
+    let body = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"answer": {"ok": true, "updated": true, "build": "f".repeat(40)}, "build": "0".repeat(40)}),
+    );
+    assert_eq!(body["outcome"]["kind"], "failed");
+    assert_eq!(body["restarted"], true);
+    let busy = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"timedOut": true, "build": "0".repeat(40)}),
+    );
+    assert_eq!(busy["outcome"], json!({"kind": "busy"}));
+    let binary = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"answer": {"ok": false, "errorCode": "machine_update_unavailable"}, "build": "0".repeat(40)}),
+    );
+    assert_eq!(
+        binary["outcome"],
+        json!({"kind": "needsBinary", "target": "x86_64-unknown-linux-gnu"})
+    );
+    let judged = ok(
+        c"cloud_move_machine_update_legacy_judged",
+        json!({"ok": false, "errorCode": "machine_update_unsupported", "build": "c".repeat(40)}),
+    );
+    assert_eq!(judged["judged"], "c".repeat(40));
+    let stop = ok(
+        c"cloud_move_machine_update_stop",
+        json!({"ok": false, "errorCode": "x", "error": "it broke"}),
+    );
+    assert_eq!(stop, json!({"stop": "failed", "detail": "it broke"}));
+    assert_eq!(ok(c"cloud_move_machine_update_stop", json!({"ok": true})), json!({"stop": "none"}));
+}
+
+#[test]
+fn a_legacy_run_steps_through_its_execs() {
+    let pin = json!({"commit": "b".repeat(40), "sha256": "a".repeat(64)});
+    let start = ok(
+        c"cloud_move_legacy_run",
+        json!({"plan": {"pin": pin, "script": "echo guest\n", "nonce": "0123456789abcdef"}}),
+    );
+    assert_eq!(start["step"], "exec");
+    assert_eq!(start["timeoutMs"], 60_000);
+    assert!(start["command"].as_str().unwrap().ends_with("echo started"));
+    let wait = ok(
+        c"cloud_move_legacy_run",
+        json!({"state": start["state"], "ran": {"exitCode": 0, "stdout": "started\n", "stderr": ""}}),
+    );
+    assert_eq!(wait["step"], "exec");
+    assert_eq!(wait["timeoutMs"], 290_000);
+    let done = ok(
+        c"cloud_move_legacy_run",
+        json!({"state": wait["state"], "ran": {"exitCode": 0, "stdout": "OK upgraded\n", "stderr": ""}}),
+    );
+    assert_eq!(done["step"], "done");
+    assert_eq!(done["answer"]["ok"], true);
+    assert_eq!(done["answer"]["build"], "b".repeat(40));
+    let (code, _) = call(c"cloud_move_legacy_run", &json!({}));
+    assert_eq!(code, ERR_INVALID);
+
+    let commands = ok(c"cloud_move_legacy_commands", json!({"pin": pin, "nonce": "n"}));
+    assert_eq!(commands["unit"], "cmux-app-tui-update-n");
+    assert_eq!(
+        commands["url"],
+        format!(
+            "https://files.cmux.com/cmux-tui/{}/cmux-tui-x86_64-unknown-linux-musl",
+            "b".repeat(40)
+        )
+    );
+    assert!(commands["wait"].as_str().unwrap().contains("r=/var/lib/cmux-tui-upgrade/app-n"));
+    assert!(commands["install"].as_str().unwrap().ends_with("--version\n"));
+}
+
+#[test]
+fn a_transfer_layout_parses_or_is_null() {
+    let tree = json!({"split": "down", "ratio": 2, "first": {"terminals": [1]}, "second": {"terminals": [0]}});
+    let body = ok(c"cloud_move_transfer_layout", json!({"layout": tree, "terminals": 2}));
+    assert_eq!(body["layout"]["kind"], "split");
+    assert_eq!(body["layout"]["ratio"], 0.5);
+    assert_eq!(body["layout"]["second"], json!({"kind": "pane", "terminals": [0]}));
+    assert_eq!(
+        ok(c"cloud_move_transfer_layout", json!({"layout": tree, "terminals": 3}))["layout"],
+        json!(null)
+    );
+    assert_eq!(ok(c"cloud_move_transfer_layout", json!({}))["layout"], json!(null));
+}
+
+#[test]
+fn classic_surfaces_become_items() {
+    let body = ok(
+        c"cloud_move_transfer_classic_items",
+        json!({"workspace": "w", "fallbackCwd": "/w", "surfaces": [
+            {"id": "a", "type": "terminal", "resume_binding": {"kind": "codex", "command": "codex resume x1"}},
+            {"id": "b", "type": "browser"},
+            {"id": "c", "type": "pty", "initial_command": "ssh -p 1 host"},
+        ]}),
+    );
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["kind"], "agent");
+    assert_eq!(items[0]["agentSessionID"], "x1");
+    assert_eq!(items[0]["agentHarness"], "codex");
+    assert_eq!(items[1]["sshTarget"], "host");
+    assert_eq!(items[1]["cwd"], "/w");
+    let (code, _) = call(c"cloud_move_transfer_classic_items", &json!({"surfaces": []}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
+fn a_peer_identity_and_chat_move_answer() {
+    assert_eq!(
+        ok(c"cloud_move_transfer_identity", json!({"answer": {"pid": 3}, "ownPid": 3}))["identity"],
+        json!(null)
+    );
+    let peer =
+        ok(c"cloud_move_transfer_identity", json!({"answer": {"version": "1"}, "ownPid": 3}));
+    assert_eq!(
+        peer["identity"],
+        json!({"app": "cmux", "build": "1", "tag": null, "bundleIdentifier": null, "pid": 0})
+    );
+    let arguments =
+        ok(c"cloud_move_transfer_chat", json!({"session": "s", "to": "/t", "interrupt": true}));
+    assert_eq!(
+        arguments["arguments"],
+        json!(["--json", "transfer", "s", "--to", "/t", "--interrupt"])
+    );
+    let moved = ok(
+        c"cloud_move_transfer_chat_result",
+        json!({"session": "s", "status": 0, "stdout": "{\"sessionId\":\"n\"}"}),
+    );
+    assert_eq!(moved, json!({"session": "n"}));
+    let failed = ok(
+        c"cloud_move_transfer_chat_result",
+        json!({"session": "s", "status": 1, "stderr": "{\"error\":{\"detail\":\"cwd_missing\",\"data\":{\"cwd\":\"/x\"}}}"}),
+    );
+    assert_eq!(failed, json!({"failure": {"kind": "folderMissing", "folder": "/x"}}));
+    assert_eq!(
+        ok(c"cloud_move_transfer_ssh_command", json!({"target": "h"}))["command"],
+        "exec ssh -- 'h'"
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_missing_method", json!({"code": "unsupported"}))["missing"],
+        true
+    );
+    assert_eq!(ok(c"cloud_move_transfer_missing_method", json!({"code": "x"}))["missing"], false);
+}
+
+#[test]
+fn an_ask_card_answers_in_rust() {
+    assert_eq!(
+        ok(c"cloud_move_ask_open", json!({"scoped": true})),
+        json!({"do": "show", "card": {"state": "ask", "text": "ask", "answers": ["move", "notNow", "always"]}})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_open", json!({"granted": true})),
+        json!({"do": "start", "always": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_started", json!({"always": true})),
+        json!({"state": "working", "text": "movingAlways", "answers": ["askFirst"]})
+    );
+    assert_eq!(ok(c"cloud_move_ask_ended", json!({"failed": false})), json!({"card": null}));
+    assert_eq!(
+        ok(c"cloud_move_ask_ended", json!({"failed": true, "retry": true}))["card"]["answers"],
+        json!(["retry", "dismiss"])
+    );
+    assert_eq!(ok(c"cloud_move_ask_unfinished", json!({"show": true}))["text"], "unfinishedShow");
+    assert_eq!(
+        ok(
+            c"cloud_move_ask_answer",
+            json!({"answer": "always", "scoped": true, "sameScope": true})
+        ),
+        json!({"do": "start", "grant": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_answer", json!({"answer": "move", "scoped": true}))["card"]["text"],
+        "noMove"
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_answer", json!({"answer": "dismiss", "offered": true})),
+        json!({"do": "close", "remember": true})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_ask_own_target",
+            json!({"kind": "tab", "id": "r", "tab": "t", "resource": "r"})
+        ),
+        json!({"own": true})
+    );
+    assert_eq!(call(c"cloud_move_ask_answer", &json!({"answer": "jump"})).0, ERR_INVALID);
+}
+
+#[test]
+fn transfer_and_hand_off_rules_answer_in_rust() {
+    assert_eq!(
+        ok(c"cloud_move_transfer_hidden", json!({"host": "registry:m", "session": "s"})),
+        json!({"hidden": false})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_transfer_hidden",
+            json!({"host": "registry:m", "session": "s", "moved": true})
+        ),
+        json!({"hidden": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_folder", json!({"path": "~/x", "home": "/h"})),
+        json!({"kind": "at", "path": "/h/x"})
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_folder", json!({"path": "x", "home": "/h"})),
+        json!({"kind": "relative", "path": "x"})
+    );
+    assert_eq!(ok(c"cloud_move_transfer_folder", json!({"home": "/h"})), json!({"kind": "new"}));
+    assert_eq!(
+        ok(c"cloud_move_handoff_owns", json!({"recorded": "s", "asked": "s"})),
+        json!({"owns": true})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_handoff_refusal",
+            json!({"cloudAllowed": true, "signedIn": false, "loadedCurrent": true, "code": "rate_limited"})
+        ),
+        json!({"refusal": "not_signed_in", "storeCode": "rate_limited"})
+    );
+    assert_eq!(call(c"cloud_move_transfer_folder", &json!({"path": "x"})).0, ERR_INVALID);
 }

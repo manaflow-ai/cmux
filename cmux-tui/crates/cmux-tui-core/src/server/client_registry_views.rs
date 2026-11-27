@@ -610,6 +610,7 @@ impl ClientRegistry {
     /// idle-stop fence, `Mux::settle_idle_stop_fence`).
     pub(super) fn remove(&self, client: u64) -> Option<(ClientRecord, bool)> {
         self.url_opens.disconnect(client);
+        self.last_inputs.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         #[cfg(unix)]
@@ -731,5 +732,31 @@ impl ClientRegistry {
             .expect("start the test attach stream");
         self.attach_surface(client, surface, stream).expect("attach the test stream");
         client
+    }
+
+    /// Tests outside `server`: a role-main hello came (the app's frontend connected once).
+    pub(crate) fn note_test_frontend(&self) {
+        self.note_frontend();
+    }
+
+    /// Tests outside `server`: the app's frontend connects (a new local client that said hello
+    /// with role main). Returns the client id.
+    pub(crate) fn connect_test_frontend(&self) -> u64 {
+        let writer = super::MessageWriter::new(super::QueuedSink {
+            outbound: Arc::new(super::BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(super::ClientTransport::Unix, writer);
+        if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
+            record.origin.role = crate::request_origin::HelloRole::Main;
+        }
+        self.note_frontend();
+        client
+    }
+
+    /// Tests outside `server`: `client`'s connection ends (a frontend quit),
+    /// which ends its attach streams.
+    pub(crate) fn detach_test_client(&self, client: u64) {
+        assert!(self.remove(client).is_some(), "the test client was not registered");
     }
 }

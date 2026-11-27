@@ -125,6 +125,169 @@ async fn the_bridge_runs_the_codex_path_the_family_configures() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A CLI client changes the advertised speed without changing the model or its effort.
+#[tokio::test]
+async fn cli_changes_codex_speed_without_switching_model() {
+    let d = dir("cli-speed");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let model = "gpt-6.2-astra";
+    let catalog = d.join("models.json");
+    std::fs::write(
+        &catalog,
+        json!([{
+            "id": model, "model": model, "displayName": "GPT-6.2 Astra", "isDefault": true,
+            "serviceTiers": [{"id": "priority", "name": "Fast"}],
+            "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+            "defaultReasoningEffort": "high"
+        }])
+        .to_string(),
+    )
+    .unwrap();
+    let hub = hub_with(json!({
+        "harnesses": {"codex": {
+            "argv": [codex, "app-server"],
+            "env": {"FAKE_CODEX_CATALOG": catalog},
+        }},
+        "defaultHarness": "codex",
+        "permissionPolicy": "ask",
+    }));
+    let mut client = Client::local(&hub);
+    let (session, _) = harness_of_new(&mut client, &d, "codex").await;
+    let (other, _) = harness_of_new(&mut client, &d, "codex").await;
+    let mut agent = Client::local(&hub);
+    let proof = acpmux::hub::person::caller_token(&session);
+    let init = agent
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                "callerSession": {"sessionId": session, "token": proof}
+            }}}),
+        )
+        .await;
+    assert!(init.get("error").is_none(), "{init}");
+    // Speed needs no person (`web_modes::cli_config_id`), so an agent may set it on another
+    // chat too; that chat keeps its own model.
+    let other_speed = agent
+        .call(
+            "session/set_config_option",
+            json!({
+                "sessionId": other, "configId": "fast-mode", "value": "priority"
+            }),
+        )
+        .await;
+    let other_options = other_speed["result"]["configOptions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{other_speed}"));
+    for (id, expected) in [("model", model), ("fast-mode", "priority")] {
+        assert!(
+            other_options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+            "{other_speed}"
+        );
+    }
+    for tier in ["priority", "default"].into_iter().cycle().take(10) {
+        let client = if tier == "priority" { &mut agent } else { &mut client };
+        let reply = client
+            .call(
+                "session/set_config_option",
+                json!({"sessionId": session, "configId": "fast-mode", "value": tier}),
+            )
+            .await;
+        let options =
+            reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+        for (id, expected) in [("model", model), ("fast-mode", tier)] {
+            assert!(
+                options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+                "{reply}"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Two profiles use the same executable. A model offered only on the second
+/// provider page can be selected and accepts its own effort and tier.
+#[tokio::test]
+async fn running_chat_uses_its_own_providers_later_model_page() {
+    let d = dir("provider-page");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let profiles = [("work", "gpt-6.2-astra"), ("personal", "personal-model")];
+    let harnesses: serde_json::Map<_, _> = profiles
+        .iter()
+        .map(|(name, model)| {
+            (
+                (*name).to_owned(),
+                json!({"family": "codex", "argv": [codex, "-p", model, "app-server"]}),
+            )
+        })
+        .collect();
+    let hub = hub_with(
+        json!({"harnesses": harnesses, "defaultHarness": "work", "permissionPolicy": "ask"}),
+    );
+    // Both profiles run the same older binary. Only the work account already advertises Astra.
+    let release_rows = profiles
+        .iter()
+        .map(|(name, _)| {
+            serde_json::from_value(json!({
+            "id": name, "program": "codex", "channel": "npm", "package": "@openai/codex",
+            "auth": "unknown", "version": "0.164.0", "latest": "0.171.0",
+            "outdated": true, "checkedAt": 1, "newCodexModels": {"gpt-6.2-astra": "GPT-6.2 Astra"}
+        })).unwrap()
+        })
+        .collect();
+    hub.health.attach(acpmux::harness_health::Settings {
+        fixture: Some(release_rows),
+        ..Default::default()
+    });
+    let mut c = Client::local(&hub);
+    let catalog = c.call("_acpmux/models", json!({"refresh": true})).await;
+    for (name, model) in profiles {
+        let row = catalog["result"]["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["harness"] == name)
+            .unwrap();
+        assert!(row["models"].as_array().unwrap().iter().any(|m| m["id"] == model), "{row}");
+        let other = profiles.iter().find(|(n, _)| *n != name).unwrap().1;
+        let models = row["models"].as_array().unwrap();
+        let astra = models.iter().find(|m| m["id"] == "gpt-6.2-astra").expect("release row");
+        if name == "personal" {
+            assert_eq!(astra["codexUpdateVersion"], "0.171.0", "{row}");
+            assert!(astra["unavailable"].is_string(), "{row}");
+        } else {
+            assert!(astra.get("unavailable").is_none(), "{row}");
+            assert!(!models.iter().any(|m| m["id"] == other), "{row}");
+        }
+        let (session, _) = harness_of_new(&mut c, &d, name).await;
+        for (key, value) in
+            [("model", model), ("reasoning_effort", "high"), ("fast-mode", "priority")]
+        {
+            let reply = c
+                .call(
+                    "session/set_config_option",
+                    json!({"sessionId": session, "configId": key, "value": value}),
+                )
+                .await;
+            let options =
+                reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+            assert!(
+                options.iter().any(|o| o["id"] == "model" && o["currentValue"] == model),
+                "{reply}"
+            );
+            if key == "fast-mode" {
+                assert!(
+                    options
+                        .iter()
+                        .any(|o| o["id"] == "fast-mode" && o["currentValue"] == "priority"),
+                    "{reply}"
+                );
+                assert!(options.iter().any(|o| o["currentValue"] == "high"), "{reply}");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A chat's Codex starts with its agent-thread limits lifted (Leo
 /// 2026-10-14, no caps on subagents): `-c` overrides before `app-server`,
 /// so a new chat has them without a restart. A key the profile's command
@@ -162,7 +325,7 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         "-c",
         "agents.max_concurrent_threads_per_session=1000",
         "-c",
-        "tools.update_plan.enabled=true",
+        "tools.update_plan.enabled=false",
         "-c",
         "agents.max_depth=2",
         "app-server"
@@ -207,7 +370,7 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
     let lifted =
-        json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=true", "app-server"]);
+        json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=false", "app-server"]);
     assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
     let _ = std::fs::remove_dir_all(&d);
 }

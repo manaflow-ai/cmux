@@ -3,10 +3,9 @@
 //! apart from the app (web OTA), so a newer pane checks these before it
 //! relies on a surface instead of reading the daemon's version.
 //!
-//! [`CAPABILITIES`] is the one source: `initialize` sends its ids in
-//! `_meta.acpmux.capabilities`, `_acpmux/status` in `capabilities`, and
-//! `acpmux capabilities [--json]` prints them with no daemon running, which
-//! the app bundle records in `Contents/Resources/bin/daemon-capabilities.json`
+//! [`CAPABILITIES`] declares the wire names across builds. `initialize` sends the ids for its
+//! transport in `_meta.acpmux.capabilities`. `_acpmux/status` and `acpmux capabilities [--json]`
+//! report the build's ids, which the app records in `Contents/Resources/bin/daemon-capabilities.json`
 //! (scripts/cmux-next/write-daemon-capabilities.sh).
 //!
 //! An id names a wire contract. Never rename one or drop it while the daemon
@@ -30,9 +29,31 @@ pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 /// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
 pub const HOLD_ATTACH: &str = "attach-hold-v1";
 
+/// `_acpmux/paused_files`: a paused machine's file tree and search answered from its replica and
+/// write journal with no wake (`server/paused_files.rs`, RFD 0144). The same id as the cmux
+/// protocol's `RemoteCapability::PausedReadsV1`.
+pub const PAUSED_READS: &str = "paused-reads-v1";
+
+/// `_acpmux/presence` and `_acpmux/typing` (`hub/presence.rs`).
+pub const CHAT_PRESENCE: &str = "chat-presence-v1";
+
+/// `_acpmux/connections.changed`, pushed to a local watcher when a model connection changes
+/// (`server/connections.rs`).
+pub const CONNECTIONS_EVENTS: &str = "connections-events-v1";
+/// The machine's fill on an attached chat (`_acpmux/fill`, `server/fill.rs`): only to a client
+/// that listed it, so nothing changes for any other.
+pub const AUTOCLOUD_FILL: &str = "autocloud-fill-v1";
+
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
+/// `daemon service install` from an app's bundle runs the LaunchAgent from that bundle.
+pub const DAEMON_SERVICE_APP: &str = "daemon-service-app-v1";
+
+/// The hub carrier can list and probe machine routes.
+pub const MACHINE_ROUTES: &str = "machine-routes-v1";
+/// A fresh local stream accepts a remote pipe request on its first line.
+pub const REMOTE_PIPE: &str = "remote-pipe-v1";
 
 /// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
 /// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
@@ -48,6 +69,10 @@ pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
 
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
+/// A session row and `session info` carry `bgTasksRunning`, how many of the daemon's background
+/// tasks the session runs (`hub/bg_tasks.rs`). Session rebalance holds a session that runs any
+/// (a move leaves them behind), and one whose row lacks the count.
+pub const SESSION_BG_FACTS: &str = "session-bg-facts-v1";
 
 /// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
 pub const PROCESS_CENSUS: &str = "process-census-v1";
@@ -61,6 +86,75 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
+
+/// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
+/// labels (`hub/composers.rs`), a guarded one too (`hub/transfer_guard.rs` `bundle_path_kind`).
+pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
+
+/// A move's receive here takes `attachments/<sha256>`, the images the chat's prompts sent
+/// (`hub/prompt_images.rs`), a guarded one too.
+pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
+
+/// The bundle files a chat runs without: each a capability and the first path component of the
+/// files it covers. A source makes them whatever its target is (it cannot know); the move's
+/// client, which reads the target's capabilities, leaves out each one the target does not list
+/// ([`leave_out_untaken`]). A guarded receive from before the file refuses the whole move for it
+/// (2026-11-24, a Move to Cloud onto an older machine image: `transfer.path: "composers.json" is
+/// not a file a guarded move takes`). A new optional bundle file gets its row here and its id in
+/// [`CAPABILITIES`] in the change that adds it; every other file stays required.
+pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] =
+    &[(TRANSFER_COMPOSERS, "composers.json"), (TRANSFER_IMAGES, "attachments")];
+
+/// The capability a target lists when it takes the bundle file `path`, for an optional one
+/// ([`OPTIONAL_BUNDLE_FILES`]); `None` for a file every move carries.
+pub fn optional_bundle_file(path: &str) -> Option<&'static str> {
+    let first = path.split('/').next().unwrap_or(path);
+    OPTIONAL_BUNDLE_FILES.iter().find(|(_, f)| *f == first).map(|(capability, _)| *capability)
+}
+
+/// Removes from a move's `manifest.files` each optional bundle file whose capability `lists`
+/// says the target does not list, so that a target older than the file takes the chat without
+/// it; answers the paths it removed. Only the client that hands the manifest to the target calls
+/// it, with that target's own capabilities; then it pages only the files still listed.
+pub fn leave_out_untaken(
+    manifest: &mut serde_json::Value,
+    lists: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let Some(files) = manifest.get_mut("files").and_then(serde_json::Value::as_array_mut) else {
+        return Vec::new();
+    };
+    let mut left = Vec::new();
+    files.retain(|f| {
+        let path = f.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
+        let keep = optional_bundle_file(path).is_none_or(&lists);
+        if !keep {
+            left.push(path.to_owned());
+        }
+        keep
+    });
+    left
+}
+
+/// The one line a move says when it left optional files out ([`leave_out_untaken`]).
+pub fn left_out_line(left: &[String]) -> Option<String> {
+    if left.is_empty() {
+        return None;
+    }
+    let what: Vec<&str> = OPTIONAL_BUNDLE_FILES
+        .iter()
+        .filter(|(c, _)| left.iter().any(|p| optional_bundle_file(p) == Some(*c)))
+        .map(|(c, _)| match *c {
+            TRANSFER_COMPOSERS => "unsent composer text",
+            TRANSFER_IMAGES => "prompt images",
+            other => other,
+        })
+        .collect();
+    Some(format!(
+        "the target's acpmux is older and does not take {} ({} file(s)); the chat moves without it",
+        what.join(" or "),
+        left.len()
+    ))
+}
 
 pub struct Capability {
     pub id: &'static str,
@@ -83,6 +177,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::SESSION_SET_CONFIG_OPTION,
             method::SESSION_UPDATE,
             method::MUX_STATUS,
+            method::MUX_INFO,
             method::MUX_SESSIONS,
             method::MUX_ATTACH,
             method::MUX_DETACH,
@@ -96,6 +191,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_HARNESSES,
             method::MUX_HARNESSES_CHANGED,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_DISABLE,
             "_acpmux/models",
             method::MUX_ROUTE_LIST,
             method::MUX_KILL,
@@ -130,6 +226,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {topLevelOnly: true}`: no side chat and no session another chat's agent
+    // started, filtered before the page is cut (the phone's chat lists). Older daemons ignore it
+    // and list every chat.
+    Capability { id: "session-list-top-level-v1", wire: &[method::MUX_SESSIONS] },
     // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
     // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
     // the list's pages with `usage: true`.
@@ -139,6 +239,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // id does a missing field mean false; the app's Update When Idle holds on any other (absent
     // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
+    Capability { id: SESSION_BG_FACTS, wire: &[method::MUX_SESSIONS] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
@@ -146,6 +247,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
+    // `_acpmux/archive` and `_acpmux/rename` take an optional `opId` and run once per id
+    // (`hub/op_once.rs`): a resend after a lost reply answers the first result. An older
+    // daemon ignores `opId` and runs each resend, as before.
+    Capability {
+        id: crate::hub::op_once::CAPABILITY,
+        wire: &[method::MUX_ARCHIVE, method::MUX_RENAME],
+    },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
@@ -153,6 +261,11 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // `session/new` with `_meta.acpmux.placeRedirect: 1`: a create this lane host has no room
+    // for starts on the peer the placement engine picks, answered with that peer's session and
+    // `_meta.acpmux.placedOn` (`hub/admission_redirect.rs`). Older daemons ignore the opt-in and
+    // start it here, warned; a client that sends none gets that from this one too.
+    Capability { id: crate::hub::admission_redirect::CAPABILITY, wire: &[method::SESSION_NEW] },
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
@@ -168,7 +281,22 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::server::session_patch::CAPABILITY,
         wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
+    // `sessionChangedDelta: 2`: patches to a masked connection (a peer's link) too, and
+    // `_acpmux/session_resync` for a client that missed a row.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY_V2,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_PATCH, method::MUX_SESSION_RESYNC],
+    },
+    Capability {
+        id: MACHINE_ROUTES,
+        wire: &[method::MUX_MACHINE_ROUTES, method::MUX_MACHINE_ROUTE_PROBE],
+    },
+    Capability { id: REMOTE_PIPE, wire: &[method::MUX_REMOTE_PIPE] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux daemon service install` run from a cmux app's bundle points the LaunchAgent at that
+    // bundle's acpmux (`cli/daemon_service.rs` `launchd_program`), which `cmux device setup`
+    // checks before it relies on it. CLI-only: no daemon wire method.
+    Capability { id: DAEMON_SERVICE_APP, wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
@@ -182,6 +310,19 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
+    },
+    // Control and Screen switched from the owner's app on another machine, by a grant a key
+    // pinned here signed (`cli/consent_grant.rs`).
+    Capability {
+        id: "consent-grant-v1",
+        wire: &[
+            method::MUX_CONSENT_REMOTE_STATUS,
+            method::MUX_CONSENT_REMOTE_SET,
+            method::MUX_CONSENT_GRANTOR_TRUST,
+            method::MUX_CONSENT_ACCOUNT_SET,
+            method::MUX_CONSENT_TRUST_REFRESH,
+            method::MUX_CONSENT_SCREEN_AUTO,
+        ],
     },
     // Signing in enrolls this machine on the hub; signing out leaves only that join
     // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
@@ -199,6 +340,22 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
+    // lists this id, so an older peer is never sent a `connect` it would drop.
+    Capability {
+        id: crate::server::channels::CAPABILITY,
+        wire: &[
+            method::MUX_CHANNEL_LISTEN,
+            method::MUX_CHANNEL_UNLISTEN,
+            method::MUX_CHANNEL_OPEN,
+            method::MUX_CHANNEL_SEND,
+            method::MUX_CHANNEL_CLOSE,
+            method::MUX_CHANNEL_CONNECT,
+            method::MUX_CHANNEL_OPENED,
+            method::MUX_CHANNEL_DATA,
+            method::MUX_CHANNEL_CLOSED,
+        ],
+    },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
@@ -224,6 +381,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // A paused machine's file tree and search with no wake; the reply says when it did not
+    // answer (setting off, machine running, replica stale), and the client asks the machine.
+    Capability { id: PAUSED_READS, wire: &[method::MUX_PAUSED_FILES] },
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
@@ -236,7 +396,25 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
-    Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    Capability {
+        id: CHAT_PRESENCE,
+        wire: &[
+            method::MUX_TYPING,
+            method::MUX_PRESENCE,
+            method::MUX_LIVE,
+            method::MUX_LIVE_LIST,
+            method::MUX_ROOMS,
+            method::MUX_ROOM,
+            method::MUX_FOLLOW,
+        ],
+    },
+    // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
+    Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
+    // Chat titles and read marks through the sync engine, pulled and pushed by version vector
+    // (`hub/synced.rs`).
+    Capability { id: "state-sync-v1", wire: &[method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH] },
+    // A chat pinned or unpinned, kept in its record and synced as `pin/<id>` (`hub/synced.rs`).
+    Capability { id: "chat-pin-v1", wire: &[method::MUX_PIN] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
@@ -295,6 +473,10 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "start-mode-v1",
         wire: &[method::MUX_START_MODE, method::MUX_START_MODE_CHANGED],
     },
+    // A model connection's change, pushed to a local watcher (`server/connections.rs`).
+    Capability { id: CONNECTIONS_EVENTS, wire: &[method::MUX_CONNECTIONS_CHANGED] },
+    // How full a Cloud seed's checkout is, pushed on an attached chat (`server/fill.rs`).
+    Capability { id: AUTOCLOUD_FILL, wire: &[method::MUX_FILL] },
     // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
     Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).
@@ -340,6 +522,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every running subagent of a chat and its latest ended ones, whatever a page of the chat
+    // holds (`hub/subagent_list.rs`): the Background tasks panel's list.
+    Capability { id: "subagent-list-v1", wire: &[method::MUX_SUBAGENT_LIST] },
     // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
     // past the newest page its log was seeded with (`hub/native_history.rs`).
     Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
@@ -369,6 +554,15 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_TEAM_READ,
             method::MUX_TEAM_ACK,
         ],
+    },
+    // A listen on another member's agent address: open, list, close, and read what it receives
+    // (`server/team.rs` `listen`), under the same team-messaging gate.
+    Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
+    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
+    // team-messaging gate (`server/team_directory.rs`).
+    Capability {
+        id: "team-directory-v1",
+        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
@@ -449,6 +643,16 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/transfer_stage_finish",
         ],
     },
+    // The optional bundle files a move's receive (and a guarded one's writes) take here
+    // ([`OPTIONAL_BUNDLE_FILES`]); a client leaves out of a move each one its target does not list.
+    Capability {
+        id: TRANSFER_COMPOSERS,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
+    Capability {
+        id: TRANSFER_IMAGES,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -462,24 +666,55 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // A turn's frames of the chat's page as it formed, for the frames strip and the live preview
+    // window (`hub/turn_frames.rs`, RFD 0151).
+    Capability { id: "turn-frames-v1", wire: &[method::MUX_TURN_FRAMES] },
+    // A wrap-up card's Try it on, Keep and Revert (`customize_run.rs`).
+    Capability { id: "customize-run-v1", wire: &[method::MUX_CUSTOMIZE_RUN] },
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A delete that asks for it (`grace: true` on `_acpmux/kill` with `purge`, or on
+    // `session/delete`) keeps the chat 7 days, restorable (`hub/soft_delete.rs`). Older daemons
+    // ignore `grace` and delete at once.
+    Capability {
+        id: crate::hub::soft_delete::FEATURE,
+        wire: &[
+            method::MUX_KILL,
+            method::SESSION_DELETE,
+            method::MUX_UNDELETE,
+            method::MUX_DELETED,
+        ],
+    },
 ];
 
-/// The ids of [`CAPABILITIES`], in its order.
+/// The capabilities of this build, including the local stream listener.
 pub fn ids() -> Vec<&'static str> {
+    ids_for_connection(true)
+}
+
+/// `initialize` lists only the surfaces available over its transport. Debug builds only:
+/// `ACPMUX_TEST_HIDE_CAPABILITIES=ID,ID` leaves those ids out, so a test daemon lists what a
+/// daemon one version older lists (`tests/transfer_cli/session_move_history.rs`). Release builds
+/// have no seam.
+pub(crate) fn ids_for_connection(local_stream: bool) -> Vec<&'static str> {
+    #[cfg(debug_assertions)]
+    let hidden = std::env::var("ACPMUX_TEST_HIDE_CAPABILITIES").unwrap_or_default();
+    #[cfg(not(debug_assertions))]
+    let hidden = String::new();
+    let hidden: Vec<&str> = hidden.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     CAPABILITIES
         .iter()
-        .filter(|capability| {
-            capability.id != "agent-session-turn-rewind-v1"
-                || [
-                    "CMUX_PLATFORM_ORIGIN",
-                    "CMUX_PLATFORM_WORKSPACE_ID",
-                    "CMUX_PLATFORM_MACHINE_ID",
-                ]
-                .iter()
-                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        .filter(|capability| !hidden.contains(&capability.id))
+        .filter(|capability| match capability.id {
+            MACHINE_ROUTES => cfg!(feature = "hub-carrier"),
+            REMOTE_PIPE => local_stream && cfg!(feature = "hub-carrier"),
+            "agent-session-turn-rewind-v1" => {
+                ["CMUX_PLATFORM_ORIGIN", "CMUX_PLATFORM_WORKSPACE_ID", "CMUX_PLATFORM_MACHINE_ID"]
+                    .iter()
+                    .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+            }
+            _ => true,
         })
         .map(|capability| capability.id)
         .collect()
@@ -526,6 +761,78 @@ mod tests {
         assert_eq!(ids().first(), Some(&"acpmux-v1"), "the base comes first");
     }
 
+    fn begin_manifest() -> Value {
+        json!({"files": [
+            {"path": "session.json", "size": 10},
+            {"path": "events/000001.ndjson", "size": 20},
+            {"path": "composers.json", "size": 2},
+            {"path": format!("attachments/{}", "ab".repeat(32)), "size": 3},
+            {"path": "native/claude-project/.claude/projects/p/s.jsonl", "size": 4},
+        ]})
+    }
+
+    fn paths(manifest: &Value) -> Vec<&str> {
+        manifest["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect()
+    }
+
+    /// A target from before the optional files (it lists neither id) gets the chat without
+    /// them, every required file still listed, and the move says so in one line.
+    #[test]
+    fn an_older_target_gets_the_move_without_its_optional_files() {
+        let mut manifest = begin_manifest();
+        let left = leave_out_untaken(&mut manifest, |_| false);
+        assert_eq!(
+            left,
+            vec!["composers.json".to_owned(), format!("attachments/{}", "ab".repeat(32))]
+        );
+        assert_eq!(
+            paths(&manifest),
+            [
+                "session.json",
+                "events/000001.ndjson",
+                "native/claude-project/.claude/projects/p/s.jsonl"
+            ]
+        );
+        let line = left_out_line(&left).unwrap();
+        assert!(line.contains("unsent composer text") && line.contains("prompt images"), "{line}");
+    }
+
+    /// A current target lists both ids (this build does): the move carries every file.
+    #[test]
+    fn a_current_target_gets_every_file() {
+        let mut manifest = begin_manifest();
+        let here = ids();
+        let left = leave_out_untaken(&mut manifest, |c| here.contains(&c));
+        assert!(left.is_empty());
+        assert_eq!(left_out_line(&left), None);
+        assert_eq!(paths(&manifest), paths(&begin_manifest()));
+        for (capability, _) in OPTIONAL_BUNDLE_FILES {
+            assert!(here.contains(capability), "{capability} is not listed");
+        }
+    }
+
+    /// A target that lists only one id loses only the other's files.
+    #[test]
+    fn a_target_is_sent_each_optional_file_it_lists() {
+        let mut manifest = begin_manifest();
+        let left = leave_out_untaken(&mut manifest, |c| c == TRANSFER_COMPOSERS);
+        assert_eq!(left.len(), 1);
+        assert!(left[0].starts_with("attachments/"));
+        assert!(paths(&manifest).contains(&"composers.json"));
+    }
+
+    /// Only the listed optional files are ever left out: an unknown file stays in the manifest,
+    /// so a guarded target still refuses it (`hub/transfer_guard.rs`).
+    #[test]
+    fn an_unknown_file_is_never_left_out() {
+        assert_eq!(optional_bundle_file("harness/owner.sqlite"), None);
+        assert_eq!(optional_bundle_file("composers.json.bak"), None);
+        assert_eq!(optional_bundle_file("x/composers.json"), None);
+        let mut manifest = json!({"files": [{"path": "harness/owner.sqlite", "size": 1}]});
+        assert!(leave_out_untaken(&mut manifest, |_| false).is_empty());
+        assert_eq!(paths(&manifest), ["harness/owner.sqlite"]);
+    }
+
     /// An id covers names the daemon has: a renamed or removed method breaks
     /// this test, not the pane that relied on the id.
     #[test]
@@ -534,7 +841,7 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == DAEMON_SERVICE_APP {
                 assert!(capability.wire.is_empty());
                 continue;
             }
@@ -549,19 +856,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn base_info_and_carrier_methods_have_wire_declarations_in_every_build() {
+        let wire = |id| CAPABILITIES.iter().find(|cap| cap.id == id).unwrap().wire;
+        assert!(wire("acpmux-v1").contains(&method::MUX_INFO));
+        assert!(wire(INFO_ROWS).contains(&method::MUX_INFO));
+        assert_eq!(
+            wire(MACHINE_ROUTES),
+            &[method::MUX_MACHINE_ROUTES, method::MUX_MACHINE_ROUTE_PROBE]
+        );
+        assert_eq!(wire(REMOTE_PIPE), &[method::MUX_REMOTE_PIPE]);
+    }
+
+    fn memory_hub() -> std::sync::Arc<crate::hub::Hub> {
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        crate::hub::Hub::new(cfg, store)
+    }
+
+    #[tokio::test]
+    async fn declared_agent_passthroughs_require_a_session() {
+        let client = Client::in_process(memory_hub()).await.unwrap();
+        for m in [method::MUX_SUBAGENT_STOP, method::MUX_STEER_WITHDRAW, method::MUX_STEP_NOW] {
+            let error = client.request(m, json!({})).await.unwrap_err();
+            let rpc = &error.downcast_ref::<crate::client::DaemonError>().unwrap().0;
+            assert_eq!((rpc.code, rpc.message.as_str()), (-32602, "sessionId is required"), "{m}");
+        }
+        let unknown = client.request("_acpmux/unknown", json!({})).await.unwrap_err();
+        assert_eq!(unknown.downcast_ref::<crate::client::DaemonError>().unwrap().0.code, -32601);
+    }
+
     /// `initialize` and `_acpmux/status` carry the list, and `acpmux
     /// capabilities --json` prints the same one without a daemon.
     #[tokio::test]
     async fn initialize_status_and_the_cli_name_the_same_capabilities() {
-        let mut cfg = Config::default();
-        cfg.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = crate::hub::Hub::new(cfg, store);
+        let hub = memory_hub();
         let dir = cmux_unix_socket::short_test_dir("acpmux-caps");
         let path = dir.path().join("d.sock");
         let listener = crate::server::bind_unix(&path).await.unwrap();
+        let channel = Client::in_process(hub.clone()).await.unwrap();
         tokio::spawn(crate::server::serve_unix(hub, listener));
         let client = Client::connect(&path).await.unwrap();
+
+        let carrier = cfg!(feature = "hub-carrier");
+        assert_eq!(client.daemon_lists(MACHINE_ROUTES), carrier);
+        assert_eq!(channel.daemon_lists(MACHINE_ROUTES), carrier);
+        assert_eq!(client.daemon_lists(REMOTE_PIPE), carrier);
+        assert!(!channel.daemon_lists(REMOTE_PIPE));
 
         let expected = json!(ids());
         let status = client.request(method::MUX_STATUS, json!({})).await.unwrap();

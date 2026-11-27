@@ -61,11 +61,8 @@ pub(super) fn list_workspaces(
 ) -> anyhow::Result<Value> {
     // `after` pages only with `limit` (`list-workspaces-page-v1`).
     let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
-    // A client that sends no `known` holds no tree and asks no second time: its reply reads each
-    // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
-    if known.is_none() {
-        mux.read_stale_git_heads();
-    }
+    // Each form of the request draws the git HEADs from the cache, stale or not, and never waits on
+    // a read of one: the watch of the HEAD files keeps them current (git_heads.rs).
     // A remote device that must not see some workspaces (#31210) is answered
     // from the ones it may see: its page, `total` and revision say nothing of
     // the others, all read with one view of them.
@@ -84,6 +81,26 @@ pub(super) fn list_workspaces(
     Ok(reply)
 }
 
+/// `list-workspaces {since}` (`workspace-list-delta-v1`, list_workspaces_delta.rs): the
+/// entries that changed past the client's cursor, or the whole tree with a fresh cursor. A
+/// remote device that must not see some workspaces gets its whole pruned tree with no cursor
+/// (the ring is the daemon's whole tree), so it never holds one to send.
+pub(super) fn list_workspaces_delta(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    since: &super::list_workspaces_delta::DeltaCursor,
+) -> anyhow::Result<Value> {
+    let mut reply = super::incognito_remote::list_with_one_view(mux, client, |view| match view {
+        Some(_) => list_workspaces_reply(mux),
+        None => super::list_workspaces_delta::list_workspaces_reply_delta(mux, since),
+    })?;
+    if let Some(lines) = lines_written {
+        reply.set("lines_written_before_read", json!(lines));
+    }
+    Ok(reply)
+}
+
 /// [`list_workspaces`] for a reply that the socket writes from its build's shared tree text
 /// (tree_reply_text.rs): the same reply, with no copy of the tree.
 pub(super) fn list_workspaces_text(
@@ -91,8 +108,6 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    // This is a request with no `known`: see `list_workspaces`.
-    mux.read_stale_git_heads();
     let text = super::tree_reply_text::list_workspaces_reply_text(
         mux,
         &writer.render_service,
@@ -123,6 +138,7 @@ pub(super) fn create_workspace(
     name: Option<String>,
     key: Option<String>,
     first_tab: Option<frontend_browser_history::FirstTabParams>,
+    explicit_name: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -140,6 +156,7 @@ pub(super) fn create_workspace(
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,
+        explicit_name,
     )?;
     // `workspace-first-tab-v1`: the first tab in the same request. A replayed
     // create replays a keyed tab and makes no second unkeyed one; a tab that
@@ -216,6 +233,7 @@ pub(super) fn set_workspace_metadata(
     title: Option<Option<String>>,
     pinned: Option<bool>,
     marked_unread: Option<bool>,
+    keep_awake: Option<bool>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
@@ -226,6 +244,7 @@ pub(super) fn set_workspace_metadata(
         title,
         pinned,
         marked_unread,
+        keep_awake,
         ..Default::default()
     };
     let result = mux.set_workspace_metadata(
@@ -247,6 +266,7 @@ pub(super) fn set_workspace_metadata(
         "title": record.title,
         "pinned": record.pinned,
         "marked_unread": record.marked_unread,
+        "keep_awake": record.keep_awake,
         "workspace_revision": result.revision,
         "changed": result.changed,
         "replayed": result.replayed,
@@ -511,6 +531,13 @@ pub(super) fn rename_workspace(
         "registry_id": registry_id,
         "generation": generation,
     }))
+}
+
+/// `release-workspace-names`: every user-owned workspace name goes back to the
+/// automatic namer in one call. Idempotent: a second call releases nothing.
+pub(super) fn release_workspace_names(mux: &Arc<Mux>, actor: Actor) -> anyhow::Result<Value> {
+    let (released, still_pinned) = mux.release_workspace_names(&actor)?;
+    Ok(json!({"released": released, "still_pinned": still_pinned}))
 }
 
 pub(super) fn rename_provider_managed_workspace(

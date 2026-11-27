@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../workUser";
 import { cloudClientGrantRequired } from "../clientGrant";
 import {
   LINUX_RELEASE_FILES_PREFIX,
@@ -43,7 +43,7 @@ export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
  * coding agents refuse root outright (`claude --dangerously-skip-permissions`
  * exits before it starts), and root is one passwordless `sudo` away anyway.
  * The user, its home and the machine name are the image contract
- * (services/vms/images/workUser.ts); everything here is the runtime half.
+ * (services/vms/workUser.ts); everything here is the runtime half.
  *
  * Machines created from an image baked before that contract have no such user
  * and carry their daemon, binary and state under /root. Every command below
@@ -86,6 +86,33 @@ export function cmuxTuiLayoutSelector(): string {
     `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
     `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
     `else CMUX_TUI_USER=root; CMUX_TUI_HOME=${CMUX_TUI_LEGACY_HOME}; CMUX_TUI_LAYOUT=root; fi; ` +
+    `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
+  );
+}
+
+/** Exit status of an agent command on a machine whose unprivileged work user is not usable. */
+export const CMUX_TUI_EXIT_NO_WORK_USER = 83;
+
+/**
+ * The selector of every command that starts or talks to an agent (the keyed
+ * acpmux start, its person_holds check; the API Worker copy in
+ * backend/apps/api/src/cloud-acpmux-guest.ts layoutSelector). Same probes as
+ * cmuxTuiLayoutSelector, but it fails closed: when the work user is not
+ * usable it prints one clear line and exits CMUX_TUI_EXIT_NO_WORK_USER, and
+ * never picks the root layout. No extra probe, so no extra latency.
+ */
+export function cmuxTuiAgentLayoutSelector(): string {
+  const user = CMUX_CLOUD_USER;
+  const home = CMUX_CLOUD_HOME;
+  const line =
+    `cmux: this machine's ${user} user is not usable (missing, no setpriv, home not writable or no passwordless sudo), ` +
+    `and agents never run as root. Recreate the machine from a current image to repair it.`;
+  return (
+    `if id -u ${user} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups test -w ${home} 2>/dev/null && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
+    `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
+    `else echo ${shellQuote(line)} >&2; exit ${CMUX_TUI_EXIT_NO_WORK_USER}; fi; ` +
     `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
   );
 }
@@ -449,6 +476,9 @@ export function cmuxTuiAcpmuxLinkCommand(binary = '"$CMUX_TUI_BIN"', global = fa
   ].join(" && ");
 }
 
+/** acpmux.service's own PATH (systemd expands %h); a baked image's drop-in puts its store ahead of it. */
+export const ACPMUX_UNIT_PATH = "%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin";
+
 /** Install and start acpmux's canonical per-user service on a baked Linux image. */
 export function cmuxTuiServiceInstallCommand(): string {
   const unit = `[Unit]
@@ -458,7 +488,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${ACPMUX_UNIT_PATH}
 ExecStart=%h/.local/bin/acpmux daemon run --take-over
 WorkingDirectory=%h
 Restart=always

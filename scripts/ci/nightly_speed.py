@@ -100,6 +100,7 @@ import subprocess
 import sys
 import time
 import zlib
+from urllib.parse import urlencode
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCHEMA = 2
@@ -184,9 +185,8 @@ PR_MERGE_RE = re.compile(r"^Merge pull request #(\d+)\b")
 PR_SUMMARY_ROWS = 20
 PR_SUBJECT_SHOWN = 80
 BEFORE_FEEDS = "before the oldest observed feed"
-# A commit that names a PR number GitHub did not commit (a direct push: a base fix or follow-up carrying the number) is
-# not that PR's landing: only the commit GitHub made for the merge is (committer GITHUB_COMMITTER). Each PR is counted
-# once, at its GitHub merge; the other commits naming it are listed under these reasons, outside the p50/p90.
+# Commit metadata supplies candidates only; provider merge SHA + PR number establish identity.
+# Keep the committer marker for fixture/backward compatibility, never as proof of a merge.
 GITHUB_COMMITTER = "noreply@github.com"
 DUPLICATE_PR = "commit names a PR counted at its GitHub merge"
 DIRECT_PR = "direct commit names a PR number (no GitHub merge in the window)"
@@ -194,7 +194,7 @@ DIRECT_PR = "direct commit names a PR number (no GitHub merge in the window)"
 # HISTORY_KEEP: every feed of the newest PR_WINDOW_DAYS plus the one just before them, so a busy week (more than 40
 # nightlies) still finds each merge's first feed, and the window is proven covered once that predecessor is held.
 # `confirmed` is true only for a record whose read-back step succeeded; an entry seeded from an older record, which
-# never kept it, is unconfirmed: attribution uses it, but only confirmed entries prove the window covered.
+# never kept it, is unconfirmed: attribution excludes it from matches and percentiles.
 # The receipt proves the job wrote and read back the feed at feed_at, not what it published: nightly.yml's step
 # "source" picks its own build, a recovered or a republished one (build and build_sha) before the upload, and the jobs
 # API shows no step output. So a record's `sha` is its run's head commit (sha_source "run_head", confirmed_identity
@@ -300,7 +300,7 @@ def pr_number(subject: str) -> Optional[int]:
 
 def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
                            run: Callable = subprocess.run) -> List[Dict[str, Any]]:
-    """Return the PR landings on ``base_ref``'s first-parent line committed at or after ``since``, newest first.
+    """Return integration commit candidates at or after ``since``, newest first, including direct pushes.
 
     ``--since-as-filter``, not ``--since``: ``--since`` stops the walk at the first commit older than the date, so one
     commit with an old committer date hides every landing behind it. A merge without a PR number on the first-parent
@@ -327,9 +327,7 @@ def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
             seen.add(sha)
             number = pr_number(subject)
             parent_list = parents.split()
-            if number is None and len(parent_list) < 2:
-                continue
-            if number is None and len(walks) < 50:
+            if number is None and len(parent_list) >= 2 and len(walks) < 50:
                 walks.append((parent_list[1], parent_list[0]))
             rows.append({"sha": sha, "merged_at": iso(float(stamp)), "merged_ts": float(stamp),
                          "pr": number, "subject": subject,
@@ -337,6 +335,39 @@ def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
     rows.sort(key=lambda r: r["merged_ts"], reverse=True)
     return rows
 
+
+
+def provider_pr_merges(repo: str, base_ref: str, since: float, token: Optional[str],
+                       run: Callable = subprocess.run, max_pages: int = 40) -> Dict[str, Any]:
+    """Read merge identities in pages, never one request per PR. Stop at the window or a bounded gap.
+
+    Closed PRs are ordered by updated_at: a PR merged in the window cannot have an older update.
+    Provider merged_at and merge_commit_sha are authoritative; commit messages and email are not.
+    """
+    base = re.sub(r"^(refs/remotes/)?origin/|^refs/heads/", "", base_ref)
+    rows = {}
+    for page in range(1, max_pages + 1):
+        query = urlencode({"state": "closed", "base": base, "sort": "updated", "direction": "desc",
+                           "per_page": 100, "page": page})
+        try:
+            prs = gh_api(f"repos/{repo}/pulls?{query}", token, run)
+            if not isinstance(prs, list) or any(not isinstance(p, dict) for p in prs):
+                raise SourceError("invalid closed-PR response")
+        except SourceError:
+            # This reason is exported in the public PR stream; do not include command stderr.
+            return {"rows": list(rows.values()), "complete": False, "reason": "provider merge page unavailable"}
+        for pr in prs:
+            merged = ts(pr.get("merged_at"))
+            sha = pr.get("merge_commit_sha")
+            number = pr.get("number")
+            if (merged is not None and merged >= since and type(number) is int and number > 0
+                    and isinstance(sha, str) and SHA_RE.fullmatch(sha)
+                    and isinstance(pr.get("base"), dict) and pr["base"].get("ref") == base):
+                rows[(number, sha)] = {"pr": number, "sha": sha, "merged_at": pr["merged_at"]}
+        updated = [ts(pr.get("updated_at")) for pr in prs]
+        if len(prs) < 100 or (updated and all(t is not None for t in updated) and min(updated) < since):
+            return {"rows": list(rows.values()), "complete": True, "reason": None}
+    return {"rows": list(rows.values()), "complete": False, "reason": "closed-PR page limit reached"}
 
 def _contains_commit(git_dir: str, commit: str, head: str,
                      run: Callable = subprocess.run) -> Optional[bool]:
@@ -356,11 +387,10 @@ def _contains_commit(git_dir: str, commit: str, head: str,
 
 
 def _ancestors_since(git_dir: str, head: str, since: float, run: Callable = subprocess.run) -> Optional[set]:
-    """Every commit ``head`` holds committed at or after ``since``, or None when git cannot list them. One rev-list
-    per feed head answers every merge in the window, which the same --since-as-filter selected: 40 lists instead of
-    ~2,000 `merge-base --is-ancestor` calls (41 s on the 11/21 readback)."""
+    """One ancestry list per feed, without a date filter: provider merge time can differ from commit time.
+    Missing git history returns None, never proof that a feed excludes a merge."""
     try:
-        done = run(["git", "-C", git_dir, "rev-list", f"--since-as-filter={iso(since)}", head],
+        done = run(["git", "-C", git_dir, "rev-list", head],
                    capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -445,56 +475,77 @@ def identify(feeds: List[Dict[str, Any]], notes: Callable[[str], Optional[str]],
 def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = BASE_REF,
                    run: Callable = subprocess.run, now: Optional[float] = None,
                    window_days: int = PR_WINDOW_DAYS, feeds: Optional[List[Dict[str, Any]]] = None,
-                   classified: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Associate recent first-parent PR merges with the first nightly feed containing them.
+                   classified: Optional[Dict[str, str]] = None,
+                   provider_merges: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Join integration history to provider merge identities and the first verified feed containing each SHA.
 
-    Every merge gets a row, including merges without a PR number and merges for which no published nightly head can
-    be proven. A merge older than the oldest observed feed is unattributed (BEFORE_FEEDS): the feed that first held
-    it may be one no record covers, so charging it to the oldest observed feed would inflate its time. Only rows with
-    a matched feed contribute to the p50/p90 summary. ``feeds`` is the history's feed list (feed_list); the records
-    are used when it is not given. A predecessor feed alone proves nothing: a run omitted between two held feeds would
-    charge its merges to the later one. The window is covered (``partial`` false) only when every run in it is
-    classified (``classified``, classified_span, from at or before its start to at or after its end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded) with its identity
-    confirmed (its sha read from the published build, not the run head). ``unconfirmed`` counts the feeds used that
-    have no receipt, ``unidentified`` those whose sha is the run head's. The full rows are the detail
-    (`check --json`, pr_stream for `--pr-json`); the issue and its history carry pr_summary.
+    Only the provider merged_at starts a PR wait; subjects and committer dates supply candidates, not proof.
+    Unverified feeds never contribute a duration. The head-level speed budget remains independent.
+    Missing provider pages, publication receipts, identity, or run classification mark coverage partial.
     """
     end = time.time() if now is None else now
     since = end - window_days * 86400
     merges = first_parent_pr_merges(git_dir, base_ref, since, run)
+    # A successful rev-list in a shallow clone can omit real ancestors. Positive membership is proof;
+    # absence is not, and must not let a later feed masquerade as the first containing publication.
+    history_complete = (git(git_dir, ["rev-parse", "--is-shallow-repository"], run) or "").strip() == "false"
     feeds = [(ts(e["feed_at"]), e) for e in feed_list(feeds or [], records, end, window_days)]
     feeds = [(t, e) for t, e in feeds if t is not None and t <= end]
-    feeds.sort(key=lambda item: item[0])
+    feeds.sort(key=lambda item: (item[0], item[1]["sha"], item[1]["build"]))
+    # Re-publication of the same source does not restart its clock. Keep unverified entries for coverage,
+    # but only the earliest verified receipt for each source is eligible for attribution.
+    verified_sources = set()
+    eligible_feeds = []
+    for feed_ts, entry in feeds:
+        if entry.get("confirmed") and entry.get("confirmed_identity") and entry["sha"] not in verified_sources:
+            verified_sources.add(entry["sha"])
+            eligible_feeds.append((feed_ts, entry))
     held: Dict[str, Optional[set]] = {}
 
     def contains(commit: str, head: str) -> Optional[bool]:
         if head not in held:
             held[head] = _ancestors_since(git_dir, head, since, run)
         if held[head] is None:
-            return _contains_commit(git_dir, commit, head, run)
-        return commit in held[head]
+            answer = _contains_commit(git_dir, commit, head, run)
+            return None if answer is False and not history_complete else answer
+        if commit in held[head]:
+            return True
+        return False if history_complete else None
 
     rows: List[Dict[str, Any]] = []
-    # The canonical commit of each PR: its oldest GitHub merge in the window (merges are newest first).
-    canonical: Dict[int, str] = {}
+    provider = provider_merges or {"rows": [], "complete": False, "reason": "no provider merge records"}
+    identities = {(r["pr"], r["sha"]): r for r in provider.get("rows", [])
+                  if isinstance(r, dict) and type(r.get("pr")) is int and r.get("sha")
+                  and ts(r.get("merged_at")) is not None and since <= ts(r["merged_at"]) <= end}
+    canonical = {number: sha for number, sha in identities}
+    by_sha = {sha: r for (_, sha), r in identities.items()}
+    seen = {m["sha"] for m in merges}
+    # Include provider merges even if the subject has no PR number or its commit date is outside the window.
+    for sha, identity in by_sha.items():
+        if sha not in seen:
+            merges.append({**identity, "subject": "", "merged_ts": ts(identity["merged_at"]),
+                           "integration_verified": _contains_commit(git_dir, sha, base_ref, run) is True})
     for merge in merges:
-        if merge["pr"] is not None and merge.get("github", True):
-            canonical[merge["pr"]] = merge["sha"]
+        identity = by_sha.get(merge["sha"])
+        if identity:
+            merge.update(identity, merged_ts=ts(identity["merged_at"]))
     for merge in merges:
         row: Dict[str, Any] = {"sha": merge["sha"], "pr": merge["pr"], "subject": merge["subject"],
-                               "merged_at": merge["merged_at"], "feed_at": None, "feed_sha": None, "build": None,
+                               "merged_at": merge["merged_at"] if merge["sha"] in by_sha else None, "feed_at": None, "feed_sha": None, "build": None,
                                "merge_to_nightly": None, "status": "unattributed", "reason": None}
         if merge["pr"] is None:
             row["reason"] = "no PR number in merge metadata"
         elif canonical.get(merge["pr"], merge["sha"]) != merge["sha"]:
             row.update({"reason": DUPLICATE_PR, "canonical_sha": canonical[merge["pr"]]})
-        elif merge["pr"] not in canonical:
-            row["reason"] = DIRECT_PR
+        elif (merge["pr"], merge["sha"]) not in identities:
+            row["reason"] = DIRECT_PR if provider.get("complete") else "provider merge identity unavailable"
+        elif merge.get("integration_verified") is False:
+            row["reason"] = "could not verify integration ancestry"
         elif feeds and merge["merged_ts"] < feeds[0][0]:
             row["reason"] = BEFORE_FEEDS
         else:
-            for feed_ts, record in feeds:
-                if feed_ts <= merge["merged_ts"]:
+            for feed_ts, record in eligible_feeds:
+                if feed_ts < merge["merged_ts"]:
                     continue
                 holds = contains(merge["sha"], record.get("sha"))
                 if holds:
@@ -509,6 +560,7 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             if row["status"] != "attributed" and row["reason"] is None:
                 row["reason"] = "no later published nightly contains merge"
         rows.append(row)
+    rows.sort(key=lambda r: (r.get("merged_at") or "", r["sha"]), reverse=True)
     durations = [r["merge_to_nightly"] for r in rows if r["status"] == "attributed"
                  and isinstance(r["merge_to_nightly"], (int, float))]
     reasons: Dict[str, int] = {}
@@ -521,7 +573,15 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             "unconfirmed": sum(1 for _, e in feeds if not e.get("confirmed")),
             "unidentified": sum(1 for _, e in feeds if not e.get("confirmed_identity")),
             "classified": {"from": classified["from"], "to": classified["to"]} if sound_span(classified) else None,
-            "partial": not covered(rows, feeds, since, end, classified), "reasons": reasons, "rows": rows}
+            "partial": not history_complete or not provider.get("complete") or not covered(rows, feeds, since, end, classified)
+            or any(r["reason"] in ("could not verify integration ancestry", "could not verify nightly head ancestry")
+                   for r in rows),
+            "provider_complete": bool(provider.get("complete")), "provider_reason": provider.get("reason"),
+            "matched_prs": len(durations),
+            "unmatched_prs": sum(r["sha"] in by_sha and r["status"] != "attributed" for r in rows),
+            "excluded_commits": sum(r["sha"] not in by_sha for r in rows),
+            "unverified_feeds": sum(not e.get("confirmed") or not e.get("confirmed_identity") for _, e in feeds),
+            "reasons": reasons, "rows": rows}
 
 
 def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]], since: float, until: float,
@@ -543,12 +603,16 @@ def pr_stream(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     host, runner, job, diff or subject."""
     data = data or {}
     keys = ("window", "since", "until", "oldest_feed", "partial", "feeds", "unconfirmed", "unidentified", "classified", "count",
-            "attributed", "p50", "p90", "reasons")
-    out: Dict[str, Any] = {"schema": 1, **{k: data.get(k) for k in keys}}
+            "attributed", "p50", "p90", "reasons", "provider_complete", "provider_reason",
+            "matched_prs", "unmatched_prs", "excluded_commits", "unverified_feeds")
+    out: Dict[str, Any] = {"schema": 2, **{k: data.get(k) for k in keys}, "coverage_partial": data.get("partial", True)}
     out["observed_window"] = {"from": data.get("oldest_feed"), "to": data.get("until")}
     out["rows"] = [{"pr": r.get("pr"), "sha": r.get("sha"), "merged_at": r.get("merged_at"),
                     "feed_sha": r.get("feed_sha"), "feed_at": r.get("feed_at"),
-                    "merge_to_nightly": r.get("merge_to_nightly"), "reason": r.get("reason")}
+                    "merge_to_nightly": r.get("merge_to_nightly"), "reason": r.get("reason"),
+                    "pr_number": r.get("pr"), "merge_sha": r.get("sha"),
+                    "feed_source_sha": r.get("feed_sha"), "feed_uploaded_at": r.get("feed_at"),
+                    "pr_merge_to_feed_min": r.get("merge_to_nightly")}
                    for r in data.get("rows") or [] if isinstance(r, dict)]
     return out
 
@@ -559,7 +623,8 @@ def pr_summary(data: Optional[Dict[str, Any]], shown: int = PR_SUMMARY_ROWS) -> 
     it is expected at the window's old end). ``shown=0`` is the history's copy, no rows at all."""
     data = data or {}
     keys = ("window", "window_days", "since", "until", "count", "attributed", "p50", "p90", "oldest_feed",
-            "partial", "feeds", "unconfirmed", "unidentified", "classified")
+            "partial", "feeds", "unconfirmed", "unidentified", "classified", "provider_complete", "provider_reason",
+            "matched_prs", "unmatched_prs", "excluded_commits", "unverified_feeds")
     out: Dict[str, Any] = {k: data.get(k) for k in keys if k in data}
     out.setdefault("window", PR_WINDOW_DAYS)
     out.setdefault("count", 0)
@@ -1033,7 +1098,9 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
     if notes:
         state["feeds"] = identify(state["feeds"], notes)
     state["pr_attribution"] = pr_attribution(state["records"], git_dir, base_ref, run=run, now=now,
-                                             feeds=state["feeds"], classified=state["classified"])
+                                             feeds=state["feeds"], classified=state["classified"],
+                                             provider_merges=provider_pr_merges(
+                                                 repo, base_ref, now - PR_WINDOW_DAYS * 86400, token, run))
     state["why"] = "; ".join(whys) or None
     return state
 
@@ -1206,9 +1273,9 @@ def short(sha: Optional[str]) -> str:
 def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
     if not c.get("build"):
         return "## Nightly speed\n\nNo published nightly is recorded yet.\n"
-    head = (f"## Nightly speed: build {c['build']} ({short(c['sha'])}), merge to feed {num(c['merge_to_feed'], ' min')}, "
+    head = (f"## Nightly speed: build {c['build']} ({short(c['sha'])}), head landing to feed {num(c['merge_to_feed'], ' min')}, "
             f"{c['verdict']}")
-    out = [head, "", f"Budget: merge to feed p95 under {c['budget_min']:.0f} min. Over the newest {c['window']} nightlies: "
+    out = [head, "", f"Budget: head landing to feed p95 under {c['budget_min']:.0f} min. Over the newest {c['window']} nightlies: "
                      f"p50 {num(c['p50'], ' min')}, p95 {num(c['p95'], ' min')}. Feed upload at {c['feed_at']}."]
     if c["over"]:
         out += ["", f"Over budget by {c['merge_to_feed'] - c['budget_min']:.1f} min."]
@@ -1241,9 +1308,15 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                           "published build_sha (identity unconfirmed)." if prs.get("unidentified") else ""))
         else:
             out.append("Observed window: none, no published nightly is recorded; coverage is partial.")
-        out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
+        out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} integration commit observations. "
                 f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."
                 + (f" Unattributed: {reasons}." if reasons else "")]
+        if "matched_prs" in prs:
+            coverage_note = (" Unverified feeds are excluded and make coverage partial."
+                             if prs.get("unverified_feeds") else "")
+            out.append(f"Provider-verified PRs: {prs['matched_prs']} matched, {prs.get('unmatched_prs', 0)} unmatched; "
+                       f"{prs.get('excluded_commits', 0)} commits excluded. Waits end at the first verified feed; "
+                       "the head-level budget remains separate." + coverage_note)
         if prs.get("rows"):
             out += ["", f"Slowest and unattributed {len(prs['rows'])} of {prs.get('count', 0)} (every row: "
                         "`nightly_speed.py check --json`).", "",

@@ -62,6 +62,8 @@ CHECKS = (
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
+    "check:surface-bypass",
+    "check:bundle-matrix",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -76,6 +78,15 @@ CHECK_CLASSES = {
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
+    "check:surface-bypass": LINT,
+    "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
+}
+# Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
+NEW_CHECK_SCRIPTS = {
+    "check:design-tokens": "scripts/check-design-tokens.ts",
+    "check:ui-review": "scripts/check-ui-review.ts",
+    "check:surface-bypass": "scripts/check-surface-bypass.ts",
+    "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -101,6 +112,14 @@ def advisory_class(check: str, lines: list[str]) -> bool:
     return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+# Vite bundles its config to `node_modules/.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs` on every run, so a
+# config that fails to load prints stack frames that differ between the base's run and the merge's (#46890's fast
+# gate read the base's own `Resources/markdown-viewer` ENOENT as five new findings). The name is kept, the stamp dropped.
+VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
+# A Node error object a crashed tool prints (`{ errno: -110, code: 'ETIMEDOUT', pid: 1276995, ... }`) names its own
+# process id, which differs between the base's run and the merge's, so the base's crash read as the merge's new
+# finding `pid: 1276995,` (lane/tmm-list-flip's web lint, 11-27). The field is kept, the number dropped.
+PID = re.compile(r"\b(pid['\"]?\s*[:=]\s*)\d+")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -178,8 +197,10 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings, process ids and Vite's
+    temp config stamp dropped."""
+    text = VITE_TEMP.sub(r".timestamp.\1", PID.sub(r"\1<pid>", unroot(line, root).strip()))
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", text))
 
 
 def unroot(text: str, root: str) -> str:
@@ -202,7 +223,9 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
         if record:
             message = " ".join(record["message"])
             path = record["path"]
-            found = f"{unroot(path, root)}: {message}" if path else message
+            # The message is unrooted too: a type error naming a node_modules type prints the checkout's root in it
+            # (fast gates 45874767698 charged the base's bench/browsers.ts TS2345 to cmux#57053).
+            found = unroot(f"{path}: {message}" if path else message, root)
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
@@ -242,8 +265,10 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
 
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
     """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
-    Counted, not a set: a second finding that reads like one the base already has is still new."""
-    left = Counter(found for found, _ in findings(base_output, base_root))
+    Counted, not a set: a second finding that reads like one the base already has is still new. The base's
+    webviews/node_modules is the merge's (a symlink), so a base frame there names the merge's root: that is <root>
+    too, or the base's vite stack would never match the merge's."""
+    left = Counter(unroot(found, merge_root) for found, _ in findings(base_output, base_root))
     new, old = [], []
     for found, shown in findings(merge_output, merge_root):
         if left[found] > 0:
@@ -351,6 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         parser.error(f"not in CHECKS: {', '.join(unknown)}")
     checks = [c for c in CHECKS if (not args.only or c in args.only) and c not in args.skip]
+    if args.advisory_out is not None and "check:bundle-matrix" not in args.only:
+        # The nightly builds every bundle in its next step; the matrix is for the pull request and the push.
+        checks = [c for c in checks if c != "check:bundle-matrix"]
     repo = args.repo.resolve()
     webviews = repo / "webviews"
     if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
@@ -374,11 +402,9 @@ def main(argv: list[str] | None = None) -> int:
             # package script. Until that PR lands, the merge parent cannot run this check; do not
             # charge the transition PR for the base's missing command. Later PRs see the script on
             # the base and are compared normally.
-            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
-                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
-                continue
-            if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
-                print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
+            script = NEW_CHECK_SCRIPTS.get(check)
+            if script and not (base_webviews / script).is_file():
+                print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0

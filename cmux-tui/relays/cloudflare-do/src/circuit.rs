@@ -578,6 +578,10 @@ impl DurableObject for RelayCircuit {
     }
 
     async fn fetch(&self, request: Request) -> Result<Response> {
+        // The slot creating this circuit near itself before either Join (`crate::placement`).
+        if request.method() == Method::Post && request.path() == crate::placement::PLACE_PATH {
+            return Response::empty().map(|response| response.with_status(204));
+        }
         if !websocket_upgrade(&request)? {
             return upgrade_required();
         }

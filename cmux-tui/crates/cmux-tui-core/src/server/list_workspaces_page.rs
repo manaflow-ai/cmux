@@ -59,9 +59,10 @@ pub(super) fn list_workspaces_reply_since(
     if let Some(hidden) = remote_view {
         return list_workspaces_reply_seen(mux, known, limit, after, hidden);
     }
-    // A branch switch has no event: each HEAD past its cache lifetime goes to the background
-    // refresh, and one that moved bumps the revision. This request can still answer
-    // `unchanged`; the request after the refresh gets the tree (cmux#42895).
+    // A branch switch reaches the cache from the watch of its HEAD file; a HEAD the watch can
+    // miss goes to the background refresh past its lifetime (git_heads.rs), and one that moved
+    // bumps the revision. This request can still answer `unchanged`; the request after the
+    // refresh gets the tree (cmux#42895). Constant cost until a value is due.
     mux.revalidate_git_heads();
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
@@ -306,7 +307,8 @@ impl Command {
     /// its `total` and revision were read with (`incognito_remote::list_with_one_view`),
     /// so the dispatcher leaves it as it is.
     pub(super) fn prunes_its_own_reply(&self) -> bool {
-        matches!(self, Self::ListWorkspaces { known, limit, .. } if known.is_some() || limit.is_some())
+        matches!(self, Self::ListWorkspaces { known, limit, since, .. }
+            if known.is_some() || limit.is_some() || since.is_some())
     }
 }
 

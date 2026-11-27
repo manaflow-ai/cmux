@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentMcp.help.codex" : {
+      "comment" : "Settings > MCP Servers, Codex group: where its servers come from (file names, never translated)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servers Codex starts, from ~/.codex/config.toml, .codex/config.toml and plugins."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الخوادم التي يشغّلها Codex، من ~/.codex/config.toml و.codex/config.toml والإضافات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serveri koje Codex pokreće, iz ~/.codex/config.toml, .codex/config.toml i dodataka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servere, som Codex starter, fra ~/.codex/config.toml, .codex/config.toml og plugins."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server, die Codex startet, aus ~/.codex/config.toml, .codex/config.toml und Plugins."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servidores que inicia Codex, de ~/.codex/config.toml, .codex/config.toml y plugins."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serveurs que Codex démarre, depuis ~/.codex/config.toml, .codex/config.toml et les plugins."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server che Codex avvia, da ~/.codex/config.toml, .codex/config.toml e plugin."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex が起動するサーバー（~/.codex/config.toml、.codex/config.toml、プラグインから）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីនមេដែល Codex ចាប់ផ្ដើម ពី ~/.codex/config.toml, .codex/config.toml និងកម្មវិធីជំនួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex가 시작하는 서버(~/.codex/config.toml, .codex/config.toml 및 플러그인)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servere Codex starter, fra ~/.codex/config.toml, .codex/config.toml og programtillegg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serwery uruchamiane przez Codex, z ~/.codex/config.toml, .codex/config.toml i wtyczek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Servidores que o Codex inicia, de ~/.codex/config.toml, .codex/config.toml e plug-ins."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Серверы, которые запускает Codex, из ~/.codex/config.toml, .codex/config.toml и плагинов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เซิร์ฟเวอร์ที่ Codex เริ่ม จาก ~/.codex/config.toml, .codex/config.toml และปลั๊กอิน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex'in başlattığı sunucular, ~/.codex/config.toml, .codex/config.toml ve eklentilerden."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервери, які запускає Codex, з ~/.codex/config.toml, .codex/config.toml і плагінів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các máy chủ Codex khởi động, từ ~/.codex/config.toml, .codex/config.toml và plugin."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 启动的服务器，来自 ~/.codex/config.toml、.codex/config.toml 和插件。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 啟動的伺服器，來自 ~/.codex/config.toml、.codex/config.toml 和外掛程式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

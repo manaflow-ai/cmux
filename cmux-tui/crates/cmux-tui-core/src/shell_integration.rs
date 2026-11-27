@@ -225,13 +225,36 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
     keys_to_unset_in_child_from(env, &|key| std::env::var(key).ok())
 }
 
+/// A tool call's bound: `CMUX_DEADLINE=<epoch s>` and the tool that set it.
+/// A bounded command (a timer, an agent's tool call) that starts the daemon or
+/// the app leaves them in the daemon's environment, and every terminal it
+/// launched would inherit them. A process past its `CMUX_DEADLINE` is ended by
+/// the fleet's orphan reaper (leo-workspace `tools/agent_orphan_reaper.py`), so
+/// a shell and the agent a person runs in it were SIGTERMed (exit 143) hours
+/// later, after a relaunch adopted them. A terminal lives as long as the person
+/// keeps it, never to a call's bound.
+/// One command's wait cap (a caller exports it on a foreground wait it wants back
+/// within a prompt cache's life) is bound to that call the same way: a terminal that
+/// inherited it would cap every `cmux-gh wait` and `task-wait` run there at 150 s
+/// (acpmux `TURN_SCOPED_ENV`).
+pub const CALL_BOUND_ENV: [&str; 5] = [
+    "CMUX_DEADLINE",
+    "CMUX_DEADLINE_OWNER",
+    "GLAEDA_WAIT_CACHE_WARM_S",
+    "TASK_WAIT_MAX_S",
+    "TASK_WAIT_DEADLINE",
+];
+
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
-/// the incognito markers a launch with environment `env` must not inherit.
+/// the incognito markers a launch with environment `env` must not inherit, and
+/// a tool call's bound ([`CALL_BOUND_ENV`]), whatever the launch says.
 fn keys_to_unset_in_child_from(
     env: &[(String, String)],
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<&'static str> {
-    inherited_keys_to_unset_from(env, inherited)
+    let mut keys = inherited_keys_to_unset_from(env, inherited);
+    keys.extend(CALL_BOUND_ENV);
+    keys
 }
 
 fn inherited_keys_to_unset_from(

@@ -313,6 +313,13 @@ impl Hub {
             }
             None => None,
         };
+        // What this fork shares with the chat, logged once it is made (`fork_spec.rs`).
+        let spec = crate::fork_spec::ForkSpec::hub(
+            checked.is_some(),
+            subagent,
+            target.is_some(),
+            through.is_some() || before.is_some(),
+        );
         // A mode of the chat's own harness is checked before anything is made; another
         // harness's once it is up (`apply_fork_start`).
         if target.is_none()
@@ -341,18 +348,25 @@ impl Hub {
                 .await
                 .unwrap_or_default()
         };
+        // A `requestId`'s reserved id (`fork_request.rs`), so a retry finds this fork.
         let id = before
             .as_ref()
             .map(|(id, _)| id.clone())
+            .or_else(super::fork_request::reserved_id)
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        let (turn_cut, codex_fork) = {
+        let (turn_cut, codex_fork, opencode_fork) = {
             let cfg = self.config.read().await;
             let profile = cfg.profile(&parent_meta.harness);
+            let family = parent_meta
+                .family
+                .clone()
+                .or_else(|| profile.map(|p| crate::config::derive_family(&parent_meta.harness, p)));
             (
                 profile.and_then(|p| crate::config::turn_cut(&parent_meta.harness, p)),
                 // A Codex parent's profile argv, for the HTTP `cmux` entry check.
                 crate::agent_tools::is_codex(&parent_meta, profile)
                     .then(|| profile.map(|p| p.argv.clone()).unwrap_or_default()),
+                family.as_deref() == Some("opencode"),
             )
         };
         if before.is_some() && turn_cut.is_none() {
@@ -481,7 +495,7 @@ impl Hub {
             let made = if target.is_some() {
                 // Onto another harness: its agent reads the subagent's turns (`rehydrate`), not
                 // the copy, which no one resumes.
-                let _ = std::fs::remove_file(&copy.file);
+                let _ = crate::home_fs::remove_file(&copy.file);
                 Made::Fresh
             } else {
                 Made::Copy(copy.copy.clone())
@@ -587,22 +601,22 @@ impl Hub {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
             Made::ClaudeResume
-        } else if working && !offers_fork(session.meta().agent_capabilities.as_ref()) {
-            note = Some(fresh_note(&parent_meta.harness));
+        } else if !offers_fork(session.meta().agent_capabilities.as_ref())
+            || !self.offers_fork_once_started(session).await?
+        {
+            // An agent that does not offer session/fork (pi, Kimi, DeepSeek) is not asked: the
+            // fork gets a new agent session that reads the chat's transcript, idle or working
+            // (#50089), as a working chat's fork always did.
+            if parent_meta.turn_count == 0 && !working {
+                return Err(RpcError::invalid_params(NOTHING_TO_FORK));
+            }
+            note = Some(no_fork_note(&parent_meta.harness, working));
             Made::Fresh
         } else {
             // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
             self.touch(session);
             let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
-            // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
-            // with a bare internal error: refuse with the reason instead.
-            if !offers_fork(session.meta().agent_capabilities.as_ref()) {
-                return Err(RpcError::invalid_params(format!(
-                    "{} cannot fork a chat: its agent does not offer session/fork",
-                    parent_meta.harness
-                )));
-            }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             // Codex's answer for the person's own `cmux` entry, asked once for this fork, off the
@@ -633,6 +647,7 @@ impl Hub {
             let entry_env = codex.and_then(|launch| {
                 crate::agent_tools::person_entry_env(&servers, launch, &answer_env, &id)
             });
+            let servers = parent_side_servers(opencode_fork, servers);
             let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers});
             crate::agent_tools::send_person_entry_env(&mut fork_params, entry_env);
             // The parent's folders, as its own start gave them (`additional_dirs.rs`).
@@ -644,13 +659,31 @@ impl Hub {
             // so a prompt the chat takes while it answers is not in the fork's history either.
             let handoff = session.input_handoff.clone().lock_owned().await;
             let seen = std::sync::Mutex::new(None);
-            let asked = child
-                .request_with_hook(method::SESSION_FORK, fork_params, None, || {
+            // What the agent sends for the new session while it answers (OpenCode replays the
+            // whole conversation under its id) is the fork's, not this chat's (`fork_replay.rs`).
+            let replay_wait = session.fork_replay.asking();
+            // Bounded (`forward_wait.rs`): an agent alive that never answers its fork ends this
+            // request, and the `harness_use` read it holds, at its start budget instead of never.
+            // A chat that works then forks from the transcript, as any failed mid-turn fork does.
+            let bound = self.config.read().await.agent_start_timeout();
+            let mut wait = cmux_bounded::Driver::<
+                super::forward_wait::ForwardWait,
+                tokio::time::Instant,
+            >::new(super::forward_wait::ForwardWait::asked(bound));
+            let asked = tokio::select! {
+                asked = child.request_with_hook(method::SESSION_FORK, fork_params, None, || {
                     *seen.lock().unwrap_or_else(|e| e.into_inner()) =
                         Some((session.read_meta(rules_of), take_cut()));
                     drop(handoff);
-                })
-                .await;
+                }) => {
+                    wait.feed(super::forward_wait::Event::Answered);
+                    asked
+                }
+                () = wait.expired() => {
+                    wait.expire_due();
+                    Err(super::forward_wait::no_answer(method::SESSION_FORK, bound))
+                }
+            };
             if let Some((rules, cut)) = seen.into_inner().unwrap_or_else(|e| e.into_inner()) {
                 rules_at_copy = Some(rules);
                 cut_at_request = Some(cut);
@@ -664,6 +697,9 @@ impl Hub {
                         .and_then(Value::as_str)
                         .ok_or_else(|| RpcError::internal("session/fork returned no sessionId"))?
                         .to_owned();
+                    // Before the wait ends, so no late update of it reads as this chat's.
+                    session.fork_replay.made(&new_sid);
+                    drop(replay_wait);
                     Made::Agent(res, new_sid)
                 }
                 // An agent that fails a fork while the chat works (OMP answers a bare
@@ -736,6 +772,8 @@ impl Hub {
         let rules_kept = !fresh
             && !moved
             && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
+        // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
+        let (title, title_source) = super::titles::fork_title(&parent_meta);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -744,6 +782,8 @@ impl Hub {
             icon: None,
             name_given,
             former_names: Vec::new(),
+            succeeds: Vec::new(),
+            roles: Vec::new(),
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
@@ -752,6 +792,7 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             effort_request: parent_meta.effort_request.clone(),
+            capacity_fallback: None,
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -787,6 +828,7 @@ impl Hub {
             }),
             history_kept_through: None,
             fork_requests: Default::default(),
+            fork_start: None,
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
@@ -810,8 +852,8 @@ impl Hub {
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             policy_source: parent_meta.policy_source.clone(),
-            title: None,
-            title_source: None,
+            title,
+            title_source,
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
@@ -840,7 +882,6 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
-            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -848,7 +889,6 @@ impl Hub {
             unread_turns: 0,
             last_return: None,
             away_recap: None,
-            rolling_summary: None,
             approved_plan: None,
             read_through: Default::default(),
             claude_unstored: false,
@@ -857,8 +897,10 @@ impl Hub {
             wait_start: false,
             throwaway: false,
             create_key: None,
+            placed_by: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
+            close: None,
             idle_launch: None,
             start_level: None,
             moved_to: None,
@@ -881,6 +923,7 @@ impl Hub {
             harness_roots: vec![],
             watching: None,
             composer_draft: None,
+            pinned: false,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // The chat's marks on the history the fork shows by reference, under their own seqs;
@@ -911,6 +954,7 @@ impl Hub {
             } else {
                 None
             },
+            task_cost_usd: None,
             // A fork is the person's new chat, never a sub-session of the parent's parent; one
             // an agent started of its own chat is that chat's sub-session (`sub`).
             subsession,
@@ -927,12 +971,16 @@ impl Hub {
             turn_cap_noticed: None,
             delegator: None,
             cold: None,
+            // A fork is a new chat: it takes the setting's default, not its source's Auto.
+            auto_session: None,
             fork_of_subagent: sub_copy.as_ref().map(|c| crate::store::SubagentForkOf {
                 session_id: session.id.clone(),
                 subagent_id: c.subagent_id.clone(),
                 agent_id: Some(c.agent_id.clone()),
                 name: c.name.clone(),
             }),
+            // A fork is a new chat: Auto, whatever its parent was pinned to.
+            place_mode: None,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {
@@ -982,22 +1030,32 @@ impl Hub {
                 // A fork onto another harness: its agent is told it was forked from the chat, and
                 // whose the earlier replies are (Leo, 2026-11-11: "ChatGPT can have, like, a small
                 // little briefing of, like, you were forked from this chat").
-                if let Some(c) = sub_copy.as_ref().filter(|_| target.is_some()) {
+                let briefing = if let Some(c) = sub_copy.as_ref().filter(|_| target.is_some()) {
                     let who = c.name.as_deref().unwrap_or(&c.subagent_id);
-                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                    format!(
                         "this chat was forked from {}'s subagent {who} in chat {} ({}) when the person switched to you; the subagent's conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
                         parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
-                    ));
+                    )
                 } else if new.meta().harness != parent_meta.harness {
-                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                    format!(
                         "this chat was forked from {} chat {} ({}) when the person switched to you; the conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
                         parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
-                    ));
-                }
+                    )
+                } else {
+                    // Its own harness, whose agent could not fork the chat itself (#50089).
+                    format!(
+                        "this chat was forked from chat {} ({}); the conversation so far is below and the earlier replies are yours; carry on from where it ended; tool state was not restored",
+                        parent_meta.name, session.id
+                    )
+                };
+                *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(briefing);
                 new.rehydrate.store(true, Ordering::SeqCst)
             }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
+        // Kept in its meta until its agent took it, and the fork marked unmade until its history
+        // is in: a restart before either starts it the same or closes it (`fork_start.rs`).
+        new.keep_fork_start(false);
         if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
@@ -1241,8 +1299,10 @@ impl Hub {
         if super::fork_cancel::cancelled() {
             return Err(super::fork_cancel::cancelled_refusal());
         }
+        new.fork_made();
         self.save_meta(&new);
         creation_guard.disarm();
+        crate::fork_spec::log(&spec, &session.id, &new.id);
         if let Some(checked) = checked {
             // A sub-session's harness runs only in the folder its start checked, or not at all.
             if let Err(e) = self.start_checked_child(&new, checked).await {
@@ -1409,8 +1469,47 @@ fn note_open_tool(open_tools: &mut Vec<(String, String)>, e: &EventRecord) {
     }
 }
 
+impl Hub {
+    /// Whether the chat's agent offers `session/fork`, starting it to learn so when its
+    /// capabilities are not known yet (it never started here).
+    async fn offers_fork_once_started(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Result<bool, RpcError> {
+        if session.meta().agent_capabilities.is_some() {
+            return Ok(true);
+        }
+        self.touch(session);
+        self.child_for(session).await?;
+        Ok(offers_fork(session.meta().agent_capabilities.as_ref()))
+    }
+}
+
+/// What a fork of a chat whose agent offers no `session/fork` says of itself (its `forked` note).
+fn no_fork_note(harness: &str, working: bool) -> String {
+    if working {
+        format!(
+            "{harness} cannot fork a chat mid-turn, so this fork's agent starts from the chat's transcript"
+        )
+    } else {
+        format!(
+            "{harness} cannot fork a chat, so this fork's agent starts from the chat's transcript"
+        )
+    }
+}
+
 /// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
 /// not known yet (the agent never started) count as offered: the agent then answers.
+/// The MCP servers the parent's agent gets with its `session/fork`. OpenCode gets none: its MCP
+/// clients are one set per folder in its process, by name, so the fork's servers (each URL naming
+/// the fork) replaced the parent's own, and the parent's tools then acted as the fork (measured
+/// 2026-11-22, OpenCode 1.19.0: the parent's `list_sessions` answered with the fork's id). Its
+/// forked session in the parent's process never runs a turn: the fork loads it in its own
+/// process, with its own servers (`fork_child`). Starting them there also cost about 0.9 s.
+fn parent_side_servers(opencode: bool, servers: Value) -> Value {
+    if opencode { json!([]) } else { servers }
+}
+
 pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
     caps.is_none_or(|c| c.pointer("/sessionCapabilities/fork").is_some_and(|f| !f.is_null()))
 }
@@ -1456,5 +1555,21 @@ mod same_folder_tests {
         let other = tempfile::tempdir().unwrap();
         assert!(same_folder(dir.path(), &dir.path().join(".")));
         assert!(!same_folder(dir.path(), other.path()));
+    }
+}
+
+#[cfg(test)]
+mod parent_side_servers_tests {
+    use super::parent_side_servers;
+    use serde_json::json;
+
+    /// OpenCode's parent process gets no servers with its `session/fork` (they would replace the
+    /// parent's own); every other agent gets the fork's list as before.
+    #[test]
+    fn only_opencode_forks_without_servers() {
+        let servers =
+            json!([{"name": "acpmux", "type": "http", "url": "http://x/mcp/fork/tools/acpmux"}]);
+        assert_eq!(parent_side_servers(true, servers.clone()), json!([]));
+        assert_eq!(parent_side_servers(false, servers.clone()), servers);
     }
 }

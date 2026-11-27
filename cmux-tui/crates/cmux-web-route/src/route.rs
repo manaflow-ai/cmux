@@ -10,7 +10,7 @@
 //!   [?machine=machine_<hex>]` (in any build's scheme, `cmux-nightly`, `cmux-dev-<tag>`), or
 //!   `https://cmux.com/deeplink/agent?...`.
 //!
-//! `<machine>` is a machine id (`machine_<32 hex>`) or a machine's name (`big-red`). Of a query
+//! `<machine>` is a machine id (`machine_<32 hex>`) or a machine's name (`my-vm`). Of a query
 //! only `message` is read; a repeated, empty or malformed one names nothing, as every hint of an
 //! agent link. A route is an address: nothing here starts, prompts or runs anything.
 //! `schemas/deeplinks/web-routes.json` holds the vectors; the web host's reader
@@ -126,8 +126,9 @@ pub fn parse(address: &str) -> Result<Route, RouteError> {
         return parse_path(address);
     }
     if let Some(rest) = address.strip_prefix("https://") {
-        let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-        return match &rest[..host_end] {
+        // The host is everything before the first path, query or fragment mark.
+        let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        return match host {
             "cmux.com" | "www.cmux.com" => agent(agent_link::find(address)),
             _ => Err(RouteError::NotARoute),
         };
