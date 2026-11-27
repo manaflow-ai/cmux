@@ -1225,6 +1225,50 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+
+  Since 2026-11-24, a resumable upload may add `upload_id` and `offset`.
+  `upload_id` is exactly 36 lowercase hexadecimal or `-` characters, and
+  `offset` is a byte offset represented as a number or decimal string, default
+  zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
+  in place of the link session so the same phone can resume after redial.
+  The host keeps the partial file at
+  `<upload-folder>/.parts-<SHA-256 of lowercase phone device ID>/.<upload_id>.part`.
+  The staging directory is private (0700), cannot be a symlink, and remains
+  inside the authorized upload folder even if that folder resolves to an alias.
+  Only the same authenticated phone can resume it across link sessions.
+  The host truncates the part to `offset`, and first answers `{"have":offset}\n`. If the
+  requested offset is past the partial file, it answers
+  `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
+  within the part but beyond the declared size closes `bad_request`.
+  Data is acknowledged with `{"ack":bytes}\n` after each MiB and when the
+  stream stops. An ack is durable: the host syncs the partial file to disk
+  before it sends one, so a Mac crash never loses acknowledged bytes. An overlapping attempt that still finds the part busy after
+  two seconds closes `busy`. Once `size` bytes are present, the host flushes
+  and syncs the last unsynced bytes (at most one MiB), publishes it under the safe name, and answers
+  `{"path","size"}\n` before closing `eof`. A link close or a 120-second
+  period without data keeps the partial file. The latter answers its last ack
+  and closes `stalled`. Receiving more than `size` bytes deletes the partial
+  file and closes `bad_request`. Resumable replies are one JSON object per
+  newline-terminated line. The host removes resumable parts older than 24 hours
+  when it next opens the device's staging folder. Completed uploads retain a
+  private `.done` receipt for the same retention period. A retry of the same ID,
+  name and size receives `{"have":size}` and the original path without publishing
+  another file. A changed or removed published file is refused; the receipt never
+  authorizes a replacement file at that path. Uploads without `upload_id` retain the
+  legacy reply framing and interruption behavior.
+  Since 2026-11-24 a resumable upload may also carry `sha256`: the whole file's
+  SHA-256, 64 hexadecimal characters (either case; anything else closes
+  `bad_request`). The host keeps an index of the finished uploads of each upload
+  folder, `<device-staging>/.sha256-<folder name>/<sha256>`, one file per hash naming the
+  stored file. When the index names a file that is still a regular file in that
+  folder with `size` bytes and the same SHA-256 (the host hashes it again), the
+  host answers `{"path","size","deduped":true}\n` at once, before any `have`,
+  and closes `eof` without reading data; it removes this upload's part. A stale
+  entry is removed and the upload proceeds as usual. The phone sends `sha256`
+  and waits up to 3 seconds for the host's first reply before its first byte; a
+  host that ignores the field answers `have` as above, and one older still
+  (no first reply) is sent the file from byte 0 after the wait. The index is
+  scoped to one upload folder, so a phone never learns of another phone's files.
 - `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
   upload or a file open as sealed, content-defined chunks (cmux-tui
   `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
