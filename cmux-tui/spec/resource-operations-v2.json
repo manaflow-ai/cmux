@@ -16461,6 +16461,17 @@
           },
           "description": "The pull request URLs it opened, oldest first."
         },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The git branch of the chat's folder; null when acpmux does not know it."
+        },
         "preview": {
           "required": false,
           "type": {
