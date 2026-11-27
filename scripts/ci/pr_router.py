@@ -258,7 +258,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
         if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
-            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
+            # The tier's own reason says what gives this head the full tier (a draft marked ready, full-ci, or the
+            # land label when CI_LAND_FULL_PER_PR is on): a fixed "ready-to-land or marked ready" here sent a ready
+            # pull request looking for a run its own marking could not start.
+            why[name] = f"its jobs ({', '.join(config['table_jobs'])}) run only on the full tier: {tier_reason}"
             continue
         if files is None:
             start.append(name)
