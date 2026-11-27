@@ -76,6 +76,38 @@ fn a_cutover_is_transient_per_reader_and_connection() {
     assert_eq!(presence.active_cutover("c", "tailnet:bob"), None);
 }
 
+#[tokio::test]
+async fn live_list_is_empty_until_live_and_merges_a_person_across_chats() {
+    let presence = Presence::default();
+    presence.view("a", "c1", &ana(), true).unwrap();
+    presence.view("b", "c1", &ana(), true).unwrap();
+    presence
+        .view("b", "c2", &Who { id: "tailnet:bo".to_owned(), name: "Bo".to_owned() }, true)
+        .unwrap();
+    assert!(presence.live_list().is_empty(), "off by default");
+    assert!(!presence.set_live(true));
+    assert!(presence.is_live());
+    let list = presence.live_list();
+    let ids: Vec<&str> = list.iter().map(|r| &*r.id.0).collect();
+    assert_eq!(ids, ["tailnet:ana", "tailnet:bo"]);
+    presence.typing("a", "c1", &ana(), true).unwrap();
+    let list = presence.live_list();
+    assert_eq!(list[0].location.chat.as_deref(), Some("a"), "the chat where they type");
+    assert_eq!(list[0].doing, Doing::Typing);
+    assert!(presence.set_live(false));
+    assert!(presence.live_list().is_empty(), "off again clears the list");
+}
+
+#[tokio::test]
+async fn live_list_drops_people_who_left() {
+    let presence = Presence::default();
+    presence.set_live(true);
+    presence.view("a", "c1", &ana(), true).unwrap();
+    assert_eq!(presence.live_list().len(), 1);
+    presence.close("c1");
+    assert!(presence.live_list().is_empty());
+}
+
 /// A sink that keeps what it heard.
 fn heard() -> (Sink, Arc<Mutex<Vec<Value>>>) {
     let notes = Arc::new(Mutex::new(Vec::new()));

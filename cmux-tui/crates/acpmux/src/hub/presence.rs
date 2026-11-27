@@ -48,6 +48,7 @@
 //! closing ends it; moving your own view ends it in the client, which sends `null`.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -262,6 +263,8 @@ impl State {
 
 struct Inner {
     state: Mutex<State>,
+    /// The owner's Live opt-in (`_acpmux/live`); off until set, and never kept past a restart.
+    live: AtomicBool,
     changes: broadcast::Sender<Arc<Value>>,
 }
 
@@ -275,6 +278,7 @@ impl Default for Presence {
         Presence {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
+                live: AtomicBool::new(false),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
         }
@@ -371,6 +375,46 @@ impl Presence {
     pub fn watches(&self, conn: &str, room: &Room) -> bool {
         let state = self.inner.state.lock_or_recover();
         state.watching.get(conn).is_some_and(|rooms| rooms.contains(room))
+    }
+
+    /// Whether the owner is Live (`_acpmux/live`).
+    pub fn is_live(&self) -> bool {
+        self.inner.live.load(Ordering::Acquire)
+    }
+
+    /// Turns the owner's Live on or off; the previous value.
+    pub fn set_live(&self, live: bool) -> bool {
+        self.inner.live.swap(live, Ordering::AcqRel)
+    }
+
+    /// `_acpmux/live_list`: one shared record per person across this daemon's chats, ordered by
+    /// id. Empty while the owner is not Live. A person in several chats shows the chat where
+    /// they type, else the one with the newest owner epoch.
+    pub fn live_list(&self) -> Vec<Record> {
+        if !self.is_live() {
+            return Vec::new();
+        }
+        let scope =
+            cmux_presence::Sharing { live: true, private_chat: false, share_agent_files: false };
+        let state = self.inner.state.lock_or_recover();
+        let mut people: BTreeMap<String, Record> = BTreeMap::new();
+        for (chat, entries) in &state.chats {
+            let Some(&epoch) = state.revisions.get(chat) else { continue };
+            for person in participants(Some(entries), &state.follows) {
+                let record = person.record(chat, epoch);
+                let better = |old: &Record| {
+                    (record.doing == Doing::Typing, record.epoch)
+                        > (old.doing == Doing::Typing, old.epoch)
+                };
+                match people.get(&*record.id.0) {
+                    Some(old) if !better(old) => {}
+                    _ => {
+                        people.insert(record.id.0.to_string(), record);
+                    }
+                }
+            }
+        }
+        people.into_values().filter_map(|r| r.shared(scope)).collect()
     }
 
     /// `_acpmux/view` (and a visible attach): `who` on `conn` shows the chat or stops.

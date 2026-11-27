@@ -31,6 +31,31 @@ fn socket_attention_becomes_the_vm_principal_op() {
     assert!(next.is_empty());
     assert_eq!(session.attention.len(), 0);
 }
+/// M3: `acpmux-ready` turns on in the report that follows acpmux's first line, with or
+/// without the activity stream, and off in the report its lapse sends.
+#[test]
+fn acpmux_ready_is_pushed_when_a_daemon_reports_and_dropped_when_it_lapses() {
+    use super::super::wire::ACPMUX_READY_CAPABILITY;
+    let ready = |r: &OpRequest| {
+        r.params["daemon"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(ACPMUX_READY_CAPABILITY))
+    };
+    let mut s = session();
+    let start = s.start(0);
+    assert!(!ready(&start[0]), "no acpmux line yet: not ready");
+    s.answered(&start[0], &ok(), 0, 0.5);
+    let (r, _) =
+        s.line(&json!({"acp_activity": {"turns": 0, "daemon": "/a.sock"}}).to_string(), 20_000);
+    assert_eq!(r.len(), 1, "acpmux's first line is reported at once");
+    assert!(ready(&r[0]), "acpmux answered: ready");
+    s.answered(&r[0], &ok(), 20_000, 0.5);
+    let r = s.fire(20_000 + ACP_ACTIVITY_TTL_MS);
+    assert_eq!(r.len(), 1, "one report for the lapse");
+    assert!(!ready(&r[0]), "acpmux stopped reporting: not ready");
+}
+
 fn session() -> Session {
     Session::new(
         "vm_m0000000000000000001",
@@ -179,7 +204,14 @@ fn activity_turns_is_advertised_only_while_acpmux_reports() {
     s.activity_stream(true, 0);
     assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "a fresh agent: no word from acpmux yet");
     s.line(&acp(0, None), 1_000);
-    assert_eq!(caps(&s), [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]);
+    assert_eq!(
+        caps(&s),
+        [
+            ACTIVITY_CAPABILITY,
+            ACTIVITY_TURNS_CAPABILITY,
+            super::super::wire::ACPMUX_READY_CAPABILITY
+        ]
+    );
     s.line(&acp(0, None), 21_000);
     s.fire(21_000 + ACP_ACTIVITY_TTL_MS);
     assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "acpmux went quiet");
@@ -191,7 +223,9 @@ fn activity_turns_is_advertised_only_while_acpmux_reports() {
 /// `identify` replaces it, keeps the activity capabilities, and goes in a report at once.
 #[test]
 fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
-    use super::super::wire::{ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+    use super::super::wire::{
+        ACPMUX_READY_CAPABILITY, ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY,
+    };
     let baked = DaemonInfo { version: "0.1.0+aaaaaaaaaaaa".into(), capabilities: vec![] };
     let mut s = Session::new("vm_m0000000000000000001", baked.clone(), 3_600_000);
     let start = s.start(0);
@@ -212,7 +246,7 @@ fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
     assert_eq!(r[0].params["daemon"]["version"], "0.1.0+bbbbbbbbbbbb");
     assert_eq!(
         r[0].params["daemon"]["capabilities"],
-        json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]),
+        json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ACPMUX_READY_CAPABILITY]),
         "the stream and acpmux's count still hold"
     );
     s.answered(&r[0], &ok(), 40_000, 0.5);

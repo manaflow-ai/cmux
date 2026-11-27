@@ -112,7 +112,7 @@ jobs:
 
       - name: cargo clippy
         if: ${{ !cancelled() }}
-        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings
 
       - name: cargo test
         if: ${{ !cancelled() }}

@@ -168,8 +168,8 @@ pub struct Turn {
 
 /// The ticket's ICE servers (`[{urls, username?, credential?}]`) as STUN addresses and
 /// TURN relays: every UDP relay first, then the TCP and TLS (`turns:`) ones, which are
-/// the only way through a network that blocks UDP. The link speaks UDP TURN, so callers
-/// hand it the UDP relays ([`udp_only`]) and carry the rest separately.
+/// the only way through a network that blocks UDP. The link reaches all three
+/// (cmux-rd-link `TurnTransport`); a caller that speaks UDP TURN alone takes [`udp_only`].
 pub fn servers(ice: &Value) -> (Vec<String>, Vec<Turn>) {
     let (mut stun, mut turn) = (Vec::new(), Vec::new());
     let address = |s: &str| {
