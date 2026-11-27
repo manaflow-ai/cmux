@@ -71,38 +71,35 @@ pub fn fix_host_typo_with(text: &str, is_tld: impl Fn(&str) -> bool) -> Option<T
     if text.is_empty() || text.chars().any(char::is_whitespace) {
         return None;
     }
-    let authority_start = match text.find("://") {
-        Some(separator) => {
-            let scheme = text[..separator].to_lowercase();
+    let (authority_start, rest) = match text.split_once("://") {
+        Some((scheme, rest)) => {
+            let scheme = scheme.to_lowercase();
             if scheme != "http" && scheme != "https" {
                 return None;
             }
-            separator + 3
+            (text.len().saturating_sub(rest.len()), rest)
         }
-        None => 0,
+        None => (0, text),
     };
-    let rest = &text[authority_start..];
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     if authority.is_empty() || authority.contains('@') || authority.starts_with('[') {
         return None;
     }
-    let host_end = match authority.find(':') {
-        Some(colon) => {
-            let port = &authority[colon + 1..];
+    let host = match authority.split_once(':') {
+        Some((host, port)) => {
             if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
                 return None;
             }
-            colon
+            host
         }
-        None => authority.len(),
+        None => authority,
     };
-    let host = &authority[..host_end];
+    let host_end = host.len();
     let labels: Vec<&str> = host.split('.').collect();
     if labels.len() < 2 || labels.iter().any(|label| label.is_empty()) {
         return None;
     }
-    let last = labels[labels.len() - 1];
+    let last = *labels.last()?;
     let typed_label = last.to_lowercase();
     let intended = TYPOS.iter().find(|(typo, _)| *typo == typed_label).map(|(_, tld)| *tld)?;
     if is_tld(&typed_label) {
@@ -110,9 +107,9 @@ pub fn fix_host_typo_with(text: &str, is_tld: impl Fn(&str) -> bool) -> Option<T
     }
     let last_start = authority_start + host_end - last.len();
     let mut fixed = String::with_capacity(text.len());
-    fixed.push_str(&text[..last_start]);
+    fixed.push_str(text.get(..last_start)?);
     fixed.push_str(intended);
-    fixed.push_str(&text[last_start + last.len()..]);
+    fixed.push_str(text.get(last_start + last.len()..)?);
     Some(TypoFix { text: fixed, typed_host: host.to_lowercase() })
 }
 

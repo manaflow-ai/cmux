@@ -47,19 +47,19 @@ pub struct UrlParts<'a> {
 impl<'a> UrlParts<'a> {
     pub fn of(url: &'a str) -> Self {
         let mut parts = Self { scheme: None, host: None, port: None };
-        let rest = match url.find(':') {
-            Some(end) if is_scheme(&url[..end]) => {
-                parts.scheme = Some(&url[..end]);
-                &url[end + 1..]
+        let rest = match url.split_once(':') {
+            Some((scheme, rest)) if is_scheme(scheme) => {
+                parts.scheme = Some(scheme);
+                rest
             }
             _ => url,
         };
         let Some(after) = rest.strip_prefix("//") else { return parts };
-        let authority = &after[..after.find(['/', '?', '#']).unwrap_or(after.len())];
+        let authority = after.split(['/', '?', '#']).next().unwrap_or(after);
         let host_port = authority.rsplit_once('@').map_or(authority, |(_, host_port)| host_port);
         let (host, port) = if let Some(bracketed) = host_port.strip_prefix('[') {
-            match bracketed.find(']') {
-                Some(end) => (&bracketed[..end], bracketed[end + 1..].strip_prefix(':')),
+            match bracketed.split_once(']') {
+                Some((host, tail)) => (host, tail.strip_prefix(':')),
                 None => (bracketed, None),
             }
         } else {

@@ -54,13 +54,16 @@ fn significant_digits(value: f64, digits: usize) -> String {
         out.push_str(digits);
     } else {
         let point = point as usize;
-        if digits.len() <= point {
-            out.push_str(digits);
-            out.extend(std::iter::repeat_n('0', point - digits.len()));
-        } else {
-            out.push_str(&digits[..point]);
-            out.push('.');
-            out.push_str(&digits[point..]);
+        match digits.split_at_checked(point) {
+            Some((whole, fraction)) if !fraction.is_empty() => {
+                out.push_str(whole);
+                out.push('.');
+                out.push_str(fraction);
+            }
+            _ => {
+                out.push_str(digits);
+                out.extend(std::iter::repeat_n('0', point.saturating_sub(digits.len())));
+            }
         }
     }
     out
@@ -167,7 +170,7 @@ impl Parser {
         if self.index == start {
             return None;
         }
-        let number: String = self.characters[start..self.index].iter().collect();
+        let number: String = self.characters.get(start..self.index)?.iter().collect();
         number.parse().ok()
     }
 }
