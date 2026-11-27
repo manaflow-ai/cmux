@@ -2507,7 +2507,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
-        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        let destination = out.join(format!("chat-size-{}-daemon.log", bytes));
         // The sweep owns this artifact; preserve only the tail, never the generated chat.
         if let Ok(mut file) = std::fs::File::open(&daemon.log) {
             let len = file.metadata().map_or(0, |m| m.len());
