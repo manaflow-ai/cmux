@@ -221,7 +221,11 @@ async function stateSeries(id: string, from: number, targets: number[]): Promise
   return series;
 }
 
-async function exec(id: string, command: string, timeoutMs = 30_000): Promise<{ exitCode: unknown; stdout: string; stderr: string }> {
+/** The exec API's wall-clock cap (`timeoutMs` 1 to 300000): a longer ask is a 400, so it is clamped here. */
+const EXEC_MAX_MS = 300_000;
+
+async function exec(id: string, command: string, requestedMs = 30_000): Promise<{ exitCode: unknown; stdout: string; stderr: string }> {
+  const timeoutMs = Math.min(requestedMs, EXEC_MAX_MS);
   const reply = await call("POST", `${vmPath(id)}/exec`, { command, timeoutMs }, {}, timeoutMs + 30_000);
   const body = expectStatus(reply, [200], "POST exec");
   return { exitCode: field(body, "exitCode"), stdout: String(field(body, "stdout") ?? ""), stderr: String(field(body, "stderr") ?? "") };
@@ -931,7 +935,7 @@ async function npmBenchVm(kind: "locked" | "unlocked"): Promise<string> {
       "/v1/vms",
       {
         displayName: `npm bench ${kind} ${runId}`.slice(0, 100),
-        idleTimeoutSeconds: 600,
+        idleTimeoutSeconds: 300, // dev/test VMs cap idle at 300s; exec traffic keeps it awake
         autoDeleteSeconds: 3600,
         initialNetwork,
         labels: { purpose: "npm-bench", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },
@@ -963,7 +967,7 @@ async function npmBenchRound(id: string): Promise<{ ms: number; ok: boolean; tai
     "cd /tmp/npm-bench && rm -rf node_modules package-lock.json && c=$(mktemp -d) && s=$(date +%s%N) && " +
       "npm install --ignore-scripts --no-audit --no-fund --loglevel=error --cache \"$c\" >/tmp/npm-bench.log 2>&1; r=$?; " +
       "e=$(date +%s%N); echo \"$r $(( (e - s) / 1000000 )) $(ls node_modules | wc -l)\"",
-    10 * 60_000,
+    EXEC_MAX_MS,
   );
   const [code, ms, dirs] = out.stdout.trim().split(/\s+/);
   const tail = code === "0" ? `${dirs} top-level packages` : (await exec(id, "tail -c 400 /tmp/npm-bench.log", 30_000)).stdout;
