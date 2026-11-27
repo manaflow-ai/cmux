@@ -89,13 +89,14 @@ extension PaneCommitMotionTests {
     }
 
     /// The opacity that each pane's overlay, each pane's veil and the dim have now on `screen`: where a fade that
-    /// names no start begins.
-    static func shownOpacities(of harness: Commit.Harness, on screen: ScreenContentView) -> [ObjectIdentifier: Float] {
+    /// names no start begins. A set-up issue of the veil's read names the row's line.
+    static func shownOpacities(of harness: Commit.Harness, on screen: ScreenContentView,
+                               sourceLocation: SourceLocation = #_sourceLocation) -> [ObjectIdentifier: Float] {
         var was: [ObjectIdentifier: Float] = [:]
         if let dim = Dim.dim(harness)?.layer { was[ObjectIdentifier(dim)] = dim.opacity }
         for host in paneHosts(screen) {
             if let chrome = host.chrome.layer { was[ObjectIdentifier(chrome)] = chrome.opacity }
-            if let veil = veilLayer(of: host) { was[ObjectIdentifier(veil)] = veil.opacity }
+            if let veil = veilLayer(of: host, sourceLocation: sourceLocation) { was[ObjectIdentifier(veil)] = veil.opacity }
         }
         return was
     }

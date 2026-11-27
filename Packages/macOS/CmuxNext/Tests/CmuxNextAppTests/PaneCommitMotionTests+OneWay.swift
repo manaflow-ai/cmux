@@ -56,9 +56,12 @@ extension PaneCommitMotionTests {
     }
 
     /// The strength of the veil that `host` shows: 0 with its overlay hidden; else the opacity of the overlay's
-    /// layer times the opacity of the veil's layer (``opacity(of:was:after:way:)``; the layer: `veilLayer(of:)`).
-    static func veil(of host: PaneHostView, was: [ObjectIdentifier: Float], after time: Double, way: CGFloat) -> CGFloat {
-        guard !host.chrome.isHidden, host.chrome.alphaValue > 0, let chrome = host.chrome.layer, let veil = veilLayer(of: host) else { return 0 }
+    /// layer times the opacity of the veil's layer (``opacity(of:was:after:way:)``; the layer: `veilLayer(of:)`, whose
+    /// set-up issue names the line that asked for the strength).
+    static func veil(of host: PaneHostView, was: [ObjectIdentifier: Float], after time: Double, way: CGFloat,
+                     sourceLocation: SourceLocation = #_sourceLocation) -> CGFloat {
+        guard !host.chrome.isHidden, host.chrome.alphaValue > 0, let chrome = host.chrome.layer,
+              let veil = veilLayer(of: host, sourceLocation: sourceLocation) else { return 0 }
         return opacity(of: chrome, was: was[ObjectIdentifier(chrome)], after: time, way: way)
             * opacity(of: veil, was: was[ObjectIdentifier(veil)], after: time, way: way)
     }
@@ -66,8 +69,10 @@ extension PaneCommitMotionTests {
     /// The light of each other pane in the move of `look`, with a veil of the strength `amount` over each pane that
     /// has not the focus (0: no veil), and the strongest veil that one of them showed. The frames: the rest before
     /// the act (not for an unzoom), the frame that shows it, each frame of the move, the rest. The other panes:
-    /// each pane but the one that a zoom makes grow, that an unzoom closes, or that a close takes out.
-    static func lights(in look: Look, veil amount: CGFloat) throws -> (values: [(pane: PaneID, light: [CGFloat])], strongest: CGFloat) {
+    /// each pane but the one that a zoom makes grow, that an unzoom closes, or that a close takes out. A set-up issue
+    /// of the veil's read names the row's line.
+    static func lights(in look: Look, veil amount: CGFloat,
+                       sourceLocation: SourceLocation = #_sourceLocation) throws -> (values: [(pane: PaneID, light: [CGFloat])], strongest: CGFloat) {
         var was: [ObjectIdentifier: Float] = [:], lights: [PaneID: [CGFloat]] = [:], strongest: CGFloat = 0
         let over = try Self.overPicture(look.scene, panes: 6, gap: look.gap, speed: look.speed, configure: { model in
             model.followsDesignMetrics = false
@@ -78,9 +83,9 @@ extension PaneCommitMotionTests {
             if let dim { was[ObjectIdentifier(dim)] = dim.opacity }
             for host in Self.paneHosts(screen) {
                 if let chrome = host.chrome.layer { was[ObjectIdentifier(chrome)] = chrome.opacity }
-                if let veil = Self.veilLayer(of: host) { was[ObjectIdentifier(veil)] = veil.opacity }
+                if let veil = Self.veilLayer(of: host, sourceLocation: sourceLocation) { was[ObjectIdentifier(veil)] = veil.opacity }
                 guard look.scene != "unzoom", !host.isHidden else { continue }
-                let veil = Self.veil(of: host, was: [:], after: 0, way: 1)
+                let veil = Self.veil(of: host, was: [:], after: 0, way: 1, sourceLocation: sourceLocation)
                 strongest = max(strongest, veil)
                 lights[host.pane] = [(1 - veil) * (1 - CGFloat(dim?.opacity ?? 0))]
             }
@@ -93,13 +98,13 @@ extension PaneCommitMotionTests {
         let others = Self.paneHosts(screen).filter { host in !host.isHidden && !out.contains { $0 === host } }
         try #require(!others.isEmpty, "SETUP: the \(look.scene) shows no other pane")
         for host in amount > 0 ? others : [] {
-            let veil = try #require(Self.veilLayer(of: host), "SETUP: the overlay of \(host.pane) has no layer for a veil")
+            let veil = try #require(Self.veilLayer(of: host, sourceLocation: sourceLocation), "SETUP: the overlay of \(host.pane) has no layer for a veil")
             try #require(veil.frame == host.chrome.dimFrame, "SETUP: the layer with a fill in the overlay of \(host.pane) has not its veil's frame")
         }
         try Self.eachTick(of: look, over) { _, way, time in
             let dim = Dim.dim(harness).map { Self.opacity(of: $0.layer, was: was[ObjectIdentifier($0.layer)], after: time, way: way) } ?? 0
             for host in others where !host.isHidden {
-                let veil = Self.veil(of: host, was: was, after: time, way: way)
+                let veil = Self.veil(of: host, was: was, after: time, way: way, sourceLocation: sourceLocation)
                 strongest = max(strongest, veil)
                 lights[host.pane, default: []].append((1 - veil) * (1 - dim))
             }

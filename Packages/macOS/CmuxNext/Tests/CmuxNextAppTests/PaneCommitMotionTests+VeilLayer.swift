@@ -33,25 +33,29 @@ extension PaneCommitMotionTests {
         veilLayer(of: host.chrome, "\(host.pane)", sourceLocation: sourceLocation)
     }
 
-    /// An overlay of a pane that has not the focus, with a veil and with a glow of the theme, each given to the
-    /// overlay's own update: the glow's layer is the lowest layer of the overlay and shows nothing, and the layer
-    /// that the rows read is the veil with its strength, not the glow's layer.
-    @Test func withAThemesGlowUnderItTheRowsStillReadTheVeil() throws {
+    /// An overlay with a glow of the theme, each value given to the overlay's own update, in the 2 states of a pane.
+    /// A pane that has not the focus: a veil of 0.3, and the glow's layer shows nothing. A pane that has the focus:
+    /// no veil (0), and the glow's layer shows whole (1). In each state the glow's layer is the lowest layer of the
+    /// overlay, and the layer that the rows read is the veil with its strength, not the glow's layer.
+    @Test(arguments: [false, true])
+    func withAThemesGlowUnderItTheRowsStillReadTheVeil(focused: Bool) throws {
         _ = NSApplication.shared
         let overlay = PaneOverlayView()
         overlay.setFrameSize(NSSize(width: 400, height: 300))
         let color = ThemeRGB(red: 0.5, green: 0.5, blue: 0.5)
-        overlay.update(showsRing: false, dim: 0.3, focusRing: FocusRingSettings(),
+        let dim: CGFloat = focused ? 0 : 0.3
+        let shown: Float = focused ? 1 : 0
+        overlay.update(showsRing: false, dim: dim, focusRing: FocusRingSettings(),
                        accentGlow: ThemeFlourishes.Glow(dark: color, light: color, radius: 8, opacity: 0.5),
                        border: PaneOverlayView.Border(shows: false), attention: nil, attentionSettings: AttentionSettings(),
-                       focused: false, animated: false)
+                       focused: focused, animated: false)
         let glow = try #require(overlay.accentGlowLayer, "SETUP: an update with a glow made no layer for the glow")
         try #require(overlay.layer?.sublayers?.first === glow, "SETUP: the glow's layer is not the lowest layer of the overlay")
-        try #require(glow.opacity == 0 && abs(overlay.dimOpacity - 0.3) < 0.001,
-                     "SETUP: the glow's layer has the opacity \(glow.opacity) and the veil \(overlay.dimOpacity): not 0 and 0.3")
+        try #require(glow.opacity == shown && abs(CGFloat(overlay.dimOpacity) - dim) < 0.001,
+                     "SETUP: the glow's layer has the opacity \(glow.opacity) and the veil \(overlay.dimOpacity): not \(shown) and \(dim)")
         let veil = try #require(Self.veilLayer(of: overlay), "the overlay with a glow has no layer that the rows read as its veil")
         #expect(veil !== glow, "with a glow under the veil the rows read the glow's layer as the veil")
-        #expect(abs(veil.opacity - 0.3) < 0.001 && veil.frame == overlay.dimFrame,
-                "the layer that the rows read has the opacity \(veil.opacity) and the frame \(veil.frame): the veil has 0.3 and \(overlay.dimFrame)")
+        #expect(abs(CGFloat(veil.opacity) - dim) < 0.001 && veil.frame == overlay.dimFrame,
+                "the layer that the rows read has the opacity \(veil.opacity) and the frame \(veil.frame): the veil has \(dim) and \(overlay.dimFrame)")
     }
 }
