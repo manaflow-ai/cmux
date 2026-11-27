@@ -3,6 +3,7 @@
 //! Every async function runs on one shared Tokio runtime owned by this
 //! library, so Swift may await them from any executor.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -502,15 +503,11 @@ impl LinkHandle {
         }
         let hub = (daemon && self.viewport.requests_sync()).then(|| self.viewport.clone());
         let link = self.link.clone();
-        let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
-        let id = channel.id();
-        let (sender, receiver) = channel.split();
-        Ok(Arc::new(ChannelHandle {
-            id,
-            sender: Arc::new(sender),
-            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
-            closed: Arc::new(Mutex::new(None)),
-        }))
+        Ok(on_runtime(async move {
+            let channel = link.open_on(&service, args, lane).await?;
+            Ok::<_, cmux_mobile_link::LinkError>(ChannelHandle::from_channel(&service, channel, hub))
+        })
+        .await?)
     }
 }
 
@@ -814,13 +811,234 @@ impl LinkHandle {
     }
 }
 
+/// Before this write owns a framed channel, only writers ahead of it can enqueue bytes.
+enum PrecedingWrites {
+    Waiting { sender: Arc<ChannelSender>, start: u64 },
+    Finished(u64),
+}
+
+impl PrecedingWrites {
+    fn bytes(&self) -> u64 {
+        match self {
+            Self::Waiting { sender, start } => sender.sent_bytes().saturating_sub(*start),
+            Self::Finished(bytes) => *bytes,
+        }
+    }
+}
+
+/// Progress and cancellation for one outgoing message. While waiting to write, its progress
+/// includes the serialized writes ahead of it.
+#[derive(uniffi::Object)]
+pub struct ChannelWriteWatch {
+    accepted: AtomicU64,
+    last_observed: AtomicU64,
+    preceding: Mutex<PrecedingWrites>,
+    cancelled: tokio::sync::watch::Sender<bool>,
+}
+
+#[uniffi::export]
+impl ChannelWriteWatch {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            accepted: AtomicU64::new(0),
+            last_observed: AtomicU64::new(0),
+            preceding: Mutex::new(PrecedingWrites::Finished(0)),
+            cancelled: tokio::sync::watch::channel(false).0,
+        })
+    }
+
+    /// Whether this write or one ahead of it queued bytes since the previous observation.
+    pub fn take_progress(&self) -> bool {
+        let preceding = self.preceding.lock().unwrap_or_else(PoisonError::into_inner).bytes();
+        let progress = self.accepted.load(Ordering::Relaxed).saturating_add(preceding);
+        self.last_observed.fetch_max(progress, Ordering::Relaxed) < progress
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+mod channel_write_tests {
+    use super::*;
+    use cmux_mobile_link::{Link, Role};
+
+    async fn open(link: &Link, service: &str) -> Arc<ChannelHandle> {
+        let channel = link.open(service, serde_json::json!({})).await.unwrap();
+        ChannelHandle::from_channel(service, channel, None)
+    }
+
+    #[tokio::test]
+    async fn a_concurrent_rpc_follows_every_chunk_of_the_observed_prompt() {
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                let (local, peer) = tokio::io::duplex(4096);
+                let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+                let handle = open(&phone, service).await;
+                let prompt = serde_json::to_vec(&serde_json::json!({"prompt": "a".repeat(2 << 20)})).unwrap();
+                let other = serde_json::to_vec(&serde_json::json!({"other": "b".repeat(1 << 20)})).unwrap();
+                let watch = ChannelWriteWatch::new();
+                let first = tokio::spawn({
+                    let (handle, data, watch) = (handle.clone(), prompt.clone(), watch.clone());
+                    async move { handle.send_observed(data, watch).await }
+                });
+                while !watch.take_progress() {
+                    tokio::task::yield_now().await;
+                }
+                let second = tokio::spawn({
+                    let (handle, data) = (handle.clone(), other.clone());
+                    async move { handle.send(data).await }
+                });
+                let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+                let mut incoming = mac.accept().await.unwrap().channel;
+                let mut received = Vec::new();
+                while received.len() < prompt.len() + other.len() {
+                    match incoming.recv().await {
+                        Some(ChannelEvent::Data(bytes)) => received.extend_from_slice(&bytes),
+                        value => panic!("incomplete RPC messages: {value:?}"),
+                    }
+                }
+                first.await.unwrap().unwrap();
+                second.await.unwrap().unwrap();
+                assert_eq!(&received[..prompt.len()], prompt);
+                assert_eq!(&received[prompt.len()..], other);
+                assert_eq!(watch.accepted.load(Ordering::Relaxed), prompt.len() as u64);
+            })
+            .await
+            .expect("the two full messages arrive and the writes return");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_queued_watch_sees_preceding_bytes_before_it_can_send_any_of_its_own() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone, "acpmux").await;
+            let first = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let (handle, watch) = (handle.clone(), first.clone());
+                async move { handle.send_observed(vec![b'x'; 8 << 20], watch).await }
+            });
+            while !first.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let second = ChannelWriteWatch::new();
+            let queued = tokio::spawn({
+                let (handle, watch) = (handle.clone(), second.clone());
+                async move { handle.send_observed(b"next".to_vec(), watch).await }
+            });
+            while !matches!(*second.preceding.lock().unwrap(), PrecedingWrites::Waiting { .. }) {
+                tokio::task::yield_now().await;
+            }
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut incoming = mac.accept().await.unwrap().channel;
+            let mut total = 0;
+            while !second.take_progress() {
+                match incoming.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => total += bytes.len(),
+                    value => panic!("writer ended before the waiting prompt made progress: {value:?}"),
+                }
+            }
+            assert!(total < 8 << 20);
+            assert_eq!(second.accepted.load(Ordering::Relaxed), 0);
+            second.cancel();
+            assert!(queued.await.unwrap().is_err());
+            first.cancel();
+            assert!(writing.await.unwrap().is_err());
+        })
+        .await
+        .expect("the waiting write sees progress before admission");
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone, service).await;
+            let watch = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let handle = handle.clone();
+                let watch = watch.clone();
+                async move { handle.send_observed(vec![b'x'; 4 << 20], watch).await }
+            });
+            while !watch.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let queued = ChannelWriteWatch::new();
+            let abandoned = tokio::spawn({
+                let (handle, queued) = (handle.clone(), queued.clone());
+                async move { handle.send_observed(b"abandoned".to_vec(), queued).await }
+            });
+            queued.cancel();
+            assert!(abandoned.await.unwrap().is_err());
+            assert_eq!(queued.accepted.load(Ordering::Relaxed), 0, "waiting accepted no bytes");
+            let next = tokio::spawn({
+                let handle = handle.clone();
+                async move { handle.send(b"next".to_vec()).await }
+            });
+            watch.cancel();
+            assert!(writing.await.unwrap().is_err());
+            assert!(next.await.unwrap().is_err(), "another RPC cannot append to the partial one");
+            assert!(matches!(handle.recv().await, ChannelMessage::Closed { code, .. } if code == "partial_message"));
+
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut partial = mac.accept().await.unwrap().channel;
+            while let Some(event) = partial.recv().await {
+                match event {
+                    ChannelEvent::Data(bytes) => assert!(bytes.iter().all(|byte| *byte == b'x')),
+                    ChannelEvent::Closed(_) => break,
+                }
+            }
+
+            // Reopen on the very same link. Cancellation before any bytes keeps it usable.
+            let reopened = open(&phone, service).await;
+            let cancelled = ChannelWriteWatch::new();
+            cancelled.cancel();
+            assert!(reopened.send_observed(b"skip".to_vec(), cancelled).await.is_err());
+            reopened.send(b"next".to_vec()).await.unwrap();
+            let mut intact = mac.accept().await.unwrap().channel;
+            assert!(matches!(intact.recv().await, Some(ChannelEvent::Data(bytes)) if &bytes[..] == b"next"));
+        })
+        .await
+        .expect("write cancellation and recovery must complete");
+        }
+    }
+}
+
 /// One multiplexed channel.
 #[derive(uniffi::Object)]
 pub struct ChannelHandle {
     id: u32,
+    message_lock: Option<Arc<tokio::sync::Mutex<()>>>,
     sender: Arc<ChannelSender>,
     receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
+}
+
+impl ChannelHandle {
+    fn from_channel(
+        service: &str,
+        channel: cmux_mobile_link::Channel,
+        hub: Option<PhoneViewport>,
+    ) -> Arc<Self> {
+        let id = channel.id();
+        let (sender, receiver) = channel.split();
+        // Both local and cloud ACP assemble one JSON message at a time from untagged data frames.
+        let message_lock =
+            matches!(service, "acpmux" | "cloud-acpmux").then(|| Arc::new(tokio::sync::Mutex::new(())));
+        Arc::new(Self {
+            id,
+            message_lock,
+            sender: Arc::new(sender),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
+            closed: Arc::new(Mutex::new(None)),
+        })
+    }
 }
 
 #[uniffi::export]
@@ -838,7 +1056,61 @@ impl ChannelHandle {
 
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
-        on_runtime(async move { sender.send(data.into()).await }).await?;
+        let lock = self.message_lock.clone();
+        on_runtime(async move {
+            let _write = match &lock {
+                Some(lock) => Some(lock.lock().await),
+                None => None,
+            };
+            sender.send(data.into()).await
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// As send, with chunk progress and cancellation scoped to this write.
+    pub async fn send_observed(
+        &self,
+        data: Vec<u8>,
+        watch: Arc<ChannelWriteWatch>,
+    ) -> Result<(), CmuxMobileError> {
+        let sender = Arc::clone(&self.sender);
+        let lock = self.message_lock.clone();
+        let closed = Arc::clone(&self.closed);
+        on_runtime(async move {
+            let mut cancelled = watch.cancelled.subscribe();
+            let _write = match &lock {
+                Some(lock) => {
+                    *watch.preceding.lock().unwrap_or_else(PoisonError::into_inner) =
+                        PrecedingWrites::Waiting { sender: sender.clone(), start: sender.sent_bytes() };
+                    let guard = tokio::select! {
+                        biased;
+                        _ = cancelled.wait_for(|cancelled| *cancelled) => None,
+                        guard = lock.lock() => Some(guard),
+                    };
+                    {
+                        let mut preceding = watch.preceding.lock().unwrap_or_else(PoisonError::into_inner);
+                        *preceding = PrecedingWrites::Finished(preceding.bytes());
+                    }
+                    Some(guard.ok_or(cmux_mobile_link::LinkError::ChannelClosed)?)
+                }
+                None => None,
+            };
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => {}
+                outcome = sender.send_observed(data.into(), &watch.accepted) => return outcome,
+            }
+            // hostd has a prefix of this JSON message. Close this channel before the next
+            // writer can append to it; the hub opens a fresh channel on this link.
+            if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
+                *closed.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(("partial_message".into(), "write was cancelled".into()));
+                sender.close("partial_message", "write was cancelled").await;
+            }
+            Err(cmux_mobile_link::LinkError::ChannelClosed)
+        })
+        .await?;
         Ok(())
     }
 

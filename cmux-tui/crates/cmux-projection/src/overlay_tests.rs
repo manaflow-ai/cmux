@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use super::errno::ENOSPC;
 use super::*;
@@ -18,7 +18,7 @@ pub(crate) struct Fake {
     pub bytes: HashMap<u32, Vec<u8>>,
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
-    pub away: bool,
+    pub away: AtomicBool,
     /// Reads at or past this offset fail (a link that drops in the middle of a big file).
     pub fail_from: Option<u64>,
 }
@@ -26,7 +26,7 @@ pub(crate) struct Fake {
 impl Fetch for Fake {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.away {
+        if self.away.load(Ordering::Relaxed) {
             return Err(FetchError::Away);
         }
         if self.fail_from.is_some_and(|from| offset >= from) {
@@ -44,7 +44,7 @@ impl Fetch for Fake {
         entries
             .iter()
             .map(|entry| {
-                if self.away {
+                if self.away.load(Ordering::Relaxed) {
                     Err(FetchError::Away)
                 } else {
                     self.bytes.get(entry).cloned().ok_or(FetchError::Failed)
@@ -90,7 +90,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
         link: Some("README.md".into()),
     });
     let manifest = Arc::new(Manifest::build(1, items).unwrap());
-    let mut fake = Fake { away, ..Fake::default() };
+    let mut fake = Fake { away: AtomicBool::new(away), ..Fake::default() };
     for (path, bytes) in files {
         fake.bytes.insert(manifest.resolve(path).unwrap(), bytes);
     }
@@ -249,6 +249,18 @@ fn reads_while_the_mac_is_away_make_one_report_naming_them() {
     assert_eq!(report.paths, ["README.md", "big.bin", "src/a.rs"]);
     assert_eq!(report.failed, 3);
     assert!(reports.recv_timeout(Duration::from_millis(400)).is_err());
+}
+
+#[test]
+fn a_cached_read_survives_the_mac_going_away() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    fake.away.store(true, Ordering::Relaxed);
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    assert!(overlay.stats().cache_hits >= 1);
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
 }
 
 #[test]
@@ -1011,7 +1023,11 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     drop(overlay);
 
     // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
-    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let away = Arc::new(Fake {
+        away: AtomicBool::new(true),
+        bytes: fake.bytes.clone(),
+        ..Fake::default()
+    });
     let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
     assert_eq!(overlay.pins(), vec!["src".to_owned()]);
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
