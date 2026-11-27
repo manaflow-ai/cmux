@@ -24,21 +24,20 @@ cp -R examples/setup-template ~/src/my-look && cd ~/src/my-look && git init -b m
 | --- | --- | --- |
 | `cmux-setup.json` | The listing header (id, name, version, `engines.cmux`) and the settings the look sets | `cmuxSetup: 1` over `cmuxProfile: 1` |
 | `themes/NAME.json` | Colors, surfaces, borders, density; picked by `appearance.themeFile` | [theme-recipes.md](theme-recipes.md) |
-| `agent-pane/theme.css` | The chat's paint: only `cmux.agentPane.style/1` tokens, on `:root` | `schemas/agent-pane/style-tokens.json` |
-| `customize/` | Optional: a hover card, sidebar rows, a section (a `cmux-app.json` manifest v2 app) | [sidebar-customization.md](sidebar-customization.md) |
+| `agent-pane/theme.css` | Optional chat paint; inspect the result in the app because token validation is not available | [setup-repos.md](setup-repos.md#check-one-before-you-push-it) |
+| `customize/` | Optional sections, panels and pages (a `cmux-app.json` manifest v2 app); sidebar decorations and hover cards use local customization | [setup-repos.md](setup-repos.md) |
 | `SHOTS.md` | The gallery states your README pictures show | this page, step 3 |
-| `.github/workflows/check.yml` | Runs `cmux setup check` against the newest nightly on every push and once a day | this page, step 5 |
 
-Rules the template already follows, so keep them:
+Before using the template:
 
-- The id is `OWNER/NAME`, and OWNER is the repository's owner. `cmux setup install` refuses
-  anything else.
+- Replace `OWNER` and `REPO` in the manifest and README. The id is lowercase `owner/name`,
+  and its owner must match the repository's owner. The placeholders are not installable ids.
 - Every setting is an ordinary public setting. Use the key names from Settings (each row shows
   its key) or `cmux settings describe KEY`. Nothing in a look reaches into cmux's own files.
 - Set `engines.cmux` to the oldest cmux you tested with (`cmux --version` prints it). An older
   cmux then refuses the install with a plain reason instead of drawing half a look.
-- Paint, never layout: a look changes colors, type, radii and density on the shared grid. It
-  never sets a row height, a pane width or motion, so switching looks moves nothing.
+- Keep chat CSS limited to paint. Use documented settings for density and proportions;
+  see [theme-recipes.md](theme-recipes.md). Check both light and dark appearances.
 
 ## 2. Check it while you work
 
@@ -47,11 +46,15 @@ cmux setup check .            # every finding, with the file and key
 cmux setup check . --json     # the same, for an agent or CI
 ```
 
-`setup check` reads the folder and writes nothing: it runs every check `setup install` runs (the
-id, `engines.cmux`, each setting's key and value, the theme file, the stylesheet's tokens, the
-`customize/` manifest, the secrets scan) and reports all of them at once, so one pass shows
-everything to fix. A finding is an `error` (install would refuse) or a `warning` (install works,
-but something will break later, such as a setting that was renamed: see step 6).
+`setup check` reads the folder and writes nothing. It checks the id, `engines.cmux`, settings,
+theme files, the `customize/` manifest and secrets, reporting findings together. Fix errors and
+review warnings before publishing; `--strict` also fails on warnings. Author checks can be
+stricter than installation: an unknown setting is an error here, even though installation can
+skip it (step 6).
+
+Read the report's `skipped` list too. Stylesheet token validation is not implemented:
+`agent-pane/theme.css` is checked only for hidden characters and secrets. A clean check does
+not prove that CSS takes effect or looks right; inspect it in the running app.
 
 To see the look on your own window, install the folder itself, and remove it to get your setup
 back exactly as it was:
@@ -63,7 +66,7 @@ cmux setup remove OWNER/NAME     # takes off exactly that layer
 
 ## 3. Take the gallery pictures
 
-Every listed look has the same set of pictures, so a person can compare looks side by side. List
+Capture these states so a person can compare looks side by side. List
 the ones you took in `SHOTS.md` and link them from the README:
 
 | File | State |
@@ -73,13 +76,14 @@ the ones you took in `SHOTS.md` and link them from the README:
 | `screenshots/sidebar.png` | The sidebar with a few workspaces, one working, one needing input |
 | `screenshots/stylesheet-over-a-light-theme.png` or `...-dark-theme.png` | Your `agent-pane/theme.css` over the other base theme, so people see what happens when they keep your stylesheet and change theme |
 
-Take them from a cmux window with the look installed: `cmux window screenshot --out
-screenshots/chat.png` captures the window with cmux's own capture (no screen recording grant, no
-change of focus). Use the demo workspace from a fresh profile so no private names show.
+Take them from a cmux window with the look installed, using a demo workspace with no private
+names. See [the looks gallery](setup-repos.md#the-looks-gallery) for the golden preview command
+and filenames used by gallery cards.
 
 ## 4. Release
 
-A release is a git tag that equals `version` in `cmux-setup.json`:
+Use a git tag corresponding to `version` in `cmux-setup.json` (for example, version `1.1.0`
+and tag `v1.1.0`):
 
 1. Bump `version` (semver: a new look choice is minor, a fix is a patch, anything that changes
    what an existing install looks like is a major).
@@ -87,44 +91,45 @@ A release is a git tag that equals `version` in `cmux-setup.json`:
 3. Commit, tag and push: `git tag v1.1.0 && git push origin main v1.1.0`.
 4. Create the GitHub release for the tag, with the gallery pictures in the notes.
 
-People who installed the look get it with `cmux setup update OWNER/NAME`; it applies as one
-generation, so `cmux customize rollback` takes them back.
+`cmux setup update OWNER/NAME` follows the installed source ref to its latest commit; it does
+not select the newest release tag automatically. Updates apply as one generation, so
+`cmux customize rollback` takes them back. Document the source ref you support alongside releases.
 
 ## 5. Get it listed
 
-Add the GitHub topic `cmux-setup` to the repository, and open a pull request to
-[manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions) adding one entry to
-`setups.json`:
+Add the GitHub topic `cmux-setup` to the repository to help people find it. To appear in the
+built-in gallery, open a reviewed pull request to cmux adding an entry to
+[`cmux-tui/crates/cmux-customize/src/setup/looks.json`](../../cmux-tui/crates/cmux-customize/src/setup/looks.json),
+following the existing entries:
 
 ```json
-{ "id": "OWNER/NAME", "name": "Name", "author": "You", "description": "One line.", "repo": "OWNER/REPO" }
+{ "id": "owner/my-look", "name": "My Look", "tagline": "One line.", "repo": "github.com/owner/repo" }
 ```
 
-The registry's review checks the entry, and from then on the compatibility job (step 6) runs your
-repo against every cmux nightly.
+Include previews and the results of your checks. The gallery list ships with cmux; listing a
+look does not schedule compatibility checks for its repository.
 
 ## 6. Staying working across cmux updates
 
-cmux changes every day. These are the promises it makes to a published look, and what you do
-about each kind of change.
+Test your look on the oldest cmux you support and on the version you intend people to update
+to. The settings migration table helps existing installs, but does not replace author checks.
 
 | What changed in cmux | What happens to your installed look | What you do |
 | --- | --- | --- |
-| A new setting, choice, token or slot | Nothing. An older cmux skips a setting it does not know yet and lists it as skipped on the install card | Nothing; raise `engines.cmux` if the look needs it |
-| A setting renamed | cmux rewrites the old key to the new one on install and on read, and `setup check` warns with the new name | Rename the key before the window ends: `setup check` names the new key |
-| A setting removed | The key is skipped with a notice; the rest of the look still installs | Drop the key; the notice says what replaced it, if anything |
-| A choice renamed | The old value is read as the new one (the row's `aliases`) | Nothing; update when you next release |
-| An interface's major (`cmux.section/1` to `/2`) | cmux keeps serving `/1` until no listed extension uses it | Move to `/2` when you can; `cmux ext dev` warns while `/1` is deprecated |
-| A slot variant that fails to load | That slot falls back to cmux's default; every other slot keeps your variant | Fix the variant; the error names the slot |
+| An unknown setting | Setup installation leaves the key out and reports it; `setup check` reports an error | Correct a typo, or raise `engines.cmux` if the look needs the newer setting |
+| A setting renamed in the migration table | Installation maps it to the replacement | Use the current key; inspect the check's deprecation finding |
+| A setting removed in the migration table | Installation drops it and records a notice | Remove it or use its documented replacement |
+| A choice renamed with a declared alias | Migration maps the old value to its replacement | Use the current value when publishing |
+| An invalid value for a known setting | Installation refuses the setup | Correct the value; unknown-key fallback does not cover invalid values |
+| A view interface or stylesheet changes | Settings migrations do not establish compatibility for views or CSS | Validate the manifest and try every affected view and appearance in the app |
 
 Renames and removals are declared once, in `schemas/settings/retired-keys.json` in the cmux
-repository, with the version they start and the end of their deprecation window. During the
-window cmux migrates silently and `setup check` warns; after it, `setup check` reports an error so
-the author knows, and install still migrates, so a person's look never breaks because its author
-was away.
+repository. Entries can supply replacements, value mappings and deprecation windows.
+Installation migrates declared retired keys even after a window ends. Author checks inspect
+the source settings and can report both deprecation warnings and unknown-key errors; update
+the source instead of relying on installation's fallback.
 
-The compatibility job is what makes this honest. After each nightly, it runs every repository in
-`setups.json` through that nightly's checks in a clean home folder and posts a report: each repo,
-pass or fail, each finding, and what is new since the previous nightly. A cmux change that would
-break a listed look shows up there, before a person updates, and the fix (a migration entry, an
-alias, or a change to the look) lands before the release.
+The template does not include a CI workflow. If you automate compatibility checks in your
+repository, provision the cmux versions you support and run `cmux setup check . --strict` on
+each. Record `cmux --version`, the setup commit and the check output with each release. Repeat
+the visual checks after changes to cmux or the look; a passing command cannot validate its feel.

@@ -1,8 +1,8 @@
 # Gallery pictures
 
-Every listed look shows the same states, so people can compare looks side by side. Take each from a
-cmux window with this look installed, in a fresh demo profile so no private names show:
-`cmux window screenshot --out screenshots/NAME.png`.
+Capture these states so people can compare looks side by side. Take each from a cmux window
+with this look installed, in a demo workspace with no private names. For gallery card previews,
+follow the golden preview instructions in `docs/cmux-next/setup-repos.md` in the cmux repository.
 
 | File | State |
 | --- | --- |
