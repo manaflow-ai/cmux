@@ -138,6 +138,14 @@ impl Events {
         self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.insert(session.to_owned());
     }
 
+    /// The rows waiting to be told for their agent's stream: their `updatedAt` may have moved
+    /// with no list position yet, so the kept list order (`list_order.rs`) places them again at
+    /// each read. As many as the chats streaming now.
+    pub(super) fn stream_waiting(&self) -> Vec<String> {
+        let streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+        streamed.waiting.iter().cloned().collect()
+    }
+
     /// Tells a streamed row at most once per `every` (a test's short window).
     #[cfg(test)]
     pub(super) fn set_stream_tell_every(&self, every: std::time::Duration) {
