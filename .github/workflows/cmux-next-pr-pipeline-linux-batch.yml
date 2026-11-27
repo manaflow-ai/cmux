@@ -29,7 +29,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-pr-pipeline-linux-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-pr-pipeline-linux-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -38,7 +40,7 @@ jobs:
     if: ${{ (inputs.only == '' || inputs.only == 'linux') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # pr-pipeline.yml's bound for the same job: every linux step runs here.
-    timeout-minutes: 623
+    timeout-minutes: 629
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.

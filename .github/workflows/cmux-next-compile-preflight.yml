@@ -24,6 +24,10 @@
 name: cmux-next compile preflight
 
 on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-compile-preflight.yml]
   workflow_call:
   workflow_dispatch:
 
@@ -52,6 +56,18 @@ jobs:
       # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
       # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
 
+      # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+      # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
+      # GitHub's, built on base 2dae74e007e (05:23Z), 73 min and two web PRs (#46544, #60849: the second
+      # `layoutGeometry` import) behind the live tip. So the head is merged onto the base as it is now.
+      - name: Merge the head onto the live base
+        if: github.event_name == 'pull_request'
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+
       - name: Does this change reach a web bundle
         id: touched
         env:
@@ -69,6 +85,12 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: steps.touched.outputs.web == 'true'
         run: scripts/ci/reset-stale-submodules.sh
+
+      # Seconds, before any install: the parse-class break (a binding imported twice in one statement) fails here, not
+      # after the 2-3 min build.
+      - name: Fast fail - no webviews import names a binding twice
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I tests/test_webviews_no_duplicate_import_names.py
 
       - name: Source key of the web bundles
         id: web-bundle-key
@@ -138,10 +160,28 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md, the check fast gates and cmux-next.yml's
+      # web-bundles job already run. A pool runner keeps its own Bun cache across jobs, and this job unpacked the
+      # 1.1 GB archive over it anyway: 30 s median of a 205 s build job (27 builds sampled 11-27 05:30-11:36Z), about
+      # 220 of the job's 2,041 runner-min in those 6 h. bun install fetches only what a warm cache lacks.
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only: a pull request never writes the shared Bun cache (cmux-next.yml's web-bundles job saves it on
       # the base branches).
       - name: Restore the webviews Bun package cache
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.bun-warm.outputs.warm != 'true'
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -149,6 +189,17 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
           restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      # Seconds after the install, before the 2-3 min build: oxc-parser (the parser the build runs) reads every module
+      # and fails on any name bound twice in one scope, and on an import a top-level declaration names again. The step
+      # above reads import lists alone, so `import { a }` beside `const a`, or `const a` beside `let a`, passed it
+      # (paneSends, #51093 after #61160, 2026-11-27). The install is the build script's own (no-op there after this).
+      - name: Fast fail - no webviews module binds a name twice
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        working-directory: webviews
+        run: |
+          bun install --frozen-lockfile >/dev/null
+          node scripts/check-duplicate-bindings.mjs
 
       - name: Build the web bundles (the build NIGHTLY runs)
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
