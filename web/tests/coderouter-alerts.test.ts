@@ -111,7 +111,7 @@ describe("coderouter alert checks", () => {
       outcome: "no_usable_account",
       failure_stage: "account_selection",
       team_id: null,
-      provider: "codex",
+      provider: "",
       c: 10,
     } as unknown as Row;
     const { sent, run } = harness([malformed], healthy, webhook);
@@ -121,6 +121,7 @@ describe("coderouter alert checks", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.key).toBe("coderouter-no-usable-account");
     expect(sent[0]!.body).toContain("across 0 affected team(s)");
+    expect(sent[0]!.body).toContain("Providers: unknown: 10");
   });
 
   test("a degraded or down health probe alerts with the failing checks", async () => {

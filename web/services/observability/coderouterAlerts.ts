@@ -439,8 +439,10 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     if (row.outcome === "no_usable_account" &&
       (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
       noUsableAccount += count;
-      noUsableAccountByStage.set(row.failure_stage, (noUsableAccountByStage.get(row.failure_stage) ?? 0) + count);
-      noUsableAccountByProvider.set(row.provider, (noUsableAccountByProvider.get(row.provider) ?? 0) + count);
+      const stage = row.failure_stage || "unknown";
+      const provider = row.provider || "unknown";
+      noUsableAccountByStage.set(stage, (noUsableAccountByStage.get(stage) ?? 0) + count);
+      noUsableAccountByProvider.set(provider, (noUsableAccountByProvider.get(provider) ?? 0) + count);
       if (noUsableAccountTeams.size < 10) {
         const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
         if (teamId) noUsableAccountTeams.add(teamId);
