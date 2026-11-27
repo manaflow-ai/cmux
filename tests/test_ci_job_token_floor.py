@@ -34,7 +34,7 @@ EXEMPT = {
     "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
     "nightly.yml:prepare-nightly-variant": NIGHTLY_MAIN,
     "nightly.yml:publish-nightly": NIGHTLY_MAIN,
-    "actions-artifact-prune.yml:prune": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
+    "storage-maintenance.yml:actions-artifacts": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
     "ci-cla-quota-rerun.yml:cla-quota-rerun": "its own floor: the free /rate_limit on github.token (RATE_TOKEN) "
                                               "first; reads and re-runs on it only above FLOOR_MIN while the "
                                               "glaeda-route App's hour is spent",
