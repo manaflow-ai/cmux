@@ -13,13 +13,49 @@ use serde_json::{Value, json};
 use crate::auto_session::export::native::{AgentFile, HARNESS_FILES, HARNESS_LABEL, HARNESS_SPEC};
 use crate::store::{EventRecord, SessionMeta};
 
+/// The agent conversation a chat goes on with on this machine, and what the import does with
+/// the agent's own files of the copy.
+pub(super) struct AgentSide<'a> {
+    /// The agent session the chat resumes here.
+    pub session: String,
+    /// The agent's own files that go into its store here.
+    pub files: &'a [AgentFile],
+    /// The chat ran this conversation on this machine before, so the agent's files of it that
+    /// are here are this chat's own and the copy's replace them. Otherwise a file that is here
+    /// is left as it is, as a move by hand leaves it.
+    pub own: bool,
+}
+
+/// What a copy's agent conversation is to this machine. `stored` is the agent session of the
+/// chat as it is here, None for a chat that is new here. `taken`: another chat of this daemon
+/// keeps the conversation the copy names.
+///
+/// A copy is written by whoever holds the chat, and one chat's copy must not change another
+/// chat's agent memory. So a conversation another chat keeps is not this chat's, whatever the
+/// copy says: the chat goes on with the conversation it has here, and none of the copy's agent
+/// files are placed. Its log, its folder and its queue are the copy's all the same.
+pub(super) fn agent_side<'a>(
+    stored: Option<String>,
+    manifest: &Manifest,
+    files: &'a [AgentFile],
+    taken: bool,
+) -> AgentSide<'a> {
+    let named = manifest.harness_session_id.as_str();
+    if taken {
+        return AgentSide { session: stored.unwrap_or_default(), files: &[], own: false };
+    }
+    let own = !named.is_empty() && stored.as_deref() == Some(named);
+    AgentSide { session: named.to_owned(), files, own }
+}
+
 /// The chat's `session.json`: the chat as it is here (`base`) when it is, else a new one of the
-/// manifest's harness. Either way its folder is `dir` and its agent session the manifest's.
-/// `family` is the agent family of that harness on this machine, which says whose session
-/// store the chat's agent files belong to (`native.rs` `store_kind`).
+/// manifest's harness. Either way its folder is `dir` and its agent session `agent_session`
+/// ([`agent_side`]). `family` is the agent family of that harness on this machine, which says
+/// whose session store the chat's agent files belong to (`native.rs` `store_kind`).
 pub(super) fn meta(
     view: &SessionView,
     manifest: &Manifest,
+    agent_session: &str,
     dir: &Path,
     base: Option<SessionMeta>,
     family: Option<String>,
@@ -46,7 +82,7 @@ pub(super) fn meta(
     meta.set("id", json!(view.id));
     meta.set("harness", json!(manifest.harness));
     meta.set("cwd", json!(dir));
-    meta.set("agentSessionId", json!(manifest.harness_session_id));
+    meta.set("agentSessionId", json!(agent_session));
     Ok(meta)
 }
 
@@ -79,9 +115,9 @@ fn agent_files(staged: &Path, files: &[AgentFile]) -> Result<(Vec<Value>, Value)
             return Err(format!("the copy names an unknown cmux-harness file: {path:?}"));
         };
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| io(path, e))?;
+            crate::home_fs::create_dirs(parent).map_err(|e| io(path, e))?;
         }
-        std::fs::write(&target, &file.bytes).map_err(|e| io(path, e))?;
+        crate::home_fs::write(&target, &file.bytes).map_err(|e| io(path, e))?;
     }
     Ok((native, harness))
 }

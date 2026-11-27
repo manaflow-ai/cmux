@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.mcpServers.help" : {
+      "comment" : "Settings > MCP Servers: the card's help line.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Services your agents use for you, like Linear or Slack."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "خدمات يستخدمها وكلاؤك نيابةً عنك، مثل Linear أو Slack."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usluge koje agenti koriste za vas, npr. Linear ili Slack."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tjenester, agenter bruger for dig, fx Linear eller Slack."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dienste, die deine Agents nutzen, etwa Linear oder Slack."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Servicios que usan tus agentes, como Linear o Slack."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Services utilisés par vos agents, comme Linear ou Slack."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Servizi usati dai tuoi agenti, come Linear o Slack."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントが使うサービス（Linear、Slack など）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សេវាដែលភ្នាក់ងារប្រើជំនួសអ្នក ដូចជា Linear ឬ Slack។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 대신 쓰는 서비스(Linear, Slack 등)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tjenester agentene bruker for deg, som Linear eller Slack."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usługi, których używają agenci, np. Linear lub Slack."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serviços que seus agentes usam, como Linear ou Slack."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервисы, которыми пользуются агенты: Linear, Slack и др."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บริการที่เอเจนต์ใช้แทนคุณ เช่น Linear หรือ Slack"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanlarınızın kullandığı hizmetler: Linear, Slack gibi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервіси, якими користуються агенти: Linear, Slack тощо."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dịch vụ agent dùng thay bạn, như Linear hoặc Slack."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理代你使用的服务，例如 Linear 或 Slack。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理代你使用的服務，例如 Linear 或 Slack。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -67,6 +67,27 @@ class CefTraceTasks(unittest.TestCase):
                          ("Chrome_IOThread", "OnIpc (a/b.cc)", 0.5))
         self.assertNotIn("Startup (a/b.cc)", [r["posted_from"] for r in rows], "startup tasks are skipped")
 
+    def test_the_browser_process_tasks_have_their_own_rows(self):
+        # The GPU process's display-link tasks (46/s under the trace) filled all 40 rows, so the browser's own delayed
+        # tasks that wake the app's main thread (~0.8/s at idle) were never named. The browser process is the one with
+        # a CrBrowserMain thread, whatever its process name (Chromium names it by pid).
+        gpu = [{"ph": "M", "name": "process_name", "pid": 20, "args": {"name": "GPU Process"}},
+               {"ph": "M", "name": "thread_name", "pid": 20, "tid": 5, "args": {"name": "CrGpuMain"}},
+               {"ph": "M", "name": "thread_name", "pid": 10, "tid": 3, "args": {"name": "ThreadPoolForegroundWorker"}}]
+        events = [e for e in META if e["name"] != "process_name"] + gpu + [task(0, "Startup")] \
+            + [task(t / 10, "VSync", pid=20, tid=5) for t in range(300, 1300)] \
+            + [task(t, "OnPoll", tid=1) for t in range(30, 130, 5)] \
+            + [task(t, "OnSweep", tid=3) for t in range(30, 130, 10)] + [task(130, "End")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, top=1)
+        self.assertEqual([r["posted_from"] for r in got["tasks"]], ["VSync (a/b.cc)"])
+        self.assertEqual([(r["thread"], r["posted_from"], r["per_s"]) for r in got["browser_tasks"]],
+                         [("CrBrowserMain", "OnPoll (a/b.cc)", 0.2)],
+                         "the browser's rows are cut at `top` on their own")
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30)
+        self.assertEqual([(r["thread"], r["posted_from"], r["per_s"]) for r in got["browser_tasks"]][:2],
+                         [("CrBrowserMain", "OnPoll (a/b.cc)", 0.2), ("ThreadPoolForegroundWorker", "OnSweep (a/b.cc)", 0.1)])
+        self.assertNotIn("VSync (a/b.cc)", [r["posted_from"] for r in got["browser_tasks"]])
+
     def test_ipc_messages_on_the_browser_threads_by_name(self):
         # The main thread's wakes from Chrome_IOThread (task 21, ~0.9/s) are IPC messages the I/O thread forwards; the
         # mojom category names each one. RunTask rows say only "Accept (ipc_mojo_bootstrap.cc)".
@@ -111,6 +132,23 @@ class CefTraceTasks(unittest.TestCase):
         cats = idle_cpu.CEF_TRACE_CATEGORIES.split(",")
         for want in ("ipc", "mojom", "loading", "blink.resource"):
             self.assertIn(want, cats)
+
+    def test_only_the_measured_windows_count(self):
+        # 557acd48 (cmux20-bench, 2026-11-25): a 150 s trace from the launch covered only the settle before the
+        # windows (the bench idles --minutes first), where the hidden agent pages still loaded their chunks. Events
+        # count only between the windows' start and end (monotonic seconds, the clock Chromium stamps with).
+        events = META + [task(t, "Settle") for t in range(0, 200)] + [task(t, "Idle") for t in range(200, 260, 2)] + [task(300, "After")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(200.0, 260.0))
+        self.assertEqual([(r["posted_from"], r["per_s"]) for r in got["tasks"]], [("Idle (a/b.cc)", 0.5)])
+        self.assertEqual((got["seconds"], got["window"]), (60.0, "measured"))
+        # A window the trace does not reach (another clock): the old skip, said so.
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(9000.0, 9060.0))
+        self.assertEqual(got["window"], "unmatched")
+        self.assertIn("Settle (a/b.cc)", [r["posted_from"] for r in got["tasks"]])
+
+    def test_the_trace_lasts_through_the_windows(self):
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=3, windows=3, window=60), 390)
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=10, windows=3, window=60), 600)
 
     def test_a_bare_event_list_and_no_tasks(self):
         self.assertEqual(idle_cpu.cef_trace_tasks(META, skip_s=30)["tasks"], [])

@@ -124,8 +124,9 @@ extension IPhoneHostService {
         }
         // The person's own `mobile.autoApprovePhones` (off by default): a phone of the signed-in
         // user pairs as Allow would. hostd served this phone only because the service stamped its
-        // dial with the signed-in user, and the list is that user's. Machines still ask.
-        if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false,
+        // dial with the signed-in user, and the list is that user's. Machines still ask, and another
+        // build's dev iPhone app still waits quietly below: the quiet ask decides it, not the setting.
+        if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false, macDevTag: dependencies?.macDevTag,
                                        pairedUserID: list.userID, accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired by Approve Phone Requests Automatically")
             savePaired { $0.approve(request, at: Date()) }
@@ -269,10 +270,28 @@ extension IPhoneHostService {
 
     /// Whether `mobile.autoApprovePhones` (`on`) pairs `request` without the prompt: a phone, never
     /// a machine, on the paired list of the signed-in user. Never true with the setting off, no
-    /// account or another user's list.
-    static func autoApproves(_ request: MobileHostPairRequest, on: Bool, pairedUserID: String, accountUserID: String?) -> Bool {
+    /// account or another user's list, nor for a request the quiet ask holds on this Mac
+    /// (`macDevTag`, ``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``): another build's dev iPhone
+    /// app waits quietly whether the setting is on or off, so the setting never pairs a dev phone
+    /// with NIGHTLY, release or another tag's dev build.
+    static func autoApproves(_ request: MobileHostPairRequest, on: Bool, macDevTag: String?, pairedUserID: String,
+                             accountUserID: String?) -> Bool {
         guard on, !request.isMachine, let accountUserID, !accountUserID.isEmpty else { return false }
+        guard !IPhoneDevAutoApprove.asksQuietly(request, macDevTag: macDevTag) || pairsWithoutBuildSpace(request, macDevTag: macDevTag)
+        else { return false }
         return pairedUserID == accountUserID
+    }
+
+    /// The iPhone apps named `dev.cmux.mobile.<name>` that carry no cloud build space, so their Mac is NIGHTLY, RC or
+    /// release (the space with none): the Production configuration (`prod`, project.yml), the shared Demo build (`demo`,
+    /// demo-build.sh) and cmux Dev (`dev`, try.sh, which shows the person's real data). These names are reserved tags
+    /// (CMUX_ATTACH_RESERVED_TAGS), so no tagged dev build has them. The quiet ask still holds them from the prompt, but the
+    /// person's setting pairs them on a Mac with no dev tag, as before 2026-11-24.
+    static let buildSpacelessPhones: Set<String> = ["prod", "demo", "dev"]
+
+    static func pairsWithoutBuildSpace(_ request: MobileHostPairRequest, macDevTag: String?) -> Bool {
+        guard macDevTag == nil, let tag = IPhoneDevAutoApprove.phoneTag(of: request) else { return false }
+        return buildSpacelessPhones.contains(tag)
     }
 
     /// Whether `request` waits in Settings > Mobile only, without the prompt, banner or Dock bounce:
@@ -287,10 +306,12 @@ extension IPhoneHostService {
     /// Whether the dev auto-approve pairs `request` without the prompt: a tagged dev build's
     /// (`devAutoApprove`, nil otherwise), for a phone of this tag's iPhone app, on the paired list of
     /// the signed-in user. Never true for a machine, another tag, no account or another user's list.
+    /// The rule is Rust's (`cmux-mobile-host-core` `dev_auto_approve::approves`).
     static func devAutoApproves(_ request: MobileHostPairRequest, devAutoApprove: IPhoneDevAutoApprove?,
                                 pairedUserID: String, accountUserID: String?) -> Bool {
-        guard let devAutoApprove, let accountUserID, !accountUserID.isEmpty, pairedUserID == accountUserID else { return false }
-        return devAutoApprove.matches(request)
+        guard let devAutoApprove else { return false }
+        return IPhoneDevAutoApprove.ask(request, autoTag: devAutoApprove.tag, pairedUserID: pairedUserID,
+                                        accountUserID: accountUserID)?["approves"] as? Bool ?? false
     }
 
     /// Idle sleep is held off only while a phone this account allowed can reach this Mac: phone
@@ -305,7 +326,8 @@ extension IPhoneHostService {
         setKeepAwake(false)
     }
 
-    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would.
+    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would
+    /// (another build's dev iPhone app keeps waiting quietly, ``autoApproves(_:on:macDevTag:pairedUserID:accountUserID:)``).
     func autoApproveWaiting() {
         guard dependencies?.autoApprovePhones() ?? false else { return }
         for request in prompts.pending where !request.isMachine { ask(request) }

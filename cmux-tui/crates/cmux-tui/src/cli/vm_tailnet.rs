@@ -1,5 +1,5 @@
-//! `cmux vm tailnet join|leave VM`: add a Cloud VM to the user's own tailnet, and take it off
-//! again (`cmux vm rm` does that first for a VM this machine joined). The plan, its checks and the
+//! `cmux vm tailnet join|leave VM`, `move FROM TO`: add a Cloud VM to the user's own tailnet, take
+//! it off again, or hand its node to another VM (RFD 0169) (`cmux vm rm` does that first for a VM this machine joined). The plan, its checks and the
 //! scripts are crate cmux-tailnet-join; this runs them over the VM API's file write and exec
 //! (vm_bootstrap.rs's [`Guest`]). The key comes from a file or stdin, never an argument, and goes
 //! to the VM only as a 0600 file the join deletes.
@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use cmux_tailnet_join::mint::{self, Call, MintSource, MintSpec};
 use cmux_tailnet_join::{
     Checked, Credential, JoinRequest, KEY_FILE, Outcome, Progress, SCRIPT_FILE, Secret, ServePort,
 };
@@ -22,13 +23,21 @@ use super::vm_bootstrap::Guest;
 pub(super) const HELP: &str = "\
 cmux vm tailnet join VM (--key-file FILE | --key-stdin) [options]
 cmux vm tailnet leave VM
+cmux vm tailnet move FROM TO [--timeout SECONDS]
+cmux vm tailnet mint-key (--key-file FILE | --key-stdin) (--oauth | --headscale-api ...) --out FILE
 
 Adds a Cloud VM to your own tailnet (Tailscale or Headscale), or takes it off.
+`move` hands the node FROM holds to TO: same name, addresses and node key, no new
+device and no key; FROM stops first and deletes its copy once TO is online.
 Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a VM joined here.
 
   --key-file FILE      your auth key (tskey-auth-…, or a Headscale key) or OAuth client secret
   --key-stdin          read it from stdin instead
-  --oauth              the key is an OAuth client secret (tskey-client-…); needs --tag
+  --oauth              the key is a Tailscale OAuth client secret (tskey-client-…); needs --tag.
+                       This Mac mints a single-use key from it; only that key reaches the VM
+  --headscale-api      the key is a Headscale API key for --login-server; this Mac mints a
+                       single-use key from it for --headscale-user ID
+  --headscale-user ID  the Headscale user (its id) the minted key belongs to
   --login-server URL   your Headscale (or other) server; default Tailscale's
   --hostname NAME      device name and MagicDNS label
   --tag TAG            an ACL tag your policy gives this key (repeatable)
@@ -39,6 +48,10 @@ Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a
   --allow-http         let --login-server be plain http:// (the key crosses unencrypted)
   --switch             join even if the VM is on another tailnet (adds a profile)
   --timeout SECONDS    how long to wait for the join (default 180)
+
+mint-key takes --oauth or --headscale-api with --login-server, --headscale-user, --tag,
+--ephemeral and --allow-http as above, and writes the minted key (single-use, pre-authorized,
+10 minutes) to --out FILE, a new 0600 file.
 ";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -52,6 +65,9 @@ pub(super) struct JoinArgs {
     pub(super) vm_id: String,
     pub(super) key: KeySource,
     pub(super) oauth: bool,
+    /// The key is a Headscale API key; minted keys belong to this user id.
+    pub(super) headscale_user: Option<String>,
+    pub(super) headscale_api: bool,
     pub(super) request: JoinRequest,
     pub(super) timeout: Duration,
 }
@@ -66,6 +82,8 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
         .ok_or("cmux vm tailnet join needs a VM id")?;
     let mut key = None;
     let mut oauth = false;
+    let mut headscale_api = false;
+    let mut headscale_user = None;
     let mut request = JoinRequest {
         credential: Credential::AuthKey { key: Secret::new("") },
         control_url: None,
@@ -90,6 +108,8 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
             "--key-file" => key = Some(KeySource::File(PathBuf::from(value()?))),
             "--key-stdin" => key = Some(KeySource::Stdin),
             "--oauth" => oauth = true,
+            "--headscale-api" => headscale_api = true,
+            "--headscale-user" => headscale_user = Some(value()?),
             "--login-server" => request.control_url = Some(value()?),
             "--hostname" => request.hostname = Some(value()?),
             "--tag" => request.tags.push(value()?),
@@ -115,7 +135,18 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
         }
     }
     let key = key.ok_or("cmux vm tailnet join needs --key-file FILE or --key-stdin")?;
-    Ok(JoinArgs { vm_id, key, oauth, request, timeout })
+    if oauth && headscale_api {
+        return Err("--oauth and --headscale-api are two kinds of key; give one".to_owned());
+    }
+    if headscale_api && request.control_url.is_none() {
+        return Err(
+            "--headscale-api needs --login-server, the Headscale it is a key for".to_owned()
+        );
+    }
+    if headscale_api && headscale_user.is_none() {
+        return Err("--headscale-api needs --headscale-user ID (headscale users list)".to_owned());
+    }
+    Ok(JoinArgs { vm_id, key, oauth, headscale_user, headscale_api, request, timeout })
 }
 
 fn serve_port(text: &str, funnel: bool) -> Result<ServePort, String> {
@@ -128,20 +159,174 @@ fn serve_port(text: &str, funnel: bool) -> Result<ServePort, String> {
     })
 }
 
-/// Reads the key and checks the request; the key is trimmed of its trailing newline.
+/// What `args` mints from, when the key is an admin credential rather than an auth key.
+fn mint_source(args: &JoinArgs, secret: Secret) -> Result<MintSource, Secret> {
+    if args.oauth {
+        Ok(MintSource::TailscaleOauth { client_secret: secret })
+    } else if args.headscale_api {
+        Ok(MintSource::Headscale {
+            server: args.request.control_url.clone().unwrap_or_default(),
+            api_key: secret,
+            user: args.headscale_user.clone().unwrap_or_default(),
+        })
+    } else {
+        Err(secret)
+    }
+}
+
+/// Reads the key and checks the request; the key is trimmed of its trailing newline. An OAuth
+/// client or a Headscale API key is traded for a single-use key here (`mint_key`), so the join
+/// only ever sends that key to the VM.
 pub(super) fn checked(
     args: JoinArgs,
     read_key: impl FnOnce(&KeySource) -> Result<String, String>,
+    mint_key: impl FnOnce(&MintSource, &MintSpec, bool) -> Result<Secret, String>,
 ) -> Result<Checked, String> {
     let text = read_key(&args.key)?;
     let secret = Secret::new(text.trim());
-    let mut request = args.request;
-    request.credential = if args.oauth {
-        Credential::OauthClient { secret }
-    } else {
-        Credential::AuthKey { key: secret }
+    let mut request = args.request.clone();
+    let key = match mint_source(&args, secret) {
+        Ok(source) => {
+            if args.oauth {
+                // The OAuth request's own checks (Tailscale only, tags) before any call.
+                request.credential = Credential::OauthClient {
+                    secret: match &source {
+                        MintSource::TailscaleOauth { client_secret } => client_secret.clone(),
+                        MintSource::Headscale { api_key, .. } => api_key.clone(),
+                    },
+                };
+                request.clone().check().map_err(|e| e.0)?;
+            }
+            let spec = MintSpec { ephemeral: request.ephemeral, tags: request.tags.clone() };
+            mint_key(&source, &spec, request.allow_http)?
+        }
+        Err(secret) => secret,
     };
+    request.credential = Credential::AuthKey { key };
     request.check().map_err(|e| e.0)
+}
+
+/// Mints one key: checks the source, then the one or two HTTP calls.
+pub(super) fn mint_key(
+    source: &MintSource,
+    spec: &MintSpec,
+    allow_http: bool,
+) -> Result<Secret, String> {
+    let spec = mint::check_source(source, spec, allow_http).map_err(|e| e.0)?;
+    match source {
+        MintSource::TailscaleOauth { client_secret } => {
+            let call = mint::tailscale_token_call(client_secret).map_err(|e| e.0)?;
+            let token = mint::parse_token(&send(&call)?).map_err(|e| e.0)?;
+            let answer = send(&mint::tailscale_key_call(&token, &spec))?;
+            mint::parse_tailscale_key(&answer).map_err(|e| e.0)
+        }
+        MintSource::Headscale { server, api_key, user } => {
+            cmux_egress::allow_named(server);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let answer = send(&mint::headscale_key_call(server, api_key, user, &spec, now))?;
+            mint::parse_headscale_key(&answer).map_err(|e| e.0)
+        }
+    }
+}
+
+/// Sends one mint call; answers the body of a 2xx, or words with the status. Never a redirect
+/// (a key or token must not follow one).
+fn send(call: &Call) -> Result<String, String> {
+    let http = cmux_egress::client_builder("cmux_tui::vm_tailnet")
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("making the HTTP client: {e}"))?;
+    let mut request = http.post(&call.url);
+    if let Some(bearer) = &call.bearer {
+        let mut value =
+            reqwest::header::HeaderValue::try_from(format!("Bearer {}", bearer.expose()))
+                .map_err(|_| "the credential has characters a header cannot carry".to_owned())?;
+        value.set_sensitive(true);
+        request = request.header(reqwest::header::AUTHORIZATION, value);
+    }
+    if !call.form.is_empty() {
+        let body: String = call
+            .form
+            .iter()
+            .map(|(k, v)| format!("{k}={}", form_escape(v.expose())))
+            .collect::<Vec<_>>()
+            .join("&");
+        request = request
+            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(body);
+    }
+    if let Some(json) = &call.json {
+        request = request.json(json);
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let host = call.url.split('/').nth(2).unwrap_or_default().to_owned();
+    runtime.block_on(async move {
+        let answer = request.send().await.map_err(|e| format!("{host}: {e}"))?;
+        let status = answer.status();
+        let body = answer.text().await.map_err(|e| format!("{host}: {e}"))?;
+        if status.is_success() {
+            Ok(body)
+        } else {
+            let said: String = body.chars().take(200).collect();
+            Err(format!("{host} answered {status}: {said}"))
+        }
+    })
+}
+
+fn form_escape(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Writes `key` to a new file at `path`, 0600; an existing file or a symlink there is refused.
+pub(super) fn write_new_key_file(path: &std::path::Path, key: &Secret) -> Result<(), String> {
+    use std::io::Write as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|e| format!("creating {}: {e}", path.display()))?;
+    file.write_all(key.expose().as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("writing {}: {e}", path.display()))
+}
+
+/// `mint-key`'s words: the join's, with `--out FILE` in place of the VM id.
+pub(super) fn parse_mint(words: &[String]) -> Result<(JoinArgs, PathBuf), String> {
+    let mut out = None;
+    let mut rest = vec!["mint".to_owned()];
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        if let Some(path) = word.strip_prefix("--out=") {
+            out = Some(PathBuf::from(path));
+        } else if word == "--out" {
+            out = Some(PathBuf::from(words.next().ok_or("--out needs a value")?));
+        } else {
+            rest.push(word.clone());
+        }
+    }
+    let out = out.ok_or("cmux vm tailnet mint-key needs --out FILE")?;
+    let args = parse_join(&rest)?;
+    if !args.oauth && !args.headscale_api {
+        return Err("mint-key needs --oauth or --headscale-api".to_owned());
+    }
+    Ok((args, out))
 }
 
 fn read_key(source: &KeySource) -> Result<String, String> {
@@ -179,23 +364,47 @@ pub(super) fn join(
         .write(SCRIPT_FILE, cmux_tailnet_join::vm_join_script(checked).as_bytes(), 0o700)
         .map_err(|e| format!("writing the join script: {e}"))?;
     exec_ok(guest, &cmux_tailnet_join::start_command(), "started")?;
+    let (node, _) = await_detached(guest, deadline, timeout, Duration::from_secs(2), "join")?;
+    Ok(json!({
+        "dnsName": node.dns_name,
+        "ips": node.ips,
+        "tags": node.tags,
+        "online": node.online,
+        "elapsedMs": millis(started.elapsed()),
+        "notes": checked.notes(),
+    }))
+}
+
+fn millis(d: Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Reads a detached join or adopt run (`start_command`) every `poll` until it ends: the node, and
+/// the run's last answer (for its clock lines).
+fn await_detached(
+    guest: &mut dyn Guest,
+    deadline: Instant,
+    timeout: Duration,
+    poll: Duration,
+    what: &str,
+) -> Result<(cmux_tailnet_join::Joined, String), String> {
     let read = cmux_tailnet_join::read_command();
     let mut failures = 0;
     loop {
         if Instant::now() >= deadline {
             return Err(format!(
-                "the join did not end in {} s (on the VM: systemctl status {})",
+                "the {what} did not end in {} s (on the VM: systemctl status {})",
                 timeout.as_secs(),
                 cmux_tailnet_join::UNIT
             ));
         }
-        guest.pause(Duration::from_secs(2));
+        guest.pause(poll);
         let answer = match guest.exec(&read) {
             Ok(answer) => answer,
             Err(error) => {
                 failures += 1;
                 if failures >= 3 {
-                    return Err(format!("reading the join: {error}"));
+                    return Err(format!("reading the {what}: {error}"));
                 }
                 continue;
             }
@@ -203,16 +412,7 @@ pub(super) fn join(
         failures = 0;
         match cmux_tailnet_join::read_answer(&answer.stdout) {
             Progress::Running => continue,
-            Progress::Ended(Outcome::Joined(node)) => {
-                return Ok(json!({
-                    "dnsName": node.dns_name,
-                    "ips": node.ips,
-                    "tags": node.tags,
-                    "online": node.online,
-                    "elapsedMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    "notes": checked.notes(),
-                }));
-            }
+            Progress::Ended(Outcome::Joined(node)) => return Ok((node, answer.stdout)),
             Progress::Ended(Outcome::OtherTailnet { control_url }) => {
                 return Err(format!(
                     "the VM is already on another tailnet ({control_url}); nothing changed. Run again with --switch to add yours as a second profile."
@@ -221,6 +421,103 @@ pub(super) fn join(
             Progress::Ended(Outcome::Failed(why)) => return Err(why),
         }
     }
+}
+
+// MARK: Move the node to another VM (RFD 0169 identity handoff)
+
+/// `move`'s words: `FROM TO [--timeout SECONDS]`.
+pub(super) fn parse_move(words: &[String]) -> Result<(String, String, Duration), String> {
+    let mut ids = Vec::new();
+    let mut timeout = Duration::from_secs(180);
+    let mut it = words.iter();
+    while let Some(word) = it.next() {
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
+            _ => (word.as_str(), None),
+        };
+        match flag {
+            "--timeout" => {
+                let value =
+                    inline.or_else(|| it.next().cloned()).ok_or("--timeout needs seconds")?;
+                let secs: u64 =
+                    value.parse().map_err(|_| format!("--timeout {value} is not seconds"))?;
+                timeout = Duration::from_secs(secs.max(1));
+            }
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option {other} (cmux vm tailnet --help)"));
+            }
+            id => ids.push(id.to_owned()),
+        }
+    }
+    match ids.as_slice() {
+        [from, to] if from != to => Ok((from.clone(), to.clone(), timeout)),
+        [_, _] => Err("cmux vm tailnet move needs two different VMs".to_owned()),
+        _ => Err("cmux vm tailnet move needs FROM and TO VM ids".to_owned()),
+    }
+}
+
+/// Moves the node `from` holds to `to`: release, adopt, forget (restore on a failed adopt). `Ok`
+/// is the node on `to` and the gap the user saw, measured on the machines.
+pub(super) fn move_node(
+    from: &mut dyn Guest,
+    to: &mut dyn Guest,
+    timeout: Duration,
+) -> Result<Value, String> {
+    use cmux_tailnet_join::handoff;
+    let started = Instant::now();
+    let deadline = started + timeout;
+    // Ready the new holder first, so the gap holds only the swap.
+    exec_ok(
+        to,
+        &cmux_tailnet_join::prepare_command(cmux_cloud_start_core::machine_bootstrap::USER),
+        "prepared",
+    )?;
+    to.write(SCRIPT_FILE, handoff::vm_adopt_script().as_bytes(), 0o700)
+        .map_err(|e| format!("writing the adopt script: {e}"))?;
+    let released_answer = from.exec(&handoff::release_command())?;
+    if released_answer.exit_code != 0 {
+        let detail = released_answer.stderr.trim();
+        return Err(format!(
+            "the old VM did not release the node (exit {}): {detail}",
+            released_answer.exit_code
+        ));
+    }
+    let released = handoff::parse_released(&released_answer.stdout)?;
+    let released_at = Instant::now();
+    let adopted = (|| {
+        to.write(handoff::STAGED_STATE_FILE, released.staged_contents().as_bytes(), 0o600)
+            .map_err(|e| format!("writing the node state: {e}"))?;
+        exec_ok(to, &cmux_tailnet_join::start_command(), "started")?;
+        await_detached(to, deadline, timeout, Duration::from_millis(250), "move")
+    })();
+    let (node, answer) = match adopted {
+        Ok(done) => done,
+        Err(why) => {
+            let back = match exec_ok(from, &handoff::restore_command(), "cmux-tailnet-restored") {
+                Ok(()) => "the node is back on the old VM".to_owned(),
+                Err(e) => format!("restarting it on the old VM failed too: {e}"),
+            };
+            return Err(format!("the new VM did not take the node ({why}); {back}"));
+        }
+    };
+    let online_at = Instant::now();
+    // The new holder is online: the old copy goes, so the node can never come up twice.
+    let forgot = exec_ok(from, &handoff::forget_command(), "cmux-tailnet-forgot");
+    let gap_ms = match (released.stopped_at_ms, handoff::online_at_ms(&answer)) {
+        (Some(stop), Some(online)) => Some(online.saturating_sub(stop)),
+        _ => None,
+    };
+    Ok(json!({
+        "dnsName": node.dns_name,
+        "ips": node.ips,
+        "tags": node.tags,
+        "online": node.online,
+        "gapMs": gap_ms,
+        "gapSeenMs": millis(online_at - released_at),
+        "elapsedMs": millis(started.elapsed()),
+        "oldCopyDeleted": forgot.is_ok(),
+        "notes": forgot.err().map(|e| vec![format!("the old VM still holds a copy of the node state ({e}); delete {} there", handoff::STATE_FILE)]).unwrap_or_default(),
+    }))
 }
 
 pub(super) fn leave(guest: &mut dyn Guest) -> Result<(), String> {
@@ -312,7 +609,7 @@ pub(super) fn run(
             };
             let vm_id = args.vm_id.clone();
             let timeout = args.timeout;
-            let checked = match checked(args, read_key) {
+            let checked = match checked(args, read_key, mint_key) {
                 Ok(checked) => checked,
                 Err(message) => return fail(&message, 2),
             };
@@ -370,7 +667,89 @@ pub(super) fn run(
                 Err(message) => fail(&message, 1),
             }
         }
-        other => fail(&format!("unknown tailnet verb \"{other}\"; verbs: join, leave"), 2),
+        "move" => {
+            let (from, to, timeout) = match parse_move(tail) {
+                Ok(parsed) => parsed,
+                Err(message) => return fail(&message, 2),
+            };
+            let result = with_guest(&from, env, |from_guest| {
+                with_guest(&to, env, |to_guest| move_node(from_guest, to_guest, timeout))
+            });
+            match result {
+                Ok(node) => {
+                    let mut record = read_record(env);
+                    let name = record.remove(&from).unwrap_or_else(|| {
+                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned()
+                    });
+                    record.insert(to.clone(), name);
+                    write_record(env, &record);
+                    if json_output {
+                        println!("{}", json!({"ok": true, "from": from, "vm": to, "node": node}));
+                    } else {
+                        println!(
+                            "Moved {} from {from} to {to}.",
+                            node.get("dnsName")
+                                .and_then(Value::as_str)
+                                .unwrap_or("your tailnet node")
+                        );
+                        match node.get("gapMs").and_then(Value::as_u64) {
+                            Some(gap) => println!("Offline for {gap} ms (stop to online)."),
+                            None => println!(
+                                "Offline for about {} ms (seen from here).",
+                                node.get("gapSeenMs").and_then(Value::as_u64).unwrap_or(0)
+                            ),
+                        }
+                        for note in node
+                            .get("notes")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                        {
+                            println!("Note: {note}");
+                        }
+                    }
+                    0
+                }
+                Err(message) => fail(&message, 1),
+            }
+        }
+        "mint-key" => {
+            let (args, out) = match parse_mint(tail) {
+                Ok(parsed) => parsed,
+                Err(message) => return fail(&message, 2),
+            };
+            let ephemeral = args.request.ephemeral;
+            let minted = checked(args, read_key, mint_key).and_then(|checked| {
+                let Credential::AuthKey { key } = &checked.request().credential else {
+                    return Err("the mint gave no key".to_owned());
+                };
+                write_new_key_file(&out, key)
+            });
+            match minted {
+                Ok(()) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            json!({"ok": true, "out": out, "reusable": false, "preauthorized": true,
+                                   "ephemeral": ephemeral, "expiresInSecs": mint::KEY_TTL_SECS})
+                        );
+                    } else {
+                        println!(
+                            "Wrote a single-use key to {} (expires in {} min).",
+                            out.display(),
+                            mint::KEY_TTL_SECS / 60
+                        );
+                    }
+                    0
+                }
+                Err(message) => fail(&message, 1),
+            }
+        }
+        other => fail(
+            &format!("unknown tailnet verb \"{other}\"; verbs: join, leave, move, mint-key"),
+            2,
+        ),
     }
 }
 

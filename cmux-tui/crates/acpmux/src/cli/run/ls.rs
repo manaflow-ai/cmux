@@ -399,6 +399,20 @@ async fn scoped_output_with_budget(
     if rows.local_only() {
         params.set("localOnly", json!(true));
     }
+    // `--fields` with no filter of this side's that reads other members: the daemon sends only
+    // those members of each row (`hub/page_first.rs` `row_fields`), not whole rows to be cut
+    // here. A daemon from before it sends whole rows, cut below as before.
+    let reads_more = named
+        || tag.is_some()
+        || pending
+        || leads
+        || with_tools
+        || matches!(status.as_deref(), Some("stuck" | "waiting"));
+    if let Some(fields) = fields.as_deref()
+        && !reads_more
+    {
+        params.set("fields", json!(fields));
+    }
     let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
     let keeps = |s: &Value| {
         let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
@@ -722,6 +736,14 @@ async fn scoped_output_with_budget(
         out.push('\n');
     }
     if let Some(line) = status.as_ref().and_then(outbox_line) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    if let Some(line) = status
+        .as_ref()
+        .and_then(|s| s.get("outboxStats"))
+        .and_then(crate::hub::outbox_stats::ls_line)
+    {
         out.push_str(&line);
         out.push('\n');
     }

@@ -32,7 +32,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 115,
+   "acpmux": 111,
    "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
@@ -91,7 +91,6 @@
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 6,
-   "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
   }
@@ -99,7 +98,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 8,
+    "acpmux": 9,
     "cmux-browser-host": 4,
     "cmux-rd-host": 1,
     "cmux-tui": 1,
@@ -111,7 +110,7 @@
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
     "cmux-terminal-sizing": 6,
-    "cmux-tui-core": 9,
+    "cmux-tui-core": 12,
     "cmux-unix-socket": 1
    },
    "panic_macro": {
@@ -153,7 +152,7 @@
     "CmuxNextApp": 5,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 10,
+    "CmuxNextCompat": 11,
     "CmuxNextCrashReporting": 11,
     "CmuxNextDesign": 12,
     "CmuxNextFiles": 2,

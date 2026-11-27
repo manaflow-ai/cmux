@@ -46,10 +46,9 @@ public struct CloudCLICall: Sendable {
             case let .success(found): credential = found
             case let .failure(error): return Self.unreachable(String(describing: error))
             }
-            // The request is parsed and re-encoded inside the envelope, so its bytes can never add a field of their own.
-            let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
-            let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
-            guard let stdin = try? JSONSerialization.data(withJSONObject: envelope) else { return Self.unreachable("the request is not JSON") }
+            guard let stdin = await Self.relayEnvelope(api: api, credential: credential, request: request) else {
+                return Self.unreachable("the request is not JSON")
+            }
             do {
                 return try await run(["cloud", "automation-relay"], stdin: stdin, timeout: .seconds(25))
             } catch {
@@ -58,21 +57,38 @@ public struct CloudCLICall: Sendable {
         }
     }
 
+    /// The automation relay's stdin: the caller's request (any size) parsed and re-encoded inside the
+    /// envelope, so its bytes can never add a field of their own. Off the main actor.
+    @concurrent private static func relayEnvelope(api: String, credential: String?, request: Data) async -> Data? {
+        let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
+        let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
+        return try? JSONSerialization.data(withJSONObject: envelope)
+    }
+
+    /// One `cmux cloud api` answer line (the child's whole last stdout line), decoded off the main actor.
+    @concurrent private static func answer<Answer: Decodable & Sendable>(_ type: Answer.Type, from line: Data) async -> Answer? {
+        try? JSONDecoder().decode(type, from: line)
+    }
+
     /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
     /// `cloud.<call>` ops) on this Mac's daemon at `socket`, as the signed-in person of `auth` on the platform origin, worker auth. The
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
-    /// The token is read per call and goes on stdin, never in argv.
+    /// The token is read per call and goes on stdin, never in argv. `tail`: bytes the call takes after the request's
+    /// first newline (`cloud_api.rs`'s secret tail, never in argv or the request JSON).
     @MainActor
     func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
-                  timeout: Duration = .seconds(60)) async -> Data {
+                  timeout: Duration = .seconds(60), tail: Data? = nil) async -> Data {
         let failed = { (kind: String, message: String) in
+            // main-actor-ok: a two-key failure object with a kind and one message.
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
         guard auth.isSignedIn, let credential = try? await auth.tokens().access else { return failed("not_signed_in", "") }
         var request: [String: Any] = ["call": call, "api": auth.configuration.relayAPIBaseURL().absoluteString, "auth": "worker",
                                       "credential": credential, "args": args]
         if let team = auth.teamID { request["team"] = team }
-        guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        // main-actor-ok: a call name, the API origin, one token and the caller's few scalar args (ids, names); the tail is appended as bytes.
+        guard var stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        if let tail { stdin.append(0x0A); stdin.append(tail) }
         do {
             return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: timeout)
         } catch {
@@ -89,13 +105,13 @@ public struct CloudCLICall: Sendable {
     public func shareChatWithMe(machine: String, signedIn auth: CloudAuth, socket: String?) async -> (code: String, message: String)? {
         guard let user = auth.platformUserID else { return ("not_signed_in", "") }
         guard let socket else { return ("transport", "") }
-        struct Answer: Decodable {
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var error: Failure?
         }
         let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else { return ("transport", "") }
+        guard let answer = await Self.answer(Answer.self, from: line) else { return ("transport", "") }
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
@@ -103,22 +119,26 @@ public struct CloudCLICall: Sendable {
     /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
     /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
     /// finishes a half-done start and never makes a second machine. The Chief's main conversation, or the refusal
-    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message.
+    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message. `turnEnv`: the owner's Claude
+    /// connection's env, sent as the call's stdin tail (`{"env": …}`); the Rust start picks the Claude variable from it and
+    /// leaves it on the machine for the Chief's turns (cmux-cloud-api `chief_turn.rs`). Nil: the start as before.
     @MainActor
     public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
-                                    socket: String?) async -> Result<String, CloudCallRefusal> {
+                                    socket: String?, turnEnv: [String: String]? = nil) async -> Result<String, CloudCallRefusal> {
         guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
-        struct Answer: Decodable {
-            struct Body: Decodable { var conversation: String? }
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Body: Decodable, Sendable { var conversation: String? }
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var body: Body?
             var error: Failure?
         }
         // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        // main-actor-ok: the owner's Claude connection env, a few variables.
+        let tail = turnEnv.flatMap { try? JSONSerialization.data(withJSONObject: ["env": $0]) }
         let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
-                                  timeout: .seconds(1_560))
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
+                                  timeout: .seconds(1_560), tail: tail)
+        guard let answer = await Self.answer(Answer.self, from: line) else {
             return .failure(CloudCallRefusal(code: "transport", message: ""))
         }
         if answer.ok, let conversation = answer.body?.conversation { return .success(conversation) }
@@ -224,7 +244,7 @@ public struct CloudDaemon: Sendable {
     public typealias TeamID = @Sendable () async -> String?
 
     let baseURL: URL
-    private(set) var tokens: Tokens
+    var tokens: Tokens
     private(set) var teamID: TeamID
     let appVersion: String
     /// The sign-in client sends its Stack team with every call (``pinningTeam(_:)`` fixes it); a Worker client keeps its cmux team.
@@ -242,6 +262,18 @@ public struct CloudDaemon: Sendable {
         self.teamID = teamID
         self.appVersion = appVersion
         self.sendsStackSession = sendsStackSession
+    }
+
+    /// The daemon as one owner credential with no Stack session (the feed's `cloud.owner.op`: the person's session
+    /// or this Mac's install token). `run` stands in for the `cmux cloud api` child (a test's); nil: `machineIO`'s.
+    public static func owner(baseURL: URL, credential: @escaping @Sendable () async throws -> String,
+                             teamID: @escaping TeamID, machineIO: CloudMachineIO?,
+                             run: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)? = nil) -> CloudDaemon {
+        var daemon = CloudDaemon(baseURL: baseURL, tokens: { (try await credential(), "") }, teamID: teamID,
+                                 appVersion: "cmux-next", sendsStackSession: false)
+        daemon.machineIO = machineIO
+        daemon.daemonCall = run
+        return daemon
     }
 
     /// This daemon with its team fixed to `team`: every request of a create and its retries goes to the same team

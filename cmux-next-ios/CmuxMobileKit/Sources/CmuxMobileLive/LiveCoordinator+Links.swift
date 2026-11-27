@@ -107,6 +107,8 @@ extension LiveCoordinator {
             guard let self, let session, self.sessions[session.macID] === session else { return }
             session.tree = tree
             self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            // A tab closed inside a workspace: its Feed rows go.
+            self.feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: session.macID)
             if agentChanged {
                 session.terminalFeed.treeChanged(tree, macID: session.macID,
                                                 connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)
@@ -245,7 +247,7 @@ extension LiveCoordinator {
             ConnectTimeline.shared.mark("daemon_channel_open")
             let firstWindow = ListFirstWindow.honors(macID, defaults: .standard)
             return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName,
-                                                                                         firstWindow: firstWindow)))
+                                                                                         firstWindow: firstWindow, macID: macID)))
         } catch {
             return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
         }
@@ -342,6 +344,9 @@ extension LiveCoordinator {
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
         session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+        // A failed bind on a link that stays up is tried again by itself, bounded (before, only
+        // the Feed's Retry or a new link bound the chats again).
+        if !session.acpmux.isReady { rebindChats(session, link) }
         phaseChanged(session)
         if session === focused { await startChief(link) }
     }
@@ -359,6 +364,33 @@ extension LiveCoordinator {
             if session.acpmux.isReady { feedStore.syncState = .live }
         } catch {
             log.error("acpmux channel: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Binds the chats again on `link` after a failed bind: 1 s, 2 s, 4 s, 8 s, 15 s apart
+    /// (`RetryBounds.chatsRebindDelay`), while `link` stays this Mac's served link and the chats
+    /// are not ready. After the last the failure stays (`chatsError`) and the Feed's Retry binds.
+    private func rebindChats(_ session: MacSession, _ link: any MacLink) {
+        session.chatsRebind?.cancel()
+        let macID = session.macID
+        // task-owner: stored in `session.chatsRebind`; a newer failed bind replaces it
+        session.chatsRebind = Task { [weak self, weak session, clock] in
+            var attempt = 0
+            while let delay = RetryBounds.chatsRebindDelay(attempt: attempt) {
+                attempt += 1
+                do { try await clock.sleep(for: delay) } catch { return }
+                guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                      session.servedLink === link, !session.acpmux.isReady else { return }
+                // Another bind under way (the Feed's Retry, a stall's recovery) is left alone.
+                guard session.acpmux.lastError != nil || session.acpmux.connection == nil else { continue }
+                log.info("acpmux: binding the chats again (attempt \(attempt, privacy: .public))")
+                await self.bindChats(session, link, passed: Task { true })
+                guard session.currentLink === link else { return }
+                session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+                self.phaseChanged(session)
+                if session.acpmux.isReady { return }
+            }
+            log.error("acpmux: chats didn't bind after \(attempt, privacy: .public) tries: waiting for Retry")
         }
     }
 
@@ -381,6 +413,21 @@ extension LiveCoordinator {
     }
 
     /// A Mac's own link, for its streamed browser tabs (never another Mac's).
+    /// An HTML file on a Mac (a browser tab's `file:///…/report.html`) for a tab this
+    /// iPhone shows itself: read over that Mac's link (`file-preview`; the Mac confines it
+    /// to its workspace roots), as Files and Links previews read files.
+    public func macHTMLPage(_ url: URL, macID: String?) async throws -> String {
+        let owner = macID.flatMap { sessions[$0] } ?? focused
+        let source = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
+        let artifact = TerminalArtifact(reference: url.path(percentEncoded: false), kind: .html)
+        switch try await source.load(artifact) {
+        case .text(let html): return html
+        default: throw ArtifactUnavailable("\(url.lastPathComponent) is too large or isn't text.")
+        }
+    }
+
     public func browserLink(macID: String) async -> (any BrowserStreamOpening)? {
         openSurface(macID: macID)
         return sessions[macID]?.servedLink as? any BrowserStreamOpening
@@ -847,17 +894,22 @@ extension LiveCoordinator {
     /// into the tab's folder, next to acpmux's attachments, or the Mac's own
     /// uploads folder when the tab has none; returns the file's path there.
     public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (LinkUpload.Payload, String) async throws -> String {
-        { [weak self] payload, name in
+        let cwd = LinkUpload.folder(session(tabID: tabID, macID: macID)?.tree?.directories[tabID])
+        return { [weak self] payload, name in
             guard let self, let owner = self.session(tabID: tabID, macID: macID), let link = owner.servedLink else {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
-            let cwd = LinkUpload.folder(owner.tree?.directories[tabID])
             do {
                 return try await LinkUpload.upload(payload, name: name, cwd: cwd, over: link)
             } catch let failure as LinkUpload.Failure where cwd != nil && (failure.code == "forbidden" || failure.code == "not_found") {
                 return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
             }
         }
+    }
+
+    /// The normalized working directory captured by a terminal upload closure.
+    public func terminalDirectory(tabID: String, macID: String? = nil) -> String? {
+        LinkUpload.folder(session(tabID: tabID, macID: macID)?.tree?.directories[tabID])
     }
 
     // MARK: Chief
@@ -1026,6 +1078,8 @@ extension LiveCoordinator {
         // hostd closes the channel when the owner's socket is missing ("daemon channel closed").
         if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused")
             || reason.contains("channel closed") {
+            // retry-prompt-ok: a step on the Mac (open cmux) the phone is not told about; the bar's
+            // Try Again (retryChief) reopens the channel once the person has done it.
             return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
         }
         return String(localized: "Can't reach Chief on \(mac) right now (\(reason)).")
@@ -1059,16 +1113,24 @@ extension LiveCoordinator {
                 sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
                 continue
             }
-            chatSessionChanged(id: used.tabID, macID: used.macID)
+            let listedSession = tree.agentTabs[used.tabID]?.session
+            chatSessionChanged(id: used.tabID, macID: used.macID,
+                               carryWaiting: !(used.session != nil && listedSession != nil && used.session != listedSession))
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        // Rows of tabs and workspaces closed on the Mac or on this phone leave the Feed.
+        feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: macID)
         session.fedData = true
         // Streamed browser tabs of workspaces closed on the Mac go: a redial
         // must not open them again (transport-verify-20261019.md defect 7).
         // This phone's pending workspaces keep theirs.
         let liveTabs = sessions.values.reduce(into: Set<String>()) { tabs, other in tabs.formUnion(other.tree?.surfaces.keys ?? [:].keys) }
         StreamedBrowserDirectory.shared.retain(tabs: liveTabs.union(store.workspaces.flatMap { $0.tabs.map(\.id) }))
+        // New browser tabs of this Mac open on the phone or stream, as the person's rule says.
+        StreamedBrowserDirectory.shared.listed(macID: macID, browserTabs: tree.workspaces.flatMap { workspace in
+            workspace.tabs.filter { $0.kind == .browser }.map { (id: $0.id, url: $0.url) }
+        })
         ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.

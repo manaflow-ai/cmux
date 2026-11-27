@@ -120,6 +120,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         admitted: false,
         after_turn: false,
         steer_on_start: false,
+        answer_due: None,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
@@ -411,6 +412,194 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
     drop(queue);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Mango, 2026-11-25: 66 restored background notices went to the chat's inbox at every daemon
+/// start (their run answered `Ok`), but only a refusal took a restored entry out of the queue, so
+/// each start restored them again and the queue never drained. One taken without its turn now
+/// leaves the queue, logged, and a restart finds it gone; a refusal still says why.
+#[tokio::test]
+async fn wedge_a_restored_prompt_taken_without_its_turn_leaves_the_queue_for_good() {
+    let dir = std::env::temp_dir().join(format!("acpmux-restore-taken-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    insert(&hub, &session, "bg-done-1", None);
+    insert(&hub, &session, "bg-done-2", None);
+    let queued = session.queue().clone();
+    assert_eq!(queued.len(), 2);
+    let receipt = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"inbox": true,
+                         "surgeHeld": true, "queued": false}}});
+    hub.settle_restored_run(&session, &queued[0], Ok(receipt));
+    hub.settle_restored_run(
+        &session,
+        &queued[1],
+        Err(RpcError::invalid_params("its harness is gone")),
+    );
+    assert!(session.queue().is_empty(), "a restored prompt the inbox took stayed queued");
+    let logged = hub.events(&id, 0, 10_000).unwrap();
+    assert!(logged.iter().any(|e| e.kind == "prompt_refused" && e.msg["promptId"] == "bg-done-2"));
+    hub.shutdown_all().await;
+    drop((tx, out, session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    assert!(session.queue().is_empty(), "a restart restored a prompt already taken");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A restored run's completion can arrive after its prompt was requeued under a fresh turn id
+/// (the rate-limit path in `digest.rs`). A stale successful result must leave that replacement
+/// queued, rather than removing it by the shared prompt id.
+#[tokio::test]
+async fn wedge_stale_restored_success_preserves_requeued_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let stale = session.queue()[0].clone();
+    {
+        let mut queue = session.queue.lock().unwrap();
+        queue[0].turn_id = "replacement-turn".into();
+    }
+
+    hub.settle_restored_run(&session, &stale, Ok(json!({"stopReason": "end_turn"})));
+
+    let queue = session.queue();
+    assert_eq!(queue.len(), 1, "the replacement prompt was removed");
+    assert_eq!(queue[0].prompt_id, "same-prompt");
+    assert_eq!(queue[0].turn_id, "replacement-turn");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 1);
+    assert!(
+        !hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "queue_removed" && e.msg["promptId"] == "same-prompt")
+    );
+    hub.shutdown_all().await;
+}
+
+/// A stale restored refusal has the same identity requirement as a successful result: it must
+/// not refuse or remove a replacement carrying the same prompt id under a new turn id.
+#[tokio::test]
+async fn wedge_stale_restored_failure_preserves_requeued_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let stale = session.queue()[0].clone();
+    {
+        let mut queue = session.queue.lock().unwrap();
+        queue[0].turn_id = "replacement-turn".into();
+    }
+
+    hub.settle_restored_run(&session, &stale, Err(RpcError::invalid_params("harness refused")));
+
+    let queue = session.queue();
+    assert_eq!(queue.len(), 1, "the replacement prompt was removed");
+    assert_eq!(queue[0].prompt_id, "same-prompt");
+    assert_eq!(queue[0].turn_id, "replacement-turn");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 1);
+    assert!(
+        !hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "prompt_refused" && e.msg["promptId"] == "same-prompt")
+    );
+    hub.shutdown_all().await;
+}
+
+/// Settlement for the current turn still removes the restored prompt, proving the identity
+/// guard does not turn the normal taken path into a no-op.
+#[tokio::test]
+async fn wedge_matching_restored_success_removes_current_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let current = session.queue()[0].clone();
+
+    hub.settle_restored_run(&session, &current, Ok(json!({"stopReason": "end_turn"})));
+
+    assert!(session.queue().is_empty(), "the current restored prompt stayed queued");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 0);
+    assert!(
+        hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "queue_removed" && e.msg["promptId"] == "same-prompt")
+    );
+    hub.shutdown_all().await;
+}
+
+/// A restored run that was already claimed (`resume = false`) still clears its startup marker
+/// when settlement removes it, so a retry with the same prompt id is not treated as stale.
+#[tokio::test]
+async fn wedge_restored_taken_after_claim_clears_the_restore_marker() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let current = {
+        let mut queue = session.queue.lock().unwrap();
+        queue[0].restored = true;
+        queue[0].resume = false;
+        queue[0].clone()
+    };
+    session.restored.lock().unwrap().push((current.prompt_id.clone(), current.turn_id.clone()));
+
+    hub.settle_restored_run(
+        &session,
+        &current,
+        Ok(json!({"stopReason": "end_turn", "_meta": {"acpmux": {"inbox": true}}})),
+    );
+
+    assert!(session.queue().is_empty(), "the restored prompt stayed queued");
+    assert!(session.restored.lock().unwrap().is_empty(), "stale restore marker remained");
+    hub.shutdown_all().await;
 }
 
 /// A hub whose session store is memory, for tests that queue prompts directly.

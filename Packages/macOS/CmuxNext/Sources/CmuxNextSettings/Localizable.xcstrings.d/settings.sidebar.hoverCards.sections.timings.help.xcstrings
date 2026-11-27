@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.hoverCards.sections.timings.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How long the workspace has worked or waited, and how long its command has run."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークスペースが作業または待機している時間と、コマンドの実行時間。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مدة عمل مساحة العمل أو انتظارها، ومدة تشغيل أمرها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koliko dugo radni prostor radi ili čeka i koliko dugo radi njegova komanda."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor længe arbejdsområdet har arbejdet eller ventet, og hvor længe kommandoen har kørt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie lange der Arbeitsbereich gearbeitet oder gewartet hat und wie lange sein Befehl läuft."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuánto ha trabajado o esperado el espacio y cuánto lleva su comando."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Depuis combien de temps l'espace travaille ou attend, et depuis quand sa commande tourne."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Da quanto l'area lavora o attende e da quanto è in esecuzione il suo comando."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រយៈពេលដែលកន្លែងធ្វើការបានធ្វើការ ឬរង់ចាំ និងរយៈពេលដែលពាក្យបញ្ជាដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간이 작업하거나 기다린 시간과 명령이 실행된 시간."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor lenge arbeidsområdet har jobbet eller ventet, og hvor lenge kommandoen har kjørt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak długo obszar pracował lub czekał i jak długo działa jego polecenie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Há quanto tempo o espaço trabalha ou espera, e há quanto tempo o comando roda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сколько рабочая область работала или ждала и сколько выполняется её команда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ระยะเวลาที่พื้นที่ทำงานทำงานหรือรอ และระยะเวลาที่คำสั่งทำงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanının ne kadar çalıştığı veya beklediği ve komutunun ne kadar sürdüğü."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки робоча область працювала чи чекала і скільки виконується її команда."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian đã làm việc hoặc chờ bao lâu, và lệnh đã chạy bao lâu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区已工作或等待了多久，以及其命令运行了多久。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區已工作或等待多久，以及其命令執行多久。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

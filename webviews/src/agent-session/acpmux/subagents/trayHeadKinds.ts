@@ -77,7 +77,9 @@ export function trayHead(
       const kind = commandKind(item.command.command);
       byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
     } else if (
-      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting) === "waiting"
+        : item.kind === "session" && item.session.state === "waiting"
     )
       waitingOnYou += 1;
     else if (item.kind === "session" && sessionsApart) sessions += 1;
@@ -114,13 +116,16 @@ export function trayHead(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : // A finished command that stays a while (trayLinger.ts).
-            commandStatus(item.command);
+          : // A finished command that stays a while (trayLinger.ts); a silent turn is done.
+            item.kind === "command"
+            ? commandStatus(item.command)
+            : "done";
     if (status === "failed") failed += 1;
     else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
-      if (item.kind === "command" || (item.kind === "session" && sessionsApart)) doneOthers += 1;
+      if (item.kind === "command" || item.kind === "turn" || (item.kind === "session" && sessionsApart))
+        doneOthers += 1;
     }
   }
   // All of what ended were subagents (or count as them): "1 subagent done"; a mix says "2 done".
@@ -213,7 +218,9 @@ export function trayHeadParts(
       if (list) list.push(item);
       else byKind.set(kind, [item]);
     } else if (
-      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting) === "waiting"
+        : item.kind === "session" && item.session.state === "waiting"
     )
       waits.push(item);
     else if (item.kind === "session") sessions.push(item);
@@ -233,7 +240,9 @@ export function trayHeadParts(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : commandStatus(item.command);
+          : item.kind === "command"
+            ? commandStatus(item.command)
+            : "done";
     if (status === "failed") failed.push(item);
     else if (status === "stopped") stopped.push(item);
     else if (status === "done") {
@@ -324,7 +333,7 @@ export function trayHeadGroups(
   const background: TrayItem[] = [];
   const waits: TrayItem[] = [];
   for (const item of items) {
-    if (item.kind === "command") background.push(item);
+    if (item.kind === "command" || item.kind === "turn") background.push(item);
     else if (
       item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
     )
@@ -339,7 +348,9 @@ export function trayHeadGroups(
           ? item.session.state === "failed"
             ? "failed"
             : undefined
-          : commandStatus(item.command)) === "failed",
+          : item.kind === "command"
+            ? commandStatus(item.command)
+            : undefined) === "failed",
   );
   const parts: TrayHeadPart[] = [];
   if (agents.length > 0) {
@@ -406,3 +417,64 @@ export function trayHeadGroups(
 
 /// The background group's mark: a command's, since every item it counts is a backgrounded tool call.
 const BACKGROUND_ICON = "terminal";
+
+/// The `line` header (the default; Leo, 2026-11-25: "like claude code just has this and they tuck it at
+/// the very bottom of the transcript after the latest message"): one muted sentence in plain words,
+/// "10 subagents working, 2 background commands running", as Claude Code's line reads. Each part is
+/// left out at 0; what waits on the person and what failed follow, since they need a look. With
+/// nothing running, what just ended says so ("2 background commands finished"): the hat is where a
+/// background task's completion shows, not the transcript, and it leaves with the lines (trayLinger.ts).
+/// Empty when there is nothing to say. Computed when the tray's lists change, never per tick.
+export function trayHeadLine(
+  t: Translate,
+  {
+    items,
+    finished,
+    waiting,
+  }: {
+    items: readonly TrayItem[];
+    finished: readonly TrayItem[];
+    waiting: ReadonlySet<string>;
+  },
+): string {
+  let agents = 0;
+  let commands = 0;
+  let waits = 0;
+  for (const item of items) {
+    // A silent turn is only ever a finished line (runningTray.ts), and the line names none.
+    if (item.kind === "turn") continue;
+    if (item.kind === "command") commands += 1;
+    else if (
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+    )
+      waits += 1;
+    else agents += 1;
+  }
+  let failed = 0;
+  let agentsDone = 0;
+  let commandsDone = 0;
+  for (const item of finished) {
+    if (item.kind === "turn") continue;
+    const state =
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting)
+        : item.kind === "session"
+          ? item.session.state === "failed"
+            ? "failed"
+            : "done"
+          : commandStatus(item.command);
+    if (state === "failed") failed += 1;
+    else if (item.kind === "command") commandsDone += 1;
+    else agentsDone += 1;
+  }
+  const running = agents + commands + waits > 0;
+  const parts = [
+    agents > 0 && t("tray.line.subagents", { n: agents }),
+    commands > 0 && t("tray.line.commands", { n: commands }),
+    !running && agentsDone > 0 && t("tray.line.subagentsDone", { n: agentsDone }),
+    !running && commandsDone > 0 && t("tray.line.commandsDone", { n: commandsDone }),
+    waits > 0 && t("summary.subagents.waiting", { n: waits }),
+    failed > 0 && t("summary.subagents.failed", { n: failed }),
+  ].filter((part): part is string => Boolean(part));
+  return parts.reduce((line, part) => (line ? t("tray.line.join", { first: line, rest: part }) : part), "");
+}
