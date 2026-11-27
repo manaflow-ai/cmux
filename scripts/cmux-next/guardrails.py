@@ -3151,9 +3151,9 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         branch = None
     out = []
     for area, (cell, doc, files, head) in hits.items():
-        who, how = live.holder(cell, rows, coordinator)
+        who, how = live.holder(cell, rows, coordinator, area)
         if not who:
-            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns=WORKSTREAM`.")
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
             continue
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
