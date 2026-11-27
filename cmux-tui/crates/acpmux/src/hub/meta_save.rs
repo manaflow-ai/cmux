@@ -521,6 +521,7 @@ fn hold_seam(session_id: &str) {
 #[path = "meta_save_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+// Times CPU with getrusage, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "meta_save_bench.rs"]
 mod bench;

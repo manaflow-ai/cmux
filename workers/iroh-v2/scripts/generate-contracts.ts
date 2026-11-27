@@ -55,24 +55,10 @@ for (const [name, schema] of Object.entries(exported.schemas)) {
 }
 const inputData = new InputData();
 inputData.addInput(input);
-const swift = await quicktype({
-  lang: "swift", inputData,
-  rendererOptions: {
-    "access-level": "public", "struct-or-class": "struct", "initializers": "false",
-    "protocol": "equatable", "sendable": "true", "just-types": "false",
-  },
-});
 const typescript = await quicktype({
   lang: "typescript", inputData,
   rendererOptions: { "just-types": "true", "prefer-unions": "true" },
 });
-// quicktype emits public memberwise initializers, but does not default optional
-// arguments. This deterministic source formatting preserves additive callers.
-const swiftText = swift.lines.map(line => line.startsWith("    public init(")
-  ? line.replace(/(\b\w+: [\w\[\]: ]+\?)(?=,|\))/g, "$1 = nil")
-  : line).join("\n") + "\n";
-if (/(?:class|struct|typealias)\s+JSONAny|:\s*\[?JSONAny/.test(swiftText)) throw new Error("Wire contracts must not generate unrestricted JSONAny");
-await emit("../../Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", swiftText);
 const requestNames = Object.entries(requests).filter(([k,v]) => k.endsWith("Schema") && k !== "RequestSchema" && k !== "SocketSetupSchema" && v instanceof z.ZodType).map(([k]) => "V2" + k.slice(0,-6));
 const responseNames = Object.entries(responses).filter(([k,v]) => k.endsWith("ResponseSchema") && k !== "ResponseSchema" && v instanceof z.ZodType).map(([k]) => "V2" + k.slice(0,-6));
 await emit("generated/wire.ts", typescript.lines.join("\n") + `\nexport type V2Request = ${requestNames.join(" | ")};\nexport type V2Response = ${responseNames.join(" | ")};\n`);
@@ -94,4 +80,4 @@ for (const name of await readdir(resolve(packageRoot,"generated"))) {
     await unlink(resolve(packageRoot,"generated",name));
   }
 }
-console.log(`${check ? "Verified" : "Generated"} ${Object.keys(exported.schemas).length} named schemas and exact Swift/TypeScript operation models`);
+console.log(`${check ? "Verified" : "Generated"} ${Object.keys(exported.schemas).length} named schemas and exact TypeScript operation models`);
