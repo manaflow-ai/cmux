@@ -553,9 +553,9 @@ async fn dispatch_brief(
             ))
         })?;
         if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(RpcError::internal(format!(
-                "peer {peer_name:?} is not connected; retry after it reconnects"
-            )));
+            // A link on its way back is waited for; one down for long refuses as
+            // `peer_unreachable` (retryable: nothing was sent).
+            peer.await_reconnect().await?;
         }
         let epoch = if durable {
             Some(peer.lists_on(workflow_dispatch::FEATURE).ok_or_else(|| {
@@ -605,9 +605,7 @@ async fn dispatch_brief(
                 if !durable {
                     hub.briefs.release(&id);
                 }
-                return Err(RpcError::internal(format!(
-                    "dispatch to {peer_name} failed: {e}; recovery: reconnect the peer and retry"
-                )));
+                return Err(forward_failed(format!("dispatch to {peer_name}"), e));
             }
         };
         if let Some(row) = result.get("brief").cloned() {
@@ -1019,6 +1017,7 @@ async fn new_on_peer(
     {
         return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
     }
+    let report_to = super::lane_parent::remote_report_target(hub, conn, params)?;
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
     // A new chat started while the peer's link is coming back (a network that just returned)
     // waits for it, as a prompt does (`wait_for_prompt_link`), instead of being refused in a few
@@ -1058,19 +1057,12 @@ async fn new_on_peer(
     // A full-access starter's chat runs in full access there too, and the person's
     // own start at the person's start level (`hub/full_access_children.rs`).
     let carried = hub.forward_start_policy(person_start(conn, params), conn.caller(), &mut p).await;
-    crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, params));
     // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
     // for the person's own clients here only (`vm_boundary::owner`): a saved
     // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
     // (`hub/agent_vm.rs`).
-    if crate::hub::vm_boundary::owner(
-        conn.auth,
-        super::remote_guard::control_of(conn.origin, conn.auth, params),
-        params,
-    ) && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-    {
-        crate::hub::merge_mux_meta(&mut p, json!({crate::hub::vm_boundary::FIELD: true}));
-    }
+    super::lane_parent::mark_forwarded_boundary(hub, conn, params, &peer, &mut p);
+    crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, params));
     if let Some((name, digest)) = &unattended {
         hub.unattended_preset_holds(name, digest).await?;
     }
@@ -1093,6 +1085,7 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        super::lane_parent::report_remote_created(hub, conn, report_to, &peer.name, id)?;
         // Findable by name at once, before the peer's own list or notice says so.
         let name = result
             .pointer("/_meta/acpmux/name")
@@ -1678,7 +1671,16 @@ async fn dispatch_request_with_identity(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
-        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => {
+            let set = hub.person.macs.set_own(&params);
+            // The app gives its key apart from sign-in, so it can arrive after the enrollment
+            // pass that would have pinned it: while the window is open, collect again.
+            #[cfg(all(feature = "hub-carrier", not(test)))]
+            if set.is_ok() {
+                crate::consent_grant_service::collect_if_open(hub);
+            }
+            set
+        }
         method::MUX_MAC_APPROVER_SET => {
             Err(crate::hub::person::person_required("setting this Mac's approver key"))
         }
@@ -3099,6 +3101,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
+        crate::peer::wg_learn::ADMIT => {
+            super::peer_status::wireguard_admit(hub, conn.origin, &params).await
+        }
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         super::autocloud_enroll::METHOD => {
@@ -5020,6 +5025,17 @@ async fn agent_credentials_update(
     let env = params.get("env").cloned().unwrap_or(Value::Null);
     let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
     hub.update_credential(id, credential).await
+}
+
+/// A request forwarded to a peer failed: what was forwarded and why, keeping the peer's
+/// `data` (a `peer_unreachable` stays retryable, the request was not sent). The link already
+/// waited for a peer on its way back (`Peer::await_reconnect`).
+pub(super) fn forward_failed(what: String, e: RpcError) -> RpcError {
+    let error = RpcError::internal(format!("{what} failed: {e}"));
+    match e.data {
+        Some(data) => error.with_data(data),
+        None => error,
+    }
 }
 
 /// The attach asked for no `timeBreakdown` (`omitTimeBreakdown: true`, the phone): its rows leave
