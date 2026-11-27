@@ -314,6 +314,17 @@ impl Hub {
             .collect()
     }
 
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| t.record.clone())
+            .collect()
+    }
+
     /// One task's list view, when the chat's folder holds it.
     pub(crate) fn bg_task_view(&self, session: &Session, id: &str) -> Option<Value> {
         let dir = self.bg_dir(session);
