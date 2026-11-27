@@ -34,6 +34,14 @@ struct LayoutRequestWireTests {
         expectGate(SetSplitRatioRequest.self, optional: nil)
     }
 
+    @Test func aDividerToggleSendsTheSplitVisibilityAndTransaction() throws {
+        #expect(try line(SetDividerVisibleRequest(split: SplitID(rawValue: 4), visible: false)) ==
+            envelope("set-divider-visible", ["split": .number(4), "visible": .bool(false)]))
+        #expect(try line(SetDividerVisibleRequest(split: SplitID(rawValue: 4), visible: true, transaction: 9)) ==
+            envelope("set-divider-visible", ["split": .number(4), "visible": .bool(true), "transaction": .number(9)]))
+        expectGate(SetDividerVisibleRequest.self, optional: "split-divider-visibility-v1")
+    }
+
     @Test func aColumnWidthDragSendsThePaneWidthAndTransaction() throws {
         #expect(try line(SetColumnWidthRequest(pane: PaneID(rawValue: 3), width: 0.75, transaction: 2)) ==
             envelope("set-viewport-pane-width", ["pane": .number(3), "width": .number(0.75), "transaction": .number(2)]))
