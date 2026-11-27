@@ -1671,7 +1671,16 @@ async fn dispatch_request_with_identity(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
-        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => {
+            let set = hub.person.macs.set_own(&params);
+            // The app gives its key apart from sign-in, so it can arrive after the enrollment
+            // pass that would have pinned it: while the window is open, collect again.
+            #[cfg(all(feature = "hub-carrier", not(test)))]
+            if set.is_ok() {
+                crate::consent_grant_service::collect_if_open(hub);
+            }
+            set
+        }
         method::MUX_MAC_APPROVER_SET => {
             Err(crate::hub::person::person_required("setting this Mac's approver key"))
         }
