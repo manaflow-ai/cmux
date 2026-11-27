@@ -195,7 +195,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(decision.base, A)
 
     def test_a_yolo_upload_counts_for_the_upload_gap(self):
-        decision = self.plan(runs=[dict(run(B, minutes_ago=20, run_id=3), yolo=True),
+        decision = self.plan(runs=[dict(run(B, minutes_ago=10, run_id=3), yolo=True),
                                    run(A, minutes_ago=8 * 60, run_id=2)])
         self.assertFalse(decision.build)
         self.assertIn("run 3", decision.reason)
@@ -236,12 +236,12 @@ class PlanTests(unittest.TestCase):
 
     def test_one_upload_per_gap(self):
         """2026-11-22: eight cmux INTERNAL uploads in five hours, one App Store Connect email each."""
-        recent = self.plan(runs=[run(A, minutes_ago=20, run_id=2)])
+        recent = self.plan(runs=[run(A, minutes_ago=10, run_id=2)])
         self.assertFalse(recent.build)
         self.assertIn("next upload waits until", recent.reason)
         in_flight = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
         self.assertFalse(in_flight.build)
-        self.assertTrue(self.plan(runs=[run(A, minutes_ago=30, run_id=2)]).build)
+        self.assertTrue(self.plan(runs=[run(A, minutes_ago=15, run_id=2)]).build)
         # A person's dispatch skips the gap.
         self.assertTrue(self.plan(runs=[run(A, minutes_ago=60, run_id=2)], force=True).build)
         # A failure does not start the gap.
@@ -255,6 +255,8 @@ class PlanTests(unittest.TestCase):
         decision = self.plan(runs=[running, run(A, minutes_ago=4 * 60, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
         self.assertLess(ib.MIN_UPLOAD_GAP, dt.timedelta(hours=1))
+        # Under one build (17 to 22 min), so the gap never delays a head past the running build's end.
+        self.assertLessEqual(ib.MIN_UPLOAD_GAP, dt.timedelta(minutes=17))
 
     def test_base_is_the_newest_success(self):
         decision = self.plan(runs=[run(B, conclusion="failure", run_id=3), run(A, minutes_ago=120, run_id=2)])

@@ -49,6 +49,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod phone;
 mod published;
 mod record;
 mod renderers;
@@ -60,9 +61,11 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_cas;
 mod web_pieces;
 pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_cas::USAGE as WEB_CAS_USAGE;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
@@ -194,6 +197,12 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `browser tab_…@phone <verb>`: a page verb on the tab the iPhone shows
+    /// in its own web view, through this Mac's link host (app/phone.rs).
+    Phone {
+        device: Option<String>,
+        then: Box<AppCommand>,
+    },
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
@@ -237,6 +246,8 @@ pub(super) enum AppCommand {
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
+    /// `cmux app web-cas fetch`: a web update by cas/1 Range GETs (app/web_cas.rs).
+    WebCas(web_cas::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -255,6 +266,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             timeout: Some(READ_TIMEOUT),
             pick: None,
         }));
+    }
+    if scope == "browser"
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
+    {
+        return command.map(Some);
     }
     if scope == "browser"
         && let Some(target) = args.get(1)
@@ -356,6 +373,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
         ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
+        ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -967,6 +985,10 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), then));
+        }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1120,6 +1142,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), &then));
+        }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

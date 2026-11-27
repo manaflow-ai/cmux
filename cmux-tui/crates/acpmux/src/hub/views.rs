@@ -389,6 +389,7 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+    super::session_state::set(summary, crate::store::now_ms());
 }
 
 /// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
@@ -1095,7 +1096,7 @@ impl Hub {
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
+        let (overdue, due_at) = super::inbox::deadline_row(session, &m);
         extras.push(("inboxOverdue", json!(overdue)));
         extras.push(("inboxDueAt", json!(due_at)));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
@@ -1294,6 +1295,11 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": build(),
+            // The wire ABI range this build serves (`protocol/range.rs`), and what the last
+            // update of this host's binary did (`update_inventory.rs`): the version inventory
+            // NOW reads per host through the census (`acpmux_lag`).
+            "abiRange": crate::protocol::range::AbiRange::ours().json(),
+            "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the

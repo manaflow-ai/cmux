@@ -34,7 +34,9 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
     }
 
     /// The key an inbox's reply is kept under.
-    public static func key(_ inbox: HomeInboxSource) -> String { inbox.owners.joined(separator: ",") }
+    public static func key(_ inbox: HomeInboxSource) -> String {
+        dockRule("dock.launch_cache_inbox_key", ["owners": inbox.owners], fallback: inbox.owners.joined(separator: ","))
+    }
 
     /// Gives each inbox that has not answered yet its last reply, so the list's first frame is the
     /// list as it was. An owner's answer then replaces it in place.
@@ -79,8 +81,8 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     ///   - caches: The folder that holds the Home caches (the user's Caches folder in the app).
     /// - Returns: The cache at that path.
     public static func standard(owner: String, caches: URL) -> HomeSidebarLaunchCache {
-        let component = String(owner.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
-        return HomeSidebarLaunchCache(url: caches.appendingPathComponent("cmux-home/\(component)/sidebar.json"))
+        let path: String = dockRule("dock.launch_cache_path", ["owner": owner], fallback: "cmux-home/-/sidebar.json")
+        return HomeSidebarLaunchCache(url: caches.appendingPathComponent(path))
     }
 
     /// A stable fingerprint of a value's stored shape: each stored property's name and full type
@@ -89,29 +91,30 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// type does not (a new required one already fails the decode).
     ///
     /// - Parameter sample: Any value of the type (its property values are not read, only their types).
-    /// - Returns: 16 lowercase hex digits.
+    /// - Returns: 16 lowercase hex digits (`dock.launch_cache_fingerprint`; the shape string stays
+    ///   here, since only Swift reflection can read it).
     public static func fingerprint(of sample: Any) -> String {
         var shape = String(reflecting: type(of: sample))
         for child in Mirror(reflecting: sample).children {
             shape += "|\(child.label ?? "_"):\(String(reflecting: type(of: child.value)))"
         }
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in shape.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x0000_0100_0000_01b3
-        }
-        let hex = String(hash, radix: 16)
-        return String(repeating: "0", count: 16 - hex.count) + hex
+        return dockRule("dock.launch_cache_fingerprint", ["shape": shape], fallback: "")
     }
 
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another schema's.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
         guard let data = try? Data(contentsOf: url),
               let file = try? JSONDecoder().decode(File.self, from: data),
-              file.schema == HomeSidebarLaunchSnapshot.schema, file.snapshot.account == account else { return nil }
+              Self.accepts(file, account: account) else { return nil }
         let snapshot = file.snapshot
         state.withLock { $0.written = snapshot }
         return snapshot
+    }
+
+    /// Whether a read file is used: its schema and account are this build's and `account`.
+    private static func accepts(_ file: File, account: String) -> Bool {
+        let request = ["schema": HomeSidebarLaunchSnapshot.schema, "fileSchema": file.schema, "account": account, "fileAccount": file.snapshot.account]
+        return dockRule("dock.launch_cache_load_accepts", request, fallback: false)
     }
 
     /// Keeps `snapshot`, written by one background write (the last one wins); an unchanged one is not written.

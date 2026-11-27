@@ -50,6 +50,11 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// Why the overlay is not served, nil when it is: its manifest's `abi` (the native interface its
     /// bundles need) is not this app's. The overlay stays watched, so an install that fits is served.
     public var refusal: String?
+    /// The change came on its own (`"trigger": "background"`: a layer rebuilt after an app update, a
+    /// waiter's swap, an expiry), not from the person asking for it (`"asked"`, the default when the
+    /// file names none: `customize use|try|library on|off`, a `cmux live` edit). A page in sight
+    /// takes a background change only once it is out of sight (``WebDevOverrideWatcher``).
+    public var background = false
 
     public init(server: PageDevServer? = nil, overlay: URL? = nil, stamp: Data? = nil, gallery: URL? = nil,
                 refusal: String? = nil) {
@@ -259,6 +264,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
             value.overlay = url
         }
         if let gallery = object["gallery"] as? String { value.gallery = PageDevServer.loopbackURL(gallery) }
+        value.background = (object["trigger"] as? String) == "background"
         return value
     }
 
