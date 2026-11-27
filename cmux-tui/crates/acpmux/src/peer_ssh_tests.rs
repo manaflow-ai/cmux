@@ -90,10 +90,9 @@ fn a_refused_forward_is_told_apart_from_a_refused_ssh() {
 /// A host key ssh refused is a refused login for the route kind, and its own backoff class.
 #[test]
 fn a_refused_host_key_is_its_own_class() {
-    for stderr in [
-        &b"Host key verification failed."[..],
-        b"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!",
-    ] {
+    for stderr in
+        [&b"Host key verification failed."[..], b"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!"]
+    {
         assert!(host_key_refused(reason(stderr)), "{}", String::from_utf8_lossy(stderr));
     }
     for stderr in [
