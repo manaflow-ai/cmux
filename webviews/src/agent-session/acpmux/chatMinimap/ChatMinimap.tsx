@@ -30,6 +30,7 @@ import {
 } from "./paint";
 import "./chatMinimap.css";
 import { REDRAW_MS, placeholderLook } from "./chatMinimapModel";
+import { writeScrollTop } from "../conversation/scrollController";
 /// A scroll rests this long before rows measured while it moved draw (at most SCROLL_MAX_WAIT_MS late).
 const SCROLL_REST_MS = 150;
 const SCROLL_MAX_WAIT_MS = 1000;
@@ -366,7 +367,7 @@ const Minimap = memo(function Minimap({
     const scale = drawn.current.scale;
     if (!node || scale <= 0) return;
     stopScroll(node);
-    node.scrollTop = physicalScrollTop(node, Math.max(0, y / scale - grab));
+    writeScrollTop(node, physicalScrollTop(node, Math.max(0, y / scale - grab)), "minimap");
   };
   const press = useRef<{ pointer: number; grab: number } | undefined>(undefined);
   const release = () => {
@@ -439,7 +440,7 @@ const Minimap = memo(function Minimap({
           stopScroll(node);
           // Absolute navigation owns a new end point; relative keys keep the row-coordinate origin.
           if (event.key === "Home" || event.key === "End") clearScrollOrigin(node);
-          node.scrollTop = Math.max(0, node.scrollTop + delta);
+          writeScrollTop(node, Math.max(0, node.scrollTop + delta), "keys");
         }}
       >
         <canvas ref={canvas} className="acpmux-chat-minimap__canvas" style={{ width, height: track }} aria-hidden />

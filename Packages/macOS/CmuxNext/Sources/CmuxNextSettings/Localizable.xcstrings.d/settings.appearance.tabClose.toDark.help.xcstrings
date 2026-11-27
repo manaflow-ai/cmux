@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.tabClose.toDark.help" : {
+      "comment" : "Settings row help for the dark close button hover color.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اللون الذي يتحول إليه زر إغلاق علامة التبويب تحت المؤشر في المظهر الداكن. إذا لم يُحدَّد، يُستخدم التمرير القياسي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boja u koju dugme za zatvaranje kartice prelazi pod pokazivačem u tamnom izgledu. Ako nije postavljeno, standardni prelazak."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den farve, en fanes lukkeknap skifter til, når musen er over den i det mørke udseende. Hvis den ikke er angivet, bruges standard-hover."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Farbe, die die Schließtaste eines Tabs unter dem Zeiger im dunklen Erscheinungsbild annimmt. Nicht gesetzt: die Standard-Hervorhebung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El color que toma el botón de cerrar de una pestaña bajo el puntero en la apariencia oscura. Sin definir, el resaltado estándar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La couleur que prend le bouton de fermeture d'un onglet sous le pointeur en apparence sombre. Non définie : le survol standard."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il colore che il pulsante di chiusura di una scheda assume al passaggio del puntatore nell'aspetto scuro. Se non impostato, il passaggio standard."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク表示で、ポインタを重ねたときのタブの閉じるボタンの色です。未設定なら標準のホバーです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពណ៌ដែលប៊ូតុងបិទរបស់ផ្ទាំងប្ដូរទៅ ពេលដាក់ទស្សន៍ទ្រនិចលើក្នុងរូបរាងងងឹត។ ពេលមិនបានកំណត់ ប្រើពណ៌ស្តង់ដារ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다크 모드에서 포인터를 올렸을 때 탭 닫기 버튼이 바뀌는 색상입니다. 설정하지 않으면 기본 호버를 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fargen en fanes lukkeknapp skifter til når pekeren er over den i det mørke utseendet. Hvis den ikke er angitt, brukes standard hover."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolor, jaki przycisk zamykania karty przyjmuje po najechaniu wskaźnikiem w ciemnym wyglądzie. Gdy nie ustawiono, standardowe podświetlenie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cor que o botão de fechar de uma aba assume sob o ponteiro na aparência escura. Se não definido, o destaque padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет, в который кнопка закрытия вкладки меняется при наведении указателя в тёмном оформлении. Если не задано, стандартный цвет наведения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สีที่ปุ่มปิดของแท็บเปลี่ยนไปเมื่อชี้เมาส์ในลักษณะที่ปรากฏแบบมืด หากไม่ได้ตั้งค่า จะใช้สีมาตรฐาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koyu görünümde işaretçi üzerine geldiğinde bir sekmenin kapatma düğmesinin dönüştüğü renk. Ayarlanmazsa standart vurgu kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Колір, у який кнопка закриття вкладки змінюється при наведенні вказівника в темному вигляді. Якщо не задано, стандартний колір наведення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Màu mà nút đóng của tab chuyển sang khi rê chuột qua trong giao diện tối. Khi chưa đặt, dùng màu rê chuột tiêu chuẩn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外观中，指针移到标签页关闭按钮上时的颜色。未设置时使用标准悬停效果。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外觀中，指標移到分頁關閉按鈕上時的顏色。未設定時使用標準懸停效果。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

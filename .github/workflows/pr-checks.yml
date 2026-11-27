@@ -7,8 +7,8 @@ name: PR checks
 # request: a failed or timed-out step is a warning annotation, and the job's name ends "(advisory)", which
 # landing tools read as never a pull request's own red. On a push it also runs the description lints (capture,
 # design spec, Performance table, cloud backend), which were pr-body-checks.yml's own job on every push (973 jobs
-# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a description edit or a media-tour or
-# perf label, which this workflow does not take. A docs-only push (the `paths:` below) gets no lints: none of them
+# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a media-tour or
+# perf label, which this workflow does not take (a description edit re-lints at the next push). A docs-only push (the `paths:` below) gets no lints: none of them
 # judges a docs-only change.
 #
 # CI v2 step 6, "advisory steps leave the PR's machines" (cmuxterm-hq docs/design/ci-v2.md). They were six
@@ -73,6 +73,11 @@ on:
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"
@@ -122,7 +127,7 @@ jobs:
     # Blacksmith, any other run the CI_TRUSTED_RUNNER selector (as the old ui-review and swift-logic jobs), never
     # RUNNER_POOLS (its x64 pools lead with persistent machines). Not cmux-gcp-pr-control-jit-x64: on 2026-11-21 that
     # label queued 1,860 jobs and this job waited on it 10+ min (cmux-next.yml's control jobs left it the same day).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 15
     permissions:
       contents: read
@@ -278,7 +283,7 @@ jobs:
         id: checkout
         if: steps.pick.outputs.steps != ''
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -302,6 +307,7 @@ jobs:
             scripts/ci/pr_perf_section_check.py
             scripts/ci/pr_cloud_backend_check.py
             .github/cloud-backend-paths.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The paths the description lints read, from the event's merge commit and its first parent (the base),

@@ -40,7 +40,7 @@
 //! held.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -627,6 +627,22 @@ impl Pacer {
         self.queued < MAX_QUEUED
     }
 
+    /// Fresh bytes of the connection from `local` to `remote` that the stack
+    /// emitted and that still wait here, held by the pace or the delay
+    /// window. To smoltcp they are sent; to a frame written after them they
+    /// are a queue like its socket's unsent bytes ([`crate::send_gate`]).
+    pub(crate) fn held(&self, local: SocketAddr, remote: SocketAddr) -> usize {
+        let flow = (local.ip(), local.port(), remote.ip(), remote.port());
+        self.connections
+            .get(&flow)
+            .and_then(|connection| {
+                let emitted = connection.snd_emitted?;
+                let left = connection.snd_max?;
+                after(emitted, left).then(|| emitted.wrapping_sub(left) as usize)
+            })
+            .unwrap_or(0)
+    }
+
     /// The peer was silent and is heard again (a parked phone woke, a
     /// blackout ended): a segment timed before or during the silence would
     /// time the silence as a round trip. One such sample after a 60 s sleep
@@ -734,19 +750,25 @@ impl Pacer {
         {
             self.resent += 1;
             connection.delay.resent();
-            // Ahead of the fresh data queued here (TCP takes it in any
-            // order): the delay window may hold that data until an ACK this
-            // segment is what brings.
-            if let Some(max) = connection.snd_max
-                && let Some(at) = connection.queue.iter().position(|waiting| {
-                    self::segment(waiting).is_some_and(|queued| {
-                        queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
-                    })
+        }
+        // Everything but fresh data goes ahead of the fresh data queued here
+        // (TCP takes it in any order): the delay window holds that data until
+        // an ACK arrives, and the peer's window waits on the ACKs, resends
+        // and challenge ACKs this side sends. Queued behind held data, both
+        // ends held each other's ACKs after a roam, and only one segment per
+        // backed-off RTO got through (an airplane-mode resume stalled 10 s
+        // instead of 5). A reset stays in order: it ends the data before it.
+        if !fresh
+            && !segment.reset
+            && let Some(max) = connection.snd_max
+            && let Some(at) = connection.queue.iter().position(|waiting| {
+                self::segment(waiting).is_some_and(|queued| {
+                    queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
                 })
-            {
-                connection.queue.insert(at, packet);
-                return fresh;
-            }
+            })
+        {
+            connection.queue.insert(at, packet);
+            return fresh;
         }
         // A pure ACK (or window update, or keepalive probe) does not wait
         // behind fresh data the delay window may hold for an ACK from the

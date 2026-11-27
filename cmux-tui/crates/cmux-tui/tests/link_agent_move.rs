@@ -135,12 +135,43 @@ struct Source {
     restarted: bool,
     /// The next read is lost as the daemon restarts (and `restarted` is set).
     restart_at_read: bool,
+    /// The daemon is killed as it takes this command (the request is lost, `restarted` is set):
+    /// for the next [`OUTAGE`] requests after it, it is not back yet.
+    restart_at: Option<&'static str>,
+    /// The daemon is killed right after a begin whose answer is lost.
+    restart_after_lost_begin: bool,
+    /// After a restart the tab is back in this slot (else in none that `--surface` names).
+    slot: Option<u64>,
+    /// Requests left that find the daemon still restarting: lost, or (for a tab named by its
+    /// public id) "not an agent tab" while its restore has not run.
+    outage: u32,
 }
+
+/// How many requests find a killed source still restarting.
+const OUTAGE: u32 = 3;
 
 impl Source {
     fn handle(&mut self, request: &Value) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
-        if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
+        if self.restart_at == Some(cmd) {
+            self.restart_at = None;
+            self.restarted = true;
+            self.outage = OUTAGE;
+            return Reply::Drop;
+        }
+        if self.outage > 0 {
+            self.outage -= 1;
+            return if request.get("tab").is_some() && self.outage % 2 == 1 {
+                Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into())
+            } else {
+                Reply::Drop
+            };
+        }
+        let slot = if self.restarted { self.slot } else { Some(SURFACE) };
+        if request
+            .get("surface")
+            .is_some_and(|surface| Some(surface) != slot.map(|slot| json!(slot)).as_ref())
+        {
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         if let Some(tab) = request.get("tab") {
@@ -150,7 +181,7 @@ impl Source {
             if tab != &json!(TAB) {
                 return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
             }
-        } else if self.restarted && request.get("surface").is_some() {
+        } else if self.restarted && self.slot.is_none() && request.get("surface").is_some() {
             // The tab is restored in another slot.
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
@@ -231,6 +262,10 @@ impl Source {
                     None
                 };
                 if std::mem::take(&mut self.lose_begin_answer) {
+                    if self.restart_after_lost_begin {
+                        self.restarted = true;
+                        self.outage = OUTAGE;
+                    }
                     return Reply::Drop;
                 }
                 let files: Vec<Value> = self
@@ -606,6 +641,8 @@ struct World {
     target: Arc<Mutex<Target>>,
     target_down: Arc<AtomicBool>,
     log: Log,
+    /// The `--surface` a run names.
+    surface: std::sync::atomic::AtomicU64,
 }
 
 /// A chat bundle with a file larger than one page and an empty one.
@@ -649,6 +686,7 @@ impl World {
             target,
             target_down,
             log,
+            surface: SURFACE.into(),
             _dir: dir,
         }
     }
@@ -668,7 +706,7 @@ impl World {
         let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
-            .args(["--surface", &SURFACE.to_string(), "--to-socket"])
+            .args(["--surface", &self.surface.load(Ordering::SeqCst).to_string(), "--to-socket"])
             .arg(&self.to)
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
@@ -862,6 +900,166 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn a_rerun_by_the_tabs_new_slot_after_a_source_restart_closes_the_landed_chat() {
+        // kill-mid-move drill off-src, run 45907132927 (local-cloud after-finish, cloud-local
+        // before-finish): the chat landed, the source was powered off before its commit, and its
+        // restart restored the tab in a new surface slot (52 -> 67). The rerun by that slot found
+        // no record under the old one and began a second move: the chat stayed open in two
+        // places and its queued prompt ran on both.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+        assert_eq!(source.begun, 1, "no second move of the landed chat");
+        assert!(source.aborted.is_empty());
+        assert_eq!(world.target.lock().unwrap().landed.len(), 1, "landed once");
+    }
+
+    #[test]
+    fn a_rerun_by_a_third_slot_after_a_rerun_by_the_old_one_finds_one_record() {
+        // The alias the tab-filed record leaves for its first slot is followed and kept whole:
+        // a rerun by the old slot (no tab answered) saves through it, and a later rerun by the
+        // tab's next slot reads that same record, not an older copy.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let files = |world: &World| {
+            let mut names: Vec<String> = std::fs::read_dir(&world.state)
+                .map(|dir| {
+                    dir.filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .filter(|name| name.ends_with(".json"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let before = files(&world);
+        assert_eq!(before.len(), 2, "the tab's record and its slot alias: {before:?}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+        assert!(
+            std::fs::read_dir(&world.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| std::fs::read(entry.path()).is_err()
+                    || !entry.file_name().to_string_lossy().ends_with(".json")),
+            "the ended move leaves no record: {:?}",
+            files(&world)
+        );
+    }
+
+    #[test]
+    fn a_source_still_restarting_when_the_chat_is_given_back_is_waited_for() {
+        // kill-mid-move drill kill-src (run 45435064422): the source was killed mid-copy, the
+        // give back found its daemon still down (connection refused), and the chat stayed frozen.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-read");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_source_killed_as_the_chat_lands_is_waited_for_to_close_it() {
+        // Drill kill-src before-finish/after-finish: the chat landed on the target, the commit
+        // found the source killed, and the chat stayed open in two places.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-commit");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+    }
+
+    #[test]
+    fn a_rerun_waits_for_the_source_that_restarts_and_closes_the_landed_chat() {
+        // The immediate rerun of the drill found the source still restarting and said "cannot
+        // confirm the tab still shows the chat this move took; nothing was ended".
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.outage = OUTAGE;
+        }
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+    }
+
+    #[test]
+    fn a_rerun_after_a_source_killed_at_its_begin_names_the_tab_and_moves_the_chat() {
+        // Drill kill-src before-begin: the begin's answer was lost with the source daemon. The
+        // rerun asked by the old surface slot ("not an agent tab") and never learned the move.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+            source.restart_after_lost_begin = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the unanswered begin's freeze is ended");
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
     }
 
     #[test]

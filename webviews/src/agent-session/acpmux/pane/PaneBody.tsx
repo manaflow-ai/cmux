@@ -17,6 +17,7 @@ import type { useSessionInfo } from "../session-info/useSessionInfo";
 import type { SaveDocument } from "../conversation/ArtifactPanel";
 import { BrowserSidebar } from "../browser/BrowserSidebar";
 import { Activity } from "react";
+import { ChatViewParked } from "../pickerOpeners";
 import { LivePresenceStack, LiveTypingLine } from "../multiplayer/LivePresence";
 import { ShareDialogHost } from "../share/ShareControl";
 import { holdComposerPlace } from "../composer/composerHandover";
@@ -28,6 +29,7 @@ import type { NewTabStartFailure } from "../newtab/StartFailure";
 import type { NewTabScreenActions } from "../newtab/NewTabScreen";
 import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../lazyScreens";
+import { openCloudEnvironment } from "../cloudEnvironment";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
@@ -36,6 +38,7 @@ import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { cloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
+import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
@@ -71,7 +74,7 @@ import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { ImageViewer } from "../conversation/ImageViewer";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderStatus";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
-import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
+import { HEADER_ACTIONS, type ChatMenuItem, filesFolder } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
@@ -85,7 +88,7 @@ import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import { NewProjectUnsupported } from "../newtab/NewProjectName";
-import { newWorktree, cloneRepository, newTabCommandsChat } from "../startFolderModel";
+import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
@@ -103,8 +106,10 @@ import type { EvacuateState } from "../place/placeModel";
 import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
+import { SpareRehearsal } from "../spareRehearsal";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
+import { chatMenuHasRows } from "./chatMenu";
 import { NewTabComposerChips } from "./ComposerChips";
 import type { AcpmuxSnapshot, paneHeader } from "../model";
 import type { AcpmuxDirectClient } from "../direct";
@@ -198,6 +203,7 @@ export type PaneBodyDeps = NewTabShown &
     summaryCard: ReturnType<typeof useSummaryCard>;
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
+    composerPlaceArm: ComposerPlace;
     trayHandle: TrayHandleSide;
     /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
     hatPill: HatPillPlace | undefined;
@@ -282,6 +288,7 @@ export type PaneBodyDeps = NewTabShown &
     commandSession: string | undefined;
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
+    readSessionCommands: (sessionId: string) => Promise<SlashCommand[]>;
     extensionCommands: readonly SlashCommand[];
     /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
     toolCommands: readonly SlashCommand[];
@@ -340,10 +347,9 @@ export type PaneBodyDeps = NewTabShown &
     showsChatView: boolean;
     premountsChatView: boolean;
     chatViewMount: React.RefObject<{ shown: boolean; key: number }>;
-    parkVisible: boolean;
     soloUnder: boolean;
     parkStyle: React.CSSProperties | undefined;
-    parkedVisible: boolean;
+    parked: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
     /// What the header says: the chat's title, or a subagent's own pane's
@@ -516,6 +522,7 @@ export function drawPaneBody({
   summaryCard,
   previewBeside,
   jumpPlaceArm,
+  composerPlaceArm,
   trayHandle,
   hatPill,
   chatMinimapBeside,
@@ -583,6 +590,7 @@ export function drawPaneBody({
   commandSession,
   newTabSnapshot,
   pendingCommands,
+  readSessionCommands,
   extensionCommands,
   toolCommands,
   holdsForComputerUseSetup,
@@ -627,10 +635,9 @@ export function drawPaneBody({
   showsChatView,
   premountsChatView,
   chatViewMount,
-  parkVisible,
   soloUnder,
   parkStyle,
-  parkedVisible,
+  parked,
   chatName,
   renameFromTitle,
   titleTrail,
@@ -742,6 +749,26 @@ export function drawPaneBody({
   closeWorkflowSideTab,
   showWorkflowAgent,
 }: PaneBodyDeps) {
+  // Over cmux's composer, never in its place (Leo 2026-11-16), on every New Tab look, Classic too
+  // (Leo, 2026-11-16: "the time on new tab at least it doesn't work for me right now"): the clock
+  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot (`tabs.newTabApp`,
+  // newtab/NewTabAppSlot.tsx). Whatever the extension does, the composer, its focus and its
+  // input-ready report stay the page's own. `newTab.app`, not `newTabApp`: the room stays after the
+  // slot gives up, so the composer never jumps.
+  const newTabAbove =
+    showNewTab && (newTab.app || newTab.clock) ? (
+      <>
+        {newTab.clock && <NewTabClock {...newTab.clock} />}
+        {newTabApp && (
+          <NewTabAppSlot
+            key={`${newTabGeneration}:${newTabApp}`}
+            app={newTabApp}
+            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+          />
+        )}
+      </>
+    ) : undefined;
   return !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
@@ -826,8 +853,15 @@ export function drawPaneBody({
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
-          // (composerLocation.css), so it does not move as the stage over it switches.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
+          // (composerLocation.css), so it does not move as the stage over it switches. The
+          // composer-place experiment's `outside` arm keeps it in flow there too.
+          data-dock={
+            !reviewing && !freshView && !inspectorOpen && composerPlaceArm === "over"
+              ? "float"
+              : !freshView
+                ? "flow"
+                : undefined
+          }
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
@@ -876,28 +910,7 @@ export function drawPaneBody({
                       !late,
                     )
                   }
-                  // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
-                  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
-                  // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
-                  // composer, its focus and its input-ready report stay the page's own.
-                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
-                  {...(newTab.app || newTab.clock
-                    ? {
-                        above: (
-                          <>
-                            {newTab.clock && <NewTabClock {...newTab.clock} />}
-                            {newTabApp && (
-                              <NewTabAppSlot
-                                key={`${newTabGeneration}:${newTabApp}`}
-                                app={newTabApp}
-                                {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-                                onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-                              />
-                            )}
-                          </>
-                        ),
-                      }
-                    : {})}
+                  {...(newTabAbove ? { above: newTabAbove } : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -908,7 +921,15 @@ export function drawPaneBody({
                   importSandboxed={sandbox.mode === "sandboxed"}
                   // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
                   {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
-                  onCommands={(harness, cwd) => void newTabCommandsChat(callNative, harness, cwd)}
+                  // The deferred chat that lists the commands starts only in a folder the pane already
+                  // has: a `/` grants nothing (a grant would also trust the folder). Until it answers,
+                  // the New Tab lists the newest chat's list there (folderCommands.ts).
+                  onCommands={(harness, cwd) => {
+                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
+                      () => undefined,
+                    );
+                  }}
+                  readChatCommands={readSessionCommands}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
@@ -967,6 +988,9 @@ export function drawPaneBody({
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
+                                  onOpenEnvironment={({ environmentId, repository, section }) =>
+                                    openCloudEnvironment({ environmentId, repo: repository, section })
+                                  }
                                   {...cloudTooBigActions}
                                   onSetUp={setUpCloud}
                                   onSetUpDismiss={dismissCloudSetUp}
@@ -1255,6 +1279,7 @@ export function drawPaneBody({
               takeDraft={takeNewTabDraft}
               {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
               onFieldEdit={newTabFieldEdited}
+              {...(newTabAbove ? { above: newTabAbove } : {})}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen
@@ -1296,10 +1321,7 @@ export function drawPaneBody({
           {(showsChatView || premountsChatView) && (
             // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
             // and a shared key let React lose the page's fiber and mount the page again beside it.
-            <Activity
-              key={`chat-view-${chatViewMount.current.key}`}
-              mode={showsChatView || parkVisible ? "visible" : "hidden"}
-            >
+            <ChatViewParked.Provider key={`chat-view-${chatViewMount.current.key}`} value={parked}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
@@ -1307,7 +1329,7 @@ export function drawPaneBody({
                 // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
                 data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
-                inert={parkedVisible || undefined}
+                inert={parked || undefined}
               >
                 {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
                       (ui/titleTooltips.ts `data-tooltip-covered`). */}
@@ -1384,6 +1406,7 @@ export function drawPaneBody({
                       }}
                       nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
                       tabTools={!quick}
+                      menuHasRows={chatMenuHasRows(quick, snapshot.sessionId)}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
@@ -1437,7 +1460,12 @@ export function drawPaneBody({
                       // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
                       hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
                       onChanges={toggleChanges}
-                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
+                      // Files shows the chat's folder on its own machine, a Cloud chat's too (cmux#55413).
+                      onFiles={
+                        filesFolder(snapshot.summary)
+                          ? (mode) => runSplitAction(HEADER_ACTIONS.files, filesFolder(snapshot.summary), mode)
+                          : undefined
+                      }
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
@@ -1626,6 +1654,9 @@ export function drawPaneBody({
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
+                    onOpenEnvironment={({ environmentId, repository, section }) =>
+                      openCloudEnvironment({ environmentId, repo: repository, section })
+                    }
                     {...cloudTooBigActions}
                     onSetUp={setUpCloud}
                     onSetUpDismiss={dismissCloudSetUp}
@@ -1678,7 +1709,7 @@ export function drawPaneBody({
                 ref={setDock}
                 className="acpmux-dock"
                 style={parkStyle}
-                inert={parkedVisible || undefined}
+                inert={parked || undefined}
                 // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
                 // bottomStack.css gives the transcript up first for it, from this, not from a
                 // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
@@ -1696,8 +1727,10 @@ export function drawPaneBody({
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {dockFoot && composer}
               </div>
-            </Activity>
+            </ChatViewParked.Provider>
           )}
+          {/* The spare's warm-up: the hidden chat view above has no rows to run the row code on (spareRehearsal.tsx). */}
+          {premountsChatView && !showsChatView && <SpareRehearsal />}
         </div>
         {!harnessesOpen &&
           !showNewTab &&

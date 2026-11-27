@@ -4,6 +4,13 @@ public import Foundation
 /// visit log, plans/cmux-next/history.md). Incognito histories never get one.
 public protocol BrowserHistoryPersistence: AnyObject {
     func didRecordVisit(url: URL, title: String?, at date: Date)
+    func didRecordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?)
     func didUpdateTitle(_ title: String, for url: URL)
     func didRemoveEntry(for url: URL)
+}
+
+public extension BrowserHistoryPersistence {
+    func didRecordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?) {
+        didRecordVisit(url: url, title: title, at: date)
+    }
 }
