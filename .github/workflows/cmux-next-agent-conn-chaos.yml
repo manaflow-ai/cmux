@@ -95,7 +95,9 @@ jobs:
             echo "touches no agent connection path ($(wc -l < "$RUNNER_TEMP/files.txt") files): the chaos suite is skipped"
           fi
 
-  chaos:
+  # The job id ends in -fleet: the gateway runner's job-started hook admits only thin cmux-ci clients, and a
+  # home-repository job id ending in -fleet is the contract it knows them by. The bare id `chaos` was refused there.
+  chaos-fleet:
     name: agent connection chaos
     needs: route
     if: >-
