@@ -155,7 +155,10 @@ else
   echo "note: HEAD is detached at $(git rev-parse --short HEAD); verifying as $remote/$remote_branch, which points at it"
 fi
 remote_ref="$remote/$remote_branch"
-remote_url="$(git remote get-url "$remote")"
+# Fleet lanes rewrite fetch URLs through the local Git broker. The push URL
+# remains the canonical GitHub target that this script dispatches through gh;
+# validate that identity without rejecting the supported broker transport.
+remote_url="$(git remote get-url --push "$remote")"
 remote_matches_repo=false
 for expected_url in \
   "https://github.com/$REPO" \
