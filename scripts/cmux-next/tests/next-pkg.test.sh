@@ -14,7 +14,7 @@
 #   the user, the launch marker left in the user's Application Support; exit 0;
 # - a run that hangs is stopped at the run cap and the install still exits 0, well inside the total cap;
 # - a failing run, no console user, another volume, or no app: exit 0, and nothing runs in the last three.
-# scripts/ci/nightly-steps/next-pkg.sh (nightly.yml nightly-next-pkg):
+# scripts/ci/nightly-next-pkg.sh (nightly.yml nightly-next-pkg):
 # - the DMG's app goes to build-pkg.sh with the Installer identity and --notarize, the .pkg beside the DMG in R2;
 # - no Installer identity, a failed build, no certificate or no DMG: exit 0 with a next-pkg: line.
 set -euo pipefail
@@ -198,8 +198,8 @@ env CMUX_PKG_CONSOLE_USER=leo bash "$TMP/p7/scripts/postinstall" x "$TMP/p7/Appl
   && grep -q "no app at" "$TMP/p7.log" || fail "no app: exit 0 and says so"
 pass "no console user, another volume, no app: exit 0, nothing runs"
 
-# --- scripts/ci/nightly-steps/next-pkg.sh (the nightly job) ---
-NP="$ROOT/scripts/ci/nightly-steps/next-pkg.sh"
+# --- scripts/ci/nightly-next-pkg.sh (the nightly job) ---
+NP="$ROOT/scripts/ci/nightly-next-pkg.sh"
 nl="$TMP/np"; mkdir -p "$nl/vol"
 make_app "$nl/vol" >/dev/null
 touch "$nl/cmux-nightly-next-macos-arm64-77.dmg"

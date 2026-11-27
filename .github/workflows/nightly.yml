@@ -6583,17 +6583,7 @@ jobs:
       - name: Build the deltas without the key
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          feed="appcast.xml"
-          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
-            feed="appcast-${NIGHTLY_VARIANT}.xml"
-          fi
-          ./.publish-tooling/scripts/ci/generate-nightly-deltas.sh \
-            "$RUNNER_TEMP/nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
-            "$RUNNER_TEMP/nightly-delta/input/$feed" nightly-delta/prebuilt
-          rm -f nightly-delta/prebuilt/*.xml
-          ls -l nightly-delta/prebuilt
+        run: bash .publish-tooling/scripts/ci/nightly-steps/build-deltas-keyless.sh
       - name: Upload the prebuilt deltas
         id: upload-the-prebuilt-deltas
         continue-on-error: true
@@ -7013,9 +7003,8 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          s=scripts/ci/nightly-steps/next-pkg.sh
-          [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
-          bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+          [ -f scripts/ci/nightly-next-pkg.sh ] || { echo "next-pkg: the build ref predates nightly-next-pkg.sh; no package"; exit 0; }
+          ./scripts/ci/nightly-next-pkg.sh "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
 
       - name: Cleanup keychain
         if: always()
@@ -7826,12 +7815,12 @@ jobs:
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
-    needs: [decide, nightly-next-one, build-live-code-variant]
+    needs: [decide, pick-nightly-next-signer, nightly-next-one, build-live-code-variant]
     if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    # nightly-next-one's signer route. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
     permissions:
       contents: read

@@ -144,6 +144,10 @@ def is_comparison(text: str, end: int) -> bool:
     return re.match(r"\s*\)?\s*(==|!=)", text[end:]) is not None
 
 
+# `fromJSON('["cmux-mac","xcode-27.0"]')`: a constant label set, never empty.
+LITERAL_LABEL_LIST = r"fromJSON\('\[\s*\"[^']+\]'\)"
+
+
 def default_chain_reaches_literal(text: str, end: int) -> bool:
     """True when a chain ends in a literal, a literal label list or a declared runner pool.
 
@@ -346,7 +350,9 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
-        if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
+        # A last top-level literal label list is the same (ios-internal-nightly's archive: picks, then
+        # vars.CI_OVERFLOW_MAC, then the picker's non-empty-checked fallback, then cmux-mac + xcode-27.0).
+        if re.search(r"\|\|\s*(?:'[^']+'|" + LITERAL_LABEL_LIST + r")\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "

@@ -67,6 +67,14 @@ class Rfd0135GatesTest(unittest.TestCase):
         self.assertEqual(gates.gate_line(out, "lid-close"), {"runs": 2, "passed": 2})
         self.assertIsNone(gates.gate_line("nothing", "lid-close"))
 
+    def test_gates_run_as_filters_on_the_one_it_binary(self) -> None:
+        # #56677 folded every cmux-tui test file into `it`; `--test lid_close_gate` stopped existing.
+        with mock.patch.object(gates.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="")) as run:
+            gates.cargo_test("lid_close_gate", {})
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--test") + 1], "it")
+        self.assertEqual(cmd[-1], "lid_close_gate")
+
     def test_p95(self) -> None:
         self.assertIsNone(gates.p95([]))
         self.assertEqual(gates.p95(list(range(1, 21))), 19)
