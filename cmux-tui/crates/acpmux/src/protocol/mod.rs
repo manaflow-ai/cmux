@@ -653,8 +653,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
-        untyped(crate::perf_trace::METHOD_SPANS, Request),
-        untyped(crate::perf_trace::METHOD_STATUS, Request),
         untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),

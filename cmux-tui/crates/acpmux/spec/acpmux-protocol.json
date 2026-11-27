@@ -937,6 +937,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
@@ -2862,18 +2868,6 @@
     {
       "kind": "request",
       "name": "_acpmux/attachments_held",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
@@ -5600,6 +5594,11 @@
         {
           "const": "paused",
           "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        },
+        {
+          "const": "idle",
+          "description": "Not dialed, on purpose: nothing has used it since this daemon started, or its link closed\nafter it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last\nlinked, unless it is `offline` instead. Folded to `connected` for an older app, which then\nlets a person pick it, and the pick connects it.",
           "type": "string"
         }
       ]
