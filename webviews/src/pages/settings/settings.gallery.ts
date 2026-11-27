@@ -45,11 +45,9 @@ const account: AccountsRow = {
   status: "Signed in",
   statusKind: "success",
   busy: false,
-  buttons: [button("reauth", "Re-authenticate"), button("connect", "Connect to CodeRouter")],
-  linked: [{ id: "sample-account", label: "Sample research account", state: "Healthy", healthy: true, busy: false }],
+  buttons: [button("reauth", "Re-authenticate")],
   note: null,
   outcome: null,
-  confirm: null,
   paste: null,
 };
 const cmuxSignedIn: AccountsCmux = {
@@ -88,14 +86,13 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   refresh: "Refresh",
   refreshing: false,
   cmux: cmuxSignedIn,
-  removeTitle: "Remove from CodeRouter",
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
 });
 /** The Active Team menu and the Teams group over sample teams, after `edit` (a gesture or a flag). */
 const activeTeamRow = (teams: MockTeams): NonNullable<AccountsState["teams"]> => ({
   title: "Active Team",
-  help: "Cloud machines, CodeRouter and phone access use this team.",
+  help: "Cloud machines and phone access use this team.",
   options: teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === teams.active })),
   disabled: false,
   note: null,
@@ -1850,12 +1847,6 @@ Object.assign(variants, {
       statusKind: "attention",
       note: "Reconnect to try again.",
       outcome: { kind: "danger", text: "The account service is unavailable." },
-      linked: [{ id: "sample-account", label: "Sample account", state: "Expired", healthy: false, busy: false }],
-    }),
-  }),
-  "accounts-confirmation": variant("accounts", {
-    accounts: accounts({
-      confirm: { text: "Connect this sample account to CodeRouter?", confirm: "Connect", cancel: "Cancel" },
     }),
   }),
   "accounts-paste": variant("accounts", {
@@ -1956,7 +1947,7 @@ Object.assign(variants, {
       {
         teams: {
           title: "Active Team",
-          help: "Cloud machines, CodeRouter and phone access use this team.",
+          help: "Cloud machines and phone access use this team.",
           options: [
             { id: "sample-team-1", name: "Sample team", active: true },
             { id: "sample-team-2", name: "Another sample team", active: false },

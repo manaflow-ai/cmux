@@ -508,10 +508,8 @@ export type AccountsRow = {
   statusKind: "success" | "attention" | "neutral" | "quiet";
   busy: boolean;
   buttons: AccountsButton[];
-  linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
   note: string | null;
   outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
-  confirm: { text: string; confirm: string; cancel: string } | null;
   paste: { title: string; body: string; placeholder: string; buttons: AccountsButton[] } | null;
 };
 
@@ -878,7 +876,6 @@ export type AccountsState = {
   refreshing: boolean;
   /** cmux's own account: who is signed in, sign in, switch and sign out. */
   cmux: AccountsCmux;
-  removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
   /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
    * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
@@ -887,7 +884,7 @@ export type AccountsState = {
 };
 
 /**
- * One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam and
+ * One Accounts gesture; `secret` only for the paste form's save, `team` for selectTeam and
  * the `team.*` gestures, `name` for a team create or rename.
  */
 export type AccountsRun = {

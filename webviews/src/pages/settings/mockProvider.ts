@@ -2527,7 +2527,7 @@ export class MockSettingsProvider {
   accounts: AccountsState = {
     teams: {
       title: "Active Team",
-      help: "Cloud machines, CodeRouter and phone access use this team.",
+      help: "Cloud machines and phone access use this team.",
       options: [
         { id: "team-personal", name: "Personal", active: true },
         { id: "team-acme", name: "Acme", active: false },
@@ -2539,7 +2539,6 @@ export class MockSettingsProvider {
     refresh: "Refresh",
     refreshing: false,
     cmux: mockCmuxAccount.signedIn,
-    removeTitle: "Remove from CodeRouter",
     groups: [
       {
         id: "chatGPT",
@@ -2552,14 +2551,9 @@ export class MockSettingsProvider {
             status: "Signed in",
             statusKind: "success",
             busy: false,
-            buttons: [
-              { id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false },
-              { id: "connect", title: "Connect to CodeRouter", disabled: false, help: null, destructive: false },
-            ],
-            linked: [{ id: "acct-1", label: "s…@e…", state: "healthy", healthy: true, busy: false }],
+            buttons: [{ id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false }],
             note: null,
             outcome: null,
-            confirm: null,
             paste: null,
           },
         ],
@@ -2576,10 +2570,8 @@ export class MockSettingsProvider {
             statusKind: "quiet",
             busy: false,
             buttons: [{ id: "addKey", title: "Add Key…", disabled: false, help: null, destructive: false }],
-            linked: [],
             note: null,
             outcome: null,
-            confirm: null,
             paste: null,
           },
         ],
@@ -2647,8 +2639,6 @@ export class MockSettingsProvider {
       }
     } else if (run.action.startsWith("agentKey") && this.accounts.agentKeys) {
       this.accounts = { ...this.accounts, agentKeys: runMockAgentKeys(this.accounts.agentKeys, run) };
-    } else if (run.action === "remove") {
-      this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
       this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signedOut };
     } else if (run.action === "cmux.signIn") {

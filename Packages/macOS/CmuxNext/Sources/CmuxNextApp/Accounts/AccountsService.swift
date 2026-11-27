@@ -9,9 +9,8 @@ import CmuxNextCompat
 
 /// Owns the Accounts screen's model and its `AccountsServices`: detection
 /// over the login-shell environment, the cmux Keychain item for pasted
-/// keys, and the CodeRouter control plane as the signed-in cmux user.
-/// Settings > Accounts, the onboarding step, the palette and the CLI all
-/// act through this one model (plans/cmux-next/coderouter.md).
+/// keys, and the signed-in cmux user. Settings > Accounts, the onboarding
+/// step, the palette and the CLI all act through this one model.
 @MainActor
 final class AccountsService: AccountsServices {
     unowned let services: AppServices
@@ -119,29 +118,6 @@ final class AccountsService: AccountsServices {
 
     var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services.cloud.auth }
 
-    func linkedAccounts() async throws -> [LinkedAccount] {
-        if let showcaseMock { return try await showcaseMock.linkedAccounts() }
-        guard let client else { throw CodeRouterError.notSignedIn }
-        return try await client.linkedAccounts()
-    }
-
-    func connect(_ provider: AIProvider, pasted: String?) async throws {
-        if let showcaseMock { try await showcaseMock.connect(provider, pasted: pasted); return }
-        guard let client else { throw CodeRouterError.notSignedIn }
-        let resolver = CredentialResolver(environment: await detectionEnvironment(), keys: keys)
-        // File and Keychain reads stay off the main actor.
-        let credential = try await Task.detached { try resolver.credential(for: provider, pasted: pasted) }.value
-        try await client.add(credential)
-        logger.info("connected \(provider.rawValue, privacy: .public) to CodeRouter")
-    }
-
-    func remove(_ account: LinkedAccount) async throws {
-        if let showcaseMock { try await showcaseMock.remove(account); return }
-        guard let client else { throw CodeRouterError.notSignedIn }
-        try await client.remove(account)
-        logger.info("removed a \(account.provider.rawValue, privacy: .public) account from CodeRouter")
-    }
-
     @discardableResult
     func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
         if let showcaseMock { return await showcaseMock.reauthenticate(provider, plan: plan) }
@@ -153,8 +129,6 @@ final class AccountsService: AccountsServices {
         case .none: return false
         }
     }
-
-    func runClaudeSetupToken() async { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { await runInTerminal("claude setup-token") } }
 
     func openConsole(_ url: URL) async {
         if let showcaseMock { showcaseMock.openConsole(url); return }

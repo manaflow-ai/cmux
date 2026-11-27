@@ -106,11 +106,9 @@
     "workspace_status"
   ],
   "offeredActions": [
-    "accounts.connect",
     "accounts.githubConnect",
     "accounts.reauthenticate",
     "accounts.refresh",
-    "accounts.remove",
     "accounts.show",
     "agent.harness.add",
     "agent.harness.doctor",
