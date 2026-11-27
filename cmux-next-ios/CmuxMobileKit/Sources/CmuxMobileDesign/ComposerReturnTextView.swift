@@ -273,13 +273,7 @@ open class ComposerReturnTextView: UITextView {
     /// draft on every key laid out all of it, several times per SwiftUI update, one width
     /// per slot: seconds of lag per few keys in a 5,000-character draft on a phone in Low
     /// Power Mode (Leo, 2026-11-23; ComposerTypingLagUITests).
-    ///
-    /// `onProbe`: measure on the off-screen probe even for the whole draft. A width other than
-    /// the field's own must never be laid out on the live view: `sizeThatFits` at a foreign
-    /// width re-lays the live text view out mid SwiftUI pass, which asks the field's size
-    /// again, so opening a chat never idled (LaunchTTIUITests chat open, "main thread busy
-    /// for 30.0s", from #57970).
-    public func contentHeight(width: CGFloat, onProbe: Bool = false) -> CGFloat {
+    public func contentHeight(width: CGFloat) -> CGFloat {
         let full = (text ?? "") as NSString
         let width = max(width, 1)
         #if DEBUG
@@ -292,7 +286,7 @@ open class ComposerReturnTextView: UITextView {
         #endif
         var limit = Self.measureChunk
         while true {
-            if full.length <= limit { return measure(full as String, width: width, whole: !onProbe) }
+            if full.length <= limit { return measure(full as String, width: width, whole: true) }
             let cut = full.rangeOfComposedCharacterSequence(at: limit).location
             let height = measure(full.substring(to: cut), width: width, whole: false)
             if fieldHeight.scrolls(contentHeight: height) { return height }
@@ -365,11 +359,10 @@ open class ComposerReturnTextView: UITextView {
     /// as tall as `fieldHeight` says for the text at the field's own width.
     ///
     /// The height is settled after each edit (`settleAfterEdit()`) and on a width change, and
-    /// answered as stored for the field's own width (or no width): SwiftUI asks again in each
-    /// pass, so measuring here measured tens of times per key (seconds of lag in a
-    /// 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests). Another finite width
-    /// is measured at that width (cached per width in `measure`). Before the view has a width
-    /// it measures at the proposed one.
+    /// answered here as stored, whatever width is proposed: SwiftUI's HStack asks several
+    /// widths per pass, and passes repeat, so measuring here measured tens of times per key
+    /// (seconds of lag in a 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests).
+    /// Before the view has a width it measures at the proposed one.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
         #if DEBUG
@@ -380,22 +373,7 @@ open class ComposerReturnTextView: UITextView {
             return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
         #endif
-        if let settled {
-            // Another width than the field's own is a real question (ComposerRowLayout asks the
-            // draft's height at the inline width to choose one row or two). Answering it with the
-            // field's own height hung the app: a draft that wraps inline but fits the full width
-            // was placed on two rows, settled at one line there, was put back inline, settled at
-            // two lines, and so on forever, the main thread never idle (PlaceholderBoundUITests
-            // offline-send: a returned draft, "main thread busy for 30.0s"). `measure` keeps one
-            // answer per width, so the second width costs one layout per edit, not one per pass.
-            guard let proposedWidth, proposedWidth.isFinite, proposedWidth > 0,
-                  abs(proposedWidth - settled.width) > 0.5 else {
-                return CGSize(width: width, height: settled.height)
-            }
-            // On the probe: the live view is laid out at its own width only.
-            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: proposedWidth, onProbe: true),
-                                                                   reserve: stripReserve))
-        }
+        if let settled { return CGSize(width: width, height: settled.height) }
         guard bounds.width > 0 else {
             return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
