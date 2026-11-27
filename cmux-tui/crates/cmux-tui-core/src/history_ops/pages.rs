@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use cmux_history::{
-    HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal, VisitStores,
+    ActorFilter, HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal,
+    VisitActor, VisitStores,
 };
 use serde_json::{Map, Value, json};
 
@@ -92,6 +93,12 @@ pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, Resourc
         },
         range: range(fields, false)?,
         limit: Some(limit),
+        actor: match fields.get("actor").and_then(Value::as_str).unwrap_or("mine") {
+            "mine" => ActorFilter::Mine,
+            "agents" => ActorFilter::Agents,
+            "all" => ActorFilter::All,
+            _ => return Err(invalid("actor", "actor must be mine, agents or all")),
+        },
     })
 }
 
@@ -269,6 +276,13 @@ pub(crate) fn run(
                     title => title.map(str::to_owned),
                 },
                 tab: text(fields, "tab")?.map(str::to_owned),
+                actor: match fields.get("actor").and_then(Value::as_str).unwrap_or("person") {
+                    "person" => None,
+                    "agent" => Some(VisitActor::Agent {
+                        session_id: text(fields, "session_id")?.map(str::to_owned),
+                    }),
+                    _ => return Err(invalid("actor", "actor must be person or agent")),
+                },
                 at_ms: at_ms(fields)?,
             };
             let id = stores.record(profile, &visit).map_err(failed)?;
