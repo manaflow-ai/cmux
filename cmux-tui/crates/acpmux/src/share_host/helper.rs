@@ -227,8 +227,20 @@ fn keep(home: &Path, resolved: &Resolved) {
 }
 
 /// What the last share resolved, as `share-host status` shows it, with the join's install and
-/// the grants the helper read itself (`permissions`, null until a share ran it).
+/// the grants the helper read itself (`permissions`). With no reading kept yet, the helper reads
+/// them once per process before the first status answers (a fresh NIGHTLY whose helper is granted
+/// read as "cmux app ... off" until a share ran it: hq run 45924035242 on cmux21).
 pub(crate) fn status_json(home: &Path) -> Value {
+    read_grants_once(home, || {
+        #[cfg(target_os = "macos")]
+        {
+            resolve(home).ok().map(|resolved| resolved.executable)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    });
     let read = |name: &str| {
         cmux_hub_host::identity::read_private(&super::dir(home).join(name))
             .ok()
@@ -265,6 +277,21 @@ pub(crate) fn grants_record(executable: &Path, printed: &str, at_ms: u64) -> Opt
         "listed_as": listed_as(executable),
         "at": at_ms,
     }))
+}
+
+/// [`read_grants`] for the helper `find` names, once per `home` in this process and only while no
+/// reading is kept: a share's own read (session start) refreshes it after. A second caller waits
+/// for the first, so a status right after the daemon starts answers with the reading, not null.
+pub(crate) fn read_grants_once(home: &Path, find: impl FnOnce() -> Option<PathBuf>) {
+    static TRIED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut tried = TRIED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if tried.iter().any(|h| h == home) || super::dir(home).join(GRANTS_RECORD).exists() {
+        return;
+    }
+    tried.push(home.to_path_buf());
+    if let Some(executable) = find() {
+        read_grants(home, &executable);
+    }
 }
 
 /// Runs `<helper> permissions` as its own responsible process (macOS checks the helper's grants,
