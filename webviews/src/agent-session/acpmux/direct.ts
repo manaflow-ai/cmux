@@ -77,6 +77,7 @@ import {
   peerAgentLoginFromStatus,
   peerConnectedFromStatus,
   peerKindsFromStatus,
+  peerGroupsFromStatus,
   peerLinksFromStatus,
   peerStatesFromStatus,
 } from "./environments";
@@ -860,8 +861,10 @@ export function settledView(result: unknown): SettledView | undefined {
 /// the attach was out (`takeEarly`, `apply` during its awaits) past `drawnThrough` was reduced before
 /// the page's records under it, so the page is not laid on top of it. Undefined, and the caller
 /// merges the page and folds it all again (`rebuild`), when the page does not meet the rows (a gap),
-/// nothing is held, a live record came past the rows, the page adds nothing past them, or the reply
-/// is no settled view. Never empty: an empty append would read as met while it drew none of the page.
+/// nothing is held, a live record came past the rows, or the reply is no settled view. Empty when
+/// the page meets the rows and adds nothing past them (a chat shown again that did not move while
+/// away): the rows on screen are the page's already, and folding them all again re-rendered the
+/// whole transcript before the switched-to chat's first frame (settled page, Leo 2026-11-21).
 export function settledAppend(
   page: readonly EventRecord[],
   drawnThrough: number,
@@ -872,8 +875,7 @@ export function settledAppend(
     return undefined;
   const oldest = Math.min(...page.map((event) => event.seq));
   if (oldest > drawnThrough + 1) return undefined;
-  const after = page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
-  return after.length > 0 ? after : undefined;
+  return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
 }
 
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
@@ -2118,6 +2120,7 @@ export class AcpmuxDirectClient {
   /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
   private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
+  private peerGroups: NonNullable<AcpmuxSnapshot["peerGroups"]> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -4648,7 +4651,7 @@ export class AcpmuxDirectClient {
     // newest turn were swapped for each read's stretch in turn, and the live state was replayed onto
     // each read's last record (a Thinking clock from hours before, the subsessions of then).
     const missed: EventRecord[] = [];
-    // ends: each continued page advances cursor; a final, empty or window-cut page stops the read, and a stall throws
+    // ends: each continued page advances cursor; a final or window-cut page stops the read, and a page that says more but moves it nothing (an empty one included) throws
     for (let cursor = afterSeq; ;) {
       const result = await this.typed("_acpmux/events", {
         sessionId,
@@ -4662,11 +4665,12 @@ export class AcpmuxDirectClient {
       const read = records(result?.events);
       const taken = window === undefined ? read : read.filter((event) => event.seq <= window);
       for (const event of taken) missed.push(event);
-      if (result?.hasMore !== true || taken.length === 0 || taken.length < read.length) break;
-      const next = Math.max(...taken.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again, and
-      // it filled nothing: it fails like a read that did not come back, so the hole stays in
-      // `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry reads it again.
+      if (result?.hasMore !== true || taken.length < read.length) break;
+      const next = taken.length === 0 ? cursor : Math.max(...taken.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again, and it filled nothing: it fails like a read that did not come back, so the
+      // hole stays in `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry
+      // reads it again.
       if (next <= cursor) {
         this.wire.lifecycle("gap read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the gap read's callers, which keep the hole; never shown.
@@ -8735,10 +8739,11 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
       const page = records(result?.events);
       stored.push(...page.filter((event) => event.seq <= endSeq));
-      if (result?.hasMore !== true || page.length === 0) break;
-      const next = Math.max(...page.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again. It
-      // fails, as a read that did not come back does, so `repairTurns` retries it on its bounded delays.
+      if (result?.hasMore !== true) break;
+      const next = page.length === 0 ? cursor : Math.max(...page.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again. It fails, as a read that did not come back does, so `repairTurns` retries it on
+      // its bounded delays.
       if (next <= cursor) {
         this.wire.lifecycle("turn repair read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the repair read, which retries; never shown.
@@ -12131,6 +12136,7 @@ export class AcpmuxDirectClient {
       peerStates: this.peerStates,
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
+      peerGroups: this.peerGroups,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
@@ -12495,18 +12501,32 @@ export class AcpmuxDirectClient {
     this.suggestionTaken = false;
     this.untakenSends += 1;
     let untaken = true;
+    // A prompt sent ahead of its files, or behind one that still waits: the ones sent after it wait
+    // for acpmux to take it (or refuse it), so none overtakes another.
+    const behind = attachments.some(isBehindSend) || this.aheadWaiting > 0;
+    const before = this.aheadTail;
+    let release: (() => void) | undefined;
+    if (behind) {
+      this.aheadWaiting += 1;
+      this.aheadTail = new Promise<void>((resolve) => (release = resolve));
+    }
     const settle = () => {
       if (untaken) this.untakenSends -= 1;
       untaken = false;
+      if (!release) return;
+      this.aheadWaiting -= 1;
+      release();
+      release = undefined;
     };
     // A prompt sent ahead of its files: the composer cleared at once, so a refusal of it fails its
     // row here instead of handing it back to the composer.
-    const aheadIn = attachments.some(isBehindSend) && !this.creating ? this.selectedSessionId : undefined;
+    const aheadIn = behind && !this.creating ? this.selectedSessionId : undefined;
     try {
       // Files the composer sent the prompt ahead of (composer/sendBehind.ts): it shows as sent now,
-      // and goes to the agent once each is its chip, never without one.
-      if (attachments.some(isBehindSend)) {
-        const settled = await this.sendAheadOfFiles(input, attachments, promptId, steer);
+      // and goes to the agent once each is its chip, never without one, and after the prompts sent
+      // before it that waited too.
+      if (behind) {
+        const settled = await this.sendAheadOfFiles(input, attachments, promptId, steer, before);
         if (!settled) return undefined;
         attachments = settled;
       }
@@ -12544,6 +12564,10 @@ export class AcpmuxDirectClient {
   /// under the same id, and one its send never drew over (refused first, or sent under a hand-off
   /// turn's id) goes once the send ended, never left sending.
   private aheadDrawn = new Map<string, AcpmuxRow | QueuedPrompt>();
+  /// Prompts sent ahead of their files, or behind one, that acpmux has not taken (or refused) yet,
+  /// and the wait for the last of them: a prompt sent meanwhile goes after it (`send`).
+  private aheadWaiting = 0;
+  private aheadTail: Promise<void> = Promise.resolve();
   private dropAheadDrawing(promptId: string): void {
     const drawn = this.aheadDrawn.get(promptId);
     if (!drawn) return;
@@ -12564,10 +12588,11 @@ export class AcpmuxDirectClient {
     if (changed) this.emit();
   }
 
-  /// A prompt the composer sent ahead of files still attaching (composer/sendBehind.ts: a dropped
-  /// video's path still asked of the host, or its bytes still streaming to the chat's machine). It
-  /// shows as sent at once, as its row in the chat shown (or its queue entry behind a running turn),
-  /// under its own prompt id, which its send then draws over; it goes once each file is its chip
+  /// A prompt the composer sent ahead of files still attaching, or one sent behind such a prompt
+  /// (composer/sendBehind.ts: a dropped video's path still asked of the host, or its bytes still
+  /// streaming to the chat's machine). It shows as sent at once, as its row in the chat shown (or
+  /// its queue entry behind a running turn), under its own prompt id, which its send then draws
+  /// over; it goes once each file is its chip and the prompts before it went
   /// (Leo, 2026-11-17: "JUST MAKE IT LOOK LIKE IT'S SENT OR JUST SEND IT"). Answers the settled
   /// attachments, or undefined when it does not go now: a file failed (its row fails with the
   /// host's words, and Retry keeps what did attach), or the chat left the screen meanwhile (the
@@ -12577,6 +12602,8 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[],
     promptId: string,
     steer: boolean,
+    /// Settles once acpmux took (or refused) the prompts sent before this one that waited too.
+    before: Promise<void> = Promise.resolve(),
   ): Promise<ComposerAttachment[] | undefined> {
     const sessionId = this.creating ? undefined : this.selectedSessionId;
     const generation = this.selectionGeneration;
@@ -12603,7 +12630,7 @@ export class AcpmuxDirectClient {
     }
     if (sessionId) this.emit();
     const standIns = attachments.filter(isBehindSend).map((chip) => chip.id);
-    const { attachments: settled, error } = await settleAllBehindSend(attachments);
+    const [{ attachments: settled, error }] = await Promise.all([settleAllBehindSend(attachments), before]);
     const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
     if (error === undefined && (here || !sessionId)) return settled;
     if (!sessionId) throw new Error(error);
@@ -16809,6 +16836,7 @@ export class AcpmuxDirectClient {
     this.peerStates = peerStatesFromStatus(status);
     this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
+    this.peerGroups = peerGroupsFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
     if (this.peerEvents.observed) this.applyPeerStates();
   }
