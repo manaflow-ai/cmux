@@ -3,11 +3,11 @@
 // 2026-11-27, ask-b6fc7a81c2: "dont put this garish blue in man we dont need it to be blue or
 // highlighted ... overlapping text here what do we doooo"). Hovered or open, its words took the link
 // accent on a filled chip; and its panel button sat one chevron column in from the row's end, a column
-// the line header does not have, so it covered the deck's "+12 more".
+// the line header does not have, so it covered the deck's "+N more".
 //
 // Real Chromium (Playwright), the gallery's `agent-pane.composer-hat-line-deck` `trail-twenty-open`, at
 // 360px and 900px: the open header's words are neither the accent nor the link colour and have no fill,
-// hovered or not; and the panel button's box meets neither the words nor "+12 more".
+// hovered or not; and the panel button's box meets neither the words nor the deck's "+N more".
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -97,7 +97,7 @@ await requireBrowserLane("composer-hat-line-ink.test.ts", async () => {
       [360, "narrow"],
       [900, "wide"],
     ] as const)
-      test(`${scheme}, ${width}px: open, the words are ink with no chip, and the panel button clears "+12 more"`, async () => {
+      test(`${scheme}, ${width}px: open, the words are ink with no chip, and the panel button clears "+N more"`, async () => {
         const page = await open(width, widthName, scheme);
         try {
           for (const hovered of [false, true]) {
@@ -105,14 +105,15 @@ await requireBrowserLane("composer-hat-line-ink.test.ts", async () => {
             const seen = await read(page);
             const report = `${hovered ? "hovered" : "open"}: ${JSON.stringify(seen)}`;
             expect(seen.expanded, report).toBe("true");
-            expect(seen.rest, report).toContain("12");
-            expect(seen.color, report).not.toBe(seen.accent);
+            expect(seen.rest, report).toMatch(/^\+\d+ more$/);
+            // Where the theme's accent is the text colour itself (dark), ink and accent cannot differ.
+            if (seen.accent !== seen.text) expect(seen.color, report).not.toBe(seen.accent);
             expect(seen.color, report).not.toBe(seen.link);
             expect(seen.color, report).toBe(seen.text);
             expect(seen.background, report).toBe("rgba(0, 0, 0, 0)");
             const { button, title, rest, head } = seen.boxes;
             expect(button, report).not.toBeNull();
-            expect(meets(button!, rest!), `panel button over "+12 more": ${report}`).toBe(false);
+            expect(meets(button!, rest!), `panel button over "+N more": ${report}`).toBe(false);
             expect(meets(button!, title!), `panel button over the words: ${report}`).toBe(false);
             // The button sits at the row's end, inside the header's box.
             expect(button!.right, report).toBeLessThanOrEqual(head!.right + 0.5);
