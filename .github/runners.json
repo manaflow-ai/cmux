@@ -627,8 +627,8 @@
     "nightly.yml#build-live-code-variant": {"class": "apple-app-build"},
     "nightly.yml#sign-live-code-variant": {"class": "apple-signing-release", "picker_followup": "runs-on names the trusted signing label; take it from pick-nightly-sign-runner's output"},
     "nightly.yml#fixit-handoff": {"class": "portable-checks"},
-    "pr-pipeline.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
-    "pr-pipeline.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
+    "pr-pipeline.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
+    "pr-pipeline.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
     "swift-linux-packages.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads RUNNER_POOLS.macos_15; take it from a picker job's output"}
   },
   "hosted_light_jobs": {
