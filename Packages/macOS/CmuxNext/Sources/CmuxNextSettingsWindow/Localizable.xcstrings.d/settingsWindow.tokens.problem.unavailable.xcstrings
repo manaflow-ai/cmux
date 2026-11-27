@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.tokens.problem.unavailable" : {
+      "comment" : "Settings > Developer: the app has no bundled cmux CLI",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build has no cmux command-line tool, so tokens can’t be shown here."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يتضمن هذا الإصدار أداة سطر أوامر cmux، لذا لا يمكن عرض الرموز هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova verzija nema cmux alat komandne linije, pa se tokeni ne mogu prikazati ovdje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne build har ikke cmux-kommandolinjeværktøjet, så tokens kan ikke vises her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diesem Build fehlt das cmux-Befehlszeilentool, daher können Tokens hier nicht angezeigt werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta compilación no tiene la herramienta de línea de comandos de cmux, así que los tokens no se pueden mostrar aquí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette version n’inclut pas l’outil en ligne de commande cmux : les jetons ne peuvent pas être affichés ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa build non include lo strumento da riga di comando di cmux, quindi i token non possono essere mostrati qui."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このビルドには cmux コマンドラインツールが含まれていないため、ここにトークンを表示できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណែនេះមិនមានឧបករណ៍បន្ទាត់ពាក្យបញ្ជា cmux ទេ ដូច្នេះមិនអាចបង្ហាញថូខឹននៅទីនេះបានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 빌드에는 cmux 명령줄 도구가 없어 여기에 토큰을 표시할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette bygget har ikke cmux-kommandolinjeverktøyet, så tokener kan ikke vises her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta kompilacja nie ma narzędzia wiersza poleceń cmux, więc nie można tu pokazać tokenów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versão não tem a ferramenta de linha de comando do cmux, então os tokens não podem ser mostrados aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В этой сборке нет инструмента командной строки cmux, поэтому токены здесь показать нельзя."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บิลด์นี้ไม่มีเครื่องมือบรรทัดคำสั่ง cmux จึงไม่สามารถแสดงโทเค็นที่นี่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu yapıda cmux komut satırı aracı yok, bu yüzden belirteçler burada gösterilemiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У цій збірці немає інструмента командного рядка cmux, тому токени тут показати не можна."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản dựng này không có công cụ dòng lệnh cmux nên không thể hiển thị token ở đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本没有 cmux 命令行工具，因此无法在此显示令牌。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本沒有 cmux 命令列工具，因此無法在此顯示權杖。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
