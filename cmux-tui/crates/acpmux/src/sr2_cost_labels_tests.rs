@@ -54,4 +54,24 @@ fn gateway_detection() {
     assert!(!is_sr2_gateway("https://api.anthropic.com"));
     assert!(!is_sr2_gateway("http://127.0.0.1:1"));
     assert!(!is_sr2_gateway("http://cmux-lawrences-mac-mini:31415"));
+    // The lane VM's model front relays only to the gateway.
+    assert!(is_sr2_gateway("http://127.0.0.1:4026"));
+    assert!(is_sr2_gateway("http://localhost:4026/"));
+    assert!(!is_sr2_gateway("http://10.0.0.5:4026"));
+}
+
+#[test]
+fn a_lane_behind_the_model_front_gets_labels() {
+    let got = run(&[
+        ("ANTHROPIC_BASE_URL", "http://127.0.0.1:4026"),
+        ("ACPMUX_SESSION_NAME", "ci-v2-borg-lead"),
+        ("ACPMUX_SESSION_ID", "01a1fdec-5746-73df-9422-d0f5528288d5"),
+        (HEADERS_ENV, "X-Subrouter-Priority: background"),
+    ]);
+    assert_eq!(
+        got.as_deref(),
+        Some(
+            "X-Subrouter-Priority: background\nX-Cmux-Agent-Id: ci-v2-borg-lead\nX-Cmux-Session: 01a1fdec-5746-73df-9422-d0f5528288d5"
+        )
+    );
 }

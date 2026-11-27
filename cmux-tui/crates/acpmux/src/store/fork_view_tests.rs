@@ -822,3 +822,28 @@ fn the_fork_view_forwards_every_store_method() {
         DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
     assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
 }
+
+/// A delete that finds a fork of the chat reserved and not saved yet waits for that save (moments
+/// later, under the same lock) instead of refusing the person (Leo, 2026-11-22: vacuous "try
+/// again"s are just done); the fork keeps the history.
+#[test]
+fn a_delete_waits_for_a_fork_still_being_saved() {
+    let view = std::sync::Arc::new(ForkView::new(Box::new(MemoryStore::default())));
+    view.save(&meta("chat", None)).unwrap();
+    for seq in 1..=4 {
+        view.append("chat", &record(seq, "agent_message_chunk")).unwrap();
+    }
+    let reference = HistoryRef { session: "chat".into(), through_seq: 4 };
+    view.reserve_reference("fork", &reference).unwrap();
+    let saver = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            view.save(&meta("fork", Some(reference))).unwrap();
+        })
+    };
+    view.delete("chat").unwrap();
+    saver.join().unwrap();
+    assert!(view.load("chat").unwrap().is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), [1, 2, 3, 4]);
+}

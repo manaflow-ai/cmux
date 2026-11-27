@@ -1925,15 +1925,93 @@ def sparse_refusal(plan: Plan, mode: str) -> str:
             "Lint a commit instead (`scripts/web-lint.sh --head HEAD`), which is written whole from git's objects.")
 
 
+HOLDER_PREFIX = "cmux-web-lint-"
+HOLDER_OWNER = ".owner-pid"
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # EPERM: another user's live process
+    return True
+
+
+def sweep_orphan_holders(repo: Path, grace_seconds: float = 600.0) -> int:
+    """Remove lint-tree holders (cmux-web-lint-*, ~1.9 GB each) in the temp folder whose owner process is gone: a
+    lint killed by SIGKILL, a timeout or a closed terminal never reached tree_of()'s finally, and acpmux keeps the
+    session TMPDIR they sit in (fs-agent-lane-40, 2026-11-27: +39 GB/day in /tmp/acpmux-*/t). A holder with no owner
+    file is judged by age (GRACE_SECONDS) so one still being made is kept. Returns how many were removed."""
+    root = Path(tempfile.gettempdir())
+    removed = 0
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(HOLDER_PREFIX) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / HOLDER_OWNER).read_text().strip())
+            dead = not pid_alive(owner)
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    if removed and has_work_tree(repo):
+        git(repo, "worktree", "prune", check=False)  # the removed holders' worktree registrations
+    return removed
+
+
+@contextlib.contextmanager
+def terminate_cleanly():
+    """SIGTERM/SIGHUP raise SystemExit while inside, so the `finally` that removes a lint tree runs (Python's default
+    action ends the process with no cleanup). Only from the main thread, and only over the default action."""
+    saved = {}
+    if threading.current_thread() is threading.main_thread():
+        def stop(signum, _frame):
+            raise SystemExit(128 + signum)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            if signal.getsignal(sig) == signal.SIG_DFL:
+                saved[sig] = signal.SIG_DFL
+                signal.signal(sig, stop)
+    try:
+        yield
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+
+def make_holder(repo: Path) -> Path:
+    sweep_orphan_holders(repo)
+    holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+    (holder / HOLDER_OWNER).write_text(str(os.getpid()))
+    return holder
+
+
 @contextlib.contextmanager
 def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
+    if sha is None or is_checked_out(repo, sha):
+        yield repo
+        return
+    with terminate_cleanly():
+        with tree_of_holder(repo, sha, directories, only) as tree:
+            yield tree
+
+
+@contextlib.contextmanager
+def tree_of_holder(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
     Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
     ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
-    holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
+    holder = make_holder(repo)
     tree = holder / "tree"
     if only is not None:
         try:
