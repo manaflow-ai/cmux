@@ -107,6 +107,11 @@ public final class VaultModel {
     }
 
     public private(set) var phase: Phase = .loading
+    /// The status read failed and nothing is shown yet: ``VaultScreen`` reads it again on its own (AutoRetry).
+    public var isLoadFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
     public private(set) var status: VaultStatus?
     /// A call is running: actions wait.
     public private(set) var busy = false

@@ -11,6 +11,7 @@ private let theme = CmuxMobileTheme.standard
 /// masked, never shown), Add, Edit, Remove, Import from a `.env`, and the devices that hold the vault.
 public struct VaultScreen: View {
     @State private var model: VaultModel
+    @State private var autoRetry = AutoRetry()
     @State private var editing: VaultEditTarget?
     @State private var importing = false
     @State private var importText: VaultImportText?
@@ -39,6 +40,7 @@ public struct VaultScreen: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: model.isLoadFailed) { await model.load() }
             .sheet(item: $editing) { target in VaultEditSheet(model: model, target: target) }
             .sheet(item: $importText) { text in VaultImportSheet(model: model, text: text) }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
@@ -77,14 +79,21 @@ public struct VaultScreen: View {
                 .accessibilityIdentifier("vault.loading")
                 .placeholderBound("vault.loading", .milliseconds(2000))
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
+            // Loads again on its own (AutoRetry): the spinner stays, then one quiet line, no button.
+            if autoRetry.isQuietLineShown {
+                ContentUnavailableView {
+                    Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    AutoRetryQuietLine(autoRetry)
+                }
+                .accessibilityIdentifier("vault.failed")
+            } else {
+                CmuxSpinner(label: Text("Loading vault…"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("vault.loading")
             }
-            .accessibilityIdentifier("vault.failed")
         case .loaded:
             List {
                 switch model.state {

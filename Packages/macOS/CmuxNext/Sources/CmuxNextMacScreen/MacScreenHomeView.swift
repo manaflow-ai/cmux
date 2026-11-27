@@ -35,6 +35,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
+    /// This Mac's hub note, held back while registering is young (``MacScreenHomeSnapshot/HubNoteQuiet``).
+    let hubNoteQuiet = MacScreenHomeSnapshot.HubNoteQuiet()
     private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)

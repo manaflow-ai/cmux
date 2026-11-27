@@ -368,6 +368,7 @@ impl Peer {
             return Err(self.unreachable_error());
         }
         let peer: &Self = self;
+        // retry-prompt-ok: the label of this automatic wait (a Patience), not text asking the person to retry
         Patience::new(format!("{} to reconnect", self.name), wait)
             .quiet()
             .spaced(Duration::from_millis(50), Duration::from_millis(500))

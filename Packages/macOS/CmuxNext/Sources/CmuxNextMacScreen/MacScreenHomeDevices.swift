@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// What the home page reads of the device hub: the hub (while signed in),
 /// this Mac as a host, and whether the build has a hub at all.
@@ -144,7 +146,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: home.hubNoteQuiet.shown(registered ? nil : Self.hubNote(hub.status)))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -168,7 +170,9 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
-    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
+    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register. The page
+    /// draws it only once the stretch has lasted the shared bound (``HubNoteQuiet``, a ``QuietHold`` of
+    /// `NoticeTiming.connectionQuiet`): cmux registers on its own, and there is nothing for the person to press.
     static func hubNote(_ status: DeviceHub.Status) -> String {
         if case let .failed(reason) = status {
             return L.t("macScreen.home.thisMacHubFailed", "This Mac could not reach the device hub: \(reason). cmux keeps trying.")
@@ -599,5 +603,29 @@ extension DeviceDiscovery.Reason {
         }
         guard let detail, !detail.isEmpty else { return text }
         return text + " (" + detail + ")"
+    }
+}
+
+extension MacScreenHomeSnapshot {
+    /// Holds This Mac's hub note back until this device has been off the hub for ``QuietHold/connectionDelay`` (the shared
+    /// `NoticeTiming.connectionQuiet` bound, `schemas/notice-timing` `connectionQuietMs`). Registering usually ends within a
+    /// second and needs nothing from the person (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f***
+    /// up and load faster"); the switch stays waiting meanwhile, and the note says why only once it lasts.
+    @MainActor @Observable
+    final class HubNoteQuiet {
+        /// Bumped when the hold ends: the page's observers read it and draw the note.
+        private(set) var revealed = 0
+        @ObservationIgnored private let hold: QuietHold
+
+        init(clock: any Clock<Duration> = ContinuousClock()) {
+            hold = QuietHold(owner: "mac-screen-home-hub-note", delay: QuietHold.connectionDelay, clock: clock)
+        }
+
+        /// `note` as the page shows it now: nil while the stretch without registration is younger than the hold.
+        func shown(_ note: String?) -> String? {
+            _ = revealed
+            hold.update(note != nil) { [weak self] in self?.revealed &+= 1 }
+            return hold.held ? nil : note
+        }
     }
 }
